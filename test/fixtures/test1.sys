@@ -1,0 +1,36 @@
+interface Foo {
+	func Call(s: string): string;
+}
+
+private proc ForEach(Start) {
+	func Start(i: int): { l: []int, s: string };
+	func Process(i: int, l: []int): int;
+	func Collect(l: []int): int;
+
+	Start for each Start.l (LoopDim) -> Process(this, Start.l) as Process1;
+	Process1 -> Process(this, Start.l) as Process2;
+	Process2 collect each (LoopDim) -> Collect(this);
+}
+
+proc Foo(Start) {
+	func Start(a: int, b: string): string;
+	func Loop(s: string): int;
+	func Branch1(i: int): string;
+	func Branch2Begin(i: int): string;
+	func Branch2End(i: int);
+	func End(r: enum { I({i: int}), S }): string;
+
+	Start -> Loop(this);
+	Loop match(Loop) {
+		("this < 10") -> Loop(Start),
+		("else") -> ForEach(this)
+	};
+	ForEach match(ForEach) { 
+		("this == 0") -> Branch1(this),
+		("else") -> Branch2Begin(this)
+	};
+	Branch2Begin -> Foo.Call(this);
+	Foo.Call -> Branch2End(this);
+	Branch2End -> End(this);
+	Branch1 -> End(this);
+}
