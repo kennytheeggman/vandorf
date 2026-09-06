@@ -52,7 +52,7 @@ func (f Func) Ret() (Type, error) {
 type Proc struct {
 	name string 
 	ret Type
-	entry Node
+	Entry Node
 	Nodes map[string]Node
 	Tree map[Node][]Call 
 	Alias map[string]*Call
@@ -78,7 +78,7 @@ func NewProc(name string, ret Type, entry Node, nodes []Node) Proc {
 	return Proc{
 		name: name,
 		ret: ret,
-		entry: entry,
+		Entry: entry,
 		Nodes: nodes_map,
 	}
 }
@@ -88,7 +88,7 @@ func (p Proc) Name() (string, error) {
 }
 
 func (p Proc) Args() (map[string]Type, error) {
-	node := p.entry
+	node := p.Entry
 	if node == nil {
 		return nil, fmt.Errorf("no entry node")
 	}

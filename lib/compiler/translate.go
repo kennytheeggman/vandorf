@@ -292,14 +292,22 @@ func resolveCall(id cfg.Ident, args []cfg.KVIdent, this ast.Type, syntax_tree *a
 		return ast.Call{}, fmt.Errorf("found %d args, expected %d", len(node_args), len(args))
 	}
 	for _, a := range args {
-		t, err := resolveType(a.Val, syntax_tree, this, proc)
-		if err != nil {
-			return ast.Call{}, err
-		}
-		arg_types[a.Key] = ast.Ident{Path: a.Val.Path, Type: t}
-		node_arg := node_args[a.Key]
-		if !node_arg.Match(t) {
-			return ast.Call{}, fmt.Errorf("arg %s = %s does not match type: found %s, expected %s for node %s", a.Key, a.Val, t, node_arg, node)
+		switch {
+		case a.Val.Ident != nil:
+			t, err := resolveType(*a.Val.Ident, syntax_tree, this, proc)
+			if err != nil {
+				return ast.Call{}, err
+			}
+			arg_types[a.Key] = ast.Ident{Path: a.Val.Ident.Path, Type: t}
+		case a.Val.Enum != nil:
+			t, err := resolveType(a.Val.Enum.Type, syntax_tree, this, proc)
+			if err != nil {
+				return ast.Call{}, err
+			}
+			enum := ast.Enum{Enums: make(map[string]ast.Type)}
+			enum.Enums[a.Val.Enum.Symbol] = t
+			t = enum
+			arg_types[a.Key] = ast.Ident{Path: a.Val.Enum.Type.Path, Type: t}
 		}
 	}
 	call := ast.Call{Target: node, Args: arg_types}
@@ -337,11 +345,15 @@ func translateType(parse_tree *cfg.Type) (ast.Type, error) {
 	case parse_tree.Enum != nil:
 		enums := make(map[string]ast.Type)
 		for _, e := range parse_tree.Enum.Enums {
-			s, err := translateType(e.Type)
-			if err != nil {
-				return nil, err
+			if e.Type == nil {
+				enums[e.Name] = ast.Primitive{Name: "void"}
+			} else {
+				s, err := translateType(e.Type)
+				if err != nil {
+					return nil, err
+				}
+				enums[e.Name] = s
 			}
-			enums[e.Name] = s
 		}
 		return ast.Enum{Enums: enums}, nil
 	case parse_tree.Struct != nil:

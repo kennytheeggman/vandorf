@@ -15,5 +15,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	err = compiler.TypeCheck(&ast)
+	if err != nil {
+		panic(err)
+	}
 	fmt.Printf("%v", ast)
 }

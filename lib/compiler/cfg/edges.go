@@ -11,7 +11,17 @@ type Edge struct {
 
 type KVIdent struct {
 	Key string `parser:"@Ident '='" json:"key"`
-	Val Ident `parser:"@@" json:"val"`
+	Val Arg `parser:"@@" json:"val"`
+}
+
+type Arg struct {
+	Enum *EnumIdent `parser:"@@" json:"enum,omitempty"`
+	Ident *Ident `parser:"| @@" json:"ident,omitempty"`
+}
+
+type EnumIdent struct {
+	Symbol string `parser:"@Ident" json:"symbol"`
+	Type Ident `parser:"'(' @@ ')'" json:"type"`
 }
 
 type CallEdge struct {

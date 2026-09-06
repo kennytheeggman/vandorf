@@ -17,7 +17,7 @@ proc Bar(Start): string {
 	func Branch1(i: int): string;
 	func Branch2Begin(i: int): string;
 	func Branch2End(i: int);
-	func End(r: enum { I(string), S(void), B({i: int}) }): string;
+	func End(r: enum { I(string), S, B({i: int}) }): string;
 
 	Start -> Loop(s = this);
 	Loop match(Loop) {
@@ -30,6 +30,6 @@ proc Bar(Start): string {
 	};
 	Branch2Begin -> Foo.Call(s = this);
 	Foo.Call -> Branch2End(i = this);
-	Branch2End -> End(r = this);
-	Branch1 -> End(r = this);
+	Branch2End -> End(r = S(this));
+	Branch1 -> End(r = I(this));
 }

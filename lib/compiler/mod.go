@@ -25,6 +25,10 @@ func Translate(parse_tree *cfg.Program) (ast.Program, error) {
 	return translateProgram(parse_tree)
 }
 
+func TypeCheck(syntax_tree *ast.Program) error {
+	return typeCheckProgram(syntax_tree)
+}
+
 func ParseFile(path string) (*cfg.Program, error) {
 	f, err := os.Open(path)
 	if err != nil {

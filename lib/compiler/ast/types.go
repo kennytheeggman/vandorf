@@ -44,11 +44,6 @@ func (e Enum) Match(other Type) bool {
 		}
 		return true
 	default:
-		for _, v := range e.Enums {
-			if v.Match(other) {
-				return true
-			}
-		}
 		return false
 	}
 }
