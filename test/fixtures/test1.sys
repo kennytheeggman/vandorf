@@ -1,36 +1,35 @@
 interface Foo {
-	func Call(s: string): string;
+	func Call(s: string): int;
 }
 
-private proc ForEach(Start) {
+proc ForEach(Start): int {
 	func Start(i: int): { l: []int, s: string };
 	func Process(i: int, l: []int): int;
 	func Collect(l: []int): int;
 
-	Start for each Start.l (LoopDim) -> Process(this, Start.l) as Process1;
-	Process1 -> Process(this, Start.l) as Process2;
-	Process2 collect each (LoopDim) -> Collect(this);
+	Start for each (Start.l) -> Process(i = this, l = Start.l);
+	Process collect each (Start) -> Collect(l = this);
 }
 
-proc Foo(Start) {
+proc Bar(Start): string {
 	func Start(a: int, b: string): string;
 	func Loop(s: string): int;
 	func Branch1(i: int): string;
 	func Branch2Begin(i: int): string;
 	func Branch2End(i: int);
-	func End(r: enum { I({i: int}), S }): string;
+	func End(r: enum { I(string), S(void), B({i: int}) }): string;
 
-	Start -> Loop(this);
+	Start -> Loop(s = this);
 	Loop match(Loop) {
-		("this < 10") -> Loop(Start),
-		("else") -> ForEach(this)
+		("this < 10") -> Loop(s = Start),
+		("else") -> ForEach(i = this)
 	};
 	ForEach match(ForEach) { 
-		("this == 0") -> Branch1(this),
-		("else") -> Branch2Begin(this)
+		("this == 0") -> Branch1(i = this),
+		("else") -> Branch2Begin(i = this)
 	};
-	Branch2Begin -> Foo.Call(this);
-	Foo.Call -> Branch2End(this);
-	Branch2End -> End(this);
-	Branch1 -> End(this);
+	Branch2Begin -> Foo.Call(s = this);
+	Foo.Call -> Branch2End(i = this);
+	Branch2End -> End(r = this);
+	Branch1 -> End(r = this);
 }

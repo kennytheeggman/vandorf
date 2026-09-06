@@ -1,17 +1,19 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 
-	"github.com/kennytheeggman/vandorf/lib/parser"
+	"github.com/kennytheeggman/vandorf/lib/compiler"
 )
 
 func main() {
-	ast, err := parser.ParseFile("test/fixtures/test1.sys")
+	pst, err := compiler.ParseFile("test/fixtures/test1.sys")
 	if err != nil {
 		panic(err)
 	}
-	bytes, err := json.Marshal(ast)
-	fmt.Println(string(bytes))
+	ast, err := compiler.Translate(pst)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("%v", ast)
 }
