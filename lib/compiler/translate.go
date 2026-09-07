@@ -1,7 +1,8 @@
-package compiler 
+package compiler
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/kennytheeggman/vandorf/lib/compiler/ast"
 	"github.com/kennytheeggman/vandorf/lib/compiler/cfg"
@@ -250,6 +251,9 @@ func resolveType(id cfg.Ident, syntax_tree *ast.Program, this ast.Type, proc *as
 		if err != nil {
 			return nil, err
 		}
+		if node == nil {
+			return nil, fmt.Errorf("node not found: %s", id.Path[0])
+		}
 		remaining = remaining[d:]
 		remaining_type, err = node.Ret()
 	}
@@ -367,6 +371,9 @@ func translateType(parse_tree *cfg.Type) (ast.Type, error) {
 		}
 		return ast.Struct{Defs: defs}, nil
 	case parse_tree.Name != nil:
+		if !slices.Contains([]string{"void", "string", "int", "float", "bool"}, parse_tree.Name.Name) {
+			return nil, fmt.Errorf("unknown type: %s", parse_tree.Name.Name)
+		}
 		return ast.Primitive{Name: parse_tree.Name.Name}, nil
 	default:
 		return nil, fmt.Errorf("unreachable invalid type")

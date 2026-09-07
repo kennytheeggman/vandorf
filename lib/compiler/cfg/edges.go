@@ -32,8 +32,7 @@ type CallEdge struct {
 }
 
 type MatchEdge struct {
-	Source Ident `parser:"@@ 'match'" json:"source"`
-	Match Ident `parser:"'(' @@ ')'" json:"match"`
+	Source Ident `parser:"@@ 'switch'" json:"source"`
 	Paths []MatchEdgePath `parser:"'{' @@ (',' @@)* ','? '}'" json:"paths"`
 	Alias *string `parser:"('as' @Ident)?" json:"alias,omitempty"`
 }

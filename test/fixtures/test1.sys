@@ -8,7 +8,7 @@ proc ForEach(Start): int {
 	func Collect(l: []int): int;
 
 	Start for each (Start.l) -> Process(i = this, l = Start.l);
-	Process collect each (Start) -> Collect(l = this);
+	Process collect each (Process) -> Collect(l = this);
 }
 
 proc Bar(Start): string {
@@ -20,11 +20,11 @@ proc Bar(Start): string {
 	func End(r: enum { I(string), S, B({i: int}) }): string;
 
 	Start -> Loop(s = this);
-	Loop match(Loop) {
+	Loop switch {
 		("this < 10") -> Loop(s = Start),
 		("else") -> ForEach(i = this)
 	};
-	ForEach match(ForEach) { 
+	ForEach switch { 
 		("this == 0") -> Branch1(i = this),
 		("else") -> Branch2Begin(i = this)
 	};
