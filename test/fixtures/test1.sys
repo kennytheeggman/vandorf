@@ -1,0 +1,35 @@
+interface Foo {
+	func Call(s: string): int;
+}
+
+proc ForEach(Start): int {
+	func Start(i: int): { l: []int, s: string };
+	func Process(i: int, l: []int): int;
+	func Collect(l: []int): int;
+
+	Start for each (Start.l) -> Process(i = this, l = Start.l);
+	Process collect each (Process) -> Collect(l = this);
+}
+
+proc Bar(Start): string {
+	func Start(a: int, b: string): string;
+	func Loop(s: string): int;
+	func Branch1(i: int): string;
+	func Branch2Begin(i: int): string;
+	func Branch2End(i: int);
+	func End(r: enum { I(string), S, B({i: int}) }): string;
+
+	Start -> Loop(s = this);
+	Loop switch {
+		("this < 10") -> Loop(s = Start),
+		("else") -> ForEach(i = this)
+	};
+	ForEach switch { 
+		("this == 0") -> Branch1(i = this),
+		("else") -> Branch2Begin(i = this)
+	};
+	Branch2Begin -> Foo.Call(s = this);
+	Foo.Call -> Branch2End(i = this);
+	Branch2End -> End(r = S(this));
+	Branch1 -> End(r = I(this));
+}
