@@ -1,109 +1,70 @@
 package ast
 
-import "fmt"
+type Item interface {
+	Name() string
+}
 
 type Program struct {
-	Interfaces map[string]Interface
-	Nodes map[string]Node
+	Interfaces []Interface
+	Funcs []Func
+	Procs []Proc
+	Namespace map[string]Item
 }
 
 type Interface struct {
-	Name string
-	Funcs map[string]*Func
+	name string
+	Funcs []Func
+	Namespace map[string]Node
+}
+func (i Interface) Name() string {
+	return i.name
+}
+func NewInterface(name string) Interface {
+	return Interface{name: name, Namespace: make(map[string]Node)}
 }
 
 type Node interface {
-	Name() (string, error)
-	Args() (map[string]Type, error)
-	Ret() (Type, error)
+	Item
+	Args() map[string]Type
+	Ret() Type
 }
-
 
 type Func struct {
 	name string
 	args map[string]Type
 	ret Type
 }
-
-func (f *Func) String() string {
-	return fmt.Sprintf("func %s(%s): %s", f.name, f.args, f.ret)
+func (f Func) Name() string {
+	return f.name
 }
-
+func (f Func) Args() map[string]Type {
+	return f.args
+}
+func (f Func) Ret() Type {
+	return f.ret
+}
 func NewFunc(name string, args map[string]Type, ret Type) Func {
-	return Func{
-		name: name,
-		args: args,
-		ret: ret,
-	}
-}
-
-func (f Func) Name() (string, error) {
-	return f.name, nil
-}
-
-func (f Func) Args() (map[string]Type, error) {
-	return f.args, nil
-}
-
-func (f Func) Ret() (Type, error) {
-	return f.ret, nil
+	return Func{name: name, args: args, ret: ret}
 }
 
 type Proc struct {
 	name string 
 	ret Type
+	Funcs []Func
+	Procs []Proc
 	Entry Node
-	Nodes map[string]Node
-	Tree map[Node][]Call 
-	Alias map[string]*Call
+	Tree map[Node]Edge
+	Namespace map[string]Node
 }
-
-func (p *Proc) String() string {
-	name, err := p.Name()
-	if err != nil {
-		panic(err)
-	}
-	return fmt.Sprintf("proc %s(%v): %s { %v }", p.name, name, p.ret, p.Tree)
+func (p Proc) Name() string {
+	return p.name
 }
-
-func NewProc(name string, ret Type, entry Node, nodes []Node) Proc {
-	nodes_map := make(map[string]Node)
-	for _, n := range nodes {
-		name, err := n.Name()
-		if err != nil {
-			return Proc{}
-		}
-		nodes_map[name] = n
-	}
-	return Proc{
-		name: name,
-		ret: ret,
-		Entry: entry,
-		Nodes: nodes_map,
-	}
+func (p Proc) Args() map[string]Type {
+	return p.Entry.Args()
 }
-
-func (p Proc) Name() (string, error) {
-	return p.name, nil
+func (p Proc) Ret() Type {
+	return p.ret
 }
-
-func (p Proc) Args() (map[string]Type, error) {
-	node := p.Entry
-	if node == nil {
-		return nil, fmt.Errorf("no entry node")
-	}
-	return node.Args()
-}
-
-func (p Proc) Ret() (Type, error) {
-	return p.ret, nil
-}
-
-type Call struct {
-	Target Node
-	Args map[string]Ident
-}
-
-func (c Call) String() string {
-	return fmt.Sprintf("%s(%v)", c.Target, c.Args)
+func NewProc(name string, ret Type) Proc {
+	return Proc{name: name, ret: ret}
 }

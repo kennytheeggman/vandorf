@@ -10,29 +10,39 @@ import (
 
 
 func translateProgram(parse_tree *cfg.Program) (ast.Program, error) {
-	syntax_tree := ast.Program{
-		Interfaces: make(map[string]ast.Interface),
-		Nodes: make(map[string]ast.Node),
+	num_funcs := 0
+	num_procs := 0
+	for _, n := range parse_tree.Nodes {
+		switch {
+		case n.Func != nil:
+			num_funcs++
+		case n.Proc != nil:
+			num_procs++
+		}
 	}
-	for _, i := range parse_tree.Interfaces {
-		if _, ok := syntax_tree.Interfaces[i.Name]; ok {
-			return ast.Program{}, fmt.Errorf("duplicate interface name: %s", i.Name)
-		}
-		syntax_tree.Interfaces[i.Name] = ast.Interface{
-			Name: i.Name,
-			Funcs: make(map[string]*ast.Func),
-		}
-		for _, f := range i.Funcs {
+	syntax_tree := ast.Program{
+		Interfaces: make([]ast.Interface, len(parse_tree.Interfaces)),
+		Funcs: make([]ast.Func, num_funcs),
+		Procs: make([]ast.Proc, num_procs),
+		Namespace: make(map[string]ast.Item),
+	}
+	for i, ifc := range parse_tree.Interfaces {
+		syntax_tree.Interfaces[i] = ast.NewInterface(ifc.Name)
+		for _, f := range ifc.Funcs {
 			fn, err := translateFunc(&f)
 			if err != nil {
 				return ast.Program{}, err
 			}
-			if _, ok := syntax_tree.Interfaces[i.Name].Funcs[f.Name]; ok {
+			if _, ok := syntax_tree.Interfaces[i].Namespace[f.Name]; ok {
 				return ast.Program{}, fmt.Errorf("duplicate function name: %s", f.Name)
 			}
-			syntax_tree.Interfaces[i.Name].Funcs[f.Name] = &fn
+			syntax_tree.Interfaces[i].Funcs = append(syntax_tree.Interfaces[i].Funcs, fn)
+			syntax_tree.Interfaces[i].Namespace[f.Name] = &syntax_tree.Interfaces[i].Funcs[len(syntax_tree.Interfaces[i].Funcs)-1]
 		}
+		syntax_tree.Namespace[ifc.Name] = &syntax_tree.Interfaces[i]
 	}
+	proc_count := 0
+	func_count := 0
 	for _, n := range parse_tree.Nodes {
 		switch {
 		case n.Func != nil:
@@ -40,38 +50,44 @@ func translateProgram(parse_tree *cfg.Program) (ast.Program, error) {
 			if err != nil {
 				return ast.Program{}, err
 			}
-			node := ast.Node(&fn)
-			if _, ok := syntax_tree.Nodes[n.Func.Name]; ok {
+			if _, ok := syntax_tree.Namespace[n.Func.Name]; ok {
 				return ast.Program{}, fmt.Errorf("duplicate function name: %s", n.Func.Name)
 			}
-			syntax_tree.Nodes[n.Func.Name] = node
+			syntax_tree.Funcs[func_count] = fn
+			syntax_tree.Namespace[n.Func.Name] = &syntax_tree.Funcs[func_count]
+			func_count++
 		case n.Proc != nil:
 			proc, err := translateProc(n.Proc)
 			if err != nil {
 				return ast.Program{}, err
 			}
-			node := ast.Node(&proc)
-			if _, ok := syntax_tree.Nodes[n.Proc.Name]; ok {
+			if _, ok := syntax_tree.Namespace[n.Proc.Name]; ok {
 				return ast.Program{}, fmt.Errorf("duplicate procedure name: %s", n.Proc.Name)
 			}
-			syntax_tree.Nodes[n.Proc.Name] = node
+			syntax_tree.Procs[proc_count] = proc
+			syntax_tree.Namespace[n.Proc.Name] = &syntax_tree.Procs[proc_count]
+			proc_count++
 		default:
 			return ast.Program{}, fmt.Errorf("unreachable invalid node: %v", n)
 		}
 	}
 	for _, n := range parse_tree.Nodes {
-		var proc *ast.Proc
-		switch a := syntax_tree.Nodes[n.Proc.Name].(type) {
-		case *ast.Func:
+		switch {
+		case n.Func != nil:
 			continue
-		case *ast.Proc:
-			proc = a
+		case n.Proc != nil:
+			proc := syntax_tree.Namespace[n.Proc.Name]
+			switch p := proc.(type) {
+			case *ast.Proc:
+				err := traceProc(p, n.Proc, &syntax_tree)
+				if err != nil {
+					return ast.Program{}, err
+				}
+			default:
+				return ast.Program{}, fmt.Errorf("unreachable invalid node: %v", n)
+			}
 		default:
 			return ast.Program{}, fmt.Errorf("unreachable invalid node: %v", n)
-		}
-		err := traceProc(proc, n.Proc, &syntax_tree)
-		if err != nil {
-			return ast.Program{}, err
 		}
 	}
 	return syntax_tree, nil
@@ -81,7 +97,7 @@ func traceProc(proc *ast.Proc, cfg *cfg.Proc, syntax_tree *ast.Program) error {
 	for _, n := range cfg.Nodes {
 		switch {
 		case n.Proc != nil:
-			err := traceProc(proc.Nodes[n.Proc.Name].(*ast.Proc), n.Proc, syntax_tree)
+			err := traceProc(proc.Namespace[n.Proc.Name].(*ast.Proc), n.Proc, syntax_tree)
 			if err != nil {
 				return err
 			}
@@ -92,44 +108,30 @@ func traceProc(proc *ast.Proc, cfg *cfg.Proc, syntax_tree *ast.Program) error {
 	for _, l := range cfg.Links {
 		switch {
 		case l.Call != nil:
-			node, d, err := resolveNode(l.Call.Source, syntax_tree, proc)
-			if err != nil {
-				return err
-			}
-			if d != len(l.Call.Source.Path) {
+			node, d, err := resolveNode(l.Call.Source.Path, proc, syntax_tree)
+			if err != nil { return err }
+			if len(d) != 0 {
 				return fmt.Errorf("invalid source: %s", l.Call.Source.Path)
 			}
-			this_binding, err := node.Ret()
-			if err != nil {
-				return err
-			}
+			this_binding := node.Ret()
+			if err != nil { return err }
 			call, err := resolveCall(l.Call.Target, l.Call.Args, this_binding, syntax_tree, proc)
-			if err != nil {
-				return err
-			}
+			if err != nil { return err }
 			if _, ok := proc.Tree[node]; ok {
 				return fmt.Errorf("duplicate call: %s", node)
 			}
-			calls := make([]ast.Call, 1)
-			calls[0] = call
-			proc.Tree[node] = calls
-			if l.Call.Alias != nil {
-				if _, ok := proc.Alias[*l.Call.Alias]; ok {
-					return fmt.Errorf("duplicate alias: %s", *l.Call.Alias)
-				}
-				proc.Alias[*l.Call.Alias] = &call
-			}
+			proc.Tree[node] = call
 		case l.Match != nil:
-			node, d, err := resolveNode(l.Match.Source, syntax_tree, proc)
+			node, d, err := resolveNode(l.Match.Source.Path, proc, syntax_tree)
 			if err != nil {
 				return err
 			}
-			if d != len(l.Match.Source.Path) {
+			if len(d) != 0 {
 				return fmt.Errorf("invalid source: %s", l.Match.Source.Path)
 			}
-			calls := make([]ast.Call, len(l.Match.Paths))
-			for i, p := range l.Match.Paths {
-				this_binding, err := node.Ret()
+			calls := make(map[string]ast.Call)
+			for _, p := range l.Match.Paths {
+				this_binding := node.Ret()
 				if err != nil {
 					return err
 				}
@@ -137,40 +139,38 @@ func traceProc(proc *ast.Proc, cfg *cfg.Proc, syntax_tree *ast.Program) error {
 				if err != nil {
 					return err
 				}
-				calls[i] = call
+				calls[p.Cond] = call
 			}
 			if _, ok := proc.Tree[node]; ok {
 				return fmt.Errorf("duplicate call: %s", node)
 			}
-			proc.Tree[node] = calls
+			proc.Tree[node] = ast.Match{Paths: calls}
 		case l.Collect != nil:
-			node, d, err := resolveNode(l.Collect.Source, syntax_tree, proc)
+			node, d, err := resolveNode(l.Collect.Source.Path, proc, syntax_tree)
 			if err != nil {
 				return err
 			}
-			if d != len(l.Collect.Source.Path) {
+			if len(d) != 0 {
 				return fmt.Errorf("invalid source: %s", l.Collect.Source.Path)
 			}
-			this_binding, err := proc.Nodes[l.Collect.Source.Path[0]].Ret()
+			this_binding := proc.Namespace[l.Collect.Source.Path[0]].Ret()
 			if err != nil {
 				return err
 			}
 			call, err := resolveCall(l.Collect.Target, l.Collect.Args, ast.Array{Type: this_binding}, syntax_tree, proc)
-			calls := make([]ast.Call, 1)
-			calls[0] = call
 			if err != nil {
 				return err
 			}
 			if _, ok := proc.Tree[node]; ok {
 				return fmt.Errorf("duplicate call: %s", node)
 			}
-			proc.Tree[node] = calls
+			proc.Tree[node] = ast.Collect{Call: call}
 		case l.ForEach != nil:
-			node, d, err := resolveNode(l.ForEach.Source, syntax_tree, proc)
+			node, d, err := resolveNode(l.ForEach.Source.Path, proc, syntax_tree)
 			if err != nil {
 				return err
 			}
-			if d != len(l.ForEach.Source.Path) {
+			if len(d) != 0 {
 				return fmt.Errorf("invalid source: %s", l.ForEach.Source.Path)
 			}
 			this_binding, err := resolveType(l.ForEach.Dim, syntax_tree, nil, proc)
@@ -184,16 +184,13 @@ func traceProc(proc *ast.Proc, cfg *cfg.Proc, syntax_tree *ast.Program) error {
 				return fmt.Errorf("invalid type: %s", this_binding)
 			}
 			call, err := resolveCall(l.ForEach.Target, l.ForEach.Args, this_binding, syntax_tree, proc)
-			calls := make([]ast.Call, 1)
-			calls[0] = call
 			if err != nil {
 				return err
 			}
-			fmt.Printf("node: %s\n", node)
 			if _, ok := proc.Tree[node]; ok {
 				return fmt.Errorf("duplicate call: %s", node)
 			}
-			proc.Tree[node] = calls
+			proc.Tree[node] = ast.ForEach{Call: call}
 		default:
 			continue
 		}
@@ -201,42 +198,56 @@ func traceProc(proc *ast.Proc, cfg *cfg.Proc, syntax_tree *ast.Program) error {
 	return nil
 }
 
-func resolveNode(id cfg.Ident, syntax_tree *ast.Program, proc *ast.Proc) (ast.Node, int, error) {
-	if _, ok := syntax_tree.Interfaces[id.Path[0]]; ok {
-		if _, ok := syntax_tree.Interfaces[id.Path[0]].Funcs[id.Path[1]]; ok {
-			fn := (ast.Node)(syntax_tree.Interfaces[id.Path[0]].Funcs[id.Path[1]])
-			return fn, 2, nil
-		} else {
-			return nil, 0, fmt.Errorf("interface not found: %s", id.Path[0])
+func resolveIdent(path []string, namespace map[string]ast.Node) (ast.Node, []string, error) {
+	if len(path) == 0 {
+		return nil, nil, fmt.Errorf("tried to resolve empty path")
+	}
+	if n, ok := namespace[path[0]]; ok {
+		if len(path) == 1 {
+			return n, nil, nil;
+		}
+		switch t := n.(type) {
+		case *ast.Proc:
+			node, p, err := resolveIdent(path[1:], t.Namespace);
+			if err != nil {
+				return n, path[1:], nil;
+			}
+			return node, p, err;
+		case *ast.Func:
+			return n, path[1:], nil;
+		default:
+			return nil, nil, fmt.Errorf("unreachable invalid state");
 		}
 	} else {
-		var cur ast.Node
-		if proc != nil {
-			if _, ok := proc.Nodes[id.Path[0]]; ok {
-				cur = proc.Nodes[id.Path[0]]
-			} else {
-				cur = syntax_tree.Nodes[id.Path[0]]
+		return nil, nil, fmt.Errorf("unknown identifier %s", path[0])
+	}
+}
+
+func resolveNode(id []string, proc *ast.Proc, tree *ast.Program) (ast.Node, []string, error) {
+	node, path, err := resolveIdent(id, proc.Namespace);
+	if err == nil {
+		return node, path, err
+	}
+	if n, ok := tree.Namespace[id[0]]; ok {
+		switch t := n.(type) {
+		case *ast.Interface:
+			if len(id[1:]) == 0 {
+				return nil, nil, fmt.Errorf("%s is not a node", id[0])
 			}
-		} else {
-			cur = syntax_tree.Nodes[id.Path[0]]
-		}
-		var i int = 1
-		for _, d := range id.Path[1:] {
-			i++
-			switch p := cur.(type) {
-			case *ast.Func:
-				return cur, i-1, nil
-			case *ast.Proc:
-				if _, ok := p.Nodes[d]; ok {
-					cur = p.Nodes[d]
-				} else {
-					return cur, i-1, nil 
-				}
-			default:
-				return cur, i-1, nil 
+			return resolveIdent(id[1:], t.Namespace);
+		case *ast.Proc:
+			node, p, err := resolveIdent(id[1:], t.Namespace);
+			if err != nil {
+				return t, id[1:], nil;
 			}
+			return node, p, err
+		case *ast.Func:
+			return t, id[1:], nil;
+		default:
+			return nil, nil, fmt.Errorf("unreachable invalid state");
 		}
-		return cur, i, nil
+	} else {
+		return nil, nil, fmt.Errorf("unknown identifier %s", id[0]);
 	}
 }
 
@@ -247,15 +258,12 @@ func resolveType(id cfg.Ident, syntax_tree *ast.Program, this ast.Type, proc *as
 		remaining = remaining[1:]
 		remaining_type = this
 	} else {
-		node, d, err := resolveNode(id, syntax_tree, proc)
+		node, path, err := resolveNode(id.Path, proc, syntax_tree)
 		if err != nil {
 			return nil, err
 		}
-		if node == nil {
-			return nil, fmt.Errorf("node not found: %s", id.Path[0])
-		}
-		remaining = remaining[d:]
-		remaining_type, err = node.Ret()
+		remaining = path
+		remaining_type = node.Ret()
 	}
 	if remaining_type == nil {
 		return nil, fmt.Errorf("type not found: %s", id.Path[0])
@@ -280,15 +288,15 @@ func resolveType(id cfg.Ident, syntax_tree *ast.Program, this ast.Type, proc *as
 }
 
 func resolveCall(id cfg.Ident, args []cfg.KVIdent, this ast.Type, syntax_tree *ast.Program, proc *ast.Proc) (ast.Call, error) {
-	node, d, err := resolveNode(id, syntax_tree, proc)
+	node, d, err := resolveNode(id.Path, proc, syntax_tree)
 	if err != nil {
 		return ast.Call{}, err
 	}
-	if d != len(id.Path) {
+	if len(d) != 0 {
 		return ast.Call{}, fmt.Errorf("invalid source: %s", id.Path)
 	}
 	arg_types := make(map[string]ast.Ident)
-	node_args, err := node.Args()
+	node_args := node.Args()
 	if err != nil {
 		return ast.Call{}, err
 	}
@@ -381,40 +389,49 @@ func translateType(parse_tree *cfg.Type) (ast.Type, error) {
 }
 
 func translateProc(parse_tree *cfg.Proc) (ast.Proc, error) {
-	nodes := make([]ast.Node, len(parse_tree.Nodes))
-	var entry ast.Node
-	for i, n := range parse_tree.Nodes {
+	var funcs []ast.Func
+	var procs []ast.Proc
+	namespace := make(map[string]ast.Node)
+	for _, n := range parse_tree.Nodes {
 		switch {
 		case n.Func != nil:
 			fn, err := translateFunc(n.Func)
 			if err != nil {
 				return ast.Proc{}, err
 			}
-			nodes[i] = &fn
+			funcs = append(funcs, fn);
+			if _, ok := namespace[fn.Name()]; ok {
+				return ast.Proc{}, fmt.Errorf("duplicate name %s in namespace", fn.Name());
+			}
+			namespace[fn.Name()] = &funcs[len(funcs)-1]
 		case n.Proc != nil:
 			proc, err := translateProc(n.Proc)
 			if err != nil {
 				return ast.Proc{}, err
 			}
-			nodes[i] = &proc
+			procs = append(procs, proc);
+			if _, ok := namespace[proc.Name()]; ok {
+				return ast.Proc{}, fmt.Errorf("duplicate name %s in namespace", proc.Name());
+			}
+			namespace[proc.Name()] = &procs[len(procs)-1]
 		default:
 			return ast.Proc{}, fmt.Errorf("unreachable invalid node")
 		}
-		name, err := nodes[i].Name()
-		if err != nil {
-			return ast.Proc{}, err
-		}
-		if name == parse_tree.Entry {
-			entry = nodes[i]
-		}
 	}
+	if _, ok := namespace[parse_tree.Entry]; !ok {
+		return ast.Proc{}, fmt.Errorf("entry not found in namespace")
+	}
+	entry := namespace[parse_tree.Entry]
 	ret, err := translateType(&parse_tree.Ret)
 	if err != nil {
 		return ast.Proc{}, err
 	}
-	proc := ast.NewProc(parse_tree.Name, ret, entry, nodes)
-	proc.Tree = make(map[ast.Node][]ast.Call)
-	proc.Alias = make(map[string]*ast.Call)
+	proc := ast.NewProc(parse_tree.Name, ret)
+	proc.Entry = entry
+	proc.Funcs = funcs
+	proc.Procs = procs
+	proc.Namespace = namespace
+	proc.Tree = make(map[ast.Node]ast.Edge)
 	return proc, nil
 }
 
