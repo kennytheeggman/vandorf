@@ -389,8 +389,8 @@ func translateType(parse_tree *cfg.Type) (ast.Type, error) {
 }
 
 func translateProc(parse_tree *cfg.Proc) (ast.Proc, error) {
-	var funcs []ast.Func
-	var procs []ast.Proc
+	funcs := make([]ast.Func, len(parse_tree.Nodes))
+	procs := make([]ast.Proc, len(parse_tree.Nodes))
 	namespace := make(map[string]ast.Node)
 	for _, n := range parse_tree.Nodes {
 		switch {
