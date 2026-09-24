@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/kennytheeggman/vandorf/lib/compiler"
+	"github.com/kennytheeggman/vandorf/src/ui/document"
 )
 
 func main() {
@@ -19,5 +20,10 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("%v", ast)
+	// fmt.Printf("%v", ast)
+	doc, err := document.Translate(&ast)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("%v", doc)
 }
