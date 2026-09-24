@@ -35,8 +35,8 @@ func translateProc(proc *ast.Proc) (Grid, error) {
 		return Grid{}, err
 	}
 	grid := Grid{Rows: []Row{Row{Nodes: []Node{entry}}}}
-	table := make(map[*Node]ast.Node)
-	table[&grid.Rows[0].Nodes[0]] = proc.Entry
+	table := make(map[Node]ast.Node)
+	table[grid.Rows[0].Nodes[0]] = proc.Entry
 	visited := make(map[ast.Node][2]int)
 	visited[proc.Entry] = [2]int{0, 0}
 	// TODO: add ancestor check, and if not ancestor, pushdown
@@ -45,8 +45,8 @@ func translateProc(proc *ast.Proc) (Grid, error) {
 	any_left := func() bool {
 		last := grid.Rows[len(grid.Rows)-1]
 		any_next := false
-		for _, e := range last.Nodes {
-			if _, ok := proc.Tree[proc.Namespace[e.Label]]; ok {
+		for i, _ := range last.Nodes {
+			if _, ok := proc.Tree[table[last.Nodes[i]]]; ok {
 				any_next = true
 			}
 		}
@@ -59,8 +59,7 @@ func translateProc(proc *ast.Proc) (Grid, error) {
 		last := grid.Rows[len(grid.Rows)-1]
 		current := Row{}
 		for i, _ := range last.Nodes {
-			fmt.Println(table);
-			if c, ok := proc.Tree[table[&last.Nodes[i]]]; ok {
+			if c, ok := proc.Tree[table[last.Nodes[i]]]; ok {
 				calls := c.Calls()
 				for _, call := range calls {
 					var t EdgeType
@@ -71,7 +70,7 @@ func translateProc(proc *ast.Proc) (Grid, error) {
 							return Grid{}, err
 						}
 						current.Nodes = append(current.Nodes, node)
-						table[&current.Nodes[len(current.Nodes)-1]] = call.Target
+						table[current.Nodes[len(current.Nodes)-1]] = call.Target
 						t = Call
 					} else {
 						t = Loop
