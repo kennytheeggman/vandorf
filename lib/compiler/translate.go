@@ -153,7 +153,7 @@ func traceProc(proc *ast.Proc, cfg *cfg.Proc, syntax_tree *ast.Program) error {
 			if len(d) != 0 {
 				return fmt.Errorf("invalid source: %s", l.Collect.Source.Path)
 			}
-			this_binding := proc.Namespace[l.Collect.Source.Path[0]].Ret()
+			this_binding := node.Ret()
 			if err != nil {
 				return err
 			}
@@ -190,7 +190,7 @@ func traceProc(proc *ast.Proc, cfg *cfg.Proc, syntax_tree *ast.Program) error {
 			if _, ok := proc.Tree[node]; ok {
 				return fmt.Errorf("duplicate call: %s", node)
 			}
-			proc.Tree[node] = ast.ForEach{Call: call}
+			proc.Tree[node] = ast.ForEach{Call: call, Dim: ast.Ident{Path: l.ForEach.Dim.Path, Type: this_binding}}
 		default:
 			continue
 		}
