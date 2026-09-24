@@ -32,6 +32,9 @@ type EdgeType int
 const (
 	Call EdgeType = iota
 	Match
+	ForEachExpand
+	ForEachContinue
+	ForEachCollect
 	Loop
 )
 
