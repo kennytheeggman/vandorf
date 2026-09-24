@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vandorf &mdash; dataflow viewer</title>
+<style>
+:root{
+  --ink:#0f172a; --mut:#475569; --line:#cbd5e1; --bg:#eef2f7;
+  --call:#64748b; --match:#e07b00; --loop:#d32f2f;
+  --expand:#00897b; --cont:#7e57c2; --collect:#00838f;
+  --func-bd:#1d6fd8; --func-bg:#eef4ff;
+  --proc-bd:#e07b00; --proc-bg:#fff4e2;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:Arial,Helvetica,sans-serif;
+  color:var(--ink); background:var(--bg);
+}
+.shell{display:flex; min-height:100vh}
+.side{
+  width:330px; flex:0 0 330px; background:#0b1526; color:#dbe6f4;
+  padding:18px 16px; position:sticky; top:0; height:100vh; overflow:auto;
+}
+.brand{font-size:19px; font-weight:800; letter-spacing:.5px; color:#fff; margin-bottom:2px}
+.brand .logo{color:#6fb6ff}
+.brand .sub{font-size:12px; font-weight:600; color:#8aa2bf; margin-left:6px; letter-spacing:0}
+.lbl{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.8px; color:#8aa2bf; margin:16px 0 6px}
+.seg{display:flex; gap:6px; margin-bottom:8px}
+.seg button{
+  flex:1; padding:7px; border-radius:7px; border:1px solid #2c4a6e; background:#122442;
+  color:#8aa2bf; font-size:12px; font-weight:600; cursor:pointer;
+}
+.seg button.on{background:#1f6feb; border-color:#1f6feb; color:#fff}
+.panel{display:none}
+.panel.on{display:block}
+input#path{
+  width:100%; padding:9px 10px; border-radius:8px; border:1px solid #2c4a6e; background:#0e1a2f;
+  color:#dbe6f4; font-size:13px;
+}
+textarea#srcText{
+  width:100%; height:150px; resize:vertical; background:#0e1a2f; color:#dbe6f4;
+  border:1px solid #2c4a6e; border-radius:8px; padding:10px;
+  font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+.row{display:flex; gap:8px; margin-top:10px; align-items:center}
+.row > *{flex:1 1 auto}
+.btn{
+  padding:9px 12px; border-radius:8px; border:1px solid #2c4a6e; background:#122442;
+  color:#e6effb; font-size:13px; font-weight:600; cursor:pointer;
+}
+.btn:hover{background:#183256}
+.btn.primary{background:#1f6feb; border-color:#1f6feb; color:#fff}
+.btn.primary:hover{background:#1c63d2}
+#status{font-size:12px; color:#8aa2bf; margin-top:10px; min-height:14px; word-break:break-all}
+#err{
+  font-size:12px; color:#ffb4a8; background:#3a1520; border:1px solid #6d2b38;
+  padding:8px 10px; border-radius:8px; margin-top:12px; display:none; white-space:pre-wrap;
+}
+select#jump{
+  width:100%; padding:8px; border-radius:8px; border:1px solid #2c4a6e; background:#0e1a2f;
+  color:#dbe6f4; font-size:13px;
+}
+.legend{margin-top:16px}
+.legend ul{margin:6px 0 0; padding:0; list-style:none}
+.legend li{display:flex; align-items:center; gap:8px; font-size:12px; color:#c6d6ea; margin:6px 0}
+.legend .sw{flex:0 0 15px; height:15px; border-radius:3px; border:2px solid; display:inline-block}
+.legend .sw.func{width:30px; background:var(--func-bg); border-color:var(--func-bd)}
+.legend .sw.proc{width:30px; background:var(--proc-bg); border-color:var(--proc-bd)}
+.legend .sw.ell{width:30px; background:#f1f5f9; border:2px dashed #94a3b8; transform:rotate(0)}
+.legend .ln{flex:0 0 30px; height:0; border-top:2px solid; position:relative}
+.legend .ln.call{border-color:var(--call)}
+.legend .ln.match{border-top:2px dashed var(--match)}
+.legend .ln.fx2{border-color:var(--expand)}
+.legend .ln.fx3{border-top:2px dotted var(--cont)}
+.legend .ln.fx4{border-color:var(--collect)}
+.legend .ln.loop{border-color:var(--loop)}
+.hint{font-size:11px; color:#7a91ad; margin-top:16px; line-height:1.5}
+main{flex:1; padding:26px 30px; min-width:0}
+.notice{
+  background:#fff; border:1px dashed var(--line); border-radius:12px; padding:22px;
+  color:var(--mut); font-size:14px;
+}
+.card{
+  background:#fff; border-radius:14px; box-shadow:0 1px 4px rgba(15,23,42,.12);
+  margin-bottom:30px; overflow:hidden;
+}
+.card.flash{animation:flash 1.6s ease}
+@keyframes flash{0%{box-shadow:0 0 0 3px #1f6feb}100%{box-shadow:0 1px 4px rgba(15,23,42,.12)}}
+.card-head{display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:14px 18px; border-bottom:1px solid #e4e9f1}
+.card-title{font-size:17px; font-weight:800; letter-spacing:.3px}
+.tag{font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.7px; padding:3px 9px; border-radius:999px; background:#eceff1; color:#455a64; border:1px solid #b7c3cb}
+.meta{font-size:12px; color:var(--mut); margin-left:4px}
+.card-head .spacer{flex:1}
+.stage{padding:18px; overflow-x:auto}
+.stage svg{display:block; margin:0 auto; max-width:100%; height:auto}
+svg text{font-family:Arial,Helvetica,sans-serif}
+.node{cursor:default}
+.node rect{fill:#fff; stroke-width:1.4}
+.node-func rect{fill:var(--func-bg); stroke:var(--func-bd)}
+.node-proc rect{fill:var(--proc-bg); stroke:var(--proc-bd); cursor:pointer}
+.node-proc rect:hover{filter:brightness(.97); stroke-width:2}
+.node-ell rect{fill:#f1f5f9; stroke:#94a3b8; stroke-dasharray:5 4}
+.node text.lab{font-size:12.5px; font-weight:600; fill:var(--ink)}
+.node text.sub{font-size:10.5px; fill:#64748b}
+.node text.sub.ell{font-size:16px; font-weight:700; fill:#94a3b8}
+.hdiam{fill:#fff4e2; stroke:#e07b00; stroke-width:1.4; stroke-linejoin:round}
+.proc-chip{font-size:8.5px; font-weight:800; fill:#fff}
+.proc-chip rect{fill:var(--proc-bd); stroke:none}
+.e{fill:none; stroke-linejoin:round; stroke-linecap:round; stroke-width:1.8}
+.e-call{stroke:var(--call)}
+.e-match{stroke:var(--match); stroke-dasharray:6 5}
+.e-expand{stroke:var(--expand)}
+.e-cont{stroke:var(--cont); stroke-dasharray:2 5}
+.e-collect{stroke:var(--collect)}
+.elabel rect{fill:#fff; fill-opacity:.92; stroke:#d7dee8; stroke-width:1}
+.elabel text{font-size:11px; font-weight:600; fill:#7c3f00; text-anchor:middle}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <div class="brand"><span class="logo">Vandorf</span><span class="sub">dataflow viewer</span></div>
+
+    <span class="lbl">Source</span>
+    <div class="seg">
+      <button id="modeFile" class="on">File</button>
+      <button id="modeText">Text</button>
+    </div>
+    <div class="panel on" id="panelFile">
+      <input id="path" list="srcList" placeholder="test/fixtures/test1.sys" spellcheck="false">
+      <datalist id="srcList"></datalist>
+    </div>
+    <div class="panel" id="panelText">
+      <textarea id="srcText" placeholder="interface Foo {&#10;  func Call(s: string): int;&#10;}&#10;&#10;proc Bar(Start): string {&#10;  func Start(): string;&#10;  ...&#10;}"></textarea>
+    </div>
+    <div class="row">
+      <button class="btn" id="refresh" title="Refresh file list">↻</button>
+      <button class="btn primary" id="compile">Compile ▸</button>
+    </div>
+    <div id="status"></div>
+    <div id="err"></div>
+
+    <span class="lbl">Jump to grid</span>
+    <select id="jump"></select>
+
+    <div class="legend">
+      <span class="lbl">Legend</span>
+      <ul>
+        <li><i class="sw func"></i>function</li>
+        <li><i class="sw proc"></i>procedure (click to jump)</li>
+        <li><i class="sw ell"></i>ellipsis / collapsed</li>
+        <li><i class="ln call"></i>call</li>
+        <li><i class="ln match"></i>match &mdash; branch, labelled</li>
+        <li><i class="ln fx2"></i>for&#8209;each expand &mdash; one to many</li>
+        <li><i class="ln fx3"></i>for&#8209;each continue &mdash; many to many</li>
+        <li><i class="ln fx4"></i>for&#8209;each collect &mdash; many to one</li>
+        <li><i class="ln loop"></i>loop &mdash; back edge / self&#8209;loop, drawn in its edge type&#39;s style</li>
+      </ul>
+    </div>
+
+    <div class="hint">Pick a <code>.sys</code> source file &mdash; or paste source directly &mdash; and hit Compile to build the dataflow grids. Every procedure becomes a row-ordered grid of function nodes connected by call, match and for-each edges. Loop edges are auto-detected: any edge that returns to a target not below its source.</div>
+  </aside>
+
+  <main id="main">
+    <div class="notice">No document yet. Compile a source file from the sidebar to see its dataflow grids.</div>
+  </main>
+</div>
+
+<script>
+'use strict';
+var FONT = 'Arial,Helvetica,sans-serif';
+var main = document.getElementById('main');
+var pathInput = document.getElementById('path');
+var srcText = document.getElementById('srcText');
+var statusEl = document.getElementById('status');
+var errEl = document.getElementById('err');
+var jumpEl = document.getElementById('jump');
+
+var measure = (function(){
+  var c = document.createElement('canvas').getContext('2d');
+  return function(t, size, weight){
+    c.font = (weight || 400) + ' ' + size + 'px ' + FONT;
+    return c.measureText(t || '').width;
+  };
+})();
+
+function esc(s){ return String(s).replace(/[&<>"']/g, function(ch){
+  return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch];
+});}
+
+function setErr(msg){
+  if (msg){ errEl.style.display = 'block'; errEl.textContent = msg; }
+  else { errEl.style.display = 'none'; errEl.textContent = ''; }
+}
+function setStatus(msg){ statusEl.textContent = msg; }
+
+/* ---------- edge types (document.EdgeType) ----------
+   Loop is NOT a cart type any more: an edge whose target lies not below its
+   source (self-reference, or target above source) is rendered as a loop. */
+var ETYPE = { CALL: 0, MATCH: 1, EXPAND: 2, CONTINUE: 3, COLLECT: 4 };
+var EDGE_META = {
+  0: { cls: 'e-call',    color: '#64748b' },
+  1: { cls: 'e-match',   color: '#e07b00' },
+  2: { cls: 'e-expand',  color: '#00897b' },
+  3: { cls: 'e-cont',    color: '#7e57c2' },
+  4: { cls: 'e-collect', color: '#00838f' }
+};
+var EDGE_NAME = { 0: 'call', 1: 'match', 2: 'expand', 3: 'continue', 4: 'collect' };
+function edgeType(v){ return EDGE_META[v] || EDGE_META[0]; }
+function isBackEdge(e){
+  if (!e || !e.source || !e.target) return false;
+  return e.target[0] < e.source[0] ||
+    (e.target[0] === e.source[0] && e.target[1] === e.source[1]);
+}
+
+/* ---------- mode switching ---------- */
+function setMode(m){
+  document.getElementById('modeFile').classList.toggle('on', m === 'file');
+  document.getElementById('modeText').classList.toggle('on', m === 'text');
+  document.getElementById('panelFile').classList.toggle('on', m === 'file');
+  document.getElementById('panelText').classList.toggle('on', m === 'text');
+}
+document.getElementById('modeFile').addEventListener('click', function(){ setMode('file'); });
+document.getElementById('modeText').addEventListener('click', function(){ setMode('text'); });
+
+pathInput.addEventListener('keydown', function(e){ if (e.key === 'Enter') compile(); });
+document.getElementById('compile').addEventListener('click', compile);
+
+/* ---------- source list ---------- */
+fetch('/api/sources').then(function(r){ return r.json(); }).then(function(res){
+  var root = res.root || '';
+  (res.files || []).forEach(function(f){
+    var o = document.createElement('option');
+    o.value = f; o.label = root.replace(/\/?$/, '/') + f;
+    document.getElementById('srcList').appendChild(o);
+  });
+  if (res.files && res.files.length && !pathInput.value) pathInput.value = res.files[0];
+}).catch(function(){});
+
+document.getElementById('refresh').addEventListener('click', function(){ location.reload(); });
+
+/* ---------- compile ---------- */
+function compile(){
+  setErr(null);
+  var fileMode = document.getElementById('panelFile').classList.contains('on');
+  var body;
+  if (fileMode){
+    if (!pathInput.value.trim()){ setErr('Enter a source file path.'); return; }
+    body = JSON.stringify({ path: pathInput.value.trim() });
+  } else {
+    if (!srcText.value.trim()){ setErr('Paste some source text.'); return; }
+    body = JSON.stringify({ source: srcText.value });
+  }
+  setStatus('Compiling\u2026');
+  fetch('/api/compile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      if (!res.ok){ setErr(res.error || 'compilation failed'); setStatus(''); return; }
+      setStatus('compiled ' + res.name + ' \u2014 ' + res.grids + ' proc grid' + (res.grids === 1 ? '' : 's'));
+      renderDoc(res.document);
+    })
+    .catch(function(e){ setErr('Network error: ' + e); setStatus(''); });
+}
+
+/* ---------- rendering ---------- */
+function renderDoc(doc){
+  main.innerHTML = '';
+  var names = Object.keys(doc.grids || {}).sort();
+  if (!names.length){
+    main.innerHTML = '<div class="notice">Compiled, but the document has no procedure grids.</div>';
+    return;
+  }
+  jumpEl.innerHTML = names.map(function(n){ return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join('');
+  names.forEach(function(name){ appendGrid(name, doc.grids[name]); });
+}
+
+function appendGrid(name, grid){
+  var card = document.createElement('section');
+  card.className = 'card';
+  card.dataset.grid = name;
+  var stage = renderGrid(name, grid);
+  var meta = edgeCount(grid);
+  card.innerHTML =
+    '<div class="card-head">' +
+      '<div class="card-title">' + esc(name) + '</div>' +
+      '<span class="tag">proc</span>' +
+      '<span class="meta">' + grid.rows.length + ' rows &middot; ' + meta + '</span>' +
+      '<span class="spacer"></span>' +
+    '</div>' +
+    '<div class="stage"><svg width="' + stage.w + '" height="' + stage.h + '" viewBox="0 0 ' + stage.w + ' ' + stage.h + '">' +
+      stage.body + '</svg></div>';
+  main.appendChild(card);
+}
+
+function edgeCount(grid){
+  var counts = {}, loops = 0;
+  (grid.edges || []).forEach(function(e){
+    var t = e.type !== undefined ? e.type : ETYPE.CALL;
+    counts[t] = (counts[t] || 0) + 1;
+    if (isBackEdge(e)) loops++;
+  });
+  var parts = [];
+  if (counts[ETYPE.CALL]) parts.push(counts[ETYPE.CALL] + ' call');
+  if (counts[ETYPE.MATCH]) parts.push(counts[ETYPE.MATCH] + ' match');
+  if (counts[ETYPE.EXPAND]) parts.push(counts[ETYPE.EXPAND] + ' expand');
+  if (counts[ETYPE.CONTINUE]) parts.push(counts[ETYPE.CONTINUE] + ' continue');
+  if (counts[ETYPE.COLLECT]) parts.push(counts[ETYPE.COLLECT] + ' collect');
+  if (loops) parts.push(loops + (loops === 1 ? ' loop back' : ' loop backs'));
+  return parts.join(' + ') || '0 edges';
+}
+
+/* -------- layout -------- */
+var GAP_H = 36, GAP_V = 84, PAD_X = 46, PAD_Y = 44, NODE_W = 160;
+
+// Truncate a text to fit maxW px, appending an ellipsis when it overflows.
+function truncate(t, fs, maxW){
+  if (!t) return '';
+  if (measure(t, fs, 1000) <= maxW) return t;
+  var e = '\u2026', ew = measure(e, fs, 1000), budget = maxW - ew;
+  var lo = 0, hi = t.length;
+  while (lo < hi){
+    var mid = (lo + hi + 1) >> 1;
+    if (measure(t.slice(0, mid), fs, 1000) <= budget) lo = mid; else hi = mid - 1;
+  }
+  return t.slice(0, lo) + e;
+}
+
+function nodeMetrics(n){
+  return { w: NODE_W, h: 44 + (n.sublabel ? 18 : 0) };
+}
+
+// Orthogonal polyline turned into a rounded-rectilinear path: straight runs
+// joined by quadratic fillet corners of radius r (clamped to half of either
+// segment). Points are [x,y] pairs.
+function roundPath(pts, r){
+  var d = 'M' + pts[0][0] + ' ' + pts[0][1];
+  for (var i = 1; i < pts.length - 1; i++){
+    var a = pts[i - 1], b = pts[i], c = pts[i + 1];
+    var dx1 = b[0] - a[0], dy1 = b[1] - a[1];
+    var dx2 = c[0] - b[0], dy2 = c[1] - b[1];
+    if (dx1 * dx2 + dy1 * dy2 === 0){
+      var n1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+      var n2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+      var rr = Math.min(r, n1 / 2, n2 / 2);
+      d += ' L' + (b[0] - dx1 / n1 * rr) + ' ' + (b[1] - dy1 / n1 * rr) +
+           ' Q' + b[0] + ' ' + b[1] + ' ' + (b[0] + dx2 / n2 * rr) + ' ' + (b[1] + dy2 / n2 * rr);
+    } else {
+      d += ' L' + b[0] + ' ' + b[1];
+    }
+  }
+  var z = pts[pts.length - 1];
+  d += ' L' + z[0] + ' ' + z[1];
+  return d;
+}
+
+function layoutGrid(grid){
+  var rows = grid.rows || [];
+  var rh = [], rm = [], maxRowW = 0;
+  rows.forEach(function(row, i){
+    var m = (row.nodes || []).map(nodeMetrics);
+    rm[i] = m;
+    var rw = m.reduce(function(a, b){ return a + b.w; }, 0) + Math.max(0, m.length - 1) * GAP_H;
+    if (rw > maxRowW) maxRowW = rw;
+    rh[i] = m.reduce(function(a, b){ return Math.max(a, b.h); }, 0);
+  });
+  var pos = {}, y = PAD_Y;
+  var H = PAD_Y * 2 + rh.reduce(function(a, b){ return a + b; }, 0) + Math.max(0, rows.length - 1) * GAP_V;
+  rows.forEach(function(row, i){
+    var rw = rm[i].reduce(function(a, b){ return a + b.w; }, 0) + Math.max(0, rm[i].length - 1) * GAP_H;
+    var x = PAD_X + (maxRowW - rw) / 2;
+    rm[i].forEach(function(m, j){
+      var k = i + ',' + j;
+      pos[k] = { x: x, y: y, w: m.w, h: m.h, cx: x + m.w / 2, cy: y + m.h / 2 };
+      x += m.w + GAP_H;
+    });
+    y += rh[i] + GAP_V;
+  });
+  return { pos: pos, w: PAD_X * 2 + maxRowW, h: H };
+}
+
+/* -------- svg drawing -------- */
+var T_AIR = 22;                          // elbow lane sits this far above the target's top edge
+var EDGE_R = 6;                          // corner radius of rounded-rectilinear arrow routes
+var FAN_OFF = 10;                        // fan stroke spacing unit from the center line
+
+function uidOf(name){ return 'g' + String(name).replace(/[^A-Za-z0-9_]/g, '_'); }
+
+function defs(uid){
+  var s = '<defs>';
+  for (var t in EDGE_META){
+s += '<marker id="' + uid + '-' + EDGE_NAME[t] + '" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">' +
+         '<path d="M0 0L10 5L0 10z" fill="' + EDGE_META[t].color + '" stroke="' + EDGE_META[t].color + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></marker>';
+  }
+  return s + '</defs>';
+}
+
+function nodeSVG(p, n, i, j, isMatchSrc){
+  var k = '#' + i + '_' + j;
+  var cls = n.type === 1 ? 'node-proc' : (n.type === 2 ? 'node-ell' : 'node-func');
+  var g = 'node ' + cls;
+  var dg = (n.type === 1 && n.label) ? ' data-grid="' + esc(n.label) + '"' : '';
+  var s = '<g class="' + g + '"' + dg + '>';
+  s += '<rect x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '" rx="10"' + dg + '></rect>';
+  var full = (n.type === 2 ? 'ellipsis' : (n.type === 1 ? 'procedure: ' : 'function: ') + (n.label || ''));
+  if (n.sublabel) full += ' \u2014 ' + n.sublabel;
+  s += '<title>' + esc(full) + '</title>';
+  if (n.type === 2){
+    s += '<text class="sub ell" x="' + p.cx + '" y="' + (p.y + p.h / 2 + 6) + '" text-anchor="middle">\u2026\u2026\u2026</text>';
+  } else if (n.sublabel){
+    s += '<text class="lab" x="' + p.cx + '" y="' + (p.y + 21) + '" text-anchor="middle">' + esc(truncate(n.label, 12.5, NODE_W - 44)) + '</text>';
+    s += '<text class="sub" x="' + p.cx + '" y="' + (p.y + 36) + '" text-anchor="middle">' + esc(truncate(n.sublabel, 10.5, NODE_W - 28)) + '</text>';
+  } else {
+    s += '<text class="lab" x="' + p.cx + '" y="' + (p.y + p.h / 2 + 5) + '" text-anchor="middle">' + esc(truncate(n.label, 12.5, NODE_W - 28)) + '</text>';
+  }
+  if (n.type === 1){
+    s += '<g class="proc-chip"><rect x="' + (p.x + p.w - 34) + '" y="' + (p.y + 5) + '" width="29" height="13" rx="6.5"/>' +
+         '<text x="' + (p.x + p.w - 19) + '" y="' + (p.y + 14) + '" text-anchor="middle">proc</text></g>';
+  }
+  if (isMatchSrc){
+    var dh = diamondH(p);
+    s += '<path class="hdiam" d="' + halfDiamondPath(p.cx, p.y + p.h + 1, dh) + '"></path>';
+  }
+  s += '</g>';
+  return s;
+}
+
+function diamondH(p){ return Math.min(p.w, 32) / 2; }
+
+// Rounded lower half of a diamond: flat top edge, two rounded upper corners,
+// a gently rounded bottom point. Width = 2*dh, height = dh.
+function halfDiamondPath(cx, ytop, dh){
+  var r = Math.max(2, dh * 0.35);
+  var x1 = cx - dh, x2 = cx + dh;
+  return 'M' + (x1 + r) + ' ' + ytop +
+         ' L' + (x2 - r) + ' ' + ytop +
+         ' A' + r + ' ' + r + ' 0 0 1 ' + x2 + ' ' + (ytop + r) +
+         ' L' + cx + ' ' + (ytop + dh) +
+         ' L' + x1 + ' ' + (ytop + r) +
+         ' A' + r + ' ' + r + ' 0 0 1 ' + (x1 + r) + ' ' + ytop + ' Z';
+}
+
+// Vertical origin of an edge's tail: the node's bottom center, or the tip of
+// the match half-diamond for match edges leaving a match-source node.
+function tailY(s, e, matchSrc){
+  if (e.type === ETYPE.MATCH && matchSrc && matchSrc[e.source[0] + ',' + e.source[1]]) return s.y + s.h + 1 + diamondH(s);
+  return s.y + s.h;
+}
+
+function edgeSVG(e, pos, uid, matchSrc){
+  var s = pos[e.source[0] + ',' + e.source[1]];
+  var t = pos[e.target[0] + ',' + e.target[1]];
+  if (!s || !t) return '';
+  var type = e.type !== undefined ? e.type : ETYPE.CALL;
+  var back = isBackEdge(e);
+  var cls = edgeType(type).cls;
+  var ah = uid + '-' + EDGE_NAME[type];
+  var lx = 0, ly = 0, d;
+  var ox = s.cx, oy = tailY(s, e, matchSrc);
+
+  if (back){
+    if (e.source[0] === e.target[0] && e.source[1] === e.target[1]){
+      var bendY = s.y + s.h + T_AIR;
+      var topY = s.y - T_AIR;
+      var rail = Math.max(ox + 30, s.x + s.w + 26);
+      d = roundPath([[ox, oy], [ox, bendY], [rail, bendY], [rail, topY], [s.cx, topY], [s.cx, s.y]], EDGE_R);
+      lx = rail + 14; ly = (bendY + topY) / 2;
+    } else {
+      var rail = Math.max(s.x + s.w, t.x + t.w) + 40;
+      var yb = t.y - T_AIR;
+      d = roundPath([[ox, oy], [rail, oy], [rail, yb], [t.cx, yb], [t.cx, t.y]], EDGE_R);
+      lx = rail + 14; ly = (oy + yb) / 2;
+    }
+  } else {
+    var ux = t.cx, ey = t.y;
+    var yb = Math.max(t.y - T_AIR, oy + 8);
+    if (isFan(type) || Math.abs(ux - ox) >= 3){
+      var pts = [[ox, oy], [ox, yb]];
+      if (ux !== ox) pts.push([ux, yb]);
+      pts.push([ux, ey]);
+      d = roundPath(pts, EDGE_R);
+    } else {
+      d = 'M' + ox + ' ' + oy + ' L' + ux + ' ' + ey;
+    }
+    lx = (ox + ux) / 2; ly = yb - 8;
+  }
+
+  var out = '<path class="e ' + cls + '" d="' + d + '" marker-end="url(#' + ah + ')" data-type="' + type + '"></path>';
+  if (!back){
+    if (type === ETYPE.EXPAND) out += fanTail(ox, oy, yb, ey, ux, FAN_OFF, cls, ah, 2);
+    else if (type === ETYPE.CONTINUE) out += fanTail(ox, oy, yb, ey, ux, FAN_OFF, cls, ah, 1) + fanHead(ox, oy, yb, ux, FAN_OFF, cls, 1);
+    else if (type === ETYPE.COLLECT) out += fanHead(ox, oy, yb, ux, FAN_OFF, cls, 2);
+  }
+  if (e.label){
+    var tw = measure(e.label, 11, 600) + 16;
+    out += '<g class="elabel">' +
+      '<rect x="' + (lx - tw / 2) + '" y="' + (ly - 11) + '" width="' + tw + '" height="18" rx="9"/>' +
+      '<text x="' + lx + '" y="' + (ly + 4) + '">' + esc(e.label) + '</text></g>';
+  }
+  return out;
+}
+
+function isFan(t){
+  return t === ETYPE.EXPAND || t === ETYPE.CONTINUE || t === ETYPE.COLLECT;
+}
+
+// Fan leaves that land on the target with their own arrowheads: the "many"
+// side of a one-to-many / many-to-many. Every foreach edge renders 5 strokes
+// (the main edge plus 4 fans). A fan with `pairs` leaves pairs off the center
+// at off, 2*off, ... leaves the source center along the main stem, elbows out
+// just below the source (y0), runs beside the stem, then elbows in at the
+// target-side lane (yb) and drops onto the target beside its center.
+function fanTail(sx, sy, yb, ey, ux, off, cls, ah, pairs){
+  var y0 = Math.min(sy + 14, yb - 6);
+  var s = '';
+  for (var k = 1; k <= pairs; k++){
+    var o = off * k;
+    var pl = [[sx, sy], [sx, y0], [sx - o, y0], [sx - o, yb]];
+    if ((ux - o) !== (sx - o)) pl.push([ux - o, yb]);
+    pl.push([ux - o, ey]);
+    var pr = [[sx, sy], [sx, y0], [sx + o, y0], [sx + o, yb]];
+    if ((ux + o) !== (sx + o)) pr.push([ux + o, yb]);
+    pr.push([ux + o, ey]);
+    s += '<path class="e ' + cls + '" d="' + roundPath(pl, EDGE_R) + '" marker-end="url(#' + ah + ')"></path>' +
+         '<path class="e ' + cls + '" d="' + roundPath(pr, EDGE_R) + '" marker-end="url(#' + ah + ')"></path>';
+  }
+  return s;
+}
+
+// Fan leaves leaving the source: the "many" side of a many-to-one /
+// many-to-many. Unlike every other edge (whose tails stay on the source
+// center), these tails originate spread evenly across the source's bottom
+// edge at off, 2*off, ... and merge back into the main stem at the target
+// lane. `pairs` leaves pairs are drawn; the center tail is the main edge.
+function fanHead(sx, sy, yb, ux, off, cls, pairs){
+  var s = '';
+  for (var k = 1; k <= pairs; k++){
+    var o = off * k;
+    s += '<path class="e ' + cls + '" d="' + roundPath([[sx - o, sy], [sx - o, yb], [ux, yb]], EDGE_R) + '"></path>' +
+         '<path class="e ' + cls + '" d="' + roundPath([[sx + o, sy], [sx + o, yb], [ux, yb]], EDGE_R) + '"></path>';
+  }
+  return s;
+}
+
+function renderGrid(name, grid){
+  var L = layoutGrid(grid);
+  var uid = uidOf(name);
+  var matchSrc = {};
+  (grid.edges || []).forEach(function(e){
+    if (e.type === ETYPE.MATCH) matchSrc[e.source[0] + ',' + e.source[1]] = true;
+  });
+  var s = defs(uid);
+  (grid.edges || []).forEach(function(e){ s += edgeSVG(e, L.pos, uid, matchSrc); });
+  (grid.rows || []).forEach(function(row, i){
+    (row.nodes || []).forEach(function(n, j){
+      s += nodeSVG(L.pos[i + ',' + j], n, i, j, matchSrc[i + ',' + j]);
+    });
+  });
+  return { w: L.w, h: L.h, body: s };
+}
+
+/* ---------- jump & proc navigation ---------- */
+jumpEl.addEventListener('change', function(){
+  var card = main.querySelector('.card[data-grid="' + jumpEl.value + '"]');
+  if (card){
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    flash(card);
+  }
+});
+
+main.addEventListener('click', function(ev){
+  var el = ev.target;
+  while (el && el !== main && !(el.getAttribute && el.getAttribute('data-grid'))) el = el.parentNode;
+  if (!el || !el.getAttribute) return;
+  var g = el.getAttribute('data-grid');
+  var card = main.querySelector('.card[data-grid="' + g + '"]');
+  if (card){
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    flash(card);
+  }
+});
+
+function flash(card){
+  card.classList.remove('flash');
+  void card.offsetWidth;
+  card.classList.add('flash');
+}
+</script>
+</body>
+</html>
