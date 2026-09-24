@@ -7,7 +7,7 @@
 <style>
 :root{
   --ink:#0f172a; --mut:#475569; --line:#cbd5e1; --bg:#eef2f7;
-  --call:#64748b; --match:#e07b00; --loop:#d32f2f;
+  --call:#64748b; --match:#c026d3; --loop:#d32f2f;
   --expand:#00897b; --cont:#7e57c2; --collect:#00838f;
   --func-bd:#1d6fd8; --func-bg:#eef4ff;
   --proc-bd:#e07b00; --proc-bg:#fff4e2;
@@ -94,20 +94,26 @@ main{flex:1; padding:26px 30px; min-width:0}
 .meta{font-size:12px; color:var(--mut); margin-left:4px}
 .card-head .spacer{flex:1}
 .stage{padding:18px; overflow-x:auto}
-.stage svg{display:block; margin:0 auto; max-width:100%; height:auto}
+.stage > svg{display:block; margin:0 auto; max-width:100%; height:auto}
 svg text{font-family:Arial,Helvetica,sans-serif}
 .node{cursor:default}
 .node rect{fill:#fff; stroke-width:1.4}
 .node-func rect{fill:var(--func-bg); stroke:var(--func-bd)}
-.node-proc rect{fill:var(--proc-bg); stroke:var(--proc-bd); cursor:pointer}
-.node-proc rect:hover{filter:brightness(.97); stroke-width:2}
+.node.node-proc > rect{fill:var(--proc-bg); stroke:var(--proc-bd); cursor:pointer}
+.node.node-proc > rect:hover{filter:brightness(.97); stroke-width:2}
 .node-ell rect{fill:#f1f5f9; stroke:#94a3b8; stroke-dasharray:5 4}
 .node text.lab{font-size:12.5px; font-weight:600; fill:var(--ink)}
 .node text.sub{font-size:10.5px; fill:#64748b}
 .node text.sub.ell{font-size:16px; font-weight:700; fill:#94a3b8}
-.hdiam{fill:#fff4e2; stroke:#e07b00; stroke-width:1.4; stroke-linejoin:round}
+.hdiam{fill:#fce9fb; stroke:var(--match); stroke-width:1.4; stroke-linejoin:round}
 .proc-chip{font-size:8.5px; font-weight:800; fill:#fff}
 .proc-chip rect{fill:var(--proc-bd); stroke:none}
+.node.node-proc rect.wpanel{fill:transparent; stroke:var(--proc-bd); stroke-width:1.6}
+.panel-hd{cursor:pointer}
+.panel-bg{fill:var(--proc-bg)}
+.pt{font-size:12px; font-weight:700; fill:var(--ink)}
+.pn-min rect{fill:#fff; stroke:var(--proc-bd); stroke-width:1}
+.pn-min text{font-size:13px; font-weight:800; fill:var(--proc-bd)}
 .e{fill:none; stroke-linejoin:round; stroke-linecap:round; stroke-width:1.8}
 .e-call{stroke:var(--call)}
 .e-match{stroke:var(--match); stroke-dasharray:6 5}
@@ -202,7 +208,7 @@ function setStatus(msg){ statusEl.textContent = msg; }
 var ETYPE = { CALL: 0, MATCH: 1, EXPAND: 2, CONTINUE: 3, COLLECT: 4 };
 var EDGE_META = {
   0: { cls: 'e-call',    color: '#64748b' },
-  1: { cls: 'e-match',   color: '#e07b00' },
+  1: { cls: 'e-match',   color: '#c026d3' },
   2: { cls: 'e-expand',  color: '#00897b' },
   3: { cls: 'e-cont',    color: '#7e57c2' },
   4: { cls: 'e-collect', color: '#00838f' }
@@ -266,21 +272,25 @@ function compile(){
 
 /* ---------- rendering ---------- */
 function renderDoc(doc){
+  DOC = doc;
+  appendAll();
+}
+
+function appendAll(){
   main.innerHTML = '';
-  var names = Object.keys(doc.grids || {}).sort();
+  var names = Object.keys(DOC.grids || {}).sort();
   if (!names.length){
     main.innerHTML = '<div class="notice">Compiled, but the document has no procedure grids.</div>';
     return;
   }
   jumpEl.innerHTML = names.map(function(n){ return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join('');
-  names.forEach(function(name){ appendGrid(name, doc.grids[name]); });
+  names.forEach(function(name){ appendGrid(name, DOC.grids[name]); });
 }
 
 function appendGrid(name, grid){
   var card = document.createElement('section');
   card.className = 'card';
   card.dataset.grid = name;
-  var stage = renderGrid(name, grid);
   var meta = edgeCount(grid);
   card.innerHTML =
     '<div class="card-head">' +
@@ -289,8 +299,7 @@ function appendGrid(name, grid){
       '<span class="meta">' + grid.rows.length + ' rows &middot; ' + meta + '</span>' +
       '<span class="spacer"></span>' +
     '</div>' +
-    '<div class="stage"><svg width="' + stage.w + '" height="' + stage.h + '" viewBox="0 0 ' + stage.w + ' ' + stage.h + '">' +
-      stage.body + '</svg></div>';
+    '<div class="stage">' + renderSvg(name, grid, 0) + '</div>';
   main.appendChild(card);
 }
 
@@ -312,7 +321,11 @@ function edgeCount(grid){
 }
 
 /* -------- layout -------- */
-var GAP_H = 36, GAP_V = 84, PAD_X = 46, PAD_Y = 44, NODE_W = 160;
+var GAP_H = 36, GAP_V = 84, PAD_X = 46, PAD_Y = 44, NODE_W = 160, PANEL_HD = 30;
+
+/* -------- inline proc drill-in state -------- */
+var DOC = null, expanded = {}, MAXDEPTH = 5;
+function getGrid(name){ return DOC && DOC.grids ? DOC.grids[name] : null; }
 
 // Truncate a text to fit maxW px, appending an ellipsis when it overflows.
 function truncate(t, fs, maxW){
@@ -355,29 +368,46 @@ function roundPath(pts, r){
   return d;
 }
 
-function layoutGrid(grid){
+function layoutGrid(grid, exp, depth){
   var rows = grid.rows || [];
-  var rh = [], rm = [], maxRowW = 0;
+  var rh = [], maxRowW = 0, compact = [];
   rows.forEach(function(row, i){
-    var m = (row.nodes || []).map(nodeMetrics);
-    rm[i] = m;
+    var m = (row.nodes || []).map(function(n){ return { w: NODE_W, h: 44 + (n.sublabel ? 18 : 0) }; });
+    compact.push(m);
+    rh[i] = m.reduce(function(a, b){ return Math.max(a, b.h); }, 0);
     var rw = m.reduce(function(a, b){ return a + b.w; }, 0) + Math.max(0, m.length - 1) * GAP_H;
     if (rw > maxRowW) maxRowW = rw;
-    rh[i] = m.reduce(function(a, b){ return Math.max(a, b.h); }, 0);
   });
-  var pos = {}, y = PAD_Y;
-  var H = PAD_Y * 2 + rh.reduce(function(a, b){ return a + b; }, 0) + Math.max(0, rows.length - 1) * GAP_V;
+  var pos = {}, shift = 0, totalShift = 0, y = PAD_Y, rightMax = PAD_X + maxRowW;
   rows.forEach(function(row, i){
-    var rw = rm[i].reduce(function(a, b){ return a + b.w; }, 0) + Math.max(0, rm[i].length - 1) * GAP_H;
+    var yy = y + shift;
+    var rw = compact[i].reduce(function(a, b){ return a + b.w; }, 0) + Math.max(0, compact[i].length - 1) * GAP_H;
     var x = PAD_X + (maxRowW - rw) / 2;
-    rm[i].forEach(function(m, j){
+    var rowExtra = 0;
+    compact[i].forEach(function(m, j){
       var k = i + ',' + j;
-      pos[k] = { x: x, y: y, w: m.w, h: m.h, cx: x + m.w / 2, cy: y + m.h / 2 };
-      x += m.w + GAP_H;
+      var n = (row.nodes || [])[j];
+      var ex = x + j * (NODE_W + GAP_H);
+      if (n && n.type === 1 && n.label && exp[k] && getGrid(n.label) && depth < MAXDEPTH){
+        var cl = layoutGrid(getGrid(n.label), expanded[n.label] || {}, depth + 1);
+        var pw = cl.w, ph = cl.h + PANEL_HD;
+        var px = Math.max(PAD_X, ex + NODE_W / 2 - pw / 2);
+        var c0 = cl.pos['0,0'];
+        pos[k] = { x: px, y: yy, w: pw, h: ph, cx: px + pw / 2, cy: yy + ph / 2, panel: n.label,
+                   in: c0 ? { x: px + c0.cx, y: yy + PANEL_HD + c0.y } : null, lay: cl };
+        rowExtra = Math.max(rowExtra, ph - rh[i]);
+        if (px + pw > rightMax) rightMax = px + pw;
+      } else {
+        pos[k] = { x: ex, y: yy, w: m.w, h: m.h, cx: ex + m.w / 2, cy: yy + m.h / 2 };
+      }
     });
+    shift += rowExtra;
+    totalShift += rowExtra;
     y += rh[i] + GAP_V;
   });
-  return { pos: pos, w: PAD_X * 2 + maxRowW, h: H };
+  var H = PAD_Y * 2 + rh.reduce(function(a, b){ return a + b; }, 0) + Math.max(0, rows.length - 1) * GAP_V + totalShift;
+  var W = PAD_X * 2 + Math.max(maxRowW, rightMax - PAD_X);
+  return { pos: pos, w: W, h: H };
 }
 
 /* -------- svg drawing -------- */
@@ -396,11 +426,14 @@ s += '<marker id="' + uid + '-' + EDGE_NAME[t] + '" viewBox="0 0 10 10" refX="8"
   return s + '</defs>';
 }
 
-function nodeSVG(p, n, i, j, isMatchSrc){
+function nodeSVG(p, n, i, j, isMatchSrc, isExp, gname, depth, uid){
+  if (n.type === 1 && n.label && isExp && getGrid(n.label) && depth < MAXDEPTH){
+    return panelSVG(p, n, i, j, isMatchSrc, gname, depth, uid);
+  }
   var k = '#' + i + '_' + j;
   var cls = n.type === 1 ? 'node-proc' : (n.type === 2 ? 'node-ell' : 'node-func');
   var g = 'node ' + cls;
-  var dg = (n.type === 1 && n.label) ? ' data-grid="' + esc(n.label) + '"' : '';
+  var dg = (n.type === 1 && n.label) ? ' data-grid="' + esc(n.label) + '" data-exp="' + esc(gname) + '|' + i + ',' + j + '"' : '';
   var s = '<g class="' + g + '"' + dg + '>';
   s += '<rect x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '" rx="10"' + dg + '></rect>';
   var full = (n.type === 2 ? 'ellipsis' : (n.type === 1 ? 'procedure: ' : 'function: ') + (n.label || ''));
@@ -427,6 +460,43 @@ function nodeSVG(p, n, i, j, isMatchSrc){
 }
 
 function diamondH(p){ return Math.min(p.w, 32) / 2; }
+
+// Drill-in panel: replaces a compact proc node with the proc's own grid
+// rendered as a nested SVG, headed by a bar with a minimize handle. Incoming
+// arrows land on the proc's topmost node; nodes with no outgoing edge get an
+// exit arrow down to the bottom of the window.
+function panelSVG(p, n, i, j, isMatchSrc, gname, depth, uid){
+  var name = n.label;
+  var ch = renderGrid(name, getGrid(name), depth + 1);
+  var cw = ch.w, chh = ch.h;
+  var s = '<g class="node node-proc">';
+  s += '<rect class="wpanel" x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '" rx="14"></rect>';
+  var b = 2, hw = p.w - 2 * b, ht = PANEL_HD - b;
+  s += '<g class="panel-hd" data-min="' + esc(gname) + '|' + i + ',' + j + '">' +
+       '<path class="panel-bg" d="M' + (p.x + b + 12) + ' ' + (p.y + b) + ' L' + (p.x + b + hw - 12) + ' ' + (p.y + b) + ' A12 12 0 0 1 ' + (p.x + b + hw) + ' ' + (p.y + b + 12) + ' L' + (p.x + b + hw) + ' ' + (p.y + ht) + ' L' + (p.x + b) + ' ' + (p.y + ht) + ' L' + (p.x + b) + ' ' + (p.y + b + 12) + ' A12 12 0 0 1 ' + (p.x + b + 12) + ' ' + (p.y + b) + ' Z"></path>' +
+       '<text class="pt" x="' + (p.x + 16) + '" y="' + (p.y + PANEL_HD / 2 + 5) + '">' + esc(name) + '</text>' +
+       '<g class="pn-min" transform="translate(' + (p.x + p.w - 46) + ' ' + (p.y + 5) + ')">' +
+         '<rect width="36" height="20" rx="10"></rect>' +
+         '<text x="18" y="14" text-anchor="middle">\u2013</text>' +
+       '</g></g>';
+  s += '<svg data-gname="' + esc(name) + '" x="' + p.x + '" y="' + (p.y + PANEL_HD) + '" width="' + cw + '" height="' + chh + '" viewBox="0 0 ' + cw + ' ' + chh + '">' + ch.body + '</svg>';
+  var hasSrc = {};
+  (getGrid(name).edges || []).forEach(function(e){ hasSrc[e.source[0] + ',' + e.source[1]] = true; });
+  (getGrid(name).rows || []).forEach(function(row, r){
+    (row.nodes || []).forEach(function(cn, c){
+      if (hasSrc[r + ',' + c]) return;
+      var q = ch.lay.pos[r + ',' + c];
+      if (!q) return;
+      var X = p.x + q.cx, Y0 = p.y + PANEL_HD + q.y + q.h, Y1 = p.y + p.h;
+      s += '<path class="e e-call" d="M' + X + ' ' + Y0 + ' L' + X + ' ' + Y1 + '" marker-end="url(#' + uid + '-call)"></path>';
+    });
+  });
+  if (isMatchSrc){
+    var dh = diamondH(p);
+    s += '<path class="hdiam" d="' + halfDiamondPath(p.cx, p.y + p.h + 1, dh) + '"></path>';
+  }
+  return s + '</g>';
+}
 
 // Rounded lower half of a diamond: flat top edge, two rounded upper corners,
 // a gently rounded bottom point. Width = 2*dh, height = dh.
@@ -474,7 +544,8 @@ function edgeSVG(e, pos, uid, matchSrc){
     }
   } else {
     var ux = t.cx, ey = t.y;
-    var yb = Math.max(t.y - T_AIR, oy + 8);
+    if (t.in){ ux = t.in.x; ey = t.in.y; }
+    var yb = Math.max((t.in ? ey - T_AIR : t.y - T_AIR), oy + 8);
     if (isFan(type) || Math.abs(ux - ox) >= 3){
       var pts = [[ox, oy], [ox, yb]];
       if (ux !== ox) pts.push([ux, yb]);
@@ -543,8 +614,10 @@ function fanHead(sx, sy, yb, ux, off, cls, pairs){
   return s;
 }
 
-function renderGrid(name, grid){
-  var L = layoutGrid(grid);
+function renderGrid(name, grid, depth){
+  if (depth == null) depth = 0;
+  var exp = expanded[name] || {};
+  var L = layoutGrid(grid, exp, depth);
   var uid = uidOf(name);
   var matchSrc = {};
   (grid.edges || []).forEach(function(e){
@@ -554,13 +627,44 @@ function renderGrid(name, grid){
   (grid.edges || []).forEach(function(e){ s += edgeSVG(e, L.pos, uid, matchSrc); });
   (grid.rows || []).forEach(function(row, i){
     (row.nodes || []).forEach(function(n, j){
-      s += nodeSVG(L.pos[i + ',' + j], n, i, j, matchSrc[i + ',' + j]);
+      var k = i + ',' + j;
+      s += nodeSVG(L.pos[k], n, i, j, matchSrc[k], exp[k] ? true : false, name, depth, uid);
     });
   });
-  return { w: L.w, h: L.h, body: s };
+  return { w: L.w, h: L.h, body: s, lay: L };
 }
 
-/* ---------- jump & proc navigation ---------- */
+function renderSvg(name, grid, depth){
+  var r = renderGrid(name, grid, depth);
+  return '<svg data-gname="' + esc(name) + '" width="' + r.w + '" height="' + r.h + '" viewBox="0 0 ' + r.w + ' ' + r.h + '">' + r.body + '</svg>';
+}
+
+/* ---------- jump, drill-in & proc navigation ---------- */
+function closestAttr(el, attr){
+  while (el && el !== document && el !== main){
+    if (el.getAttribute && el.getAttribute(attr)) return el.getAttribute(attr);
+    el = el.parentNode;
+  }
+  return null;
+}
+
+function rerenderAll(anchor){
+  if (!DOC) return;
+  appendAll();
+  if (anchor){
+    var card = main.querySelector('.card[data-grid="' + anchor + '"]');
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+function owningCard(el){
+  while (el && el !== main){
+    if (el.classList && el.classList.contains('card')) return el.dataset && el.dataset.grid;
+    el = el.parentNode;
+  }
+  return null;
+}
+
 jumpEl.addEventListener('change', function(){
   var card = main.querySelector('.card[data-grid="' + jumpEl.value + '"]');
   if (card){
@@ -570,6 +674,22 @@ jumpEl.addEventListener('change', function(){
 });
 
 main.addEventListener('click', function(ev){
+  var min = closestAttr(ev.target, 'data-min');
+  if (min){
+    var pm = min.split('|');
+    if (expanded[pm[0]]) delete expanded[pm[0]][pm[1]];
+    ev.stopPropagation();
+    rerenderAll(owningCard(ev.target));
+    return;
+  }
+  var ex = closestAttr(ev.target, 'data-exp');
+  if (ex){
+    var pe = ex.split('|');
+    (expanded[pe[0]] = expanded[pe[0]] || {})[pe[1]] = true;
+    ev.stopPropagation();
+    rerenderAll(owningCard(ev.target));
+    return;
+  }
   var el = ev.target;
   while (el && el !== main && !(el.getAttribute && el.getAttribute('data-grid'))) el = el.parentNode;
   if (!el || !el.getAttribute) return;
