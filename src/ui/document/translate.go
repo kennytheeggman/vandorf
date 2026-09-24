@@ -125,14 +125,20 @@ func translateProc(proc *ast.Proc) (Grid, error) {
 									edges[current_coords] = nil
 								}
 								delete(visited, current)
+								for i := current_coords[1]+1; i < len(grid.Rows[current_coords[0]].Nodes); i++ {
+									if _, ok := edges[[2]int{current_coords[0], i}]; ok {
+										edges[[2]int{current_coords[0], i-1}] = edges[[2]int{current_coords[0], i}]
+									}
+									node := table[grid.Rows[current_coords[0]].Nodes[i]]
+									visited[node] = [2]int{visited[node][0], visited[node][1]-1}
+								}
+								delete(edges, [2]int{current_coords[0], len(grid.Rows[current_coords[0]].Nodes)-1})
 								grid.Rows[current_coords[0]].Nodes = append(grid.Rows[current_coords[0]].Nodes[:current_coords[1]], grid.Rows[current_coords[0]].Nodes[current_coords[1]+1:]...)
 							}
 							// add target to new position
 							current.Nodes = append(current.Nodes, node)
 							// update visited with new position
 							visited[call.Target] = [2]int{len(grid.Rows), len(current.Nodes)-1}
-						} else {
-							t = Loop
 						}
 					}
 					edge := unresolvedEdge{Type: t, Target: call.Target}

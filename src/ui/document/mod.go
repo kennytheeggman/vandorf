@@ -35,7 +35,6 @@ const (
 	ForEachExpand
 	ForEachContinue
 	ForEachCollect
-	Loop
 )
 
 type Edge struct {
