@@ -1,0 +1,2123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vandorf &mdash; flowchart viewer</title>
+<style>
+:root{
+  --ink:#0f172a; --mut:#475569; --line:#cbd5e1; --bg:#eef2f7;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:Arial,Helvetica,sans-serif;
+  color:var(--ink); background:var(--bg);
+}
+.shell{display:flex; min-height:100vh}
+.side{
+  width:330px; flex:0 0 330px; background:#0b1526; color:#dbe6f4;
+  padding:18px 16px; position:sticky; top:0; height:100vh; overflow:auto;
+}
+.brand{font-size:19px; font-weight:800; letter-spacing:.5px; color:#fff; margin-bottom:2px}
+.brand .logo{color:#6fb6ff}
+.brand .sub{font-size:12px; font-weight:600; color:#8aa2bf; margin-left:6px; letter-spacing:0}
+.lbl{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.8px; color:#8aa2bf; margin:16px 0 6px}
+textarea#src{
+  width:100%; height:170px; resize:vertical; background:#0e1a2f; color:#dbe6f4;
+  border:1px solid #274060; border-radius:8px; padding:10px; font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+.row{display:flex; gap:8px; margin-top:10px; align-items:center}
+.row > *{flex:1 1 auto}
+.btn{
+  padding:9px 12px; border-radius:8px; border:1px solid #2c4a6e; background:#122442;
+  color:#e6effb; font-size:13px; font-weight:600; cursor:pointer;
+}
+.btn:hover{background:#183256}
+.btn.primary{background:#1f6feb; border-color:#1f6feb; color:#fff}
+.btn.primary:hover{background:#1c63d2}
+input[type=file]{ color:#b9cbe2; font-size:12px; width:100% }
+.chk{font-size:13px; color:#c6d6ea}
+.chk input{accent-color:#1f6feb}
+select#jump{
+  width:100%; padding:8px; border-radius:8px; border:1px solid #2c4a6e; background:#0e1a2f;
+  color:#dbe6f4; font-size:13px;
+}
+.legend{margin-top:16px}
+.legend ul{margin:6px 0 0; padding:0; list-style:none}
+.legend li{display:flex; align-items:center; gap:8px; font-size:12px; color:#c6d6ea; margin:6px 0}
+.legend .sw{flex:0 0 15px; height:15px; border-radius:3px; border:2px solid; display:inline-block}
+.legend .sw.c1{background:#eef4ff; border-color:#1d6fd8}
+.legend .sw.c2{background:#fff4e2; border-color:#e07b00}
+.legend .sw.c3{background:#f7effb; border-color:#9c27b0}
+.legend .sw.dm{transform:rotate(45deg); border-radius:2px; background:#fffbdd; border-color:#c7a500}
+.legend .sw.hx{background:#e1f5f4; border-color:#009688}
+.legend .sw.hx2{background:#edf1f4; border-color:#5b6b79}
+.legend .sw.bk{background:transparent; border-color:#d32f2f; position:relative}
+.legend .sw.bk:after{content:""; position:absolute; inset:3px 1px; border-top:2px dashed #d32f2f}
+.hint{font-size:11px; color:#7a91ad; margin-top:16px; line-height:1.5}
+#err{
+  font-size:12px; color:#ffb4a8; background:#3a1520; border:1px solid #6d2b38;
+  padding:8px 10px; border-radius:8px; margin-top:12px; display:none; white-space:pre-wrap;
+}
+main{flex:1; padding:26px 30px; min-width:0}
+.notice{
+  background:#fff; border:1px dashed var(--line); border-radius:12px; padding:22px;
+  color:var(--mut); font-size:14px;
+}
+.card{
+  background:#fff; border-radius:14px; box-shadow:0 1px 4px rgba(15,23,42,.12);
+  margin-bottom:30px; overflow:hidden;
+}
+.card-head{display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:14px 18px; border-bottom:1px solid #e4e9f1}
+.card-title{font-size:17px; font-weight:800; letter-spacing:.3px}
+.tag{font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.7px; padding:3px 9px; border-radius:999px}
+.tag.pub{background:#e2f3e4; color:#1b5e20; border:1px solid #a8d3ab}
+.tag.priv{background:#eceff1; color:#455a64; border:1px solid #b7c3cb}
+.meta{font-size:12px; color:var(--mut); margin-left:4px}
+.card-head .spacer{flex:1}
+.icon-btn{
+  background:#fff; border:1px solid var(--line); border-radius:8px; font-size:12px; font-weight:600;
+  padding:6px 12px; color:var(--mut); cursor:pointer;
+}
+.icon-btn:hover{background:#f4f7fb}
+.stage{
+  position:relative; overflow:auto; cursor:grab; padding:6px;
+  background-color:#fff;
+  background-image:radial-gradient(#d9e2ee 1.1px, transparent 1.1px);
+  background-size:20px 20px; background-position:8px 8px;
+}
+.stage.dragging{cursor:grabbing}
+.stage svg{display:block; max-width:100%; height:auto; margin:14px auto}
+.zoom{will-change:transform}
+.node{cursor:default}
+.node .sh{transition:filter .12s}
+.node:hover .sh{filter:brightness(.97)}
+.proclink{cursor:pointer}
+.edge-path{fill:none; stroke-linejoin:round; stroke-linecap:round}
+.pill{fill:#fff; stroke:#c3ccd8; stroke-width:1}
+.pill-t{fill:#313a47; font-size:11px; font-weight:600}
+.foot{color:var(--mut); font-size:12px; text-align:center; padding:10px 0 30px}
+.foot code{background:#e8edf4; padding:1px 6px; border-radius:6px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <marker id="m-seq" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#64748b"/>
+    </marker>
+    <marker id="m-fan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#0288d1"/>
+    </marker>
+    <marker id="m-col" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#00897b"/>
+    </marker>
+    <marker id="m-back" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#d32f2f"/>
+    </marker>
+  </defs>
+</svg>
+
+<div class="shell">
+  <aside class="side">
+    <div class="brand"><span class="logo">&#9684;</span> vandorf <span class="sub">flowchart viewer</span></div>
+
+    <label class="lbl" for="src">AST (JSON)</label>
+    <textarea id="src" spellcheck="false"></textarea>
+    <div id="err"></div>
+
+    <div class="row">
+      <button id="render" class="btn primary">Render</button>
+      <button id="reset" class="btn">Reset</button>
+    </div>
+
+    <label class="lbl" for="file">Load AST file</label>
+    <input type="file" id="file" accept=".json,application/json">
+
+    <label class="row chk"><input type="checkbox" id="showPrivate" checked> Show private procs</label>
+
+    <label class="lbl" for="jump">Jump to proc</label>
+    <select id="jump"></select>
+
+    <div class="legend">
+      <span class="lbl">Legend</span>
+      <ul>
+        <li><i class="sw c1"></i>function</li>
+        <li><i class="sw c2"></i>interface call</li>
+        <li><i class="sw c3"></i>proc reference</li>
+        <li><i class="sw dm"></i>match (decision diamond)</li>
+        <li><i class="sw hx"></i>foreach (fan out)</li>
+        <li><i class="sw hx2"></i>collect (fan in)</li>
+        <li><i class="sw bk"></i>loop back edge</li>
+      </ul>
+    </div>
+
+    <p class="hint">Wheel to zoom &middot; drag to pan &middot; click a dashed <b>proc reference</b> box to open its flowchart.<br>
+    Each <b>public</b> proc renders a top-down flowchart beginning at its declared <b>entry</b> node.</p>
+  </aside>
+
+  <main id="cards"></main>
+</div>
+
+<script type="application/json" id="ast-src">
+{
+  "decls": [
+    {
+      "interface": {
+        "name": "Foo",
+        "funcs": [
+          {
+            "name": "Call",
+            "args": [
+              {
+                "name": "s",
+                "type": {
+                  "array": false,
+                  "type": {
+                    "name": "string"
+                  }
+                }
+              }
+            ],
+            "ret": {
+              "array": false,
+              "type": {
+                "name": "string"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "node": {
+        "access": "private",
+        "node": {
+          "proc": {
+            "name": "ForEach",
+            "entry": "Start",
+            "nodes": [
+              {
+                "func": {
+                  "name": "Start",
+                  "args": [
+                    {
+                      "name": "i",
+                      "type": {
+                        "array": false,
+                        "type": {
+                          "name": "int"
+                        }
+                      }
+                    }
+                  ],
+                  "ret": {
+                    "array": false,
+                    "type": {
+                      "struct": {
+                        "defs": [
+                          {
+                            "name": "l",
+                            "type": {
+                              "array": false,
+                              "type": {
+                                "name": "int"
+                              }
+                            }
+                          },
+                          {
+                            "name": "s",
+                            "type": {
+                              "array": false,
+                              "type": {
+                                "name": "string"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "func": {
+                  "name": "Process",
+                  "args": [
+                    {
+                      "name": "i",
+                      "type": {
+                        "array": false,
+                        "type": {
+                          "name": "int"
+                        }
+                      }
+                    },
+                    {
+                      "name": "l",
+                      "type": {
+                        "array": false,
+                        "type": {
+                          "name": "int"
+                        }
+                      }
+                    }
+                  ],
+                  "ret": {
+                    "array": false,
+                    "type": {
+                      "name": "int"
+                    }
+                  }
+                }
+              },
+              {
+                "func": {
+                  "name": "Collect",
+                  "args": [
+                    {
+                      "name": "l",
+                      "type": {
+                        "array": false,
+                        "type": {
+                          "name": "int"
+                        }
+                      }
+                    }
+                  ],
+                  "ret": {
+                    "array": false,
+                    "type": {
+                      "name": "int"
+                    }
+                  }
+                }
+              }
+            ],
+            "links": [
+              {
+                "source": {
+                  "path": [
+                    "Start"
+                  ]
+                },
+                "edge": {
+                  "foreach": {
+                    "input": {
+                      "path": [
+                        "Start",
+                        "l"
+                      ]
+                    },
+                    "dim": "LoopDim",
+                    "sink": {
+                      "path": [
+                        "Process"
+                      ]
+                    },
+                    "args": [
+                      {
+                        "path": [
+                          "this"
+                        ]
+                      },
+                      {
+                        "path": [
+                          "Start",
+                          "l"
+                        ]
+                      }
+                    ],
+                    "alias": "Process1"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "path": [
+                    "Process1"
+                  ]
+                },
+                "edge": {
+                  "edge": {
+                    "sink": {
+                      "path": [
+                        "Process"
+                      ]
+                    },
+                    "args": [
+                      {
+                        "path": [
+                          "this"
+                        ]
+                      },
+                      {
+                        "path": [
+                          "Start",
+                          "l"
+                        ]
+                      }
+                    ],
+                    "alias": "Process2"
+                  }
+                }
+              },
+              {
+                "source": {
+                  "path": [
+                    "Process2"
+                  ]
+                },
+                "edge": {
+                  "collect": {
+                    "dim": "LoopDim",
+                    "sink": "Collect",
+                    "args": [
+                      {
+                        "path": [
+                          "this"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "node": {
+        "access": "",
+        "node": {
+          "proc": {
+            "name": "Foo",
+            "entry": "Start",
+            "nodes": [
+              {
+                "func": {
+                  "name": "Start",
+                  "args": [
+                    {
+                      "name": "a",
+                      "type": {
+                        "array": false,
+                        "type": {
+                          "name": "int"
+                        }
+                      }
+                    },
+                    {
+                      "name": "b",
+                      "type": {
+                        "array": false,
+                        "type": {
+                          "name": "string"
+                        }
+                      }
+                    }
+                  ],
+                  "ret": {
+                    "array": false,
+                    "type": {
+                      "name": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "func": {
+                  "name": "Loop",
+                  "args": [
+                    {
+                      "name": "s",
+                      "type": {
+                        "array": false,
+                        "type": {
+                          "name": "string"
+                        }
+                      }
+                    }
+                  ],
+                  "ret": {
+                    "array": false,
+                    "type": {
+                      "name": "int"
+                    }
+                  }
+                }
+              },
+              {
+                "func": {
+                  "name": "Branch1",
+                  "args": [
+                    {
+                      "name": "i",
+                      "type": {
+                        "array": false,
+                        "type": {
+                          "name": "int"
+                        }
+                      }
+                    }
+                  ],
+                  "ret": {
+                    "array": false,
+                    "type": {
+                      "name": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "func": {
+                  "name": "Branch2Begin",
+                  "args": [
+                    {
+                      "name": "i",
+                      "type": {
+                        "array": false,
+                        "type": {
+                          "name": "int"
+                        }
+                      }
+                    }
+                  ],
+                  "ret": {
+                    "array": false,
+                    "type": {
+                      "name": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "func": {
+                  "name": "Branch2End",
+                  "args": [
+                    {
+                      "name": "i",
+                      "type": {
+                        "array": false,
+                        "type": {
+                          "name": "int"
+                        }
+                      }
+                    }
+                  ],
+                  "ret": null
+                }
+              },
+              {
+                "func": {
+                  "name": "End",
+                  "args": [
+                    {
+                      "name": "r",
+                      "type": {
+                        "array": false,
+                        "type": {
+                          "enum": {
+                            "enums": [
+                              {
+                                "name": "I",
+                                "struct": {
+                                  "defs": [
+                                    {
+                                      "name": "i",
+                                      "type": {
+                                        "array": false,
+                                        "type": {
+                                          "name": "int"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "name": "S"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "ret": {
+                    "array": false,
+                    "type": {
+                      "name": "string"
+                    }
+                  }
+                }
+              }
+            ],
+            "links": [
+              {
+                "source": {
+                  "path": [
+                    "Start"
+                  ]
+                },
+                "edge": {
+                  "edge": {
+                    "sink": {
+                      "path": [
+                        "Loop"
+                      ]
+                    },
+                    "args": [
+                      {
+                        "path": [
+                          "this"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "source": {
+                  "path": [
+                    "Loop"
+                  ]
+                },
+                "edge": {
+                  "match": {
+                    "arg": {
+                      "path": [
+                        "Loop"
+                      ]
+                    },
+                    "paths": [
+                      {
+                        "cond": "\"this < 10\"",
+                        "sink": {
+                          "path": [
+                            "Loop"
+                          ]
+                        },
+                        "args": [
+                          {
+                            "path": [
+                              "Start"
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "cond": "\"else\"",
+                        "sink": {
+                          "path": [
+                            "ForEach"
+                          ]
+                        },
+                        "args": [
+                          {
+                            "path": [
+                              "this"
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "source": {
+                  "path": [
+                    "ForEach"
+                  ]
+                },
+                "edge": {
+                  "match": {
+                    "arg": {
+                      "path": [
+                        "ForEach"
+                      ]
+                    },
+                    "paths": [
+                      {
+                        "cond": "\"this == 0\"",
+                        "sink": {
+                          "path": [
+                            "Branch1"
+                          ]
+                        },
+                        "args": [
+                          {
+                            "path": [
+                              "this"
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "cond": "\"else\"",
+                        "sink": {
+                          "path": [
+                            "Branch2Begin"
+                          ]
+                        },
+                        "args": [
+                          {
+                            "path": [
+                              "this"
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "source": {
+                  "path": [
+                    "Branch2Begin"
+                  ]
+                },
+                "edge": {
+                  "edge": {
+                    "sink": {
+                      "path": [
+                        "Foo",
+                        "Call"
+                      ]
+                    },
+                    "args": [
+                      {
+                        "path": [
+                          "this"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "source": {
+                  "path": [
+                    "Foo",
+                    "Call"
+                  ]
+                },
+                "edge": {
+                  "edge": {
+                    "sink": {
+                      "path": [
+                        "Branch2End"
+                      ]
+                    },
+                    "args": [
+                      {
+                        "path": [
+                          "this"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "source": {
+                  "path": [
+                    "Branch2End"
+                  ]
+                },
+                "edge": {
+                  "edge": {
+                    "sink": {
+                      "path": [
+                        "End"
+                      ]
+                    },
+                    "args": [
+                      {
+                        "path": [
+                          "this"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "source": {
+                  "path": [
+                    "Branch1"
+                  ]
+                },
+                "edge": {
+                  "edge": {
+                    "sink": {
+                      "path": [
+                        "End"
+                      ]
+                    },
+                    "args": [
+                      {
+                        "path": [
+                          "this"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
+
+</script>
+<script>
+(function(){
+'use strict';
+
+var FONT = 'Arial, Helvetica, sans-serif';
+
+function readDefaultSrc(){
+  var el = document.getElementById('ast-src');
+  var t = el ? el.textContent.trim() : '';
+  if (t.charAt(0) === '/' && t.charAt(1) === '*') t = '';
+  return t;
+}
+
+var mctx = null;
+try { var c = document.createElement('canvas'); mctx = c.getContext('2d'); } catch (e) {}
+
+function meas(s, bold, size){
+  if (!s) return 0;
+  if (mctx) { mctx.font = (bold ? '700 ' : '') + size + 'px ' + FONT; return mctx.measureText(s).width; }
+  return s.length * size * 0.62;
+}
+
+function esc(s){ return String(s).replace(/[&<>"]/g, function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]; }); }
+
+function unquoteCond(s){
+  if (typeof s !== 'string') return '';
+  s = s.trim();
+  if (s.charCodeAt(0) === 34) s = s.slice(1);
+  if (s.charCodeAt(s.length - 1) === 34) s = s.slice(0, -1);
+  return s;
+}
+
+function typeText(t){
+  if (!t || !t.type) return '?';
+  var inner = t.type;
+  if (typeof inner.name === 'string') inner = inner.name;
+  else if (inner.struct) inner = 'struct{…}';
+  else if (inner.enum) inner = 'enum{…}';
+  else inner = '?';
+  return t.array ? '[]' + inner : inner;
+}
+
+function sigText(f){
+  var a = (f.args || []).map(function(x){ return x.name + ': ' + typeText(x.type); }).join(', ');
+  var r = f.ret ? (' -> ' + typeText(f.ret)) : '';
+  return '(' + a + ')' + r;
+}
+
+function argText(args){
+  return '(' + (args || []).map(function(a){ return (a.path || []).join('.'); }).join(', ') + ')';
+}
+
+function loadProgram(ast){
+  var ifaces = {}, procs = [], byName = {};
+  var decls = ast.decls || [];
+  for (var i = 0; i < decls.length; i++){
+    var d = decls[i];
+    if (d.interface){
+      var fm = {};
+      (d.interface.funcs || []).forEach(function(f){ fm[f.name] = f; });
+      ifaces[d.interface.name] = fm;
+    } else if (d.node && d.node.node && d.node.node.proc){
+      var p = d.node.node.proc;
+      var local = {};
+      (p.nodes || []).forEach(function(n){ if (n.func) local[n.func.name] = n.func; });
+      var rec = { name: p.name, entry: p.entry, funcs: local, links: p.links || [], pub: !(d.node.access === 'private') };
+      procs.push(rec);
+      byName[rec.name] = rec;
+    }
+  }
+  return { ifaces: ifaces, procs: procs, byName: byName };
+}
+
+function resolveNode(pathArr, prog, proc){
+  pathArr = pathArr || [];
+  if (pathArr.length === 0) return { kind: 'func', name: '?', sig: '', sub: '' };
+  var p0 = pathArr[0];
+  var f = proc.funcs[p0];
+  if (f) return { kind: 'func', name: p0, sig: sigText(f), sub: '' };
+  if (pathArr.length >= 2){
+    var ifn = prog.ifaces[p0];
+    var fn = ifn && ifn[pathArr[1]];
+    return { kind: 'iface', name: pathArr.join('.'), sub: pathArr[1], sig: fn ? sigText(fn) : '' };
+  }
+  if (prog.byName[p0]) return { kind: 'proc', name: p0, refname: p0, sig: '', sub: '(proc)' };
+  return { kind: 'func', name: p0, sig: '', sub: '' };
+}
+
+function buildGraph(prog, proc){
+  var g = { nodes: [], edges: [], byId: {} };
+  function addNode(id, data){
+    if (g.byId[id]) return g.byId[id];
+    var n = { id: id, kind: 'func', name: id, label: id, sub: '', sig: '', entry: false, refname: null };
+    for (var k in data) n[k] = data[k];
+    g.byId[id] = n; g.nodes.push(n); return n;
+  }
+  function addEdge(from, to, data){
+    var e = { from: from, to: to, label: '', kind: 'call' };
+    for (var k in data) e[k] = data[k];
+    g.edges.push(e);
+    return e;
+  }
+  function sink(res, alias, args){
+    var id = alias || res.name;
+    var label = res.kind === 'iface' ? res.name : (alias || res.name);
+    return addNode(id, { kind: res.kind, name: res.name, label: label, sub: args ? argText(args) : (res.sub || ''), sig: res.sig || '', refname: res.refname || null });
+  }
+
+  var entryId = proc.entry || ((proc.links[0] && proc.links[0].source.path[0]) || 'Start');
+  addNode(entryId, { kind: 'func', name: entryId, label: entryId, entry: true, sub: '', sig: proc.funcs[entryId] ? sigText(proc.funcs[entryId]) : '' });
+
+  for (var i = 0; i < proc.links.length; i++){
+    var link = proc.links[i];
+    var src = (link.source.path || []).join('.');
+    var ed = link.edge;
+    if (!g.byId[src]){
+      addNode(src, { kind: 'func', name: src, label: src, sub: '', sig: proc.funcs[src] ? sigText(proc.funcs[src]) : '' });
+    }
+    if (ed.edge){
+      var res = resolveNode(ed.edge.sink.path, prog, proc);
+      var t = sink(res, ed.edge.alias, ed.edge.args);
+      addEdge(src, t.id, { kind: 'call' });
+    } else if (ed.match){
+      var mid = 'match:' + src;
+      var mmName = (ed.match.arg.path || []).join('.');
+      addNode(mid, { kind: 'match', label: mmName, _mname: mmName });
+      addEdge(src, mid, { kind: 'seq' });
+      var paths = ed.match.paths || [];
+      for (var j = 0; j < paths.length; j++){
+        var p = paths[j];
+        var r = resolveNode(p.sink.path, prog, proc);
+        var b = sink(r, p.alias, p.args);
+        addEdge(mid, b.id, { kind: 'branch', label: unquoteCond(p.cond) });
+      }
+    } else if (ed.foreach){
+      var dim = ed.foreach;
+      var fid = 'foreach:' + src;
+      addNode(fid, { kind: 'foreach', label: 'for each ' + (dim.input.path || []).join('.') + ' [' + dim.dim + ']', dim: dim.dim });
+      addEdge(src, fid, { kind: 'seq' });
+      var r2 = resolveNode(dim.sink.path, prog, proc);
+      var t2 = sink(r2, dim.alias, dim.args);
+      addEdge(fid, t2.id, { kind: 'fan', label: r2.name, _sem: 1 });
+    } else if (ed.collect){
+      var col = ed.collect;
+      var cid = 'collect:' + src;
+      addNode(cid, { kind: 'collect', label: 'collect each [' + col.dim + ']', dim: col.dim });
+      addEdge(src, cid, { kind: 'seq' });
+      var r3 = resolveNode([col.sink], prog, proc);
+      var t3 = sink(r3, null, col.args);
+      addEdge(cid, t3.id, { kind: 'collect', label: r3.name });
+    }
+  }
+  g.nodes.forEach(function(n){
+    if (n.kind !== 'match') return;
+    var same = true, hits = 0;
+    g.edges.forEach(function(e){
+      if (e.to !== n.id) return;
+      hits++;
+      var srcN = g.byId[e.from];
+      if (!srcN || !((srcN.name || '') === n._mname || (srcN.label || '') === n._mname)) same = false;
+    });
+    n.label = (hits > 0 && same) ? '' : (n._mname || '');
+  });
+  return g;
+}
+
+var LANE_PAD = 18, LANE_GAP = 40, LANE_TOP = 34, COLLECT_TOP = 46, ELLIPSE_W = 64;
+var COPY_COUNT = 3;
+
+function maps(g){
+  var out = {}, inn = {};
+  g.nodes.forEach(function(n){ out[n.id] = []; inn[n.id] = []; });
+  g.edges.forEach(function(e){ out[e.from] = out[e.from] || []; out[e.from].push(e); inn[e.to] = inn[e.to] || []; inn[e.to].push(e); });
+  return { out: out, inn: inn };
+}
+
+function everyIn(region, nodeSet){
+  for (var id in region){ if (!nodeSet[id]) return false; }
+  return true;
+}
+
+function computeDepths(blocks){
+  var depths = {};
+  blocks.forEach(function(b){ depths[b.fid] = 1; });
+  var changed = true;
+  while (changed){
+    changed = false;
+    blocks.forEach(function(b){
+      blocks.forEach(function(o){
+        if (o === b) return;
+        if (o.region[b.fid]){
+          var d = (depths[o.fid] || 0) + 1;
+          if (d > (depths[b.fid] || 0)){ depths[b.fid] = d; changed = true; }
+        }
+      });
+    });
+  }
+  return depths;
+}
+
+function findCollectFor(f, g, m){
+  var fanEs = (m.out[f.id] || []).filter(function(e){ return e.kind === 'fan'; });
+  if (!fanEs.length) return null;
+  var seen = {}, st = [];
+  fanEs.forEach(function(e){ if (!seen[e.to]){ seen[e.to] = 1; st.push(e.to); } });
+  while (st.length){
+    var u = st.pop();
+    var es = m.out[u] || [];
+    for (var i = 0; i < es.length; i++){
+      var v = es[i].to;
+      var vn = g.byId[v];
+      if (vn && vn.kind === 'collect'){
+        if (vn.dim === f.dim) return v;
+      }
+      if (seen[v]) continue;
+      seen[v] = 1; st.push(v);
+    }
+  }
+  return null;
+}
+
+function regionBlocks(g){
+  var m = maps(g);
+  var blocks = [];
+  g.nodes.forEach(function(n){
+    if (n.kind !== 'foreach') return;
+    var fanEs = (m.out[n.id] || []).filter(function(e){ return e.kind === 'fan'; });
+    if (!fanEs.length) return;
+    var cid = findCollectFor(n, g, m);
+    if (!cid) return;
+
+    var seen = {}, region = {}, exits = {}, st = [];
+    fanEs.forEach(function(e){ if (!seen[e.to]){ seen[e.to] = 1; st.push(e.to); } });
+    while (st.length){
+      var u = st.pop();
+      region[u] = 1;
+      var es = m.out[u] || [];
+      for (var i = 0; i < es.length; i++){
+        var v = es[i].to;
+        if (v === cid){ exits[u] = 1; continue; }
+        if (seen[v]) continue;
+        seen[v] = 1; st.push(v);
+      }
+    }
+
+    var lanes = fanEs.map(function(fe){
+      var lr = {}, lseen = {}, lst = [fe.to];
+      lseen[fe.to] = 1;
+      while (lst.length){
+        var u2 = lst.pop(); lr[u2] = 1;
+        var es2 = m.out[u2] || [];
+        for (var j = 0; j < es2.length; j++){
+          var v2 = es2[j].to;
+          if (v2 === cid) continue;
+          if (lseen[v2]) continue;
+          lseen[v2] = 1; lst.push(v2);
+        }
+      }
+      var lExits = [];
+      for (var id2 in lr){ if (exits[id2]) lExits.push(id2); }
+      return { fanEdge: fe, entries: [fe.to], nodes: lr, exits: lExits };
+    });
+
+    var colEs = (m.inn[cid] || []).filter(function(e){ return region[e.from]; });
+    var bl = { fid: n.id, cid: cid, dim: n.dim, region: region, exits: Object.keys(exits), lanes: lanes, fanEs: fanEs, colEs: colEs };
+    bl.fanEs.forEach(function(e){ e._inBlock = 1; });
+    bl.colEs.forEach(function(e){ e._inBlock = 1; });
+    blocks.push(bl);
+  });
+  return blocks;
+}
+
+function cloneGraph(g){
+  var nodes = g.nodes.map(function(n){ var c = {}; for (var k in n) c[k] = n[k]; return c; });
+  var edges = g.edges.map(function(e){ var c = {}; for (var k in e) c[k] = e[k]; return c; });
+  var byId = {};
+  nodes.forEach(function(n){ byId[n.id] = n; });
+  return { nodes: nodes, edges: edges, byId: byId };
+}
+
+function applyBlockExpansion(g2, b){
+  var region = b.region;
+  var ids = [];
+  for (var id in region) ids.push(id);
+  function cidOf(orig, k){ return 'C' + k + '|' + orig; }
+  var clonesFor = {};
+  ids.forEach(function(id){ var a = []; for (var k = 1; k <= COPY_COUNT; k++) a.push(cidOf(id, k)); clonesFor[id] = a; });
+
+  var newNodes = [];
+  g2.nodes.forEach(function(n){
+    if (region[n.id]) return;
+    var c = {}; for (var k in n) c[k] = n[k];
+    newNodes.push(c);
+  });
+  ids.forEach(function(id){
+    var orig = g2.byId[id];
+    for (var k = 1; k <= COPY_COUNT; k++){
+      var c = {};
+      for (var kk in orig) c[kk] = orig[kk];
+      c.id = cidOf(id, k);
+      newNodes.push(c);
+    }
+  });
+
+  function copyPair(e, from, to){
+    var c = {};
+    for (var k in e) c[k] = e[k];
+    c.from = from; c.to = to;
+    return c;
+  }
+
+  var newEdges = [];
+  g2.edges.forEach(function(e){
+    if (region[e.from] && region[e.to]){
+      for (var k = 1; k <= COPY_COUNT; k++) newEdges.push(copyPair(e, clonesFor[e.from][k - 1], clonesFor[e.to][k - 1]));
+      return;
+    }
+    if (e.from === b.fid && e.kind === 'fan' && region[e.to]){
+      for (var k = 1; k <= COPY_COUNT; k++){
+        var c = copyPair(e, e.from, clonesFor[e.to][k - 1]);
+        delete c._sem;
+        newEdges.push(c);
+      }
+      return;
+    }
+    if (e.to === b.cid && region[e.from]){
+      for (var k = 1; k <= COPY_COUNT; k++){
+        var c = copyPair(e, clonesFor[e.from][k - 1], e.to);
+        c.kind = 'collect';
+        newEdges.push(c);
+      }
+      return;
+    }
+    if (region[e.from] && !region[e.to]){
+      for (var k = 1; k <= COPY_COUNT; k++) newEdges.push(copyPair(e, clonesFor[e.from][k - 1], e.to));
+      return;
+    }
+    if (!region[e.from] && region[e.to]){
+      for (var k = 1; k <= COPY_COUNT; k++) newEdges.push(copyPair(e, e.from, clonesFor[e.to][k - 1]));
+      return;
+    }
+    newEdges.push(copyPair(e, e.from, e.to));
+  });
+
+  var byId = {};
+  newNodes.forEach(function(n){ byId[n.id] = n; });
+  return { nodes: newNodes, edges: newEdges, byId: byId };
+}
+
+function expandForeaches(g){
+  var g2 = cloneGraph(g);
+  for (var iter = 0; iter < 30; iter++){
+    var blocks = regionBlocks(g2);
+    var expandable = blocks.filter(function(b){
+      var fe = b.fanEs || [];
+      if (!fe.length) return false;
+      if (!fe.every(function(e){ return e._sem; })) return false;
+      return !blocks.some(function(o){
+        return o !== b && o.region[b.fid] && (o.fanEs || []).length && o.fanEs.every(function(oe){ return oe._sem; });
+      });
+    });
+    if (!expandable.length) break;
+    expandable.forEach(function(b){ g2 = applyBlockExpansion(g2, b); });
+  }
+  return { g: g2, blocks: regionBlocks(g2) };
+}
+
+function findMergeNode(g, m, targets){
+  var k = targets.length;
+  var dists = targets.map(function(t){
+    var d = {}; d[t] = 0;
+    var q = [t];
+    while (q.length){
+      var u = q.shift();
+      (m.out[u] || []).forEach(function(e){
+        if (d[e.to] !== undefined) return;
+        d[e.to] = d[u] + 1; q.push(e.to);
+      });
+    }
+    return d;
+  });
+  var best = null;
+  var inT = {};
+  targets.forEach(function(t){ inT[t] = 1; });
+  for (var v in dists[0]){
+    if (inT[v]) continue;
+    var ok = true, mx = 0, sm = 0;
+    for (var i = 0; i < k; i++){
+      if (dists[i][v] === undefined){ ok = false; break; }
+      var dd = dists[i][v];
+      if (dd > mx) mx = dd;
+      sm += dd;
+    }
+    if (!ok) continue;
+    if (!best || mx < best.mx || (mx === best.mx && sm < best.sm)) best = { v: v, mx: mx, sm: sm };
+  }
+  return best ? best.v : null;
+}
+
+function matchCols(g, backEdges){
+  var m = maps(g);
+  var backSet = {};
+  backEdges.forEach(function(e){ backSet[e.from + '>' + e.to] = 1; });
+  function isBack(e){ return !!backSet[e.from + '>' + e.to]; }
+
+  var inForeach = {};
+  regionBlocks(g).forEach(function(b){ for (var id in b.region) inForeach[id] = 1; });
+
+  var cands = [];
+  g.nodes.forEach(function(n){
+    if (n.kind !== 'match' || inForeach[n.id]) return;
+    var brs = (m.out[n.id] || []).filter(function(e){ return e.kind === 'branch' && !isBack(e); });
+    var targets = [];
+    brs.forEach(function(e){ if (targets.indexOf(e.to) < 0) targets.push(e.to); });
+    if (targets.length < 2) return;
+    var D = findMergeNode(g, m, targets);
+    if (!D || targets.indexOf(D) >= 0) return;
+
+    var fseen = {}, rseen = {}, exits = {}, st = targets.slice();
+    targets.forEach(function(t){ if (!fseen[t]){ fseen[t] = 1; } });
+    while (st.length){
+      var u = st.pop();
+      rseen[u] = 1;
+      (m.out[u] || []).forEach(function(e){
+        if (isBack(e)) return;
+        if (e.to === D){ exits[u] = 1; return; }
+        if (fseen[e.to]) return;
+        fseen[e.to] = 1; st.push(e.to);
+      });
+    }
+
+    var rear = {}, q = [D];
+    rear[D] = 1;
+    while (q.length){
+      var u2 = q.shift();
+      (m.inn[u2] || []).forEach(function(e){
+        if (!rseen[e.from] || rear[e.from]) return;
+        rear[e.from] = 1; q.push(e.from);
+      });
+    }
+    var region = {};
+    var anyExit = false;
+    for (var id in rseen){ if (rear[id] && rseen[id]){ region[id] = 1; if (exits[id]) anyExit = true; } }
+    var ok = true;
+    targets.forEach(function(t){ if (!region[t]) ok = false; });
+    if (!ok || !anyExit) return;
+
+    var lanes = targets.map(function(t){
+      var lr = {}, lst = [t], lseen = {}; lseen[t] = 1;
+      while (lst.length){
+        var u3 = lst.pop();
+        if (!region[u3]) continue;
+        lr[u3] = 1;
+        (m.out[u3] || []).forEach(function(e){
+          if (isBack(e) || e.to === D) return;
+          if (lseen[e.to] || !region[e.to]) return;
+          lseen[e.to] = 1; lst.push(e.to);
+        });
+      }
+      var lEx = [];
+      for (var id3 in lr){ if (exits[id3]) lEx.push(id3); }
+      return { fanEdge: null, entries: [t], nodes: lr, exits: lEx };
+    });
+
+    cands.push({ fid: n.id, kind: 'matchcol', merge: D, region: region, exits: Object.keys(exits).filter(function(x){ return region[x]; }), lanes: lanes });
+  });
+
+  var cols = [];
+  cands.forEach(function(c){
+    var collide = cands.some(function(o){
+      return o !== c && (o.region[c.fid] || c.region[o.fid]);
+    });
+    if (collide) return;
+    cols.push(c);
+  });
+  return cols;
+}
+
+function layerLevels(cNodes, cEdges, roots){
+  var out = {}, inn = {};
+  cNodes.forEach(function(id){ out[id] = []; inn[id] = []; });
+  cEdges.forEach(function(e){ out[e.from].push(e); inn[e.to].push(e); });
+  var state = {}, back = [];
+  var dfs = function dfs(u){
+    if (state[u]) return;
+    state[u] = 1;
+    (out[u] || []).forEach(function(e){
+      var v = e.to;
+      if (!state[v]) dfs(v);
+      else if (state[v] === 1) back.push(e);
+    });
+    state[u] = 2;
+  };
+  roots.forEach(function(r){ dfs(r); });
+  cNodes.forEach(function(id){ if (!state[id]) dfs(id); });
+
+  var dist = {};
+  roots.forEach(function(r){ dist[r] = 0; });
+  var changed = true;
+  while (changed){
+    changed = false;
+    cEdges.forEach(function(e){
+      if (back.indexOf(e) >= 0) return;
+      if (dist[e.from] === undefined) return;
+      if (dist[e.to] === undefined || dist[e.from] + 1 > dist[e.to]){ dist[e.to] = dist[e.from] + 1; changed = true; }
+    });
+  }
+  var maxL = 0;
+  cNodes.forEach(function(id){ if (dist[id] !== undefined && dist[id] > maxL) maxL = dist[id]; });
+  var levels = [];
+  for (var i = 0; i <= maxL; i++) levels.push([]);
+  cNodes.forEach(function(id){
+    if (dist[id] === undefined){ levels[Math.max(0, maxL)].push(id); return; }
+    levels[dist[id]].push(id);
+  });
+  return { out: out, inn: inn, back: back, dist: dist, levels: levels };
+}
+
+function flowPlace(levels, sizeOf){
+  var V_GAP = 96, H_GAP = 52;
+  var ys = [], y = 0;
+  levels.forEach(function(lv){
+    var h = 0;
+    lv.forEach(function(c){ h = Math.max(h, sizeOf(c).h); });
+    ys.push(y);
+    y += h + V_GAP;
+  });
+  var widths = levels.map(function(lv){
+    var w = -H_GAP;
+    lv.forEach(function(c){ w += sizeOf(c).w + H_GAP; });
+    return Math.max(w, 0);
+  });
+  var Wmax = widths.length ? Math.max.apply(null, widths) : 320;
+  var pos = {};
+  levels.forEach(function(lv, i){
+    var x = (Wmax - widths[i]) / 2;
+    lv.forEach(function(c){
+      var s = sizeOf(c);
+      pos[c] = { x: x, y: ys[i], w: s.w, h: s.h };
+      x += s.w + H_GAP;
+    });
+  });
+  return { pos: pos, W: Wmax, H: y - V_GAP };
+}
+
+function placeBlock(ctx, b){
+  if (ctx.placed[b.fid]) return ctx.placed[b.fid];
+  var acc = {}, laneRects = [];
+  var flowBase = 0, maxH = 0, ellip = null;
+  b.lanes.forEach(function(lane, li){
+    var fl = flowLayout(ctx, lane.nodes, lane.entries.slice());
+    var lw = fl.W + 2 * LANE_PAD, lh = fl.H + 2 * LANE_PAD;
+    laneRects.push({ x: flowBase, y: LANE_TOP, w: lw, h: lh });
+    for (var id in fl.pos){
+      var q = fl.pos[id];
+      acc[id] = { x: flowBase + LANE_PAD + q.x, y: LANE_TOP + LANE_PAD + q.y, w: q.w, h: q.h, cx: 0, cy: 0 };
+    }
+    flowBase += lw + LANE_GAP;
+    if (li === 1 && b.lanes.length > 2){
+      ellip = { x: flowBase - LANE_GAP, y: LANE_TOP, w: ELLIPSE_W, h: (maxH || lh) };
+      flowBase += ELLIPSE_W + LANE_GAP;
+    }
+    maxH = Math.max(maxH, lh);
+  });
+  var bp = { fid: b.fid, W: flowBase - LANE_GAP, H: LANE_TOP + maxH + COLLECT_TOP, pos: acc, lanes: laneRects, ellip: ellip };
+  for (var id in acc){ acc[id].cx = acc[id].x + acc[id].w / 2; acc[id].cy = acc[id].y + acc[id].h / 2; }
+  ctx.placed[b.fid] = bp;
+  return bp;
+}
+
+function placeCol(ctx, b){
+  if (ctx.placed[b.fid]) return ctx.placed[b.fid];
+  var acc = {}, laneRects = [];
+  var flowBase = 0, maxH = 0;
+  b.lanes.forEach(function(lane, li){
+    var fl = flowLayout(ctx, lane.nodes, lane.entries.slice());
+    var lw = fl.W + 2 * LANE_PAD, lh = fl.H + LANE_PAD;
+    laneRects.push({ x: flowBase, y: 0, w: lw, h: lh });
+    for (var id in fl.pos){
+      var q = fl.pos[id];
+      acc[id] = { x: flowBase + LANE_PAD + q.x, y: LANE_PAD + q.y, w: q.w, h: q.h, cx: 0, cy: 0 };
+    }
+    flowBase += lw + LANE_GAP;
+    maxH = Math.max(maxH, lh);
+  });
+  var bp = { fid: b.fid, W: flowBase - LANE_GAP, H: maxH, pos: acc, lanes: laneRects };
+  for (var id in acc){ acc[id].cx = acc[id].x + acc[id].w / 2; acc[id].cy = acc[id].y + acc[id].h / 2; }
+  ctx.placed[b.fid] = bp;
+  return bp;
+}
+
+function flowLayout(ctx, nodeSet, roots){
+  var g = ctx.g;
+  var inBlocks = ctx.blocks.filter(function(b){ return nodeSet[b.fid] && everyIn(b.region, nodeSet); });
+  function pseudoOf(fid){ return '#B#' + fid; }
+  function isPseudo(c){ return c.length > 4 && c.indexOf('#B#') === 0; }
+  function stripPseudo(c){ return c.slice(3); }
+  var mapId = {};
+  inBlocks.forEach(function(b){
+    for (var id in b.region){
+      if (!nodeSet[id]) continue;
+      var cur = mapId[id];
+      if (cur === undefined){ mapId[id] = pseudoOf(b.fid); }
+      else if (ctx.depths[stripPseudo(cur)] < ctx.depths[b.fid]) mapId[id] = pseudoOf(b.fid);
+    }
+  });
+
+  var cSet = {}, cNodes = [];
+  for (var id in nodeSet){
+    var c = mapId[id] !== undefined ? mapId[id] : id;
+    if (!cSet[c]){ cSet[c] = 1; cNodes.push(c); }
+  }
+  var cEdges = [];
+  g.edges.forEach(function(e){
+    if (!nodeSet[e.from] || !nodeSet[e.to]) return;
+    var cf = mapId[e.from] !== undefined ? mapId[e.from] : e.from;
+    var ct = mapId[e.to] !== undefined ? mapId[e.to] : e.to;
+    if (cf === ct) return;
+    cEdges.push({ from: cf, to: ct });
+  });
+  var cRoots = roots.map(function(r){ return mapId[r] !== undefined ? mapId[r] : r; });
+  var lt = layerLevels(cNodes, cEdges, cRoots);
+
+  var sizeOf = {};
+  cNodes.forEach(function(c){
+    if (isPseudo(c)){
+      var b2 = ctx.blockById[stripPseudo(c)];
+      var bp = b2.kind === 'matchcol' ? placeCol(ctx, b2) : placeBlock(ctx, b2);
+      sizeOf[c] = { w: bp.W, h: bp.H };
+    } else {
+      sizeOf[c] = nodeMetrics(g.byId[c]);
+    }
+  });
+  var place = flowPlace(lt.levels, function(c){ return sizeOf[c]; });
+
+  cNodes.forEach(function(c){
+    if (!isPseudo(c)) return;
+    var bp = ctx.placed[ctx.blockById[stripPseudo(c)].fid];
+    for (var id in bp.pos){
+      var q = bp.pos[id];
+      place.pos[id] = { x: place.pos[c].x + q.x, y: place.pos[c].y + q.y, w: q.w, h: q.h, cx: 0, cy: 0 };
+    }
+  });
+  for (var id in place.pos){ var r = place.pos[id]; r.cx = r.x + r.w / 2; r.cy = r.y + r.h / 2; }
+  return { pos: place.pos, W: place.W, H: place.H };
+}
+
+function layoutExpanded(g, blocks, entryId){
+  var depths = computeDepths(blocks);
+  var blockById = {};
+  blocks.forEach(function(b){ blockById[b.fid] = b; });
+  var ctx = { g: g, blocks: blocks, blockById: blockById, depths: depths, placed: {} };
+  var all = {};
+  g.nodes.forEach(function(n){ all[n.id] = 1; });
+  var fl = flowLayout(ctx, all, [entryId]);
+  return fl.pos;
+}
+
+function svgBlocks(pos, blocks){
+  if (!blocks || !blocks.length) return '';
+  var depths = computeDepths(blocks);
+  var ordered = blocks.slice().sort(function(a, b){ return (depths[a.fid] || 0) - (depths[b.fid] || 0); });
+  var s = '';
+  ordered.forEach(function(b){
+    var rects = b.lanes.map(function(lane){
+      var minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+      for (var id in lane.nodes){
+        var p = pos[id];
+        if (!p) continue;
+        if (p.x < minx) minx = p.x;
+        if (p.y < miny) miny = p.y;
+        if (p.x + p.w > maxx) maxx = p.x + p.w;
+        if (p.y + p.h > maxy) maxy = p.y + p.h;
+      }
+      if (minx === Infinity) return null;
+      return { x: minx - 16, y: miny - 14, w: maxx - minx + 32, h: maxy - miny + 28, cx: (minx + maxx) / 2, cy: (miny + maxy) / 2 };
+    });
+    rects.forEach(function(r, i){
+      if (!r) return;
+      s += '<rect x="' + r.x + '" y="' + r.y + '" width="' + r.w + '" height="' + r.h + '" rx="12" fill="rgba(225,245,244,.45)" stroke="rgba(0,150,136,.55)" stroke-width="1.2" stroke-dasharray="6 4"/>';
+      var num = i + 1;
+      var tw = Math.max(18, Math.round(meas(String(num), true, 11)) + 12);
+      s += '<rect x="' + (r.cx - tw / 2) + '" y="' + (r.y - 9) + '" width="' + tw + '" height="18" rx="9" fill="#009688"/>';
+      s += '<text x="' + r.cx + '" y="' + (r.y + 5) + '" text-anchor="middle" font-family="' + FONT + '" font-size="11" font-weight="800" fill="#fff">' + num + '</text>';
+    });
+    if (b.lanes.length > 2){
+      var r1 = rects[1], r2 = rects[b.lanes.length - 1];
+      if (r1 && r2){
+        var ex = (r1.x + r1.w + r2.x) / 2;
+        var ey = r1.y + r1.h / 2;
+        s += '<line x1="' + (r1.x + r1.w + 6) + '" y1="' + (ey - 6) + '" x2="' + (ex - 8) + '" y2="' + (ey - 6) + '" stroke="#009688" stroke-width="1" stroke-dasharray="3 3"/>';
+        s += '<line x1="' + (ex + 8) + '" y1="' + (ey - 6) + '" x2="' + (r2.x - 6) + '" y2="' + (ey - 6) + '" stroke="#009688" stroke-width="1" stroke-dasharray="3 3"/>';
+        s += '<circle cx="' + ex + '" cy="' + (ey - 6) + '" r="2.6" fill="#009688"/>';
+        s += '<circle cx="' + ex + '" cy="' + ey + '" r="2.6" fill="#009688"/>';
+        s += '<circle cx="' + ex + '" cy="' + (ey + 6) + '" r="2.6" fill="#009688"/>';
+        s += '<text x="' + ex + '" y="' + (ey + 24) + '" text-anchor="middle" font-family="' + FONT + '" font-size="10" fill="#00897b">more copies</text>';
+      }
+    }
+  });
+  return s;
+}
+
+function layoutGraph(g, entryId){
+  var out = {}, inn = {};
+  g.nodes.forEach(function(n){ out[n.id] = []; inn[n.id] = []; });
+  g.edges.forEach(function(e){ out[e.from].push(e); inn[e.to].push(e); });
+
+  var state = {}, back = [];
+  (function dfs(u){
+    state[u] = 1;
+    var es = out[u] || [];
+    for (var i = 0; i < es.length; i++){
+      var v = es[i].to;
+      if (!state[v]) dfs(v);
+      else if (state[v] === 1) back.push(es[i]);
+    }
+    state[u] = 2;
+  })(entryId);
+
+  var dist = {};
+  dist[entryId] = 0;
+  var changed = true;
+  while (changed){
+    changed = false;
+    for (var i = 0; i < g.edges.length; i++){
+      var e = g.edges[i];
+      if (back.indexOf(e) >= 0) continue;
+      if (dist[e.from] === undefined) continue;
+      if (dist[e.to] === undefined || dist[e.from] + 1 > dist[e.to]){ dist[e.to] = dist[e.from] + 1; changed = true; }
+    }
+  }
+
+  changed = true;
+  while (changed){
+    changed = false;
+    for (var i = 0; i < g.nodes.length; i++){
+      var n = g.nodes[i];
+      if (n.id === entryId || dist[n.id] === undefined) continue;
+      var fo = out[n.id];
+      var fwd = [];
+      for (var k = 0; k < fo.length; k++) if (back.indexOf(fo[k]) < 0) fwd.push(fo[k]);
+      if (fwd.length === 1 && fo.length >= 1){
+        var vd = dist[fwd[0].to];
+        if (vd !== undefined && vd - dist[n.id] > 1){
+          var higherIn = false;
+          inn[n.id].forEach(function(e){ if (dist[e.from] !== undefined && dist[e.from] > dist[n.id]) higherIn = true; });
+          if (!higherIn){ dist[n.id] = vd - 1; changed = true; }
+        }
+      }
+    }
+  }
+
+  var maxL = 0;
+  g.nodes.forEach(function(n){ if (dist[n.id] !== undefined && dist[n.id] > maxL) maxL = dist[n.id]; });
+  var levels = [];
+  for (var i = 0; i <= maxL; i++) levels.push([]);
+  g.nodes.forEach(function(n){ if (dist[n.id] !== undefined) levels[dist[n.id]].push(n); });
+
+  function posMap(arr){ var m = {}; arr.forEach(function(n, i){ m[n.id] = i; }); return m; }
+  for (var pass = 0; pass < 3; pass++){
+    var down2 = (pass % 2 === 0);
+    for (var li = down2 ? 0 : levels.length - 1; down2 ? li < levels.length : li >= 0; li += down2 ? 1 : -1){
+      var lv = levels[li];
+      if (lv.length < 2) continue;
+      var nb = down2 ? levels[li - 1] : levels[li + 1];
+      if (!nb) continue;
+      var pm = posMap(nb);
+      var scored = lv.map(function(n, oi){
+        var sum = 0, cnt = 0;
+        var es = down2 ? (inn[n.id] || []) : (out[n.id] || []);
+        for (var j = 0; j < es.length; j++){
+          var p = down2 ? pm[es[j].from] : pm[es[j].to];
+          if (p !== undefined){ sum += p; cnt++; }
+        }
+        return { n: n, s: cnt ? sum / cnt : nb.length + oi, oi: oi };
+      });
+      scored.sort(function(a, b){ return (a.s - b.s) || (a.oi - b.oi); });
+      for (var k = 0; k < lv.length; k++) lv[k] = scored[k].n;
+    }
+  }
+
+  var skipped = [];
+  g.nodes.forEach(function(n){ if (dist[n.id] === undefined) skipped.push(n.id); });
+
+  return { out: out, inn: inn, back: back, dist: dist, levels: levels, skipped: skipped };
+}
+
+var KIND_H = { match: 54, foreach: 58, collect: 58, func: 48, iface: 48, proc: 48 };
+
+function nodeMetrics(n){
+  var h = KIND_H[n.kind] || 48;
+  var a = meas(n.label, true, 13), b = meas(n.sub, false, 11);
+  var textW = Math.max(a, b);
+  var w;
+  if (n.kind === 'match'){
+    if (!n.label && !n.sub) return { w: 64, h: 44 };
+    w = Math.max(132, textW + 52);
+  }
+  else if (n.kind === 'foreach' || n.kind === 'collect') w = Math.max(188, textW + 64);
+  else w = Math.max(150, textW + 34);
+  return { w: w, h: h };
+}
+
+function computePositions(levels, mn){
+  var H_GAP = 52, V_GAP = 96;
+  var ys = [], y = 0, i, j;
+  for (i = 0; i < levels.length; i++){
+    var h = 0;
+    levels[i].forEach(function(n){ h = Math.max(h, mn[n.id].h); });
+    ys.push(y);
+    y += h + V_GAP;
+  }
+  var widths = levels.map(function(lv){
+    var w = -H_GAP;
+    lv.forEach(function(n){ w += mn[n.id].w + H_GAP; });
+    return Math.max(w, 0);
+  });
+  var Wmax = widths.length ? Math.max.apply(null, widths) : 320;
+  var pos = {};
+  for (i = 0; i < levels.length; i++){
+    var lv = levels[i];
+    var x = (Wmax - widths[i]) / 2;
+    for (j = 0; j < lv.length; j++){
+      var n = lv[j], m = mn[n.id];
+      pos[n.id] = { x: x, y: ys[i], w: m.w, h: m.h };
+      x += m.w + H_GAP;
+    }
+  }
+  for (var id in pos){ var p = pos[id]; p.cx = p.x + p.w / 2; p.cy = p.y + p.h / 2; }
+  return pos;
+}
+
+function routeEdges(g, pos, back){
+  var byId = {};
+  g.nodes.forEach(function(n){ byId[n.id] = n; });
+
+  var matchFwd = {};
+  for (var i = 0; i < g.edges.length; i++){
+    var e = g.edges[i];
+    if (back.indexOf(e) >= 0) continue;
+    var src = byId[e.from];
+    if (src && src.kind === 'match' && e.kind === 'branch' && pos[e.from] && pos[e.to]){
+      (matchFwd[e.from] = matchFwd[e.from] || []).push(e);
+    }
+  }
+
+  for (var m in matchFwd){
+    var es = matchFwd[m];
+    var n = es.length;
+    if (n < 1) continue;
+    var spread = pos[m].w / 2 + 44;
+    var base = pos[m].cx;
+    var sorted = es.slice().sort(function(a, b){ return pos[a.to].cx - pos[b.to].cx || pos[a.to].x - pos[b.to].x; });
+    for (var k = 0; k < n; k++){
+      var off = n === 1 ? 0 : (2 * k / (n - 1) - 1);
+      sorted[k]._lane = base + off * spread;
+    }
+  }
+
+  var pin = {};
+  for (var i = 0; i < g.edges.length; i++){
+    var e0 = g.edges[i];
+    if (back.indexOf(e0) >= 0) continue;
+    if (!pos[e0.to]) continue;
+    (pin[e0.to] = pin[e0.to] || []).push(e0);
+  }
+  for (var pid in pin){
+    var il = pin[pid];
+    if (il.length < 2) continue;
+    il.sort(function(a, b){ return (pos[a.from] ? pos[a.from].cx : a.from < b.from ? -1 : 1) - (pos[b.from] ? pos[b.from].cx : a.from < b.from ? -1 : 1); });
+    var step = Math.min(pos[pid].w * 0.3, 18);
+    for (var k2 = 0; k2 < il.length; k2++){
+      il[k2]._landX = pos[pid].cx + (k2 - (il.length - 1) / 2) * step;
+    }
+  }
+
+  function branchRoute(a, b, lane){
+    var cx0 = a.cx, y0 = a.y + a.h, tcx = b.cx, ty = b.y;
+    var fanY = y0 + 22;
+    var preY = ty - 18;
+    var pts, dy, bendY;
+    if (Math.abs(lane - cx0) < 6){
+      if (Math.abs(tcx - cx0) < 0.5){
+        pts = [[cx0, y0], [tcx, ty]];
+      } else {
+        dy = ty - y0;
+        bendY = Math.min(y0 + 22, y0 + dy * 0.5);
+        if (bendY < y0 + 6) bendY = y0 + 6;
+        pts = [[cx0, y0], [cx0, bendY], [tcx, bendY], [tcx, ty]];
+      }
+    } else if (Math.abs(lane - tcx) < 6){
+      pts = [[cx0, y0], [cx0, fanY], [lane, fanY], [lane, ty]];
+    } else if (preY - fanY < 12){
+      dy = ty - y0;
+      bendY = Math.min(y0 + 22, y0 + dy * 0.5);
+      if (bendY < y0 + 6) bendY = y0 + 6;
+      pts = [[cx0, y0], [cx0, bendY], [tcx, bendY], [tcx, ty]];
+    } else {
+      pts = [[cx0, y0], [cx0, fanY], [lane, fanY], [lane, preY], [tcx, preY], [tcx, ty]];
+    }
+    return pts;
+  }
+
+  function mergeRoute(a, b, tcx){
+    var y0 = a.y + a.h, ty = b.y;
+    var busY = ty - 16;
+    if (busY < y0 + 6) busY = y0 + 6;
+    var cx0 = a.cx;
+    var pts;
+    if (Math.abs(cx0 - tcx) < 4){
+      pts = [[cx0, y0], [cx0, ty]];
+    } else {
+      pts = [[cx0, y0], [cx0, busY], [tcx, busY], [tcx, ty]];
+    }
+    return pts;
+  }
+
+  var routed = [];
+  for (var i = 0; i < g.edges.length; i++){
+    var e = g.edges[i];
+    var a = pos[e.from], b = pos[e.to];
+    if (!a || !b) continue;
+    var isBack = back.indexOf(e) >= 0;
+    var pts, labelPos = null;
+    if (isBack){
+      var midX = Math.max(a.x + a.w, b.x + b.w) + 64;
+      pts = [[a.x + a.w, a.cy], [midX, a.cy], [midX, b.cy], [b.x + b.w, b.cy]];
+      labelPos = [midX, (a.cy + b.cy) / 2];
+    } else if (e.kind === 'fan' && e._inBlock){
+      pts = branchRoute(a, b, b.cx);
+      labelPos = null;
+    } else if (e.kind === 'collect' && e._inBlock){
+      var tcx = e._landX !== undefined ? e._landX : b.cx;
+      pts = mergeRoute(a, b, tcx);
+      labelPos = null;
+    } else if (e.kind === 'branch' && e._lane !== undefined){
+      pts = branchRoute(a, b, e._lane);
+      labelPos = [b.cx, b.y - 12];
+    } else {
+      var y0 = a.y + a.h, y1 = b.y;
+      var landX = e._landX !== undefined ? e._landX : b.cx;
+      if (Math.abs(a.cx - landX) < 0.5){
+        pts = [[a.cx, y0], [landX, y1]];
+        labelPos = [landX, y1 - 12];
+      } else {
+        var bendY = Math.min(y0 + 20, y0 + (y1 - y0) * 0.5);
+        if (bendY < y0 + 6) bendY = y0 + 6;
+        pts = [[a.cx, y0], [a.cx, bendY], [landX, bendY], [landX, y1]];
+        labelPos = [landX, y1 - 12];
+      }
+    }
+    routed.push({ e: e, pts: pts, isBack: isBack, labelPos: labelPos });
+  }
+  return routed;
+}
+
+function computeSteps(g, out){
+  var steps = {};
+  var st = [g.nodes[0].id];
+  var seen = {}; seen[g.nodes[0].id] = 1;
+  var c = 0; steps[g.nodes[0].id] = ++c;
+  while (st.length){
+    var u = st.shift();
+    var es = out[u] || [];
+    for (var i = 0; i < es.length; i++){
+      var v = es[i].to;
+      if (!seen[v]){ seen[v] = 1; steps[v] = ++c; st.push(v); }
+    }
+  }
+  g.nodes.forEach(function(n){ if (steps[n.id] === undefined) steps[n.id] = ++c; });
+  return steps;
+}
+
+var STYLES = {
+  func:    { fill: '#eef4ff', stroke: '#1d6fd8', text: '#123a63' },
+  entry:   { fill: '#e8f6ea', stroke: '#2e7d32', text: '#134e15' },
+  iface:   { fill: '#fff4e2', stroke: '#e07b00', text: '#7a4300' },
+  proc:    { fill: '#f7effb', stroke: '#9c27b0', text: '#5e2188' },
+  match:   { fill: '#fffbdd', stroke: '#c7a500', text: '#6d5a00' },
+  foreach: { fill: '#e1f5f4', stroke: '#009688', text: '#00564d' },
+  collect: { fill: '#edf1f4', stroke: '#5b6b79', text: '#2c3946' }
+};
+
+function pathD(pts, r){
+  if (pts.length < 2) return '';
+  var d = 'M ' + pts[0][0] + ' ' + pts[0][1];
+  for (var i = 1; i < pts.length - 1; i++){
+    var a = pts[i - 1], b = pts[i], c = pts[i + 1];
+    var v1x = b[0] - a[0], v1y = b[1] - a[1], v2x = c[0] - b[0], v2y = c[1] - b[1];
+    var l1 = Math.sqrt(v1x * v1x + v1y * v1y), l2 = Math.sqrt(v2x * v2x + v2y * v2y);
+    if (l1 > 0 && l2 > 0){
+      var r1 = Math.min(r, l1 / 2, l2 / 2);
+      var u1x = v1x / l1, u1y = v1y / l1, u2x = v2x / l2, u2y = v2y / l2;
+      var px = b[0] - u1x * r1, py = b[1] - u1y * r1;
+      var qx = b[0] + u2x * r1, qy = b[1] + u2y * r1;
+      d += ' L ' + px + ' ' + py + ' Q ' + b[0] + ' ' + b[1] + ' ' + qx + ' ' + qy;
+    } else {
+      d += ' L ' + b[0] + ' ' + b[1];
+    }
+  }
+  var last = pts[pts.length - 1];
+  d += ' L ' + last[0] + ' ' + last[1];
+  return d;
+}
+
+function diamondPts(p){
+  return [p.cx + ',' + p.y, (p.x + p.w) + ',' + p.cy, p.cx + ',' + (p.y + p.h), p.x + ',' + p.cy].join(' ');
+}
+
+function hexPts(p){
+  var r = 14;
+  return [(p.x + r) + ',' + p.y, (p.x + p.w - r) + ',' + p.y, (p.x + p.w) + ',' + p.cy,
+          (p.x + p.w - r) + ',' + (p.y + p.h), (p.x + r) + ',' + (p.y + p.h), p.x + ',' + p.cy].join(' ');
+}
+
+function edgeStyle(e, isBack){
+  if (isBack) return { marker: 'm-back', color: '#d32f2f', w: 1.7, dash: true };
+  if (e.kind === 'fan') return { marker: 'm-fan', color: '#0288d1', w: 1.8, dash: false };
+  if (e.kind === 'collect') return { marker: 'm-col', color: '#00897b', w: 1.8, dash: false };
+  return { marker: 'm-seq', color: '#64748b', w: 1.6, dash: false };
+}
+
+function tooltip(n){
+  var t = n.label;
+  if (n.sig) t += '\n' + n.sig;
+  t += '\n[' + n.kind + (n.kind === 'proc' ? ' reference' : '') + ']';
+  if (n.entry) t += '\nentry';
+  return esc(t);
+}
+
+function pill(text, x, y, stroke){
+  var w = Math.round(meas(text, false, 11)) + 16;
+  var hh = 19;
+  var g = '<g>';
+  g += '<rect class="pill" x="' + (x - w / 2) + '" y="' + (y - hh / 2) + '" width="' + w + '" height="' + hh + '" rx="9.5"/>';
+  g += '<text class="pill-t" x="' + x + '" y="' + (y + 4) + '" text-anchor="middle" font-family="' + FONT + '">' + esc(text) + '</text>';
+  g += '</g>';
+  return g;
+}
+
+function nodeSVG(n, p, steps){
+  var key = n.entry ? 'entry' : n.kind;
+  var st = STYLES[key] || STYLES.func;
+  var s = [];
+  var cx = p.cx, cy = p.cy;
+  var shape;
+  if (n.kind === 'match'){
+    shape = '<polygon class="sh" points="' + diamondPts(p) + '" fill="' + st.fill + '" stroke="' + st.stroke + '" stroke-width="1.5"/>';
+  } else if (n.kind === 'foreach' || n.kind === 'collect'){
+    shape = '<polygon class="sh" points="' + hexPts(p) + '" fill="' + st.fill + '" stroke="' + st.stroke + '" stroke-width="1.5"/>';
+  } else {
+    var dash = n.kind === 'proc' ? ' stroke-dasharray="7 5"' : '';
+    shape = '<rect class="sh" x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '" rx="9" fill="' + st.fill + '" stroke="' + st.stroke + '" stroke-width="1.7"' + dash + '/>';
+  }
+
+  var texts = '';
+  var isDia = n.kind === 'match' || n.kind === 'foreach' || n.kind === 'collect';
+  if (isDia){
+    texts += '<text x="' + cx + '" y="' + (cy + 4) + '" text-anchor="middle" font-family="' + FONT + '" font-size="13" font-weight="700" fill="' + st.text + '">' + esc(n.label) + '</text>';
+  } else {
+    var hasSub = !!n.sub;
+    var ly1 = cy + (hasSub ? -6 : 4);
+    texts += '<text x="' + cx + '" y="' + ly1 + '" text-anchor="middle" font-family="' + FONT + '" font-size="13" font-weight="700" fill="' + st.text + '">' + esc(n.label) + '</text>';
+    if (hasSub){
+      texts += '<text x="' + cx + '" y="' + (cy + 11) + '" text-anchor="middle" font-family="' + FONT + '" font-size="11" fill="' + st.text + '" opacity="0.85">' + esc(n.sub) + '</text>';
+    }
+    if (steps[n.id] !== undefined){
+      texts += '<circle cx="' + (p.x + p.w - 13) + '" cy="' + (p.y + 14) + '" r="10" fill="#475569"/>';
+      texts += '<text x="' + (p.x + p.w - 13) + '" y="' + (p.y + 18) + '" text-anchor="middle" font-family="' + FONT + '" font-size="11" font-weight="700" fill="#fff">' + steps[n.id] + '</text>';
+    }
+  }
+
+  var inner = '<title>' + tooltip(n) + '</title>' + shape + texts;
+  if (n.kind === 'proc'){
+    inner = '<a href="#card-' + esc(String(n.refname)) + '" class="proclink">' + inner + '</a>';
+  }
+  var g = '<g class="node' + (n.kind === 'proc' ? ' proclink' : '') + '">' + inner + '</g>';
+  s.push(g);
+
+  if (n.entry){
+    s.push('<g><rect x="' + (cx - 31) + '" y="' + (p.y - 21) + '" width="62" height="17" rx="8.5" fill="#2e7d32"/>');
+    s.push('<text x="' + cx + '" y="' + (p.y - 8) + '" text-anchor="middle" font-family="' + FONT + '" font-size="10" font-weight="800" letter-spacing="1" fill="#fff">START</text></g>');
+  }
+  return s.join('');
+}
+
+function buildDiagram(prog, proc){
+  var g = buildGraph(prog, proc);
+  var entryId = g.nodes[0].id;
+  var layout = layoutGraph(g, entryId);
+  var mn = {};
+  g.nodes.forEach(function(n){
+    if (layout.dist[n.id] !== undefined) mn[n.id] = nodeMetrics(n);
+  });
+  var expand = expandForeaches(g);
+  var ge = expand.g;
+  var fblocks = expand.blocks;
+  var b2 = layoutGraph(ge, entryId);
+  var cols = matchCols(ge, b2.back);
+  var blocks = fblocks.concat(cols);
+  var bp = layoutExpanded(ge, blocks, entryId);
+  var routed = routeEdges(ge, bp, b2.back);
+  var geom = maps(ge);
+  var steps = computeSteps(ge, geom.out);
+  var svg = renderSVG(ge, { out: geom.out }, bp, null, routed, steps, blocks);
+  var used = {};
+  g.nodes.forEach(function(n){ if (n.kind === 'func' || n.kind === 'iface' || n.kind === 'proc') used[n.name] = 1; });
+  var unlinked = [];
+  for (var k in proc.funcs){
+    if (!used[k]) unlinked.push(k);
+  }
+  return { g: ge, layout: { out: geom.out }, mn: mn, pos: bp, routed: routed, steps: steps, svg: svg, unlinked: unlinked, blocks: fblocks, cols: cols };
+}
+
+function renderSVG(g, layout, pos, mn, routed, steps, blocks){
+  var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  var any = false;
+  for (var i = 0; i < g.nodes.length; i++){
+    var p = pos[g.nodes[i].id];
+    if (!p) continue;
+    any = true;
+    x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y);
+    x1 = Math.max(x1, p.x + p.w); y1 = Math.max(y1, p.y + p.h);
+  }
+  routed.forEach(function(r){
+    r.pts.forEach(function(pt){
+      x0 = Math.min(x0, pt[0]); y0 = Math.min(y0, pt[1]);
+      x1 = Math.max(x1, pt[0]); y1 = Math.max(y1, pt[1]);
+    });
+  });
+  var PAD = 46;
+  if (!any){ x0 = 0; y0 = 0; x1 = 320; y1 = 200; }
+  x0 -= PAD; y0 -= PAD; x1 += PAD; y1 += PAD;
+  var W = x1 - x0, H = y1 - y0;
+
+  var s = [];
+  s.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + x0 + ' ' + y0 + ' ' + W + ' ' + H + '" width="' + Math.round(W) + '" height="' + Math.round(H) + '">');
+
+  for (var i = 0; i < routed.length; i++){
+    var r = routed[i];
+    var st = edgeStyle(r.e, r.isBack);
+    var dsh = st.dash ? ' stroke-dasharray="6 4"' : '';
+    s.push('<path class="edge-path" d="' + pathD(r.pts, 9) + '" stroke="' + st.color + '" stroke-width="' + st.w + '" marker-end="url(#' + st.marker + ')"' + dsh + '/>');
+  }
+
+  for (var i = 0; i < routed.length; i++){
+    var r = routed[i];
+    var k = r.e.kind;
+    if (r.isBack && r.e.label){
+      s.push(pill(r.e.label, r.labelPos[0], r.labelPos[1]));
+    }
+    if ((k === 'fan' || k === 'collect') && !r.isBack){
+      if (r.e._inBlock) continue;
+      var a = pos[r.e.from], b2 = pos[r.e.to];
+      if (a && b2){
+        var barY;
+        if (r.pts.length === 4) barY = r.pts[1][1];
+        else barY = (r.pts[0][1] + r.pts[1][1]) / 2;
+        var p0 = a.cx, p1 = b2.cx;
+        var bx0 = Math.min(p0, p1) - 14, bx1 = Math.max(p0, p1) + 14;
+        if (bx1 - bx0 < 46){ bx0 = (p0 + p1) / 2 - 23; bx1 = (p0 + p1) / 2 + 23; }
+        var bc = k === 'fan' ? '#0288d1' : '#00897b';
+        s.push('<line x1="' + bx0 + '" y1="' + barY + '" x2="' + bx1 + '" y2="' + barY + '" stroke="' + bc + '" stroke-width="1.4"/>');
+        s.push('<line x1="' + bx0 + '" y1="' + (barY - 5) + '" x2="' + bx0 + '" y2="' + (barY + 5) + '" stroke="' + bc + '" stroke-width="1.4"/>');
+        s.push('<line x1="' + bx1 + '" y1="' + (barY - 5) + '" x2="' + bx1 + '" y2="' + (barY + 5) + '" stroke="' + bc + '" stroke-width="1.4"/>');
+      }
+    }
+  }
+
+  for (var i = 0; i < routed.length; i++){
+    var r = routed[i];
+    if (!r.isBack && r.e.label && r.labelPos){
+      s.push(pill(r.e.label, r.labelPos[0], r.labelPos[1]));
+    }
+  }
+
+  if (blocks && blocks.length){
+    s.push(svgBlocks(pos, blocks));
+  }
+
+  for (var i = 0; i < g.nodes.length; i++){
+    var n = g.nodes[i];
+    var p = pos[n.id];
+    if (!p) continue;
+    s.push(nodeSVG(n, p, steps));
+  }
+
+  s.push('</svg>');
+  return s.join('');
+}
+
+function cardHTML(proc, d){
+  var nid = 'card-' + esc(proc.name);
+  var acc = proc.pub;
+  var entryName = proc.entry || '?';
+  var tagCls = proc.pub ? 'pub' : 'priv';
+  var tagTxt = proc.pub ? 'public' : 'private';
+  var extras = '';
+  if (d.unlinked.length){
+    extras = ' <span class="meta">unlinked: ' + d.unlinked.join(', ') + '</span>';
+  }
+  var h = '<section class="card" id="' + nid + '">';
+  h += '<div class="card-head">';
+  h += '<span class="card-title">proc ' + esc(proc.name) + '</span>';
+  h += '<span class="tag ' + tagCls + '">' + tagTxt + '</span>';
+  h += '<span class="meta">entry ' + esc(entryName) + '</span>';
+  h += '<span class="meta">' + d.g.nodes.length + ' nodes &middot; ' + d.g.edges.length + ' edges</span>';
+  h += extras;
+  h += '<span class="spacer"></span>';
+  h += '<button class="icon-btn" data-reset="stage-' + nid + '">fit view</button>';
+  h += '</div>';
+  h += '<div class="stage" id="stage-' + nid + '"><div class="zoom">' + d.svg + '</div></div>';
+  h += '</section>';
+  return h;
+}
+
+function attachZoom(stageEl){
+  var zoom = 1, tx = 0, ty = 0, dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
+  var wrap = stageEl.querySelector('.zoom');
+  function apply(){
+    if (wrap) wrap.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + zoom + ')';
+  }
+  stageEl.addEventListener('wheel', function(e){
+    e.preventDefault();
+    var k = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    zoom = Math.max(0.25, Math.min(5, zoom * k));
+    apply();
+  }, { passive: false });
+  stageEl.addEventListener('mousedown', function(e){
+    if (e.button !== 0) return;
+    dragging = true;
+    sx = e.clientX; sy = e.clientY; ox = tx; oy = ty;
+    stageEl.classList.add('dragging');
+  });
+  window.addEventListener('mousemove', function(e){
+    if (!dragging) return;
+    tx = ox + (e.clientX - sx);
+    ty = oy + (e.clientY - sy);
+    apply();
+  });
+  window.addEventListener('mouseup', function(){
+    dragging = false;
+    stageEl.classList.remove('dragging');
+  });
+  stageEl.__reset = function(){
+    zoom = 1; tx = 0; ty = 0; apply();
+  };
+}
+
+function render(srcText){
+  var errEl = document.getElementById('err');
+  errEl.style.display = 'none';
+  errEl.textContent = '';
+  var cardsEl = document.getElementById('cards');
+  var ast;
+  try {
+    ast = JSON.parse(srcText);
+  } catch (e) {
+    errEl.textContent = 'Invalid JSON: ' + e.message;
+    errEl.style.display = 'block';
+    return;
+  }
+  var prog = loadProgram(ast);
+  if (!prog.procs.length){
+    cardsEl.innerHTML = '<div class="notice">No <code>proc</code> declarations found in the AST.</div>';
+    return;
+  }
+  var showPriv = document.getElementById('showPrivate').checked;
+  var list = prog.procs.filter(function(p){ return p.pub || showPriv; });
+
+  var parts = [];
+  list.forEach(function(p){
+    var d;
+    try {
+      d = buildDiagram(prog, p);
+    } catch (e2) {
+      parts.push('<div class="notice">Failed to diagram <b>' + esc(p.name) + '</b>: ' + esc(e2.message) + '</div>');
+      return;
+    }
+    parts.push(cardHTML(p, d));
+  });
+  cardsEl.innerHTML = parts.join('');
+
+  var sel = document.getElementById('jump');
+  sel.innerHTML = '';
+  list.forEach(function(p){
+    var o = document.createElement('option');
+    o.value = 'card-' + p.name;
+    o.textContent = p.name + (p.pub ? ' (public)' : ' (private)');
+    sel.appendChild(o);
+  });
+  sel.onchange = function(){
+    var el = document.getElementById(sel.value);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  var stages = cardsEl.querySelectorAll('.stage');
+  for (var i = 0; i < stages.length; i++) attachZoom(stages[i]);
+  var btns = cardsEl.querySelectorAll('[data-reset]');
+  for (var j = 0; j < btns.length; j++){
+    (function(btn){
+      btn.addEventListener('click', function(){
+        var st = document.getElementById(btn.getAttribute('data-reset'));
+        if (st && st.__reset) st.__reset();
+      });
+    })(btns[j]);
+  }
+}
+
+function init(){
+  var DEFAULT = readDefaultSrc();
+  var srcEl = document.getElementById('src');
+  srcEl.value = DEFAULT;
+  render(DEFAULT);
+
+  document.getElementById('render').addEventListener('click', function(){ render(srcEl.value); });
+  document.getElementById('reset').addEventListener('click', function(){ srcEl.value = DEFAULT; render(DEFAULT); });
+  document.getElementById('showPrivate').addEventListener('change', function(){ render(srcEl.value); });
+  document.getElementById('file').addEventListener('change', function(e){
+    var f = e.target.files && e.target.files[0];
+    if (!f) return;
+    var rd = new FileReader();
+    rd.onload = function(){ srcEl.value = rd.result; render(rd.result); };
+    rd.readAsText(f);
+  });
+}
+
+if (typeof document !== 'undefined' && document.getElementById) init();
+
+var api = {
+  FONT: FONT, meas: meas, esc: esc, unquoteCond: unquoteCond, typeText: typeText,
+  sigText: sigText, argText: argText, loadProgram: loadProgram, resolveNode: resolveNode,
+  buildGraph: buildGraph, regionBlocks: regionBlocks, expandForeaches: expandForeaches,
+  layoutExpanded: layoutExpanded, svgBlocks: svgBlocks, maps: maps,
+  layoutGraph: layoutGraph, nodeMetrics: nodeMetrics,
+  computePositions: computePositions, routeEdges: routeEdges, computeSteps: computeSteps,
+  buildDiagram: buildDiagram, renderSVG: renderSVG
+};
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+})();
+</script>
+</body>
+</html>
