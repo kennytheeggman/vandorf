@@ -31,3 +31,23 @@ Software architectures:
 	- CLI
 	- Web to come
 	- VSCode to come
+
+# Idea
+
+- No more sequential operations within functions, sequential state transfer happens through tail calls instead
+- Iteration constructs are ONLY foreach for fan out and until (ranged foreach is a special case of foreach)
+    - Fan in is collect only (basically lfold or rfold), until holds the state through the loop
+    - Iteration are the only nodes with subnodes
+- Branching is only match
+- Effects are declared at leaf node level
+    - Effects are grouped into interfaces
+- 1 node = 1 function
+    - Each function declares: inputs, outputs, effects, OR subnodes
+- Primitive types + enums only
+- These allow generation of flow diagrams efficiently (including cardinality and loops)
+    - Tail calls mean all sequential operations ARE composition (composition directly equals edge)
+    - Iteration foreach fans out visually and collect fans in
+    - Until loops are sequential composition backwards in the tree
+    - Branching is edge fanning out (different ui from foreach, because each edge is labelled)
+    - Effects are orthogonal edges to the outside world
+    - Pub/sub is the only cross-module communication
