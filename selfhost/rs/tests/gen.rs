@@ -100,3 +100,19 @@ fn builds_type_tables_like_the_reference() {
         }
     }
 }
+
+#[test]
+fn generates_rust_types_like_the_reference() {
+    use vandorf::codegen::rust;
+    for (name, prog, srcs) in &programs() {
+        let srcs: Vec<&str> = srcs.iter().map(|s| s.as_str()).collect();
+        let Ok(out) = rust::generate(prog, &rust::RustOptions { module_dir: Some("app".into()), ..Default::default() }) else { continue };
+        let want = &out.types.files["types.rs"];
+        let table = vcc::vcc::run_build_table(analyze(&srcs)).unwrap();
+        let got = vcc::vcc::run_rust_typegen(table).unwrap().to_string();
+        if *want != got {
+            let line = want.lines().zip(got.lines()).position(|(a, b)| a != b);
+            panic!("{name}: types.rs differs at line {line:?}: {:?} vs {:?}", line.map(|l| want.lines().nth(l)), line.map(|l| got.lines().nth(l)));
+        }
+    }
+}
