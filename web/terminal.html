@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terminal</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+<style>
+:root{ --bg:#ffffff; --bar:#f6f8fb; --ink:#0f172a; --mut:#64748b; --line:#dde3ec; --hover:#e8eef7; --accent:#1f6feb; --err:#c62828 }
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --bg:#0b111c; --bar:#0e1624; --ink:#dbe6f4; --mut:#8aa2bf; --line:#22324a; --hover:#172640; --accent:#3b82f6; --err:#ff8a80 }
+}
+:root[data-theme="dark"]{ --bg:#0b111c; --bar:#0e1624; --ink:#dbe6f4; --mut:#8aa2bf; --line:#22324a; --hover:#172640; --accent:#3b82f6; --err:#ff8a80 }
+*{ box-sizing:border-box }
+html,body{ height:100%; margin:0; overflow:hidden }
+body{ background:var(--bg); color:var(--ink); font:12px/1.3 system-ui,-apple-system,"Segoe UI",sans-serif; display:flex; flex-direction:column }
+.bar{ display:flex; align-items:center; gap:2px; height:30px; padding:0 6px; background:var(--bar); border-bottom:1px solid var(--line); flex:none; overflow-x:auto }
+.bar .ttl{ font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--mut); margin:0 8px 0 4px }
+.bar button{ font:inherit; background:none; border:0; color:var(--mut); border-radius:5px; padding:3px 8px; cursor:pointer; white-space:nowrap }
+.bar button:hover{ background:var(--hover); color:var(--ink) }
+.bar .tt.on{ color:var(--ink); box-shadow:inset 0 -2px var(--accent) }
+.bar .tt.dead{ text-decoration:line-through }
+.bar .sp{ flex:1 }
+.bar .sep{ width:1px; height:16px; background:var(--line); margin:0 4px }
+#terms{ flex:1; position:relative; min-height:0 }
+.term{ position:absolute; inset:0; padding:4px 0 0 8px; visibility:hidden }
+.term.on{ visibility:visible }
+.msg{ padding:14px; color:var(--mut) } .msg.bad{ color:var(--err) }
+.xterm .xterm-viewport{ scrollbar-width:thin }
+</style>
+</head>
+<body>
+<div class="bar">
+  <span class="ttl">Terminal</span>
+  <span id="list" style="display:flex;gap:2px"></span>
+  <button id="bNew" title="New terminal">+ new</button>
+  <span class="sep"></span>
+  <button data-cmd="check" title="vandorf check, in the active file's project">check</button>
+  <button data-cmd="build" title="vandorf build, in the active file's project">build</button>
+  <button data-cmd="doc -o doc.json" title="vandorf doc -o doc.json">doc</button>
+  <span class="sp"></span>
+  <button id="bClear" title="Clear">clear</button>
+  <button id="bKill" title="Kill this terminal">kill</button>
+</div>
+<div id="terms"></div>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+<script>
+(function(){
+'use strict';
+var TOKEN = '__VANDORF_TOKEN__';
+var $ = function(id){ return document.getElementById(id); };
+function post(m){ if (window.parent !== window) window.parent.postMessage(m, location.origin); }
+function api(path, opts){
+  opts = opts || {};
+  opts.headers = Object.assign({ 'X-Vandorf-Token': TOKEN }, opts.headers || {});
+  return fetch(path, opts);
+}
+var ctx = { dir: '', file: null, project: false };
+var terms = [], cur = null;
+var dark = false;
+
+function palette(){
+  return dark
+    ? { background: '#0b111c', foreground: '#dbe6f4', cursor: '#dbe6f4', selectionBackground: 'rgba(59,130,246,.35)' }
+    : { background: '#ffffff', foreground: '#0f172a', cursor: '#0f172a', selectionBackground: 'rgba(31,111,235,.25)',
+        // Light-friendly ANSI colors: the defaults are tuned for dark backgrounds.
+        black: '#0f172a', red: '#c62828', green: '#1b7f3b', yellow: '#a16207', blue: '#1d4ed8', magenta: '#a21caf', cyan: '#0e7490', white: '#64748b',
+        brightBlack: '#475569', brightRed: '#dc2626', brightGreen: '#16a34a', brightYellow: '#ca8a04', brightBlue: '#2563eb', brightMagenta: '#c026d3', brightCyan: '#0891b2', brightWhite: '#334155' };
+}
+function setTheme(t){
+  dark = t === 'dark';
+  document.documentElement.setAttribute('data-theme', t);
+  terms.forEach(function(x){ if (x.xt) x.xt.options.theme = palette(); });
+}
+
+function saveIds(){ try { sessionStorage.setItem('vandorf.term.cur', cur ? String(cur.id) : ''); } catch (e) {} }
+
+function attach(id){
+  var t = { id: id, from: 0, alive: true, queue: Promise.resolve() };
+  t.el = document.createElement('div'); t.el.className = 'term'; $('terms').appendChild(t.el);
+  t.tab = document.createElement('button'); t.tab.className = 'tt'; t.tab.textContent = 'shell ' + id;
+  t.tab.onclick = function(){ show(t); };
+  $('list').appendChild(t.tab);
+  terms.push(t);
+  if (!window.Terminal){
+    t.el.innerHTML = '<div class="msg bad">xterm.js did not load (offline?). The terminal needs cdn.jsdelivr.net.</div>';
+    show(t); return t;
+  }
+  t.xt = new Terminal({ fontFamily: 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace', fontSize: 12.5, cursorBlink: true,
+                        scrollback: 5000, theme: palette(), allowProposedApi: false });
+  if (window.FitAddon){ t.fit = new FitAddon.FitAddon(); t.xt.loadAddon(t.fit); }
+  t.xt.open(t.el);
+  t.xt.onData(function(d){ send(t, d); });
+  t.xt.onBinary(function(d){ send(t, d); });
+  t.xt.onResize(function(s){ if (t.alive) api('/api/term/resize?id=' + t.id + '&cols=' + s.cols + '&rows=' + s.rows, { method: 'POST' }); });
+  pump(t);
+  show(t);
+  return t;
+}
+/* Keystrokes go out in order, one request at a time; whatever piles up
+   meanwhile is sent together. */
+function send(t, d){
+  if (!t.alive) return;
+  t.pending = (t.pending || '') + d;
+  if (t.sending) return;
+  t.sending = true;
+  (function flush(){
+    var body = t.pending; t.pending = '';
+    api('/api/term/input?id=' + t.id, { method: 'POST', body: body })
+      .catch(function(){})
+      .then(function(){ if (t.pending) flush(); else t.sending = false; });
+  })();
+}
+/* Long polling: each read waits on the server until there's output. */
+function pump(t){
+  if (!t.alive) return;
+  api('/api/term/read?id=' + t.id + '&from=' + t.from).then(function(r){
+    if (!r.ok) throw new Error('gone');
+    var next = +r.headers.get('X-Next'), closed = r.headers.get('X-Closed') === '1';
+    return r.arrayBuffer().then(function(b){
+      if (b.byteLength) t.xt.write(new Uint8Array(b));
+      t.from = next;
+      if (closed && !b.byteLength){ dead(t, 'process exited'); return; }
+      pump(t);
+    });
+  }).catch(function(){
+    if (!t.alive) return;
+    // The server restarted or the shell is gone.
+    api('/api/term/list').then(function(r){ return r.json(); }).then(function(l){
+      if (l.ids && l.ids.indexOf(t.id) >= 0) setTimeout(function(){ pump(t); }, 500);
+      else dead(t, 'disconnected');
+    }).catch(function(){ setTimeout(function(){ pump(t); }, 2000); });
+  });
+}
+function dead(t, why){
+  t.alive = false; t.tab.classList.add('dead');
+  if (t.xt) t.xt.write('\r\n\x1b[2m[' + why + ']\x1b[0m\r\n');
+}
+function show(t){
+  cur = t; saveIds();
+  terms.forEach(function(x){ x.el.classList.toggle('on', x === t); x.tab.classList.toggle('on', x === t); });
+  fit(); if (t.xt) t.xt.focus();
+}
+function fit(){ if (cur && cur.fit && cur.el.offsetWidth){ try { cur.fit.fit(); } catch (e) {} } }
+window.addEventListener('resize', fit);
+if (window.ResizeObserver) new ResizeObserver(fit).observe($('terms'));
+
+function create(){
+  return api('/api/term?cwd=' + encodeURIComponent(ctx.dir || ''), { method: 'POST' }).then(function(r){ return r.json(); }).then(function(res){
+    if (!res.ok){ fail(res.error); return null; }
+    return attach(res.id);
+  }).catch(function(e){ fail(String(e)); return null; });
+}
+function fail(msg){
+  var d = document.createElement('div'); d.className = 'msg bad'; d.textContent = msg;
+  $('terms').innerHTML = ''; $('terms').appendChild(d);
+}
+function run(cmd){
+  var go = function(t){ if (t && t.alive){ show(t); send(t, cmd + '\r'); } };
+  if (cur && cur.alive) go(cur); else create().then(go);
+}
+function vandorf(sub){
+  var target = ctx.project || !ctx.file ? '' : ' ' + JSON.stringify(ctx.file.split('/').pop());
+  var dir = ctx.dir ? 'cd ' + JSON.stringify(ctx.dir.replace(/\/$/, '') || '.') + ' && ' : '';
+  return dir + 'vandorf ' + sub + (/^check|^doc/.test(sub) ? target : '');
+}
+
+$('bNew').onclick = create;
+$('bClear').onclick = function(){ if (cur && cur.xt) cur.xt.clear(); };
+$('bKill').onclick = function(){
+  if (!cur) return;
+  var t = cur;
+  api('/api/term/kill?id=' + t.id, { method: 'POST' });
+  dead(t, 'killed'); t.el.remove(); t.tab.remove();
+  terms.splice(terms.indexOf(t), 1);
+  if (terms.length) show(terms[terms.length - 1]); else { cur = null; saveIds(); }
+};
+Array.prototype.forEach.call(document.querySelectorAll('[data-cmd]'), function(b){
+  b.onclick = function(){ run(vandorf(b.dataset.cmd)); };
+});
+
+window.addEventListener('message', function(e){
+  if (e.origin !== location.origin || !e.data) return;
+  var m = e.data;
+  if (m.type === 'vandorf-theme') setTheme(m.theme);
+  if (m.type === 'term-context') ctx = { dir: m.dir || '', file: m.file, project: m.project };
+  if (m.type === 'term-run') run(m.cmd);
+  if (m.type === 'term-vandorf') run(vandorf(m.sub));
+  if (m.type === 'term-focus'){ fit(); if (cur && cur.xt) cur.xt.focus(); }
+});
+
+/* Reattach to the server's shells (a reload keeps them), else start one. */
+api('/api/term/list').then(function(r){ return r.json(); }).then(function(l){
+  if (!l.ok){ fail(l.error); return; }
+  var want = null; try { want = +sessionStorage.getItem('vandorf.term.cur'); } catch (e) {}
+  if (!l.ids.length){ create(); return; }
+  l.ids.sort(function(a, b){ return a - b; }).forEach(attach);
+  terms.some(function(t){ if (t.id === want){ show(t); return true; } });
+}).catch(function(e){ fail('Terminal unavailable: ' + e); });
+post({ type: 'term-ready' });
+})();
+</script>
+</body>
+</html>

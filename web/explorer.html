@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Explorer</title>
+<style>
+:root{
+  --bg:#f6f8fb; --ink:#0f172a; --mut:#64748b; --line:#dde3ec; --hover:#e8eef7; --sel:#dbe8ff; --sel-ink:#0b3d91;
+  --accent:#1f6feb; --proc:#e07b00; --func:#1d6fd8; --type:#0e7490; --iface:#7c3aed; --err:#c62828;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1624; --ink:#dbe6f4; --mut:#8aa2bf; --line:#22324a; --hover:#172640; --sel:#1b3358; --sel-ink:#e6effb;
+    --accent:#3b82f6; --proc:#fbbf24; --func:#7cb4ff; --type:#67e8f9; --iface:#c4b5fd; --err:#ff8a80;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1624; --ink:#dbe6f4; --mut:#8aa2bf; --line:#22324a; --hover:#172640; --sel:#1b3358; --sel-ink:#e6effb;
+  --accent:#3b82f6; --proc:#fbbf24; --func:#7cb4ff; --type:#67e8f9; --iface:#c4b5fd; --err:#ff8a80;
+}
+*{ box-sizing:border-box }
+html,body{ height:100%; margin:0 }
+body{ background:var(--bg); color:var(--ink); font:13px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif;
+  display:flex; flex-direction:column; user-select:none }
+.hd{ display:flex; align-items:center; gap:4px; padding:8px 8px 6px 12px; font-size:11px; font-weight:700;
+  letter-spacing:.08em; text-transform:uppercase; color:var(--mut) }
+.hd .sp{ flex:1 }
+.hd button{ font:inherit; font-size:13px; letter-spacing:0; background:none; border:0; color:var(--mut); cursor:pointer; border-radius:4px; padding:1px 6px }
+.hd button:hover, .hd button.on{ background:var(--hover); color:var(--ink) }
+#q{ margin:0 8px 6px; padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:transparent; color:var(--ink); font:inherit; outline:none }
+#q:focus{ border-color:var(--accent) }
+#tree{ flex:1; overflow:auto; padding-bottom:16px }
+.row{ display:flex; align-items:center; gap:5px; height:22px; padding-right:8px; cursor:pointer; white-space:nowrap }
+.row:hover{ background:var(--hover) }
+.row.sel{ background:var(--sel); color:var(--sel-ink) }
+.row .tw{ width:12px; flex:none; text-align:center; color:var(--mut); font-size:9px; transition:transform .1s }
+.row.open > .tw{ transform:rotate(90deg) }
+.row .ic{ flex:none; width:16px; height:15px; border-radius:3px; font:700 9px/15px ui-monospace,monospace; text-align:center; color:#fff }
+.ic.dir{ background:none; color:var(--mut); font-size:12px } .ic.file{ background:var(--mut) }
+.ic.proc{ background:var(--proc) } .ic.func{ background:var(--func) } .ic.type{ background:var(--type) } .ic.interface{ background:var(--iface) }
+.row .nm{ overflow:hidden; text-overflow:ellipsis }
+.row .pj{ font-size:10.5px; color:var(--mut); margin-left:auto; padding-left:6px }
+.row .er{ color:var(--err); margin-left:auto; font-weight:700 }
+.row.minor .nm{ color:var(--mut) }
+.empty{ color:var(--mut); padding:12px }
+mark{ background:rgba(250,204,21,.45); color:inherit; border-radius:2px }
+</style>
+</head>
+<body>
+<div class="hd"><span>Explorer</span><span class="sp"></span>
+  <button id="bAll" title="Also list funcs, types and interfaces">ƒ</button>
+  <button id="bCollapse" title="Collapse all">⊟</button>
+  <button id="bRefresh" title="Refresh">↻</button>
+</div>
+<input id="q" placeholder="Filter procs…" spellcheck="false" autocomplete="off">
+<div id="tree"><div class="empty">Loading…</div></div>
+<script>
+(function(){
+'use strict';
+var $ = function(id){ return document.getElementById(id); };
+function store(k, v){ try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
+function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]; }); }
+function post(m){ if (window.parent !== window) window.parent.postMessage(m, location.origin); }
+
+var data = null, active = { path: null, proc: null };
+var open = (function(){ try { return JSON.parse(store('vandorf.ex.open')) || null; } catch (e) { return null; } })();
+var showAll = store('vandorf.ex.all') === '1';
+$('bAll').classList.toggle('on', showAll);
+
+function isOpen(key, dflt){ return open && key in open ? open[key] : dflt; }
+function setOpen(key, v){ open = open || {}; open[key] = v; store('vandorf.ex.open', JSON.stringify(open)); }
+
+function load(){
+  fetch('/api/tree').then(function(r){ return r.json(); }).then(function(t){ data = t; render(); })
+    .catch(function(e){ $('tree').innerHTML = '<div class="empty">Could not load the file list: ' + esc(e) + '</div>'; });
+}
+
+/* Files nest under their directories; a file is a directory of its procs. */
+function build(){
+  var root = { dirs: {}, files: [] };
+  data.files.forEach(function(f){
+    var parts = f.path.split('/'), d = root;
+    for (var i = 0; i < parts.length - 1; i++){
+      d = d.dirs[parts[i]] = d.dirs[parts[i]] || { dirs: {}, files: [], name: parts[i], path: parts.slice(0, i + 1).join('/') };
+    }
+    d.files.push(f);
+  });
+  // Collapse chains of single-child directories: examples/demo/sys.
+  (function squash(d){
+    Object.keys(d.dirs).forEach(function(k){
+      var c = d.dirs[k];
+      while (Object.keys(c.dirs).length === 1 && !c.files.length){
+        var only = c.dirs[Object.keys(c.dirs)[0]];
+        only.name = c.name + '/' + only.name;
+        c = only;
+      }
+      d.dirs[k] = c; squash(c);
+    });
+  })(root);
+  return root;
+}
+
+function hl(s, q){
+  if (!q) return esc(s);
+  var i = s.toLowerCase().indexOf(q);
+  return i < 0 ? esc(s) : esc(s.slice(0, i)) + '<mark>' + esc(s.slice(i, i + q.length)) + '</mark>' + esc(s.slice(i + q.length));
+}
+
+function itemMatches(it, q){
+  if (!q) return true;
+  if (it.qual.toLowerCase().indexOf(q) >= 0) return true;
+  return (it.children || []).some(function(c){ return visible(c) && itemMatches(c, q); });
+}
+function visible(it){ return showAll || it.kind === 'proc' || (it.children || []).some(function(c){ return c.kind === 'proc'; }); }
+
+function render(){
+  if (!data) return;
+  var q = $('q').value.trim().toLowerCase();
+  var h = [], depth = 0;
+  function pad(d){ return ' style="padding-left:' + (6 + d * 12) + 'px"'; }
+  function items(list, file, d){
+    list.forEach(function(it){
+      if (!visible(it) || !itemMatches(it, q)) return;
+      var kids = (it.children || []).filter(function(c){ return visible(c); });
+      var key = 'i:' + file.path + '#' + it.qual, op = q ? true : isOpen(key, false);
+      var sel = it.kind === 'proc' && active.path === file.path && active.proc === it.qual;
+      h.push('<div class="row' + (kids.length && op ? ' open' : '') + (sel ? ' sel' : '') + (it.kind !== 'proc' ? ' minor' : '') + '"' + pad(d) +
+        ' data-k="' + esc(key) + '" data-kind="' + it.kind + '" data-path="' + esc(file.path) + '" data-qual="' + esc(it.qual) + '" data-line="' + it.line + '"' +
+        (kids.length ? ' data-tw="1"' : '') + ' title="' + esc(it.kind + ' ' + it.qual + ' — ' + file.path + ':' + (it.line + 1)) + '">' +
+        '<span class="tw">' + (kids.length ? '▶' : '') + '</span>' +
+        '<span class="ic ' + it.kind + '">' + { proc: 'P', func: 'ƒ', type: 'T', interface: 'I' }[it.kind] + '</span>' +
+        '<span class="nm">' + hl(it.name, q) + '</span></div>');
+      if (kids.length && op) items(kids, file, d + 1);
+    });
+  }
+  function dir(dd, d){
+    Object.keys(dd.dirs).sort().forEach(function(k){
+      var c = dd.dirs[k], key = 'd:' + c.path, op = q ? true : isOpen(key, true);
+      var inner = [];
+      var save = h; h = inner; dir(c, d + 1); h = save;
+      if (q && !inner.length) return;
+      h.push('<div class="row' + (op ? ' open' : '') + '"' + pad(d) + ' data-k="' + esc(key) + '" data-tw="1">' +
+        '<span class="tw">▶</span><span class="ic dir">▣</span><span class="nm">' + esc(c.name) + '</span></div>');
+      if (op) h.push.apply(h, inner);
+    });
+    dd.files.forEach(function(f){
+      var key = 'f:' + f.path, kids = f.items.filter(visible);
+      var matching = kids.filter(function(it){ return itemMatches(it, q); });
+      var nameHit = q && f.path.toLowerCase().indexOf(q) >= 0;
+      if (q && !matching.length && !nameHit) return;
+      var op = q ? true : isOpen(key, active.path === f.path);
+      var sel = active.path === f.path && !active.proc;
+      h.push('<div class="row' + (op ? ' open' : '') + (sel ? ' sel' : '') + '"' + pad(d) + ' data-k="' + esc(key) + '" data-tw="1" data-file="' + esc(f.path) + '"' +
+        ' title="' + esc(f.path + (f.project ? ' — project ' + f.project.name : '') + (f.error ? '\n' + f.error : '')) + '">' +
+        '<span class="tw">▶</span><span class="ic file">S</span><span class="nm">' + hl(f.path.split('/').pop(), q) + '</span>' +
+        (f.error ? '<span class="er" title="' + esc(f.error) + '">!</span>' : '') + '</div>');
+      if (op) items(nameHit && !matching.length ? kids : kids, f, d + 1);
+    });
+  }
+  dir(build(), 0);
+  $('tree').innerHTML = h.join('') || '<div class="empty">' + (q ? 'No procs match.' : 'No .sys files under the source directory.') + '</div>';
+  var s = $('tree').querySelector('.row.sel');
+  if (s) s.scrollIntoView({ block: 'nearest' });
+}
+
+$('tree').addEventListener('click', function(e){
+  var r = e.target.closest('.row'); if (!r) return;
+  var kind = r.dataset.kind, onTwisty = e.target.closest('.tw');
+  if (kind === 'proc' && !onTwisty){
+    post({ type: 'ide-open', path: r.dataset.path, proc: r.dataset.qual, newTab: e.ctrlKey || e.metaKey, mode: 'diagram' });
+    return;
+  }
+  if (kind && kind !== 'proc' && !onTwisty){
+    post({ type: 'ide-open', path: r.dataset.path, proc: null, line: +r.dataset.line, mode: 'text', newTab: e.ctrlKey || e.metaKey });
+    return;
+  }
+  if (r.dataset.tw){ setOpen(r.dataset.k, !r.classList.contains('open')); render(); }
+});
+$('tree').addEventListener('dblclick', function(e){
+  var r = e.target.closest('.row');
+  if (r && r.dataset.file) post({ type: 'ide-open', path: r.dataset.file, proc: null, mode: 'text' });
+});
+$('q').addEventListener('input', render);
+$('q').addEventListener('keydown', function(e){
+  if (e.key === 'Escape'){ $('q').value = ''; render(); }
+  if (e.key === 'Enter'){
+    var r = $('tree').querySelector('.row[data-kind="proc"]');
+    if (r) post({ type: 'ide-open', path: r.dataset.path, proc: r.dataset.qual, newTab: e.ctrlKey || e.metaKey, mode: 'diagram' });
+  }
+});
+$('bRefresh').onclick = load;
+$('bCollapse').onclick = function(){
+  open = {}; (data ? data.files : []).forEach(function(f){ open['f:' + f.path] = false; });
+  store('vandorf.ex.open', JSON.stringify(open)); render();
+};
+$('bAll').onclick = function(){ showAll = !showAll; store('vandorf.ex.all', showAll ? '1' : '0'); this.classList.toggle('on', showAll); render(); };
+
+window.addEventListener('message', function(e){
+  if (e.origin !== location.origin || !e.data) return;
+  var m = e.data;
+  if (m.type === 'vandorf-theme') document.documentElement.setAttribute('data-theme', m.theme);
+  if (m.type === 'ide-refresh') load();
+  if (m.type === 'ide-active'){
+    active = { path: m.path || null, proc: m.proc || null };
+    if (m.path && !(open && ('f:' + m.path) in open)) setOpen('f:' + m.path, true);
+    render();
+  }
+});
+post({ type: 'explorer-ready' });
+load();
+})();
+</script>
+</body>
+</html>

@@ -16,7 +16,7 @@ usage:
   vandorf doc   [<file.sys> | --manifest vandorf.toml] [-o out.json]
   vandorf go    <file.sys> -o <dir> [--package name] [--module import/path/of/dir] [--types-dir types] [--main] [--entry Proc]
   vandorf rust  <file.sys> -o <dir> [--module-dir path/under/src] [--main] [--entry Proc]
-  vandorf serve [--addr 127.0.0.1:8080] [--dir .]   # editor + visualizer workbench
+  vandorf serve [--addr 127.0.0.1:8080] [--dir .] [--term | --no-term]   # IDE; terminals default on for loopback only
 
 Without a file, check and doc use the project: the nearest vandorf.toml in the
 current directory or its parents (see the README for its fields). A project's
@@ -356,17 +356,20 @@ fn format_with(tool: &str, flags: &[&str], files: &[PathBuf]) {
 }
 
 fn serve_cmd(argv: &[String]) -> Result<(), String> {
-    let (mut addr, mut dir) = ("127.0.0.1:8080".to_string(), PathBuf::from("."));
+    let mut opts = serve::Options { addr: "127.0.0.1:8080".into(), dir: PathBuf::from("."), term: None };
     let mut it = argv.iter();
     while let Some(a) = it.next() {
-        let val = it.next().ok_or_else(|| format!("{a} needs a value\n\n{USAGE}"));
         match a.as_str() {
-            "--addr" => addr = val?.clone(),
-            "--dir" => dir = PathBuf::from(val?),
+            "--term" => opts.term = Some(true),
+            "--no-term" => opts.term = Some(false),
+            "--addr" | "--dir" => {
+                let val = it.next().ok_or_else(|| format!("{a} needs a value\n\n{USAGE}"))?;
+                if a == "--addr" { opts.addr = val.clone() } else { opts.dir = PathBuf::from(val) }
+            }
             _ => return Err(format!("unknown argument {a}\n\n{USAGE}")),
         }
     }
-    serve::serve(&addr, &dir)
+    serve::serve(opts)
 }
 
 fn default_package(dir: &Path) -> String {

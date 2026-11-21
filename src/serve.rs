@@ -1,59 +1,185 @@
-//! `vandorf serve`: a local workbench (editor + visualizer + Go preview).
+//! `vandorf serve`: a local IDE (explorer, tabbed diagram/text viewer,
+//! terminal) over the source directory.
 //!
-//! Routes:
-//! - `GET /`              workbench page
-//! - `GET /viz`           the visualizer (also usable standalone)
+//! Pages (each IDE panel is its own page, embedded as an iframe):
+//! - `GET /`              the IDE shell
+//! - `GET /explorer`      file explorer (files as directories of their procs)
+//! - `GET /viewer`        one editor tab: diagram or text of a file, preview drawer
+//! - `GET /viz`           the diagram renderer (also usable standalone)
+//! - `GET /terminal`      the terminal panel
+//! - `GET /workbench`     the old single-page workbench
+//!
+//! API:
 //! - `GET /api/sources`   `.sys` files under the source dir
-//! - `GET /api/source?path=..`  one file's text
-//! - `POST /api/compile`  `{source}` or `{path}` -> document + generated Go,
-//!   or diagnostics. Same response shape as the Go visualizer server.
+//! - `GET /api/tree`      every `.sys` file with its outline (procs, funcs, types)
+//! - `GET /api/source?path=..`  one file's text (any file under the source dir)
+//! - `POST /api/compile`  `{source}` or `{path}` -> document, symbols and
+//!   generated code, or diagnostics. Same response shape as the Go
+//!   visualizer server, plus `symbols`.
+//! - `POST /api/save`     `{path, source}`: writes an existing `.sys` file
+//! - `POST /api/term`, `GET /api/term/read?id=&from=`, `POST /api/term/input?id=`,
+//!   `POST /api/term/resize?id=&cols=&rows=`, `POST /api/term/kill?id=`:
+//!   shells on a pty (via `script(1)`), read by long polling.
+//!
+//! Writes and terminals need the per-run token the pages are served with
+//! (`X-Vandorf-Token`), so other sites can't drive them, and, on a loopback
+//! address, a loopback `Host`, against DNS rebinding.
 
 use serde_json::{Value, json};
-use std::io::Read;
+use std::collections::HashMap;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 use tiny_http::{Header, Method, Request, Response, Server};
 use vandorf::codegen::go::GoOptions;
 use vandorf::codegen::rust::RustOptions;
 use vandorf::codegen::{self, MainSpec, Output};
 use vandorf::project;
+use vandorf::sema::{NodeKind, Program};
 
+const IDE: &str = include_str!("../web/ide.html");
+const EXPLORER: &str = include_str!("../web/explorer.html");
+const VIEWER: &str = include_str!("../web/viewer.html");
+const TERMINAL: &str = include_str!("../web/terminal.html");
 const WORKBENCH: &str = include_str!("../web/workbench.html");
 const VISUALIZER: &str = include_str!("../web/visualizer.html");
 
-pub fn serve(addr: &str, dir: &Path) -> Result<(), String> {
-    let base = std::fs::canonicalize(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let server = Server::http(addr).map_err(|e| format!("cannot listen on {addr}: {e}"))?;
-    eprintln!("vandorf workbench on http://{addr}  (sources: {})", base.display());
+pub struct Options {
+    pub addr: String,
+    pub dir: PathBuf,
+    /// Whether to offer terminals. Defaults to on for loopback addresses only.
+    pub term: Option<bool>,
+}
+
+struct State {
+    base: PathBuf,
+    token: String,
+    /// Bound to a loopback address: requests must name a loopback host.
+    loopback: bool,
+    term: bool,
+    terms: Mutex<HashMap<u32, Arc<Term>>>,
+    next_term: AtomicU32,
+}
+
+pub fn serve(opts: Options) -> Result<(), String> {
+    let base = std::fs::canonicalize(&opts.dir).map_err(|e| format!("{}: {e}", opts.dir.display()))?;
+    let server = Server::http(&opts.addr).map_err(|e| format!("cannot listen on {}: {e}", opts.addr))?;
+    let host = opts.addr.rsplit_once(':').map(|(h, _)| h).unwrap_or(&opts.addr);
+    let loopback = is_loopback(host);
+    let term = opts.term.unwrap_or(loopback);
+    if term && !loopback {
+        eprintln!("warning: terminals are enabled on a non-loopback address; anyone who can load the page gets a shell");
+    }
+    let state = Arc::new(State {
+        base,
+        token: token()?,
+        loopback,
+        term,
+        terms: Mutex::new(HashMap::new()),
+        next_term: AtomicU32::new(1),
+    });
+    eprintln!(
+        "vandorf IDE on http://{}  (sources: {}{})",
+        opts.addr,
+        state.base.display(),
+        if term { "" } else { ", terminal off" }
+    );
     for req in server.incoming_requests() {
-        handle(req, &base);
+        let state = state.clone();
+        // Terminal reads block, so every request gets its own thread.
+        std::thread::spawn(move || handle(req, &state));
     }
     Ok(())
 }
 
-fn handle(mut req: Request, base: &Path) {
+fn is_loopback(host: &str) -> bool {
+    let h = host.trim_start_matches('[').trim_end_matches(']');
+    h == "localhost" || h == "::1" || h.starts_with("127.")
+}
+
+fn token() -> Result<String, String> {
+    let mut b = [0u8; 16];
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut b))
+        .map_err(|e| format!("cannot make a session token: {e}"))?;
+    Ok(b.iter().map(|x| format!("{x:02x}")).collect())
+}
+
+fn header_value<'a>(req: &'a Request, name: &'static str) -> Option<&'a str> {
+    req.headers().iter().find(|h| h.field.equiv(name)).map(|h| h.value.as_str())
+}
+
+/// Whether a request may write files or drive a terminal.
+fn authorized(req: &Request, st: &State) -> bool {
+    let host_ok = !st.loopback
+        || header_value(req, "Host").is_some_and(|h| {
+            let name = match h.rsplit_once(':') {
+                Some((n, p)) if p.chars().all(|c| c.is_ascii_digit()) => n,
+                _ => h,
+            };
+            is_loopback(name)
+        });
+    host_ok && header_value(req, "X-Vandorf-Token") == Some(st.token.as_str())
+}
+
+fn handle(mut req: Request, st: &State) {
     let url = req.url().to_string();
     let (path, query) = url.split_once('?').unwrap_or((&url, ""));
+    let base = st.base.as_path();
+    let page = |s: &str| html(s, st);
     let resp = match (req.method(), path) {
-        (Method::Get, "/") => html(WORKBENCH),
-        (Method::Get, "/viz" | "/viz/") => html(VISUALIZER),
+        (Method::Get, "/") => page(IDE),
+        (Method::Get, "/explorer") => page(EXPLORER),
+        (Method::Get, "/viewer") => page(VIEWER),
+        (Method::Get, "/terminal") => page(TERMINAL),
+        (Method::Get, "/workbench") => page(WORKBENCH),
+        (Method::Get, "/viz" | "/viz/") => page(VISUALIZER),
         (Method::Get, "/api/sources") => api(list_sources(base).map(|files| {
             json!({ "ok": true, "root": base.display().to_string(), "files": files })
         })),
+        (Method::Get, "/api/tree") => api(tree(base)),
         (Method::Get, "/api/source") => api(query_param(query, "path")
             .ok_or_else(|| "missing ?path=".to_string())
             .and_then(|p| read_source(base, &p).map(|src| json!({ "ok": true, "path": p, "source": src })))),
-        (Method::Post, "/api/compile") => {
-            let mut body = String::new();
-            let read = req.as_reader().take(1 << 20).read_to_string(&mut body);
-            api(read.map_err(|e| format!("bad request: {e}")).and_then(|_| compile(base, &body)))
+        (Method::Post, "/api/compile") => api(body(&mut req).and_then(|b| compile(base, &b))),
+        (Method::Post, "/api/save") if authorized(&req, st) => api(body(&mut req).and_then(|b| save(base, &b))),
+        (Method::Post, "/api/save") => forbidden(),
+        (_, p) if p.starts_with("/api/term") => {
+            if !st.term {
+                api(Err("terminals are off (start `vandorf serve --term` to enable them)".into()))
+            } else if !authorized(&req, st) {
+                forbidden()
+            } else {
+                term_api(&mut req, st, p, query)
+            }
         }
         _ => Response::from_string("not found").with_status_code(404).boxed(),
     };
     let _ = req.respond(resp);
 }
 
-fn html(s: &'static str) -> tiny_http::ResponseBox {
-    Response::from_string(s).with_header(header("text/html; charset=utf-8")).boxed()
+fn body(req: &mut Request) -> Result<String, String> {
+    let mut body = String::new();
+    req.as_reader().take(4 << 20).read_to_string(&mut body).map_err(|e| format!("bad request: {e}"))?;
+    Ok(body)
+}
+
+fn forbidden() -> tiny_http::ResponseBox {
+    Response::from_string(json!({ "ok": false, "error": "forbidden: missing or wrong session token" }).to_string())
+        .with_status_code(403)
+        .with_header(header("application/json"))
+        .boxed()
+}
+
+/// Pages carry the session token, for the requests that need it.
+fn html(s: &str, st: &State) -> tiny_http::ResponseBox {
+    Response::from_string(s.replace("__VANDORF_TOKEN__", &st.token))
+        .with_header(header("text/html; charset=utf-8"))
+        .with_header(Header::from_bytes("Cache-Control", "no-store").unwrap())
+        .boxed()
 }
 
 fn api(r: Result<Value, String>) -> tiny_http::ResponseBox {
@@ -69,6 +195,321 @@ fn api(r: Result<Value, String>) -> tiny_http::ResponseBox {
 
 fn header(ct: &str) -> Header {
     Header::from_bytes("Content-Type", ct).unwrap()
+}
+
+/* ---------- explorer ---------- */
+
+/// Every `.sys` file with the project it belongs to and its outline.
+fn tree(base: &Path) -> Result<Value, String> {
+    let files = list_sources(base)?;
+    let mut projects: HashMap<PathBuf, Value> = HashMap::new();
+    let out: Vec<Value> = files
+        .iter()
+        .map(|rel| {
+            let abs = base.join(rel);
+            let project = project::find(abs.parent().unwrap_or(base)).filter(|m| m.starts_with(base)).map(|m| {
+                projects
+                    .entry(m.clone())
+                    .or_insert_with(|| {
+                        let name = project::load(&m).map(|p| p.manifest.project.name).unwrap_or_else(|_| "?".into());
+                        let dir = m.parent().and_then(|d| d.strip_prefix(base).ok()).map(slash).unwrap_or_default();
+                        json!({ "name": name, "dir": dir })
+                    })
+                    .clone()
+            });
+            let text = std::fs::read_to_string(&abs).unwrap_or_default();
+            let (items, error) = match vandorf::parser::parse(&text, 0) {
+                Ok(file) => (outline(&file, &text), None),
+                Err(errs) => (vec![], errs.first().map(|e| e.to_string())),
+            };
+            json!({ "path": rel, "project": project, "items": items, "error": error })
+        })
+        .collect();
+    Ok(json!({ "ok": true, "root": base.display().to_string(), "files": out }))
+}
+
+/// Declarations of one file, procs with their nested procs and funcs.
+/// `qual` is the name the document's grids and the symbols use.
+fn outline(file: &vandorf::ast::File, src: &str) -> Vec<Value> {
+    fn node(n: &vandorf::ast::Node, prefix: &str, src: &str) -> Value {
+        match n {
+            vandorf::ast::Node::Func(f) => item("func", &f.name, prefix, src, vec![]),
+            vandorf::ast::Node::Proc(p) => {
+                let qual = qualify(prefix, &p.name.name);
+                let kids = p.nodes.iter().map(|k| node(k, &qual, src)).collect();
+                item("proc", &p.name, prefix, src, kids)
+            }
+        }
+    }
+    let mut out: Vec<Value> = vec![];
+    for t in &file.types {
+        out.push(item("type", &t.name, "", src, vec![]));
+    }
+    for i in &file.interfaces {
+        let kids = i.funcs.iter().map(|f| item("func", &f.name, &i.name.name, src, vec![])).collect();
+        out.push(item("interface", &i.name, "", src, kids));
+    }
+    for n in &file.nodes {
+        out.push(node(n, "", src));
+    }
+    out.sort_by_key(|v| v["line"].as_u64());
+    out
+}
+
+fn qualify(prefix: &str, name: &str) -> String {
+    if prefix.is_empty() { name.to_string() } else { format!("{prefix}.{name}") }
+}
+
+fn item(kind: &str, name: &vandorf::ast::Ident, prefix: &str, src: &str, children: Vec<Value>) -> Value {
+    json!({
+        "kind": kind,
+        "name": name.name,
+        "qual": qualify(prefix, &name.name),
+        "line": line_col(src, name.span.start)["line"],
+        "children": children,
+    })
+}
+
+fn slash(p: &Path) -> String {
+    p.to_string_lossy().replace('\\', "/")
+}
+
+/* ---------- saving ---------- */
+
+fn save(base: &Path, body: &str) -> Result<Value, String> {
+    let req: Value = serde_json::from_str(body).map_err(|e| format!("bad request: {e}"))?;
+    let p = req["path"].as_str().ok_or("missing path")?;
+    let text = req["source"].as_str().ok_or("missing source")?;
+    let abs = resolve(base, p)?;
+    if !abs.extension().is_some_and(|x| x.eq_ignore_ascii_case("sys")) || !abs.is_file() {
+        return Err(format!("only existing .sys files can be saved: {p}"));
+    }
+    std::fs::write(&abs, text).map_err(|e| format!("cannot write {p}: {e}"))?;
+    Ok(json!({ "ok": true, "path": p, "bytes": text.len() }))
+}
+
+/* ---------- symbols, for the viewer's preview drawer ---------- */
+
+/// Typedefs, funcs and procs of a checked program, with where they're
+/// declared (paths relative to the source dir, 0-based lines) and, for
+/// funcs, their implementation files resolved the same way.
+fn symbols(base: &Path, prog: &Program, files: &[vandorf::Source], roots: &[PathBuf]) -> Value {
+    let rel = |p: &Path| p.strip_prefix(base).map(slash).ok();
+    let types: serde_json::Map<String, Value> =
+        prog.types.iter().map(|t| (t.name.clone(), json!({ "def": t.ty.to_string(), "recursive": t.recursive }))).collect();
+    let mut nodes = serde_json::Map::new();
+    for n in &prog.nodes {
+        let fid = n.span.context;
+        let (Some(f), Some(root)) = (files.get(fid), roots.get(fid)) else { continue };
+        let abs = project::normalize(&root.join(&f.path));
+        let loc = json!({ "file": rel(&abs), "line": line_col(&f.text, n.span.start)["line"] });
+        let params = |ps: &[(String, vandorf::types::Type)]| -> String {
+            ps.iter().map(|(p, t)| format!("{p}: {t}")).collect::<Vec<_>>().join(", ")
+        };
+        let v = match &n.kind {
+            NodeKind::Func(func) => {
+                let dir = abs.parent().unwrap_or(base);
+                let imps: Vec<Value> = func
+                    .imps
+                    .iter()
+                    .map(|i| {
+                        let p = project::normalize(&dir.join(&i.written));
+                        json!({
+                            "written": i.written,
+                            "path": rel(&p),
+                            "function": i.function,
+                            "lang": i.written.rsplit_once('.').map(|(_, e)| e).unwrap_or(""),
+                        })
+                    })
+                    .collect();
+                json!({ "kind": "func", "params": params(&func.params), "ret": func.ret.to_string(), "imps": imps, "loc": loc })
+            }
+            NodeKind::Proc(p) => json!({
+                "kind": "proc",
+                "params": params(prog.params(p.entry)),
+                "ret": p.ret.to_string(),
+                "entry": prog.node(p.entry).name(),
+                "loc": loc,
+            }),
+            _ => continue,
+        };
+        nodes.insert(n.qual_name(), v);
+    }
+    json!({ "types": types, "nodes": nodes })
+}
+
+/* ---------- terminals ---------- */
+
+/// Output kept per terminal, for reconnecting panels.
+const SCROLLBACK: usize = 1 << 20;
+
+struct Term {
+    child: Mutex<Child>,
+    stdin: Mutex<ChildStdin>,
+    out: Mutex<TermOut>,
+    ready: Condvar,
+    pid: u32,
+}
+
+#[derive(Default)]
+struct TermOut {
+    data: Vec<u8>,
+    /// Stream offset of `data[0]`.
+    start: u64,
+    closed: bool,
+}
+
+impl Term {
+    fn spawn(cwd: &Path) -> Result<Arc<Term>, String> {
+        let shell = std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/bash".into());
+        // script(1) runs the shell on a pty, so line editing, colors and
+        // job control work although we talk to it over pipes.
+        let mut child = Command::new("script")
+            .args(["-qfec", &format!("{shell} -i"), "/dev/null"])
+            .current_dir(cwd)
+            .env("TERM", "xterm-256color")
+            .env("COLORTERM", "truecolor")
+            .env("PATH", path_with_self())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("cannot start a shell with script(1): {e}"))?;
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
+        let t = Arc::new(Term {
+            pid: child.id(),
+            child: Mutex::new(child),
+            stdin: Mutex::new(stdin),
+            out: Mutex::new(TermOut::default()),
+            ready: Condvar::new(),
+        });
+        let pump = |t: Arc<Term>, mut r: Box<dyn Read + Send>, closes: bool| {
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 8192];
+                loop {
+                    let n = r.read(&mut buf).unwrap_or(0);
+                    let mut o = t.out.lock().unwrap();
+                    if n == 0 {
+                        if closes {
+                            o.closed = true;
+                            t.ready.notify_all();
+                        }
+                        return;
+                    }
+                    o.data.extend_from_slice(&buf[..n]);
+                    if o.data.len() > SCROLLBACK {
+                        let cut = o.data.len() - SCROLLBACK;
+                        o.data.drain(..cut);
+                        o.start += cut as u64;
+                    }
+                    t.ready.notify_all();
+                }
+            });
+        };
+        pump(t.clone(), Box::new(stdout), true);
+        pump(t.clone(), Box::new(stderr), false);
+        Ok(t)
+    }
+
+    /// Output from stream offset `from`, waiting up to `wait` for some.
+    fn read(&self, from: u64, wait: Duration) -> (Vec<u8>, u64, bool) {
+        let mut o = self.out.lock().unwrap();
+        let end = |o: &TermOut| o.start + o.data.len() as u64;
+        if end(&o) <= from && !o.closed {
+            o = self.ready.wait_timeout_while(o, wait, |o| end(o) <= from && !o.closed).unwrap().0;
+        }
+        let from = from.clamp(o.start, end(&o));
+        (o.data[(from - o.start) as usize..].to_vec(), end(&o), o.closed)
+    }
+
+    /// The pty's slave device: the shell's stdin, a child of script(1).
+    fn pty(&self) -> Option<PathBuf> {
+        let kids = std::fs::read_to_string(format!("/proc/{0}/task/{0}/children", self.pid)).ok()?;
+        let kid = kids.split_whitespace().next()?;
+        std::fs::read_link(format!("/proc/{kid}/fd/0")).ok().filter(|p| p.starts_with("/dev/pts"))
+    }
+
+    fn resize(&self, cols: u16, rows: u16) -> Result<(), String> {
+        let pty = self.pty().ok_or("terminal has no pty yet")?;
+        // Setting the size on the slave signals SIGWINCH to its foreground job.
+        let ok = Command::new("stty")
+            .arg("-F")
+            .arg(&pty)
+            .args(["rows", &rows.to_string(), "cols", &cols.to_string()])
+            .status()
+            .map_err(|e| format!("stty: {e}"))?
+            .success();
+        if ok { Ok(()) } else { Err("stty failed".into()) }
+    }
+}
+
+/// `PATH` with this executable's directory first, so `vandorf` in the
+/// terminal is the one serving.
+fn path_with_self() -> std::ffi::OsString {
+    let mut dirs: Vec<PathBuf> = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)).into_iter().collect();
+    dirs.extend(std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect::<Vec<_>>()).unwrap_or_default());
+    std::env::join_paths(dirs).unwrap_or_default()
+}
+
+impl Drop for Term {
+    fn drop(&mut self) {
+        let _ = self.child.get_mut().map(|c| c.kill());
+    }
+}
+
+fn term_api(req: &mut Request, st: &State, path: &str, query: &str) -> tiny_http::ResponseBox {
+    let id: Option<u32> = query_param(query, "id").and_then(|s| s.parse().ok());
+    let get = || id.and_then(|id| st.terms.lock().unwrap().get(&id).cloned()).ok_or_else(|| "no such terminal".to_string());
+    match (req.method(), path) {
+        (Method::Post, "/api/term") => {
+            let cwd = query_param(query, "cwd").and_then(|c| resolve(&st.base, &c).ok()).filter(|p| p.is_dir());
+            api(Term::spawn(cwd.as_deref().unwrap_or(&st.base)).map(|t| {
+                let id = st.next_term.fetch_add(1, Ordering::Relaxed);
+                st.terms.lock().unwrap().insert(id, t);
+                json!({ "ok": true, "id": id })
+            }))
+        }
+        (Method::Get, "/api/term/list") => {
+            let ids: Vec<u32> = st.terms.lock().unwrap().keys().copied().collect();
+            api(Ok(json!({ "ok": true, "ids": ids })))
+        }
+        (Method::Get, "/api/term/read") => match get() {
+            Ok(t) => {
+                let from = query_param(query, "from").and_then(|s| s.parse().ok()).unwrap_or(0);
+                let (data, next, closed) = t.read(from, Duration::from_secs(20));
+                Response::from_data(data)
+                    .with_header(header("application/octet-stream"))
+                    .with_header(Header::from_bytes("X-Next", next.to_string()).unwrap())
+                    .with_header(Header::from_bytes("X-Closed", if closed { "1" } else { "0" }).unwrap())
+                    .boxed()
+            }
+            Err(e) => api(Err(e)),
+        },
+        (Method::Post, "/api/term/input") => {
+            let mut data = vec![];
+            let read = req.as_reader().take(1 << 20).read_to_end(&mut data);
+            api(read.map_err(|e| e.to_string()).and_then(|_| get()).and_then(|t| {
+                let mut w = t.stdin.lock().unwrap();
+                w.write_all(&data).and_then(|_| w.flush()).map_err(|e| format!("terminal closed: {e}"))?;
+                Ok(json!({ "ok": true }))
+            }))
+        }
+        (Method::Post, "/api/term/resize") => {
+            let n = |k| query_param(query, k).and_then(|s| s.parse::<u16>().ok()).filter(|&n| n > 0);
+            api(get().and_then(|t| match (n("cols"), n("rows")) {
+                (Some(c), Some(r)) => t.resize(c, r).map(|_| json!({ "ok": true })),
+                _ => Err("need cols and rows".into()),
+            }))
+        }
+        (Method::Post, "/api/term/kill") => api(get().map(|t| {
+            let _ = t.child.lock().unwrap().kill();
+            st.terms.lock().unwrap().remove(&id.unwrap());
+            json!({ "ok": true })
+        })),
+        _ => Response::from_string("not found").with_status_code(404).boxed(),
+    }
 }
 
 /// Compiles the editor's text. If the file belongs to a project (a
@@ -126,6 +567,12 @@ fn compile(base: &Path, body: &str) -> Result<Value, String> {
     };
 
     let doc = vandorf::document::generate(&prog);
+    // Before previewing, which rebases impl paths onto the outputs.
+    let roots: Vec<PathBuf> = match &proj {
+        Some(p) => vec![p.root.clone(); files.len()],
+        None => vec![base.to_path_buf(); files.len()],
+    };
+    let syms = symbols(base, &prog, &files, &roots);
     let (go, rust) = match &proj {
         Some(p) => preview_project(p, &mut prog, &dirs),
         None => {
@@ -139,10 +586,10 @@ fn compile(base: &Path, body: &str) -> Result<Value, String> {
             let mut go_opts = GoOptions::new("app", Some("example.com/app".into()));
             go_opts.mains = main.iter().map(|m| MainSpec { path: "main".into(), ..m.clone() }).collect();
             let rust_opts = RustOptions {
-                servers: vec![],
                 module_dir: Some("app".into()),
                 mains: main.iter().map(|m| MainSpec { path: "main.rs".into(), ..m.clone() }).collect(),
                 crate_name: Some("my_crate".into()),
+                servers: vec![],
             };
             (Some(codegen::go::generate(&prog, &go_opts)), Some(codegen::rust::generate(&prog, &rust_opts)))
         }
@@ -154,6 +601,7 @@ fn compile(base: &Path, body: &str) -> Result<Value, String> {
         "project": proj.as_ref().map(|p| p.manifest.project.name.clone()),
         "grids": doc.grids.len(),
         "document": doc,
+        "symbols": syms,
         "go": output_json(go.unwrap_or_else(none)),
         "rust": output_json(rust.unwrap_or_else(none)),
     }))
@@ -180,10 +628,10 @@ fn preview_project(p: &project::Project, prog: &mut vandorf::sema::Program, dirs
         let out = p.root.join(&r.out);
         project::rebase_impls(prog, dirs, &out);
         let opts = RustOptions {
-            servers: vec![],
             module_dir: r.module_dir.clone().or_else(|| crate::rust_module_dir(&out)),
             mains: crate::rust_mains(&m.bin.iter().collect::<Vec<_>>()),
             crate_name: crate::rust_lib_name(&out),
+            servers: vec![],
         };
         codegen::rust::generate(prog, &opts)
     });

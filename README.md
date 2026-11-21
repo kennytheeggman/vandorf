@@ -7,7 +7,7 @@ cd examples/demo
 cargo run -- check                   # the project in vandorf.toml
 cargo run -- build                   # both backends and both bins (or: build calc)
 cargo run -- doc -o doc.json         # visualizer document
-cargo run -- serve                   # workbench on :8080
+cargo run -- serve                   # IDE on :8080 (explorer, diagram/text tabs, terminal)
 
 (cd go && go test ./... && go run ./cmd/demo 1 ab && go run ./cmd/calc 3)        # end:S, 115
 (cd rs && cargo test && cargo run --bin demo -- 1 ab && cargo run --bin calc -- 3)  # end:S, 115
