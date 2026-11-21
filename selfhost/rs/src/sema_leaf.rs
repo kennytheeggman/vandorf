@@ -1142,3 +1142,7 @@ pub fn set_graph(mut cx: Cx, pid: i64, g: Graph) -> Result<Cx, String> {
     });
     Ok(cx)
 }
+
+pub fn pack_placed(l: Layout, _target: i64, back: bool) -> Result<RecordPlacedOut, String> {
+    Ok(RecordPlacedOut { l, back })
+}
