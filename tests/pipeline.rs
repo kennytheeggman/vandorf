@@ -43,6 +43,52 @@ fn go_fixture_compiles_and_lays_out() {
 }
 
 #[test]
+fn edges_carry_the_value_they_pass() {
+    let doc = document::generate(&compile(GO_FIXTURE));
+    let shown = |g: &document::Grid| -> Vec<(EdgeType, String, String)> {
+        g.edges.iter().map(|e| (e.ty, e.value_type.clone().unwrap(), e.call.clone().unwrap())).collect()
+    };
+    // for each: an element of the dim; collect: the array of the region's results.
+    assert_eq!(shown(&doc.grids["ForEach"]), vec![
+        (EdgeType::ForEachExpand, "int".into(), "Process(i: int, l: []int)".into()),
+        (EdgeType::ForEachCollect, "[]int".into(), "Collect(l: []int)".into()),
+    ]);
+    // A switch: every arm passes the source's output.
+    let bar = &doc.grids["Bar"];
+    let mut arms: Vec<(String, String, String)> = bar
+        .edges
+        .iter()
+        .filter(|e| e.ty == EdgeType::Match)
+        .map(|e| (e.label.clone().unwrap(), e.value_type.clone().unwrap(), e.call.clone().unwrap()))
+        .collect();
+    arms.sort();
+    assert_eq!(arms, vec![
+        ("else".into(), "int".into(), "Branch2Begin(i: int)".into()),
+        ("else".into(), "int".into(), "ForEach(i: int)".into()),
+        ("this < 10".into(), "int".into(), "Loop(s: string)".into()),
+        ("this == 0".into(), "int".into(), "Branch1(i: int)".into()),
+    ]);
+    // Void outputs show as void.
+    let into_end: Vec<&str> = bar
+        .edges
+        .iter()
+        .filter(|e| e.call.as_deref().is_some_and(|c| c.starts_with("End(r: enum {")))
+        .map(|e| e.value_type.as_deref().unwrap())
+        .collect();
+    assert_eq!(into_end.len(), 2);
+    assert!(into_end.contains(&"void") && into_end.contains(&"string"), "{into_end:?}");
+    // Typedef names are kept.
+    let doc2 = document::generate(&compile(
+        "type T = { x: int }; proc P(A): int { func A(): T; func B(t: T): int; A -> B(t = this); }",
+    ));
+    let e = &doc2.grids["P"].edges[0];
+    assert_eq!((e.value_type.as_deref(), e.call.as_deref()), (Some("T"), Some("B(t: T)")));
+    // The fields are in the JSON, under the visualizer's names.
+    let json = serde_json::to_string(&doc).unwrap();
+    assert!(json.contains(r#""valueType":"[]int","call":"Collect(l: []int)""#), "{json}");
+}
+
+#[test]
 fn back_edge_does_not_push_down() {
     let doc = document::generate(&compile(
         r#"

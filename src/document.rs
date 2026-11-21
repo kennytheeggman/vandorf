@@ -68,6 +68,13 @@ pub struct Edge {
     pub target: [usize; 2],
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// Type of `this` along the edge: what the target's arguments are
+    /// computed from. Not in the Go document format.
+    #[serde(rename = "valueType", skip_serializing_if = "Option::is_none")]
+    pub value_type: Option<String>,
+    /// What the target receives: its name and parameters, `B(i: int)`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call: Option<String>,
 }
 
 impl From<NodeType> for u8 {
@@ -96,7 +103,18 @@ struct Pending {
     ty: EdgeType,
     target: NodeId,
     label: Option<String>,
+    value: String,
+    call: String,
     back: bool,
+}
+
+/// An edge out of a node, before layout.
+struct Out {
+    ty: EdgeType,
+    target: NodeId,
+    label: Option<String>,
+    /// Type of `this` along the edge.
+    value: String,
 }
 
 #[derive(Default)]
@@ -146,12 +164,13 @@ impl Layout {
     }
 }
 
-fn edge_targets(g: &Graph, src: NodeId) -> Vec<(EdgeType, NodeId, Option<String>)> {
+fn edge_targets(prog: &Program, g: &Graph, src: NodeId) -> Vec<Out> {
     let in_region = g.region_of.get(&src).is_some_and(|&r| r != 0);
+    let ret = prog.ret(src).to_string();
     match &g.edges[&src] {
         SEdge::Call(c) => {
             let ty = if in_region { EdgeType::ForEachContinue } else { EdgeType::Call };
-            vec![(ty, c.target, None)]
+            vec![Out { ty, target: c.target, label: None, value: ret }]
         }
         SEdge::Match(arms) => arms
             .iter()
@@ -159,12 +178,20 @@ fn edge_targets(g: &Graph, src: NodeId) -> Vec<(EdgeType, NodeId, Option<String>
             .map(|(path, c)| {
                 // A nested switch's arms are flattened into one edge per call.
                 let label: Vec<String> = path.iter().map(|l| arm_label(l)).collect();
-                (EdgeType::Match, c.target, Some(label.join(" → ")))
+                Out { ty: EdgeType::Match, target: c.target, label: Some(label.join(" → ")), value: ret.clone() }
             })
             .collect(),
-        SEdge::ForEach { call, .. } => vec![(EdgeType::ForEachExpand, call.target, None)],
-        SEdge::Collect(c) => vec![(EdgeType::ForEachCollect, c.target, None)],
+        SEdge::ForEach { call, elem, .. } => {
+            vec![Out { ty: EdgeType::ForEachExpand, target: call.target, label: None, value: elem.to_string() }]
+        }
+        SEdge::Collect(c) => vec![Out { ty: EdgeType::ForEachCollect, target: c.target, label: None, value: format!("[]{ret}") }],
     }
+}
+
+/// `B(i: int, l: []int)`: what a call to `n` receives.
+fn call_sig(prog: &Program, pid: NodeId, n: NodeId) -> String {
+    let params: Vec<String> = prog.params(n).iter().map(|(p, t)| format!("{p}: {t}")).collect();
+    format!("{}({})", display_label(prog, pid, n), params.join(", "))
 }
 
 /// An arm's head as written, without the parentheses around a condition.
@@ -211,7 +238,7 @@ fn layout(prog: &Program, pid: NodeId) -> Grid {
                 continue;
             }
             let mut recorded = vec![];
-            for (ty, target, label) in edge_targets(g, src) {
+            for Out { ty, target, label, value } in edge_targets(prog, g, src) {
                 let back = match l.pos.get(&target) {
                     None => {
                         l.place(target, row);
@@ -229,7 +256,8 @@ fn layout(prog: &Program, pid: NodeId) -> Grid {
                         }
                     }
                 };
-                recorded.push(Pending { ty, target, label, back });
+                let call = call_sig(prog, pid, target);
+                recorded.push(Pending { ty, target, label, value, call, back });
             }
             l.out.insert(src, recorded);
         }
@@ -264,7 +292,14 @@ fn layout(prog: &Program, pid: NodeId) -> Grid {
         for (ci, n) in r.iter().enumerate() {
             for e in l.out.get(n).into_iter().flatten() {
                 let Some(&(tr, tc)) = l.pos.get(&e.target) else { continue };
-                grid.edges.push(Edge { ty: e.ty, source: [ri, ci], target: [tr, tc], label: e.label.clone() });
+                grid.edges.push(Edge {
+                    ty: e.ty,
+                    source: [ri, ci],
+                    target: [tr, tc],
+                    label: e.label.clone(),
+                    value_type: Some(e.value.clone()),
+                    call: Some(e.call.clone()),
+                });
             }
         }
     }

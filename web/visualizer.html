@@ -166,6 +166,18 @@ svg text{font-family:Arial,Helvetica,sans-serif}
 .e-collect{stroke:var(--collect)}
 .elabel rect{fill:#fff; fill-opacity:.92; stroke:#d7dee8; stroke-width:1}
 .elabel text{font-size:11px; font-weight:600; fill:#7c3f00; text-anchor:middle}
+/* Edge hover: a wide invisible stroke makes thin edges easy to hit. */
+.ehit{fill:none; stroke:transparent; stroke-width:14; pointer-events:stroke; cursor:help}
+.eg .elabel{cursor:help}
+.eg.hot .e{stroke-width:3}
+#etip{
+  position:fixed; z-index:60; pointer-events:none; display:none; max-width:420px;
+  background:var(--surf-bg); color:var(--surf-tx); border:1px solid var(--surf-bd); border-radius:10px;
+  padding:8px 10px; font-size:12px; line-height:1.45; box-shadow:0 8px 24px rgba(0,0,0,.25);
+}
+#etip .k{color:var(--surf-mut); font-size:10px; text-transform:uppercase; letter-spacing:.6px; margin-right:6px}
+#etip code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:11.5px; word-break:break-word}
+#etip .row + .row{margin-top:3px}
 </style>
 </head>
 <body>
@@ -658,7 +670,11 @@ function edgeSVG(e, pos, uid, matchSrc){
     lx = (ox + ux) / 2; ly = yb - 8;
   }
 
-  var out = '<path class="e ' + cls + '" d="' + d + '" marker-end="url(#' + ah + ')" data-type="' + type + '"></path>';
+  // The group carries what the edge passes (document edges' valueType and
+  // call, when the compiler provides them) for the hover tooltip.
+  var tip = e.valueType || e.call;
+  var out = (tip ? '<g class="eg" data-vt="' + esc(e.valueType || '') + '" data-call="' + esc(e.call || '') + '" data-lab="' + esc(e.label || '') + '">' : '') +
+    '<path class="e ' + cls + '" d="' + d + '" marker-end="url(#' + ah + ')" data-type="' + type + '"></path>';
   if (!back){
     if (type === ETYPE.EXPAND) out += fanTail(ox, oy, yb, ey, ux, FAN_OFF, cls, ah, 2);
     else if (type === ETYPE.CONTINUE) out += fanTail(ox, oy, yb, ey, ux, FAN_OFF, cls, ah, 1) + fanHead(ox, oy, yb, ux, FAN_OFF, cls, 1);
@@ -670,6 +686,7 @@ function edgeSVG(e, pos, uid, matchSrc){
       '<rect x="' + (lx - tw / 2) + '" y="' + (ly - 11) + '" width="' + tw + '" height="18" rx="9"/>' +
       '<text x="' + lx + '" y="' + (ly + 4) + '">' + esc(e.label) + '</text></g>';
   }
+  if (tip) out += '<path class="ehit" d="' + d + '"></path></g>';
   return out;
 }
 
@@ -854,10 +871,50 @@ function fitView(){
   applyView();
 }
 
+/* ---------- edge tooltip: the value along an edge and the call it feeds ---------- */
+var etip = document.createElement('div');
+etip.id = 'etip';
+document.body.appendChild(etip);
+var hotEdge = null;
+function edgeGroup(el){
+  while (el && el !== document){
+    if (el.classList && el.classList.contains('eg')) return el;
+    el = el.parentNode;
+  }
+  return null;
+}
+function hideTip(){
+  etip.style.display = 'none';
+  if (hotEdge){ hotEdge.classList.remove('hot'); hotEdge = null; }
+}
+viewport.addEventListener('pointermove', function(ev){
+  var g = panning ? null : edgeGroup(ev.target);
+  if (!g){ hideTip(); return; }
+  if (g !== hotEdge){
+    if (hotEdge) hotEdge.classList.remove('hot');
+    hotEdge = g; g.classList.add('hot');
+    var rows = [];
+    if (g.dataset.lab) rows.push('<div class="row"><span class="k">arm</span><code>' + esc(g.dataset.lab) + '</code></div>');
+    if (g.dataset.vt) rows.push('<div class="row"><span class="k">this</span><code>' + esc(g.dataset.vt) + '</code></div>');
+    if (g.dataset.call) rows.push('<div class="row"><span class="k">calls</span><code>' + esc(g.dataset.call) + '</code></div>');
+    etip.innerHTML = rows.join('');
+    etip.style.display = 'block';
+  }
+  // Keep the tooltip beside the pointer and inside the window.
+  var x = ev.clientX + 14, y = ev.clientY + 14;
+  var w = etip.offsetWidth, h = etip.offsetHeight;
+  if (x + w > window.innerWidth - 8) x = ev.clientX - w - 14;
+  if (y + h > window.innerHeight - 8) y = ev.clientY - h - 14;
+  etip.style.left = Math.max(8, x) + 'px';
+  etip.style.top = Math.max(8, y) + 'px';
+});
+viewport.addEventListener('pointerleave', hideTip);
+
 var panning = false, panMoved = false, panX = 0, panY = 0, panOX = 0, panOY = 0;
 viewport.addEventListener('pointerdown', function(ev){
   if (ev.button !== 0) return;
   if (closestAttr(ev.target, 'data-exp') || closestAttr(ev.target, 'data-min') || closestAttr(ev.target, 'data-grid')) return;
+  hideTip();
   panning = true; panMoved = false;
   panX = ev.clientX; panY = ev.clientY;
   panOX = view.x; panOY = view.y;
