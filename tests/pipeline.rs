@@ -425,6 +425,60 @@ fn projects_load_and_rebase_impl_paths() {
 }
 
 #[test]
+fn reads_need_nodes_that_ran() {
+    let funcs = "func A(): int; func B(i: int): int; func C(i: int): int; func D(i: int): int; func E(i: int): int;";
+    let p = |edges: &str| format!("proc P(A): int {{ {funcs} {edges} }}");
+    let diamond = "A switch { (this > 0) -> B(i = this), else -> C(i = this) }; B -> D(i = this);";
+
+    // A switch diamond: B only runs on one side.
+    let e = compile_err(&p(&format!("{diamond} C -> D(i = B);")));
+    assert!(e.contains("P.B may not have run when P.C's edge reads it: a path to P.C skips it"), "{e}");
+    let e = compile_err(&p(&format!("{diamond} C -> D(i = this); D -> E(i = B);")));
+    assert!(e.contains("P.B may not have run when P.D's edge reads it"), "{e}");
+    // A ran before the switch, so it's fine after the merge.
+    compile(&p(&format!("{diamond} C -> D(i = this); D -> E(i = A);")));
+
+    // Loops: the loop node itself and what ran before it are fine after the
+    // loop; a node only on the loop's back edge isn't.
+    compile(&p("A -> B(i = this); B switch { (this < 10) -> B(i = this + A), else -> E(i = B) };"));
+    let e = compile_err(&p("A -> B(i = this); B switch { (this < 10) -> C(i = this), else -> E(i = C) }; C -> B(i = C);"));
+    assert!(e.contains("P.C may not have run when P.B's edge reads it"), "{e}");
+
+    // Nested switch conditions are checked too.
+    let e = compile_err(&format!(
+        "proc P(A): int {{ {funcs} func T(i: int): enum {{ X(int), Y }}; \
+         A switch {{ (this > 0) -> B(i = this), else -> T(i = 0) }}; B -> T(i = this); \
+         T switch {{ X(n) -> switch {{ (n > B) -> E(i = n), else -> E(i = 0) }}, Y() -> E(i = 0) }}; }}"
+    ));
+    assert!(e.contains("P.B may not have run when P.T's edge reads it"), "{e}");
+}
+
+#[test]
+fn reads_in_for_each_regions() {
+    let p = |edges: &str| format!(
+        "proc P(A): int {{ func A(): int; func B(i: int): []int; func C(i: int): []int; func Q(i: int, x: int): int; \
+         func R(i: int): int; func S(l: []int, x: int): int; {edges} }}"
+    );
+    let ok = "A -> B(i = this); B for each (B) -> Q(i = this, x = A); Q -> R(i = A + B.len); R collect each (R) -> S(l = this, x = A + B.len);";
+    compile(&p(ok));
+
+    // A parent-region node must have run before the for each opened.
+    let diamond = "A switch { (this > 0) -> B(i = this), else -> C(i = this) }; C -> D(i = this);";
+    let e = compile_err(&p(&format!(
+        "{diamond} B for each (B) -> Q(i = this, x = 0); Q -> R(i = C.len); R collect each (R) -> S(l = this, x = 0);"
+    )).replace("func A(): int;", "func A(): int; func D(i: []int): int;"));
+    assert!(e.contains("P.C may not have run when P.Q's edge reads it: a path to P.B skips it"), "{e}");
+    // ...and collect args are read after the region, at the opener.
+    let e = compile_err(&p(&format!(
+        "{diamond} B for each (B) -> Q(i = this, x = 0); Q -> R(i = 0); R collect each (R) -> S(l = this, x = C.len);"
+    )).replace("func A(): int;", "func A(): int; func D(i: []int): int;"));
+    assert!(e.contains("P.C may not have run when P.R's edge reads it: a path to P.B skips it"), "{e}");
+    // The entry call's args can't read the region's own nodes, which haven't run.
+    let e = compile_err(&p("A -> B(i = this); B for each (B) -> Q(i = this, x = R); Q -> R(i = 0); R collect each (R) -> S(l = this, x = 0);"));
+    assert!(e.contains("P.R may not have run when P.B's edge reads it"), "{e}");
+}
+
+#[test]
 fn parse_errors_are_rendered() {
     let e = compile_err("proc P(A): int { func A(: int; }");
     assert!(e.contains("Error"), "{e}");

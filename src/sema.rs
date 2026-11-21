@@ -1270,6 +1270,7 @@ impl<'a> Cx<'a> {
         let root = new_region(&mut g, None, entry, Type::Prim(Prim::Void));
         self.fill(&mut g, root, p)?;
         self.check_scopes(pid, &g, p)?;
+        self.check_runs(&g)?;
         let NodeKind::Proc(decl) = &mut self.prog.nodes[pid].kind else { unreachable!() };
         decl.graph = g;
         Ok(())
@@ -1386,6 +1387,135 @@ impl<'a> Cx<'a> {
         }
         Ok(())
     }
+
+    /// Checks that every node output an edge reads has run on every path
+    /// to that edge: within a region the node must dominate the edge's
+    /// source (or be it), and a node of an enclosing region must dominate
+    /// the `for each` that opened the region. Runs after
+    /// [`Cx::check_scopes`], which has rejected reads of nodes in other
+    /// regions.
+    fn check_runs(&self, g: &Graph) -> Result<(), Error> {
+        let dom = dominators(g);
+        let opener: HashMap<RegionId, NodeId> = g.opens.iter().map(|(&n, &r)| (r, n)).collect();
+        let name = |n: NodeId| self.prog.nodes[n].qual_name();
+        // Whether `n` has surely run when control is at `at` in region `r`;
+        // if not, the node (`at` or an opener) a path to which skips it.
+        let ran = |n: NodeId, mut r: RegionId, mut at: NodeId| loop {
+            if g.region_of.get(&n) == Some(&r) {
+                return if dom[&at].contains(&n) { Ok(()) } else { Err(at) };
+            }
+            match opener.get(&r) {
+                Some(&o) => {
+                    at = o;
+                    r = g.region_of[&o];
+                }
+                None => return Err(at),
+            }
+        };
+        let check = |refs: Vec<&Ref>, r: RegionId, at: NodeId, src: NodeId| -> Result<(), Error> {
+            for x in refs {
+                let Root::Node(n) = x.root else { continue }; // this and bindings are always set
+                if let Err(skip) = ran(n, r, at) {
+                    return err(x.span, format!(
+                        "{} may not have run when {}'s edge reads it: a path to {} skips it",
+                        name(n), name(src), name(skip),
+                    ));
+                }
+            }
+            Ok(())
+        };
+        fn args(c: &Call) -> Vec<&Ref> {
+            let mut refs = vec![];
+            for a in &c.args {
+                a.value.refs(&mut refs);
+            }
+            refs
+        }
+        for (&src, edge) in &g.edges {
+            let Some(&r) = g.region_of.get(&src) else { continue };
+            match edge {
+                Edge::Call(c) => check(args(c), r, src, src)?,
+                Edge::Match(arms) => {
+                    let mut refs = vec![];
+                    for a in arms {
+                        for e in a.conds() {
+                            e.refs(&mut refs);
+                        }
+                        for (_, c) in a.leaves() {
+                            refs.extend(args(c));
+                        }
+                    }
+                    check(refs, r, src, src)?;
+                }
+                Edge::ForEach { dim, call, .. } => {
+                    let mut refs = vec![];
+                    dim.refs(&mut refs);
+                    // The entry call's args are built before any node of
+                    // the region runs.
+                    refs.extend(args(call));
+                    check(refs, r, src, src)?;
+                }
+                // After the region, in the enclosing one, at its opener.
+                Edge::Collect(c) => {
+                    let o = opener[&r];
+                    check(args(c), g.region_of[&o], o, src)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Dominators of each node within its region: the nodes on every path from
+/// the region's entry to it, itself included. A `for each` steps from its
+/// opener to its collect target, the region in between running in full.
+fn dominators(g: &Graph) -> HashMap<NodeId, HashSet<NodeId>> {
+    let mut dom: HashMap<NodeId, HashSet<NodeId>> = HashMap::new();
+    for (ri, region) in g.regions.iter().enumerate() {
+        let mut preds: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
+        for &n in &region.nodes {
+            let succs: Vec<NodeId> = match g.edges.get(&n) {
+                Some(Edge::Call(c)) => vec![c.target],
+                Some(Edge::Match(arms)) => arms.iter().flat_map(|a| a.leaves()).map(|(_, c)| c.target).collect(),
+                Some(Edge::ForEach { .. }) => {
+                    let sink = g.regions[g.opens[&n]].sink.unwrap();
+                    let Some(Edge::Collect(c)) = g.edges.get(&sink) else { unreachable!() };
+                    vec![c.target]
+                }
+                Some(Edge::Collect(_)) | None => vec![],
+            };
+            for t in succs {
+                if g.region_of.get(&t) == Some(&ri) {
+                    preds.entry(t).or_default().push(n);
+                }
+            }
+        }
+        let all: HashSet<NodeId> = region.nodes.iter().copied().collect();
+        for &n in &region.nodes {
+            dom.insert(n, if n == region.entry { HashSet::from([n]) } else { all.clone() });
+        }
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for &n in &region.nodes {
+                if n == region.entry {
+                    continue;
+                }
+                let mut d = preds.get(&n).into_iter().flatten().fold(None::<HashSet<NodeId>>, |acc, p| {
+                    Some(match acc {
+                        None => dom[p].clone(),
+                        Some(a) => a.intersection(&dom[p]).copied().collect(),
+                    })
+                }).unwrap_or_default();
+                d.insert(n);
+                if d != dom[&n] {
+                    dom.insert(n, d);
+                    changed = true;
+                }
+            }
+        }
+    }
+    dom
 }
 
 /// What names other than nodes mean in an expression.

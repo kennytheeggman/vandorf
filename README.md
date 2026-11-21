@@ -51,6 +51,11 @@ proc Calc(Build): int {
 
 Field, parameter and argument names may be keywords (`{ type: string }`).
 
+An edge may only read outputs of nodes that ran on every path to it (the
+node dominates the edge's source in the proc's graph; inside a `for each`,
+an outer node must have run before the `for each` opened). Anything else is
+a compile error, so generated code never reads a node that hasn't run.
+
 ### Switches and expressions
 
 ```
