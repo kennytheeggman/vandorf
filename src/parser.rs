@@ -1,7 +1,8 @@
 //! Chumsky grammar for `.sys` files.
 //!
 //! ```text
-//! file      := (interface | func ';' | proc ';'?)*
+//! file      := (typedef | interface | func ';' | proc ';'?)*
+//! typedef   := 'type' IDENT '=' type ';'
 //! interface := 'interface' IDENT '{' (func ';')* '}'
 //! func      := 'func' IDENT '(' (field (',' field)*)? ')' (':' type)? ('=' STRING (',' STRING)*)?
 //! proc      := 'proc' IDENT '(' IDENT ')' ':' type '{' ((func | proc | edge) ';')* '}'
@@ -13,9 +14,17 @@
 //!            | path 'collect' 'each' '(' IDENT ')' '->' target
 //!            | path 'for' 'each' '(' path ')' '->' target
 //! target    := path '(' (arg (',' arg)*)? ')' ('as' IDENT)?
-//! arg       := IDENT '=' (IDENT '(' path ')' | path)
-//! path      := IDENT ('.' IDENT)*
+//! arg       := NAME '=' value
+//! value     := INT | FLOAT | STRING | 'true' | 'false'
+//!            | IDENT '(' value? ')'               enum variant
+//!            | '{' (arg (',' arg)*)? '}'          struct
+//!            | '[' (value (',' value)*)? ']'      array
+//!            | path
+//! path      := IDENT ('.' NAME)*
 //! ```
+//!
+//! NAME is any identifier, keywords included (fields can be called `type`);
+//! IDENT excludes keywords.
 //!
 //! The `= "file:function", ...` suffix on a func names the code that implements
 //! it, one reference per target language (picked by file extension).
@@ -28,7 +37,8 @@ pub type ParseError<'a> = Rich<'a, char>;
 type Extra<'a> = extra::Err<ParseError<'a>>;
 
 const KEYWORDS: &[&str] = &[
-    "interface", "func", "proc", "enum", "switch", "collect", "for", "each", "as",
+    "interface", "func", "proc", "enum", "switch", "collect", "for", "each", "as", "type",
+    "true", "false",
 ];
 
 pub fn parse(src: &str) -> Result<File, Vec<ParseError<'_>>> {
@@ -67,12 +77,22 @@ fn ident<'a>() -> impl Parser<'a, &'a str, Ident, Extra<'a>> + Clone {
         .labelled("identifier")
 }
 
+/// Any identifier, keywords included: field, parameter and argument names.
+fn name<'a>() -> impl Parser<'a, &'a str, Ident, Extra<'a>> + Clone {
+    text::ascii::ident()
+        .map_with(|s: &str, e| Ident { name: s.to_string(), span: e.span() })
+        .then_ignore(ws())
+        .labelled("name")
+}
+
 fn path<'a>() -> impl Parser<'a, &'a str, Path, Extra<'a>> + Clone {
     ident()
-        .separated_by(sym("."))
-        .at_least(1)
-        .collect::<Vec<_>>()
-        .map_with(|segs, e| Path { segs, span: e.span() })
+        .then(sym(".").ignore_then(name()).repeated().collect::<Vec<_>>())
+        .map_with(|(first, rest), e| {
+            let mut segs = vec![first];
+            segs.extend(rest);
+            Path { segs, span: e.span() }
+        })
         .labelled("path")
 }
 
@@ -95,7 +115,7 @@ fn string<'a>() -> impl Parser<'a, &'a str, (String, Span), Extra<'a>> + Clone {
 
 fn type_expr<'a>() -> impl Parser<'a, &'a str, TypeExpr, Extra<'a>> + Clone {
     recursive(|ty| {
-        let field = ident()
+        let field = name()
             .then_ignore(sym(":"))
             .then(ty.clone())
             .map(|(name, ty)| Field { name, ty });
@@ -135,7 +155,7 @@ fn type_expr<'a>() -> impl Parser<'a, &'a str, TypeExpr, Extra<'a>> + Clone {
 }
 
 fn field<'a>() -> impl Parser<'a, &'a str, Field, Extra<'a>> + Clone {
-    ident()
+    name()
         .then_ignore(sym(":"))
         .then(type_expr())
         .map(|(name, ty)| Field { name, ty })
@@ -174,14 +194,64 @@ fn func<'a>() -> impl Parser<'a, &'a str, Func, Extra<'a>> + Clone {
         .map(|(((name, params), ret), imps)| Func { name, params, ret, imps: imps.unwrap_or_default() })
 }
 
+fn number<'a>() -> impl Parser<'a, &'a str, ValueKind, Extra<'a>> + Clone {
+    just('-')
+        .or_not()
+        .then(text::int(10))
+        .then(just('.').then(text::digits(10)).or_not())
+        .to_slice()
+        .try_map(|s: &str, span| {
+            let v = if s.contains('.') {
+                s.parse().map(ValueKind::Float).ok()
+            } else {
+                s.parse().map(ValueKind::Int).ok()
+            };
+            v.ok_or_else(|| Rich::custom(span, format!("number {s} is out of range")))
+        })
+        .then_ignore(ws())
+        .labelled("number")
+}
+
+fn value<'a>() -> impl Parser<'a, &'a str, Value, Extra<'a>> + Clone {
+    recursive(|value| {
+        let arg = name()
+            .then_ignore(sym("="))
+            .then(value.clone())
+            .map(|(name, value)| Arg { name, value });
+        let variant = ident()
+            .then(value.clone().or_not().delimited_by(sym("("), sym(")")))
+            .map(|(tag, payload): (Ident, Option<Value>)| ValueKind::Variant { tag, payload: payload.map(Box::new) });
+        let struct_ = arg
+            .separated_by(sym(","))
+            .allow_trailing()
+            .collect()
+            .delimited_by(sym("{"), sym("}"))
+            .map(ValueKind::Struct);
+        let array = value
+            .separated_by(sym(","))
+            .allow_trailing()
+            .collect()
+            .delimited_by(sym("["), sym("]"))
+            .map(ValueKind::Array);
+        choice((
+            number(),
+            string().map(|(s, _)| ValueKind::Str(s)),
+            kw("true").to(ValueKind::Bool(true)),
+            kw("false").to(ValueKind::Bool(false)),
+            struct_,
+            array,
+            variant,
+            path().map(ValueKind::Ref),
+        ))
+        .map_with(|kind, e| Value { kind, span: e.span() })
+        .labelled("value")
+    })
+}
+
 fn target<'a>() -> impl Parser<'a, &'a str, Target, Extra<'a>> + Clone {
-    let value = ident()
-        .then(path().delimited_by(sym("("), sym(")")))
-        .map(|(tag, payload)| ArgValue::Variant { tag, payload })
-        .or(path().map(ArgValue::Ref));
-    let arg = ident()
+    let arg = name()
         .then_ignore(sym("="))
-        .then(value)
+        .then(value())
         .map(|(name, value)| Arg { name, value });
     path()
         .then(arg.separated_by(sym(",")).collect().delimited_by(sym("("), sym(")")))
@@ -257,9 +327,16 @@ fn node<'a>() -> impl Parser<'a, &'a str, Node, Extra<'a>> + Clone {
 
 fn file<'a>() -> impl Parser<'a, &'a str, File, Extra<'a>> {
     enum Item {
+        Type(TypeDecl),
         Interface(Interface),
         Node(Node),
     }
+    let typedef = kw("type")
+        .ignore_then(ident())
+        .then_ignore(sym("="))
+        .then(type_expr())
+        .then_ignore(sym(";"))
+        .map(|(name, ty)| TypeDecl { name, ty });
     let interface = kw("interface")
         .ignore_then(ident())
         .then(
@@ -272,6 +349,7 @@ fn file<'a>() -> impl Parser<'a, &'a str, File, Extra<'a>> {
         .map(|(name, funcs)| Interface { name, funcs });
     // Top-level funcs need a ';'; it's optional after a proc's closing brace.
     let item = choice((
+        typedef.map(Item::Type),
         interface.map(Item::Interface),
         func().then_ignore(sym(";")).map(|f| Item::Node(Node::Func(f))),
         node().then_ignore(sym(";").or_not()).map(Item::Node),
@@ -282,6 +360,7 @@ fn file<'a>() -> impl Parser<'a, &'a str, File, Extra<'a>> {
             let mut f = File::default();
             for it in items {
                 match it {
+                    Item::Type(t) => f.types.push(t),
                     Item::Interface(i) => f.interfaces.push(i),
                     Item::Node(n) => f.nodes.push(n),
                 }
@@ -329,5 +408,34 @@ mod tests {
         assert_eq!(p.nodes.len(), 3);
         assert!(matches!(p.edges[0].kind, EdgeKind::ForEach { .. }));
         assert!(matches!(p.edges[1].kind, EdgeKind::Collect { .. }));
+    }
+
+    #[test]
+    fn parses_typedefs_and_keyword_fields() {
+        let f = parse("type T = enum { Leaf(int), Node({ type: string, kids: []T }) };").unwrap();
+        assert_eq!(f.types[0].name.name, "T");
+        assert!(parse("type for = int;").is_err());
+    }
+
+    #[test]
+    fn parses_literals() {
+        let src = r#"
+            proc P(A): int {
+                func A(): int;
+                func B(v: int): int;
+                A -> B(i = -3, f = 1.5, s = "a\"b", t = true, l = [1, 2,], e = S(), v = T({ x = this, type = [] }), r = A.x.type) as B2;
+            }
+        "#;
+        let f = parse(src).unwrap();
+        let Node::Proc(p) = &f.nodes[0] else { panic!() };
+        let EdgeKind::Call(t) = &p.edges[0].kind else { panic!() };
+        assert_eq!(t.alias.as_ref().unwrap().name, "B2");
+        let kinds: Vec<String> = t.args.iter().map(|a| format!("{:?}", a.value.kind)).collect();
+        assert!(kinds[0].starts_with("Int(-3)") && kinds[1].starts_with("Float(1.5)"), "{kinds:?}");
+        assert!(kinds[2].contains(r#"Str("a\"b")"#) && kinds[3] == "Bool(true)", "{kinds:?}");
+        assert!(matches!(&t.args[4].value.kind, ValueKind::Array(v) if v.len() == 2));
+        assert!(matches!(&t.args[5].value.kind, ValueKind::Variant { payload: None, .. }));
+        assert!(matches!(&t.args[6].value.kind, ValueKind::Variant { payload: Some(p), .. } if matches!(p.kind, ValueKind::Struct(_))));
+        assert!(matches!(&t.args[7].value.kind, ValueKind::Ref(p) if p.to_string() == "A.x.type"));
     }
 }

@@ -58,3 +58,29 @@ func Finish(ctx context.Context, r types.BarEndR) (string, error) {
 func Args(ctx context.Context, a int, b string) (types.MainStartOut, error) {
 	return types.MainStartOut{A: a, B: b}, nil
 }
+
+// Build returns base + 2.
+func Build(ctx context.Context, base int) (types.Expr, error) {
+	lit := func(i int) *types.Expr { return &types.Expr{Tag: "Lit", Lit: i} }
+	return types.Expr{Tag: "Add", Add: &types.ExprAdd{L: lit(base), R: lit(2)}}, nil
+}
+
+func eval(e types.Expr) int {
+	switch e.Tag {
+	case "Lit":
+		return e.Lit
+	case "Neg":
+		return -eval(*e.Neg)
+	case "Add":
+		return eval(*e.Add.L) + eval(*e.Add.R)
+	}
+	panic("bad tag " + e.Tag)
+}
+
+func Eval(ctx context.Context, e types.Expr, scale int) (int, error) {
+	return eval(e) * scale, nil
+}
+
+func Total(ctx context.Context, xs []int) (int, error) {
+	return Sum(ctx, xs)
+}

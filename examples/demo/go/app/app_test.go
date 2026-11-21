@@ -41,3 +41,10 @@ func TestStub(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestCalc(t *testing.T) {
+	got, err := RunCalc(context.Background(), 3)
+	if err != nil || got != 115 {
+		t.Fatalf("RunCalc(3) = %v, %v; want 115", got, err)
+	}
+}

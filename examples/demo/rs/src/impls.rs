@@ -60,3 +60,25 @@ pub fn logged() -> Vec<i64> {
 pub fn args(a: i64, b: String) -> Result<types::MainStartOut, String> {
     Ok(types::MainStartOut { a, b })
 }
+
+/// Returns base + 2.
+pub fn build(base: i64) -> Result<types::Expr, String> {
+    let lit = |i| Box::new(types::Expr::Lit(i));
+    Ok(types::Expr::Add(Box::new(types::ExprAdd { l: lit(base), r: lit(2) })))
+}
+
+fn ev(e: &types::Expr) -> i64 {
+    match e {
+        types::Expr::Lit(i) => *i,
+        types::Expr::Neg(x) => -ev(x),
+        types::Expr::Add(a) => ev(&a.l) + ev(&a.r),
+    }
+}
+
+pub fn eval(e: types::Expr, scale: i64) -> Result<i64, String> {
+    Ok(ev(&e) * scale)
+}
+
+pub fn total(xs: Vec<i64>) -> Result<i64, String> {
+    Ok(xs.iter().sum())
+}

@@ -29,8 +29,16 @@ impl std::fmt::Display for Path {
 
 #[derive(Debug, Clone, Default)]
 pub struct File {
+    pub types: Vec<TypeDecl>,
     pub interfaces: Vec<Interface>,
     pub nodes: Vec<Node>,
+}
+
+/// `type Name = ty;`
+#[derive(Debug, Clone)]
+pub struct TypeDecl {
+    pub name: Ident,
+    pub ty: TypeExpr,
 }
 
 #[derive(Debug, Clone)]
@@ -128,20 +136,36 @@ pub struct Arm {
 pub struct Target {
     pub node: Path,
     pub args: Vec<Arg>,
-    /// `as Name`: parsed for compatibility with the Go grammar, currently unused.
+    /// `as Name`: call a separate instance of `node`, named `Name` in this
+    /// proc, with its own output and outgoing edge.
     pub alias: Option<Ident>,
 }
 
+/// `name = value`, in a call or a struct literal.
 #[derive(Debug, Clone)]
 pub struct Arg {
     pub name: Ident,
-    pub value: ArgValue,
+    pub value: Value,
 }
 
 #[derive(Debug, Clone)]
-pub enum ArgValue {
+pub struct Value {
+    pub kind: ValueKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub enum ValueKind {
     /// `this.x`, `Start.l`
     Ref(Path),
-    /// `S(this)`: construct enum variant `S` with the given payload.
-    Variant { tag: Ident, payload: Path },
+    Int(i64),
+    Float(f64),
+    Str(String),
+    Bool(bool),
+    /// `S(value)`, or `S()` for a variant without payload.
+    Variant { tag: Ident, payload: Option<Box<Value>> },
+    /// `{ a = value, b = value }`
+    Struct(Vec<Arg>),
+    /// `[value, value]`
+    Array(Vec<Value>),
 }

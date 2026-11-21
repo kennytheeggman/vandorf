@@ -17,7 +17,38 @@ Pipeline: `parser` (chumsky, source → `ast`) → `sema` (name resolution,
 `this` typing, for-each regions) → `document` (grid layout, same JSON as the Go
 `ui/document`) and `codegen::{go, rust}`.
 
-## Workbench
+## Language additions
+
+```
+type Expr = enum { Lit(int), Neg(Expr), Add({ l: Expr, r: Expr }) };
+
+proc Calc(Build): int {
+	...
+	Build -> Eval(e = Add({ l = Neg(this), r = Lit(10) }), scale = 1);
+	Eval -> Eval(e = Build, scale = 2) as Twice;
+	Twice -> Total(xs = [Eval, Twice, 100]);
+}
+```
+
+- **Typedefs**: `type Name = <type>;` at the top level, in any order, and
+  possibly recursive (a recursive one must be a struct or enum). A typedef is
+  a name for its structure, so it and its definition written out are
+  interchangeable. Codegen names the shape after the typedef; typedefs of
+  primitives, arrays, or already-named shapes become aliases (`type Ids =
+  []int`). Fields that would make a type contain itself are `*T` in Go and
+  `Box<T>` in Rust.
+- **Aliases**: `-> B(..) as B2` calls a separate instance of `B` named `B2`,
+  with its own output and outgoing edge, so one func can be used at several
+  points in a proc. Later edges call the same instance with `-> B2(..)`, or
+  with `as B2` again.
+- **Literals**: `3`, `-1.5`, `"s"`, `true`, `[a, b]`, `{ x = .., y = .. }`
+  (every field), `Tag(value)` and `Tag()` for a variant without payload.
+  They're checked against the parameter's type (an int literal also passes
+  as a float) and can nest references to node outputs.
+
+Field, parameter and argument names may be keywords (`{ type: string }`).
+
+
 
 `vandorf serve [--addr 127.0.0.1:8080] [--dir .]` serves an editor with live
 compile, the visualizer (in an iframe, or standalone at `/viz`), the generated

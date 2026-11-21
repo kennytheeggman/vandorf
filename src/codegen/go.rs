@@ -183,7 +183,7 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<Output, String> {
                 function: i.function.clone(),
                 signature: g.signature(id, &i.function, true),
             }),
-            NodeKind::Proc(_) => None,
+            NodeKind::Proc(_) | NodeKind::Alias(_) => None,
         })
         .collect();
     let main = if opts.main { Some(main_artifact(prog, opts)?) } else { None };
@@ -251,7 +251,7 @@ fn main_artifact(prog: &Program, opts: &GoOptions) -> Result<Artifact, String> {
     w.line("fmt.Fprintln(os.Stderr, \"error:\", err)");
     w.line("os.Exit(1)");
     w.line("}");
-    match ret {
+    match ret.unfold(&prog.types) {
         Type::Prim(Prim::Void) => {}
         Type::Prim(_) => w.line("fmt.Println(result)"),
         _ => w.line("fmt.Printf(\"%+v\\n\", result)"),
@@ -309,6 +309,7 @@ impl Gen<'_> {
         match &self.prog.node(n).kind {
             NodeKind::Func(_) => format!("in{}", gname(self.prog, n)),
             NodeKind::Proc(p) => self.in_type(p.entry),
+            NodeKind::Alias(b) => self.in_type(*b),
         }
     }
 
@@ -327,8 +328,9 @@ impl Gen<'_> {
         s
     }
 
-    /// The Go function a func node calls.
+    /// The Go function a func node (or an alias of one) calls.
     fn callee(&mut self, n: NodeId) -> Result<String, String> {
+        let n = self.prog.base(n);
         let NodeKind::Func(f) = &self.prog.node(n).kind else { unreachable!() };
         let Some(imp) = f.imp("go") else {
             self.stubs.insert(n);
@@ -370,13 +372,17 @@ impl Gen<'_> {
 
     fn typegen(&self, pkg: &str) -> String {
         let mut w = header(pkg, &[]);
-        for t in &self.table.types {
-            w.line(&format!("// {} is the type of the {}.", t.name, t.origin));
+        for (i, t) in self.table.types.iter().enumerate() {
+            if t.origin == format!("typedef {}", t.name) {
+                w.line(&format!("// {} is a typedef.", t.name));
+            } else {
+                w.line(&format!("// {} is the type of the {}.", t.name, t.origin));
+            }
             match &t.shape {
                 Shape::Struct(fs) => {
                     w.line(&format!("type {} struct {{", t.name));
                     for (n, r) in fs {
-                        w.line(&format!("{} {}", exported(n), self.render(r, "")));
+                        w.line(&format!("{} {}", exported(n), self.field_type(i, n, r)));
                     }
                 }
                 Shape::Enum(vs) => {
@@ -385,14 +391,26 @@ impl Gen<'_> {
                     w.line(&format!("type {} struct {{", t.name));
                     w.line("Tag string");
                     for (n, r) in vs {
-                        w.line(&format!("{} {}", exported(n), self.render(r, "")));
+                        w.line(&format!("{} {}", exported(n), self.field_type(i, n, r)));
                     }
                 }
             }
             w.line("}");
             w.line("");
         }
+        for (name, r) in &self.table.aliases {
+            w.line(&format!("// {name} is a typedef."));
+            w.line(&format!("type {name} = {}", self.render(r, "")));
+            w.line("");
+        }
         w.out
+    }
+
+    /// Field `n` of type `i`, a pointer where it would otherwise make the
+    /// type contain itself.
+    fn field_type(&self, i: usize, n: &str, r: &TyRef) -> String {
+        let t = self.render(r, "");
+        if self.table.is_boxed(i, n) { format!("*{t}") } else { t }
     }
 
     fn render(&self, r: &TyRef, qual: &str) -> String {
@@ -429,7 +447,26 @@ impl Gen<'_> {
         self.coercions.insert(key, name.clone());
         let mut w = Writer::new("\t");
         w.line(&format!("func {name}(v {src}) (r {dst}) {{"));
-        match (from, to) {
+        let prog = self.prog;
+        let defs = &prog.types;
+        let (si, di) = (self.table.index(from), self.table.index(to));
+        // Copies part `n` (a field, or the payload of variant `n`), through
+        // pointers where either side boxes it.
+        let part = |g: &mut Self, w: &mut Writer, n: &str, f: &Type, t: &Type| {
+            let fe = exported(n);
+            let sb = si.is_some_and(|i| g.table.is_boxed(i, n));
+            let db = di.is_some_and(|i| g.table.is_boxed(i, n));
+            let e = g.coerce(&if sb { format!("(*v.{fe})") } else { format!("v.{fe}") }, f, t);
+            let e = if db { format!("ptrTo({e})") } else { e };
+            if sb {
+                w.line(&format!("if v.{fe} != nil {{"));
+            }
+            w.line(&format!("r.{fe} = {e}"));
+            if sb {
+                w.line("}");
+            }
+        };
+        match (from.unfold(defs), to.unfold(defs)) {
             (Type::Array(f), Type::Array(t)) => {
                 w.line(&format!("r = make({dst}, len(v))"));
                 w.line("for i := range v {");
@@ -439,19 +476,17 @@ impl Gen<'_> {
             }
             (Type::Struct(_), Type::Struct(tfs)) => {
                 for (n, t) in tfs {
-                    let f = exported(n);
-                    let e = self.coerce(&format!("v.{f}"), from.field(n).unwrap(), t);
-                    w.line(&format!("r.{f} = {e}"));
+                    part(self, &mut w, n, from.field(n, defs).unwrap(), t);
                 }
             }
             (Type::Enum(fvs), Type::Enum(_)) => {
                 w.line("r.Tag = v.Tag");
                 w.line("switch v.Tag {");
                 for (n, f) in fvs {
-                    let v = exported(n);
                     w.line(&format!("case {}:", quote(n)));
-                    let e = self.coerce(&format!("v.{v}"), f, to.variant(n).unwrap());
-                    w.line(&format!("r.{v} = {e}"));
+                    if !f.is_void() {
+                        part(self, &mut w, n, f, to.variant(n, defs).unwrap());
+                    }
                 }
                 w.line("}");
             }
@@ -470,23 +505,62 @@ impl Gen<'_> {
             Root::This => "this".to_string(),
             Root::Node(n) => format!("env.out{}", gname(self.prog, n)),
         };
+        // Go selects through pointers implicitly; only a boxed last field
+        // needs dereferencing.
+        let mut ty = &r.root_ty;
+        let mut boxed = false;
         for f in &r.fields {
+            boxed = self.table.index(ty).is_some_and(|i| self.table.is_boxed(i, f));
+            ty = ty.field(f, &self.prog.types).unwrap();
             write!(s, ".{}", exported(f)).unwrap();
         }
-        s
+        if boxed { format!("(*{s})") } else { s }
+    }
+
+    /// `e` as a Go expression of type `want`.
+    fn value(&mut self, e: &Expr, want: &Type) -> String {
+        let prog = self.prog;
+        let defs = &prog.types;
+        let boxed = |g: &Self, part: &str, v: String| match g.table.index(want) {
+            Some(i) if g.table.is_boxed(i, part) => format!("ptrTo({v})"),
+            _ => v,
+        };
+        match e {
+            Expr::Ref(r) => self.coerce(&self.reference(r), &r.ty, want),
+            Expr::Int(i) => i.to_string(),
+            Expr::Float(f) => format!("{f:?}"),
+            Expr::Str(s) => quote(s),
+            Expr::Bool(b) => b.to_string(),
+            Expr::Array(es) => {
+                let Type::Array(elem) = want.unfold(defs) else { unreachable!() };
+                let items: Vec<String> = es.iter().map(|e| self.value(e, elem)).collect();
+                format!("{}{{{}}}", self.go_type(want), items.join(", "))
+            }
+            Expr::Struct(fs) => {
+                let items: Vec<String> = fs
+                    .iter()
+                    .map(|(n, e)| {
+                        let v = self.value(e, want.field(n, defs).unwrap());
+                        format!("{}: {}", exported(n), boxed(self, n, v))
+                    })
+                    .collect();
+                format!("{}{{{}}}", self.go_type(want), items.join(", "))
+            }
+            Expr::Variant { tag, payload } => {
+                let mut s = format!("{}{{Tag: {}", self.go_type(want), quote(tag));
+                if let Some(p) = payload {
+                    let v = self.value(p, want.variant(tag, defs).unwrap());
+                    write!(s, ", {}: {}", exported(tag), boxed(self, tag, v)).unwrap();
+                }
+                s + "}"
+            }
+        }
     }
 
     fn input(&mut self, c: &Call) -> String {
         let mut parts = vec![];
         for a in &c.args {
-            let v = match &a.value {
-                Expr::Ref(r) => self.coerce(&self.reference(r), &r.ty, &a.param),
-                Expr::Variant { tag, payload } => {
-                    let pt = a.param.variant(tag).unwrap();
-                    let p = self.coerce(&self.reference(payload), &payload.ty, pt);
-                    format!("{}{{Tag: {}, {}: {p}}}", self.go_type(&a.param), quote(tag), exported(tag))
-                }
-            };
+            let v = self.value(&a.value, &a.param);
             parts.push(format!("{}: {v}", exported(&a.name)));
         }
         format!("{}{{{}}}", self.in_type(c.target), parts.join(", "))
@@ -587,9 +661,10 @@ impl Gen<'_> {
         let id = gname(prog, n);
         let qual = prog.node(n).qual_name();
         let ret = prog.ret(n);
-        let mut call = match prog.node(n).kind {
-            NodeKind::Func(_) => self.callee(n)?,
-            NodeKind::Proc(_) => format!("Run{id}"),
+        let base = prog.base(n);
+        let mut call = match prog.node(base).kind {
+            NodeKind::Proc(_) => format!("Run{}", gname(prog, base)),
+            _ => self.callee(n)?,
         };
         call.push_str("(ctx");
         for (p, _) in prog.params(n) {
@@ -598,7 +673,7 @@ impl Gen<'_> {
         call.push(')');
 
         w.line(&format!("case {}:", pc_name(prog, pid, n)));
-        if matches!(prog.node(n).kind, NodeKind::Func(_)) && ret.is_void() {
+        if matches!(prog.node(base).kind, NodeKind::Func(_)) && ret.is_void() {
             w.line(&format!("err := {call}"));
             w.line("this := struct{}{}");
         } else {
@@ -618,13 +693,13 @@ impl Gen<'_> {
             Edge::Call(c) => self.transition(w, pid, c),
             Edge::Collect(_) => w.line("return this, nil"),
             Edge::Match(arms) => {
-                let is_enum = matches!(ret, Type::Enum(_));
+                let is_enum = matches!(ret.unfold(&prog.types), Type::Enum(_));
                 w.line(if is_enum { "switch this.Tag {" } else { "switch {" });
                 for (cond, c) in arms {
                     if cond == "else" {
                         w.line("default:");
                     } else if is_enum {
-                        if ret.variant(cond).is_none() {
+                        if ret.variant(cond, &prog.types).is_none() {
                             return Err(format!("{qual}: match arm {cond:?} is not a variant of {ret}"));
                         }
                         w.line(&format!("case {}:", quote(cond)));
@@ -733,7 +808,13 @@ fn header(pkg: &str, imports: &[(String, Option<String>)]) -> Writer {
     w
 }
 
-const RUNTIME: &str = r#"// fanOut runs f over xs concurrently and returns the results in input order.
+const RUNTIME: &str = r#"// ptrTo boxes a value, for fields that would otherwise make a type contain
+// itself.
+func ptrTo[T any](v T) *T {
+	return &v
+}
+
+// fanOut runs f over xs concurrently and returns the results in input order.
 // The first error cancels the remaining elements.
 func fanOut[E, R any](ctx context.Context, xs []E, f func(context.Context, E) (R, error)) ([]R, error) {
 	ctx, cancel := context.WithCancel(ctx)

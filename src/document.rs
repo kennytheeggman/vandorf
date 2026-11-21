@@ -226,6 +226,11 @@ fn layout(prog: &Program, pid: NodeId) -> Grid {
                 }),
             },
             NodeKind::Proc(_) => Node { ty: NodeType::Proc, label: decl.qual_name(), sublabel: None },
+            // An instance shows what it instances; its kind is that node's.
+            NodeKind::Alias(b) => {
+                let ty = if matches!(prog.node(*b).kind, NodeKind::Proc(_)) { NodeType::Proc } else { NodeType::Func };
+                Node { ty, label: display_label(prog, pid, n), sublabel: Some(format!("instance of {}", display_label(prog, pid, *b))) }
+            }
         }
     };
     let mut grid = Grid {

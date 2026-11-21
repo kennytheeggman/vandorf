@@ -66,7 +66,7 @@ pub(crate) fn main_proc(prog: &Program) -> Result<(NodeId, Vec<(String, Prim)>),
     let params = prog
         .params(pid)
         .iter()
-        .map(|(name, t)| match t {
+        .map(|(name, t)| match t.unfold(&prog.types) {
             Type::Prim(p) if *p != Prim::Void => Ok((name.clone(), *p)),
             t => Err(format!(
                 "{MAIN_PROC}'s parameter {name} has type {t}; main reads its parameters from the command line, so they must be int, float, bool or string"

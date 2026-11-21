@@ -6,7 +6,7 @@
 //! the code generator work from this.
 
 use crate::ast::{self, Span};
-use crate::types::{Prim, Type};
+use crate::types::{Prim, Type, TypeDef, TypeId};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub type NodeId = usize;
@@ -24,6 +24,8 @@ fn err<T>(span: Span, msg: impl Into<String>) -> Result<T, Error> {
 
 #[derive(Debug)]
 pub struct Program {
+    /// `type` declarations; [`Type::Named`] indexes into this.
+    pub types: Vec<TypeDef>,
     pub nodes: Vec<NodeDecl>,
     pub globals: BTreeMap<String, Global>,
     /// Top-level procs in source order.
@@ -58,6 +60,10 @@ impl NodeDecl {
 pub enum NodeKind {
     Func(FuncDecl),
     Proc(ProcDecl),
+    /// `-> B(..) as B2`: a separate instance of node `B`, local to the proc
+    /// the edge is in. It has `B`'s parameters, return and implementation,
+    /// but its own output and outgoing edge.
+    Alias(NodeId),
 }
 
 #[derive(Debug)]
@@ -142,16 +148,41 @@ pub struct CallArg {
     pub value: Expr,
 }
 
+/// A value, checked against the type it's passed as (a parameter, or a
+/// field, element or payload of one); backends render it at that type.
 #[derive(Debug, Clone)]
 pub enum Expr {
     Ref(Ref),
-    /// `Tag(payload)`, constructing a variant of the parameter's enum type.
-    Variant { tag: String, payload: Ref },
+    Int(i64),
+    /// Also an int literal passed as a float.
+    Float(f64),
+    Str(String),
+    Bool(bool),
+    /// `Tag(payload)`; no payload for variants that carry void.
+    Variant { tag: String, payload: Option<Box<Expr>> },
+    /// All of the struct's fields, in the type's order.
+    Struct(Vec<(String, Expr)>),
+    Array(Vec<Expr>),
+}
+
+impl Expr {
+    /// The node outputs this value reads.
+    pub fn refs<'a>(&'a self, out: &mut Vec<&'a Ref>) {
+        match self {
+            Expr::Ref(r) => out.push(r),
+            Expr::Int(_) | Expr::Float(_) | Expr::Str(_) | Expr::Bool(_) => {}
+            Expr::Variant { payload, .. } => payload.iter().for_each(|p| p.refs(out)),
+            Expr::Struct(fs) => fs.iter().for_each(|(_, e)| e.refs(out)),
+            Expr::Array(es) => es.iter().for_each(|e| e.refs(out)),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Ref {
     pub root: Root,
+    /// Type of the root (`this`, or the node's output).
+    pub root_ty: Type,
     pub fields: Vec<String>,
     pub ty: Type,
     pub span: Span,
@@ -172,7 +203,7 @@ impl Program {
     pub fn proc(&self, id: NodeId) -> &ProcDecl {
         match &self.nodes[id].kind {
             NodeKind::Proc(p) => p,
-            NodeKind::Func(_) => panic!("{} is not a proc", self.nodes[id].qual_name()),
+            _ => panic!("{} is not a proc", self.nodes[id].qual_name()),
         }
     }
 
@@ -181,6 +212,7 @@ impl Program {
         match &self.nodes[id].kind {
             NodeKind::Func(f) => &f.params,
             NodeKind::Proc(p) => self.params(p.entry),
+            NodeKind::Alias(b) => self.params(*b),
         }
     }
 
@@ -188,6 +220,15 @@ impl Program {
         match &self.nodes[id].kind {
             NodeKind::Func(f) => &f.ret,
             NodeKind::Proc(p) => &p.ret,
+            NodeKind::Alias(b) => self.ret(*b),
+        }
+    }
+
+    /// The func or proc a node runs: itself, or what an alias instances.
+    pub fn base(&self, id: NodeId) -> NodeId {
+        match self.nodes[id].kind {
+            NodeKind::Alias(b) => b,
+            _ => id,
         }
     }
 
@@ -209,11 +250,18 @@ impl Program {
 
 pub fn analyze(file: &ast::File) -> Result<Program, Vec<Error>> {
     let mut cx = Cx {
-        prog: Program { nodes: vec![], globals: BTreeMap::new(), top_procs: vec![] },
+        prog: Program { types: vec![], nodes: vec![], globals: BTreeMap::new(), top_procs: vec![] },
+        type_names: HashMap::new(),
         procs: vec![],
+        aliases: vec![],
         errors: vec![],
     };
+    cx.declare_types(&file.types);
+    if !cx.errors.is_empty() {
+        return Err(cx.errors);
+    }
     cx.declare_file(file);
+    cx.resolve_aliases();
     if !cx.errors.is_empty() {
         return Err(cx.errors);
     }
@@ -227,11 +275,79 @@ pub fn analyze(file: &ast::File) -> Result<Program, Vec<Error>> {
 
 struct Cx<'a> {
     prog: Program,
+    type_names: HashMap<String, TypeId>,
     procs: Vec<(NodeId, &'a ast::Proc)>,
+    /// Alias nodes, the proc they're in, and the target declaring them.
+    aliases: Vec<(NodeId, NodeId, &'a ast::Target)>,
     errors: Vec<Error>,
 }
 
+/// The targets of an edge.
+fn targets(k: &ast::EdgeKind) -> Vec<&ast::Target> {
+    match k {
+        ast::EdgeKind::Call(t) | ast::EdgeKind::Collect { target: t, .. } | ast::EdgeKind::ForEach { target: t, .. } => vec![t],
+        ast::EdgeKind::Match(arms) => arms.iter().map(|a| &a.target).collect(),
+    }
+}
+
 impl<'a> Cx<'a> {
+    // ---- Types ----
+
+    /// Declares all typedefs before resolving any, so they can refer to each
+    /// other in any order, then rejects cycles that never reach a structure.
+    fn declare_types(&mut self, decls: &[ast::TypeDecl]) {
+        for d in decls {
+            let name = &d.name.name;
+            if Prim::from_name(name).is_some() {
+                self.errors.push(Error { msg: format!("{name} is a built-in type"), span: d.name.span });
+            } else if self.type_names.contains_key(name) {
+                self.errors.push(Error { msg: format!("duplicate type {name}"), span: d.name.span });
+            } else {
+                self.type_names.insert(name.clone(), self.prog.types.len());
+                self.prog.types.push(TypeDef { name: name.clone(), ty: Type::Prim(Prim::Void), recursive: false });
+            }
+        }
+        let mut ok = vec![];
+        for d in decls {
+            let Some(&id) = self.type_names.get(&d.name.name) else { continue };
+            if ok.contains(&id) {
+                continue; // a duplicate's second declaration
+            }
+            if let Some(t) = self.ty(&d.ty) {
+                self.prog.types[id].ty = t;
+                ok.push(id);
+            }
+        }
+        if !self.errors.is_empty() {
+            return;
+        }
+        // Typedef reference graph; a typedef is recursive if it reaches itself.
+        let edges: Vec<Vec<TypeId>> = self.prog.types.iter().map(|d| {
+            let mut out = vec![];
+            d.ty.named(&mut out);
+            out
+        }).collect();
+        for (id, d) in decls.iter().enumerate() {
+            let mut seen = vec![false; edges.len()];
+            let mut stack = edges[id].clone();
+            while let Some(n) = stack.pop() {
+                if !std::mem::replace(&mut seen[n], true) {
+                    stack.extend(&edges[n]);
+                }
+            }
+            self.prog.types[id].recursive = seen[id];
+            let def = &self.prog.types[id];
+            if def.recursive && !matches!(def.ty, Type::Struct(_) | Type::Enum(_)) {
+                self.errors.push(Error {
+                    msg: format!("type {} refers to itself, so it must be a struct or enum", d.name.name),
+                    span: d.name.span,
+                });
+            } else if !def.recursive && def.ty.unfold(&self.prog.types).is_void() {
+                self.errors.push(Error { msg: format!("type {} names void", d.name.name), span: d.name.span });
+            }
+        }
+    }
+
     // ---- Declarations ----
 
     fn declare_file(&mut self, file: &'a ast::File) {
@@ -311,6 +427,8 @@ impl<'a> Cx<'a> {
         });
         let mut locals = vec![];
         let mut names: HashMap<&str, NodeId> = HashMap::new();
+        // Alias name -> the node path it instances.
+        let mut aliased: HashMap<&str, String> = HashMap::new();
         for n in &p.nodes {
             let (name, lid) = match n {
                 ast::Node::Func(f) => (&f.name, self.declare_func(f, qual.clone())),
@@ -325,6 +443,33 @@ impl<'a> Cx<'a> {
             }
             locals.push(lid);
         }
+        for t in p.edges.iter().flat_map(|e| targets(&e.kind)) {
+            let Some(a) = &t.alias else { continue };
+            let of = t.node.to_string();
+            match (names.contains_key(a.name.as_str()), aliased.get(a.name.as_str())) {
+                // Another call into the same instance.
+                (_, Some(prev)) if *prev == of => continue,
+                (_, Some(prev)) => {
+                    self.errors.push(Error { msg: format!("{} is already an alias of {prev}", a.name), span: a.span });
+                    continue;
+                }
+                (true, None) => {
+                    self.errors.push(Error {
+                        msg: format!("alias {} clashes with a node of that name in proc {}", a.name, p.name.name),
+                        span: a.span,
+                    });
+                    continue;
+                }
+                (false, None) => {}
+            }
+            let mut q = qual.clone();
+            q.push(a.name.clone());
+            let lid = self.push_node(NodeDecl { qual: q, span: a.span, kind: NodeKind::Alias(usize::MAX) });
+            names.insert(&a.name, lid);
+            aliased.insert(&a.name, of);
+            locals.push(lid);
+            self.aliases.push((lid, id, t));
+        }
         let Some(&entry) = names.get(p.entry.name.as_str()) else {
             self.errors.push(Error {
                 msg: format!("entry {} is not declared in proc {}", p.entry.name, p.name.name),
@@ -337,6 +482,21 @@ impl<'a> Cx<'a> {
         decl.locals = locals;
         self.procs.push((id, p));
         Some(id)
+    }
+
+    /// Points each alias at the node it instances. Runs once every node is
+    /// declared, since the target may be a global declared later.
+    fn resolve_aliases(&mut self) {
+        for (lid, pid, t) in std::mem::take(&mut self.aliases) {
+            match self.resolve_node(pid, &t.node) {
+                Ok(b) if matches!(self.prog.nodes[b].kind, NodeKind::Alias(_)) => self.errors.push(Error {
+                    msg: format!("{} is itself an alias; alias the node it instances", t.node),
+                    span: t.node.span,
+                }),
+                Ok(b) => self.prog.nodes[lid].kind = NodeKind::Alias(b),
+                Err(e) => self.errors.push(e),
+            }
+        }
     }
 
     fn fields(&mut self, fields: &[ast::Field]) -> Option<Vec<(String, Type)>> {
@@ -360,6 +520,7 @@ impl<'a> Cx<'a> {
         Some(match &t.kind {
             K::Named(n) => match Prim::from_name(&n.name) {
                 Some(p) => Type::Prim(p),
+                None if self.type_names.contains_key(&n.name) => Type::Named(self.type_names[&n.name], n.name.clone()),
                 None => {
                     self.errors.push(Error { msg: format!("unknown type {}", n.name), span: n.span });
                     return None;
@@ -430,19 +591,103 @@ impl<'a> Cx<'a> {
             let (n, rest) = self.resolve(pid, path)?;
             (Root::Node(n), self.prog.ret(n).clone(), rest)
         };
+        let root_ty = ty.clone();
         let mut fields = vec![];
         for f in rest {
-            ty = match ty.field(&f.name) {
+            ty = match ty.field(&f.name, &self.prog.types) {
                 Some(t) => t.clone(),
                 None => return err(f.span, format!("{ty} has no field {}", f.name)),
             };
             fields.push(f.name.clone());
         }
-        Ok(Ref { root, fields, ty, span: path.span })
+        Ok(Ref { root, root_ty, fields, ty, span: path.span })
+    }
+
+    /// Checks `v` against the type it's passed as.
+    fn value(&self, pid: NodeId, v: &ast::Value, want: &Type, this: &Type) -> Result<Expr, Error> {
+        use ast::ValueKind as V;
+        let defs = &self.prog.types;
+        let shape = want.unfold(defs);
+        let mismatch = |found: &str| err(v.span, format!("expected {want}, found {found}"));
+        Ok(match &v.kind {
+            V::Ref(p) => {
+                let r = self.reference(pid, p, this)?;
+                if !want.accepts(&r.ty, defs) {
+                    return err(p.span, format!("{p} has type {}, but {want} is expected", r.ty));
+                }
+                Expr::Ref(r)
+            }
+            V::Int(i) => match shape {
+                Type::Prim(Prim::Int) => Expr::Int(*i),
+                Type::Prim(Prim::Float) => Expr::Float(*i as f64),
+                _ => return mismatch("an int literal"),
+            },
+            V::Float(f) => match shape {
+                Type::Prim(Prim::Float) => Expr::Float(*f),
+                _ => return mismatch("a float literal"),
+            },
+            V::Str(s) => match shape {
+                Type::Prim(Prim::String) => Expr::Str(s.clone()),
+                _ => return mismatch("a string literal"),
+            },
+            V::Bool(b) => match shape {
+                Type::Prim(Prim::Bool) => Expr::Bool(*b),
+                _ => return mismatch("a bool literal"),
+            },
+            V::Array(items) => {
+                let Type::Array(elem) = shape else { return mismatch("an array literal") };
+                Expr::Array(items.iter().map(|i| self.value(pid, i, elem, this)).collect::<Result<_, _>>()?)
+            }
+            V::Struct(args) => {
+                let Type::Struct(fs) = shape else { return mismatch("a struct literal") };
+                let mut given: HashMap<&str, Expr> = HashMap::new();
+                for a in args {
+                    let Some((_, ft)) = fs.iter().find(|(n, _)| *n == a.name.name) else {
+                        return err(a.name.span, format!("{want} has no field {}", a.name.name));
+                    };
+                    let e = self.value(pid, &a.value, ft, this)?;
+                    if given.insert(&a.name.name, e).is_some() {
+                        return err(a.name.span, format!("field {} given twice", a.name.name));
+                    }
+                }
+                let mut out = vec![];
+                for (n, _) in fs {
+                    match given.remove(n.as_str()) {
+                        Some(e) => out.push((n.clone(), e)),
+                        None => return err(v.span, format!("struct literal is missing field {n} of {want}")),
+                    }
+                }
+                Expr::Struct(out)
+            }
+            V::Variant { tag, payload } => {
+                let Type::Enum(_) = shape else { return mismatch(&format!("variant {}", tag.name)) };
+                let Some(vty) = want.variant(&tag.name, defs) else {
+                    return err(tag.span, format!("{want} has no variant {}", tag.name));
+                };
+                let payload = match payload {
+                    None if vty.is_void() => None,
+                    None => return err(v.span, format!("variant {} carries {vty}; write {}(value)", tag.name, tag.name)),
+                    // `S(this)` with a void `this` is allowed, and carries nothing.
+                    Some(p) => {
+                        let e = self.value(pid, p, vty, this)?;
+                        (!vty.is_void()).then(|| Box::new(e))
+                    }
+                };
+                Expr::Variant { tag: tag.name.clone(), payload }
+            }
+        })
+    }
+
+    /// The node a target calls: the alias instance for `-> B(..) as B2`.
+    fn target(&self, pid: NodeId, t: &ast::Target) -> Result<NodeId, Error> {
+        match &t.alias {
+            Some(a) => Ok(self.prog.proc(pid).locals.iter().copied().find(|&l| self.prog.nodes[l].name() == a.name).unwrap()),
+            None => self.resolve_node(pid, &t.node),
+        }
     }
 
     fn call(&self, pid: NodeId, t: &ast::Target, this: &Type) -> Result<Call, Error> {
-        let target = self.resolve_node(pid, &t.node)?;
+        let target = self.target(pid, t)?;
         let tname = self.prog.nodes[target].qual_name();
         let params = self.prog.params(target);
         let mut given: HashMap<&str, (&ast::Arg, Expr)> = HashMap::new();
@@ -450,25 +695,10 @@ impl<'a> Cx<'a> {
             let Some((_, pty)) = params.iter().find(|(n, _)| *n == a.name.name) else {
                 return err(a.name.span, format!("{tname} has no parameter {}", a.name.name));
             };
-            let value = match &a.value {
-                ast::ArgValue::Ref(p) => {
-                    let r = self.reference(pid, p, this)?;
-                    if !pty.accepts(&r.ty) {
-                        return err(p.span, format!("{} has type {}, but {tname}.{} expects {pty}", p, r.ty, a.name.name));
-                    }
-                    Expr::Ref(r)
-                }
-                ast::ArgValue::Variant { tag, payload } => {
-                    let Some(vty) = pty.variant(&tag.name) else {
-                        return err(tag.span, format!("{tname}.{} has type {pty}, which has no variant {}", a.name.name, tag.name));
-                    };
-                    let r = self.reference(pid, payload, this)?;
-                    if !vty.accepts(&r.ty) {
-                        return err(payload.span, format!("variant {} carries {vty}, found {}", tag.name, r.ty));
-                    }
-                    Expr::Variant { tag: tag.name.clone(), payload: r }
-                }
-            };
+            let value = self.value(pid, &a.value, pty, this).map_err(|mut e| {
+                e.msg = format!("argument {} of {tname}: {}", a.name.name, e.msg);
+                e
+            })?;
             if given.insert(&a.name.name, (a, value)).is_some() {
                 return err(a.name.span, format!("argument {} given twice", a.name.name));
             }
@@ -500,7 +730,7 @@ impl<'a> Cx<'a> {
                 }
                 ast::EdgeKind::ForEach { dim, target } => {
                     let dim = self.reference(pid, dim, &ret)?;
-                    let Type::Array(elem) = &dim.ty else {
+                    let Type::Array(elem) = dim.ty.unfold(&self.prog.types) else {
                         return err(dim.span, format!("for each needs an array, found {}", dim.ty));
                     };
                     let call = self.call(pid, target, elem)?;
@@ -557,7 +787,7 @@ impl<'a> Cx<'a> {
                     g.regions[r].sink = Some(n);
                 }
                 Edge::ForEach { dim, call } => {
-                    let Type::Array(elem) = &dim.ty else { unreachable!() };
+                    let Type::Array(elem) = dim.ty.unfold(&self.prog.types) else { unreachable!() };
                     let child = new_region(g, Some(r), call.target, (**elem).clone());
                     g.opens.insert(n, child);
                     self.fill(g, child, p)?;
@@ -604,15 +834,17 @@ impl<'a> Cx<'a> {
             };
             for c in edge.calls() {
                 for a in &c.args {
-                    match &a.value {
-                        Expr::Ref(r) | Expr::Variant { payload: r, .. } => check(scope, r)?,
+                    let mut refs = vec![];
+                    a.value.refs(&mut refs);
+                    for r in refs {
+                        check(scope, r)?;
                     }
                 }
             }
         }
         let want = &self.prog.proc(pid).ret;
         for &n in &g.regions[0].nodes {
-            if !g.edges.contains_key(&n) && !want.accepts(self.prog.ret(n)) {
+            if !g.edges.contains_key(&n) && !want.accepts(self.prog.ret(n), &self.prog.types) {
                 return err(p.name.span, format!(
                     "{} ends proc {} but returns {}, expected {want}",
                     self.prog.nodes[n].qual_name(), p.name.name, self.prog.ret(n),

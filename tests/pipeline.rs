@@ -137,7 +137,7 @@ fn nested_procs_get_their_own_grid() {
 #[test]
 fn type_errors() {
     let e = compile_err(r#"proc P(A): int { func A(): string; func B(i: int): int; A -> B(i = this); }"#);
-    assert!(e.contains("expects int"), "{e}");
+    assert!(e.contains("argument i of P.B: this has type string, but int is expected"), "{e}");
     let e = compile_err(r#"proc P(A): int { func A(): string; }"#);
     assert!(e.contains("ends proc P"), "{e}");
     let e = compile_err(r#"proc P(A): int { func A(): int; func B(i: int): int; A -> B(); }"#);
@@ -164,6 +164,87 @@ fn region_errors() {
         "#,
     );
     assert!(e.contains("not visible here"), "{e}");
+}
+
+#[test]
+fn typedef_errors() {
+    let e = compile_err("type A = B; type B = A; proc P(X): int { func X(): int; }");
+    assert!(e.contains("type A refers to itself, so it must be a struct or enum"), "{e}");
+    let e = compile_err("type L = []L; proc P(X): int { func X(): int; }");
+    assert!(e.contains("type L refers to itself"), "{e}");
+    let e = compile_err("type U = void; proc P(X): int { func X(): int; }");
+    assert!(e.contains("type U names void"), "{e}");
+    let e = compile_err("type int = string; proc P(X): int { func X(): int; }");
+    assert!(e.contains("int is a built-in type"), "{e}");
+    let e = compile_err("proc P(X): int { func X(t: T): int; }");
+    assert!(e.contains("unknown type T"), "{e}");
+}
+
+#[test]
+fn typedefs_are_structural() {
+    // A typedef and its definition written out are interchangeable, both ways.
+    compile(
+        r#"
+        type Pt = { x: int, y: int };
+        proc P(A): int {
+            func A(): { y: int, x: int };
+            func B(p: Pt): Pt;
+            func C(p: { x: int, y: int }): int;
+            A -> B(p = this);
+            B -> C(p = this);
+        }
+        "#,
+    );
+}
+
+#[test]
+fn literal_errors() {
+    let base = |args: &str| format!(
+        "type T = {{ a: int, b: enum {{ X, Y(string) }} }}; proc P(A): int {{ func A(): int; func B(t: T, f: float, l: []string): int; A -> B({args}); }}"
+    );
+    let e = compile_err(&base(r#"t = { a = 1 }, f = 1, l = []"#));
+    assert!(e.contains("argument t of P.B: struct literal is missing field b of T"), "{e}");
+    let e = compile_err(&base(r#"t = { a = 1, b = X(), c = 2 }, f = 1, l = []"#));
+    assert!(e.contains("T has no field c"), "{e}");
+    let e = compile_err(&base(r#"t = { a = "s", b = X() }, f = 1, l = []"#));
+    assert!(e.contains("expected int, found a string literal"), "{e}");
+    let e = compile_err(&base(r#"t = { a = 1, b = Y() }, f = 1, l = []"#));
+    assert!(e.contains("variant Y carries string; write Y(value)"), "{e}");
+    let e = compile_err(&base(r#"t = { a = 1, b = X() }, f = 1.5, l = [1]"#));
+    assert!(e.contains("argument l of P.B: expected string, found an int literal"), "{e}");
+    let e = compile_err(&base(r#"t = { a = 1, b = Z() }, f = 1, l = []"#));
+    assert!(e.contains("has no variant Z"), "{e}");
+    // An int literal is a fine float; everything else matches.
+    compile(&base(r#"t = { b = Y("y"), a = -2 }, f = 1, l = ["a", "b"]"#));
+}
+
+#[test]
+fn aliases_are_separate_nodes() {
+    let src = r#"
+        proc P(A): int {
+            func A(): int;
+            func B(i: int): int;
+            func C(i: int): int;
+            A switch { ("this > 0") -> B(i = this) as B2, ("else") -> B(i = 0) as B2 };
+            B2 -> B(i = B2);
+            B -> C(i = this) as C2;
+        }
+    "#;
+    let prog = compile(src);
+    let p = prog.proc(prog.top_procs[0]);
+    let names: Vec<String> = p.graph.regions[0].nodes.iter().map(|&n| prog.node(n).name().to_string()).collect();
+    assert_eq!(names, vec!["A", "B2", "B", "C2"]);
+    let doc = vandorf::document::generate(&prog);
+    let sub: Vec<_> = doc.grids["P"].rows.iter().flat_map(|r| &r.nodes).filter_map(|n| n.sublabel.clone()).collect();
+    assert_eq!(sub, vec!["instance of B", "instance of C"]);
+
+    let e = compile_err("proc P(A): int { func A(): int; func B(i: int): int; A -> B(i = this) as A; }");
+    assert!(e.contains("alias A clashes with a node of that name in proc P"), "{e}");
+    let e = compile_err(r#"proc P(A): int { func A(): int; func B(i: int): int; func C(i: int): int;
+        A switch { ("x") -> B(i = this) as D, ("else") -> C(i = this) as D }; }"#);
+    assert!(e.contains("D is already an alias of B"), "{e}");
+    let e = compile_err("proc P(A): int { func A(): int; func B(i: int): int; A -> B(i = this) as B2; B2 -> B2(i = this) as B3; }");
+    assert!(e.contains("B2 is itself an alias"), "{e}");
 }
 
 #[test]

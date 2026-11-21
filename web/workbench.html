@@ -47,7 +47,7 @@ main{ flex:1; display:grid; grid-template-columns:minmax(320px,42%) 1fr; min-hei
 .CodeMirror-linenumber{ color:var(--mut) }
 .CodeMirror-cursor{ border-left-color:var(--ink) }
 .CodeMirror-selected, .CodeMirror-focused .CodeMirror-selected{ background:rgba(59,130,246,.22) }
-.cm-keyword{ color:var(--kw); font-weight:600 } .cm-string{ color:var(--str) }
+.cm-keyword{ color:var(--kw); font-weight:600 } .cm-string, .cm-number{ color:var(--str) }
 .cm-comment{ color:var(--com); font-style:italic } .cm-type{ color:var(--type) }
 .cm-errmark{ text-decoration:wavy underline var(--err); background:var(--err-bg) }
 
@@ -127,7 +127,8 @@ if (window.CodeMirror && CodeMirror.defineSimpleMode){
   CodeMirror.defineSimpleMode('vandorf', { start: [
     { regex: /\/\/.*/, token: 'comment' },
     { regex: /"(?:[^\\"]|\\.)*"/, token: 'string' },
-    { regex: /\b(?:interface|func|proc|enum|switch|collect|for|each|as)\b/, token: 'keyword' },
+    { regex: /\b(?:interface|func|proc|enum|switch|collect|for|each|as|type)\b/, token: 'keyword' },
+    { regex: /\b(?:true|false)\b|-?\b\d+(?:\.\d+)?\b/, token: 'number' },
     { regex: /\b(?:int|float|bool|string|void)\b/, token: 'type' },
     { regex: /\bthis\b/, token: 'keyword' },
   ]});

@@ -24,4 +24,10 @@ mod tests {
         assert_eq!(app::run_bar(1, "ab".into()).unwrap(), "end:S");
         assert_eq!(impls::logged(), vec![7]);
     }
+
+    #[test]
+    fn calc() {
+        // typedefs, an alias and literals: 5 + 10 + 100
+        assert_eq!(app::run_calc(3).unwrap(), 115);
+    }
 }
