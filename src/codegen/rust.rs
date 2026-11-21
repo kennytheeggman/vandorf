@@ -201,8 +201,10 @@ fn main_artifact(
     w.line("");
     w.line("use std::process::ExitCode;");
     w.line("");
-    w.line(&format!("const USAGE: &str = {};", quote(&usage)));
-    w.line("");
+    if matches!(params, super::MainParams::Typed(_)) {
+        w.line(&format!("const USAGE: &str = {};", quote(&usage)));
+        w.line("");
+    }
     w.line("fn main() -> ExitCode {");
     let types = format!("{}::types", path.replacen("crate", krate, 1));
     let mut vars = vec![];

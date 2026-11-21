@@ -382,7 +382,8 @@ fn check_impls(out: &Path, output: &Output, keyword: &str) {
         let path = out.join(&i.file);
         let problem = match std::fs::read_to_string(&path) {
             Err(_) => format!("{} does not exist", path.display()),
-            Ok(src) if !src.contains(&format!("{keyword} {}(", i.function)) => {
+            // `fn f(`, or a generic `fn f<T>(` / `func F[T any](`.
+            Ok(src) if !["(", "<", "["].iter().any(|open| src.contains(&format!("{keyword} {}{open}", i.function))) => {
                 format!("{} does not define {keyword} {}", path.display(), i.function)
             }
             Ok(_) => continue,
