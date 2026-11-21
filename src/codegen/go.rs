@@ -203,7 +203,11 @@ fn main_artifact(prog: &Program, opts: &GoOptions, m: &MainSpec) -> Result<Artif
     let usage = super::main_usage(&m.name, &params);
 
     let mut imports = vec![("context".to_string(), None), ("fmt".to_string(), None), ("os".to_string(), None)];
-    if params.iter().any(|(_, p)| *p != Prim::String) {
+    let typed: &[(String, Prim)] = match &params {
+        super::MainParams::Typed(ps) => ps,
+        super::MainParams::Argv(_) => &[],
+    };
+    if typed.iter().any(|(_, p)| *p != Prim::String) {
         imports.push(("strconv".into(), None));
     }
     imports.push((import.to_string(), Some(alias.clone())));
@@ -217,12 +221,17 @@ fn main_artifact(prog: &Program, opts: &GoOptions, m: &MainSpec) -> Result<Artif
     w.line(&format!("const usage = {}", quote(&usage)));
     w.line("");
     w.line("func main() {");
-    w.line(&format!("if len(os.Args) != {} {{", params.len() + 1));
-    w.line("fmt.Fprintln(os.Stderr, usage)");
-    w.line("os.Exit(2)");
-    w.line("}");
     let mut args = vec!["context.Background()".to_string()];
-    for (i, (name, p)) in params.iter().enumerate() {
+    match &params {
+        super::MainParams::Argv(_) => args.push("os.Args[1:]".into()),
+        super::MainParams::Typed(ps) => {
+            w.line(&format!("if len(os.Args) != {} {{", ps.len() + 1));
+            w.line("fmt.Fprintln(os.Stderr, usage)");
+            w.line("os.Exit(2)");
+            w.line("}");
+        }
+    }
+    for (i, (name, p)) in typed.iter().enumerate() {
         let var = format!("arg{}", exported(name));
         let raw = format!("os.Args[{}]", i + 1);
         let parse = match p {

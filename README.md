@@ -217,9 +217,10 @@ printing the expected signature.
 
 A bin (`[bin.<name>]`, or `--main`/`--entry Proc` on the single-file
 commands) runs a top-level proc, `Main` by default (an error if there is
-none). Its parameters must be `int`, `float`, `bool` or `string`; they are
-taken from the command line in declared order, and the result is printed
-(`usage: demo <a: int> <b: string>`).
+none). Its parameters are either `int`, `float`, `bool` or `string`, taken
+from the command line in declared order (`usage: demo <a: int> <b:
+string>`), or a single `[]string`, which gets the arguments as they are
+(`usage: vcc <argv...>`). The result is printed.
 
 - **Go**: a `package main` importing the code package (`<go.out>/../cmd/<name>`;
   `<dir>/main` for `--main`).

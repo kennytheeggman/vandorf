@@ -72,31 +72,50 @@ fn find_proc(prog: &Program, name: &str) -> Option<NodeId> {
     prog.top_procs.iter().copied().find(|&p| prog.node(p).name() == name && matches!(prog.node(p).kind, NodeKind::Proc(_)))
 }
 
-/// A main's entry proc and its parameters, which must be primitives (they
-/// are parsed from command-line arguments).
-pub(crate) fn main_proc(prog: &Program, m: &MainSpec) -> Result<(NodeId, Vec<(String, Prim)>), String> {
+/// How a main passes the command line to its entry proc.
+pub(crate) enum MainParams {
+    /// Each parameter a primitive, parsed from one argument, in order.
+    Typed(Vec<(String, Prim)>),
+    /// A single `[]string` parameter: the arguments as they are.
+    Argv(String),
+}
+
+/// A main's entry proc and its parameters: primitives (parsed from the
+/// command-line arguments), or one `[]string` that takes them all.
+pub(crate) fn main_proc(prog: &Program, m: &MainSpec) -> Result<(NodeId, MainParams), String> {
     let entry = &m.entry;
     let pid = find_proc(prog, entry)
         .ok_or_else(|| format!("{} runs proc {entry}, but there is no top-level proc {entry}", m.name))?;
+    if let [(name, t)] = &prog.params(pid)[..]
+        && let Type::Array(e) = t.unfold(&prog.types)
+        && matches!(e.unfold(&prog.types), Type::Prim(Prim::String))
+    {
+        return Ok((pid, MainParams::Argv(name.clone())));
+    }
     let params = prog
         .params(pid)
         .iter()
         .map(|(name, t)| match t.unfold(&prog.types) {
             Type::Prim(p) if *p != Prim::Void => Ok((name.clone(), *p)),
             t => Err(format!(
-                "{entry}'s parameter {name} has type {t}; {} reads its parameters from the command line, so they must be int, float, bool or string",
+                "{entry}'s parameter {name} has type {t}; {} reads its parameters from the command line, so they must be int, float, bool or string (or a single []string, for all the arguments)",
                 m.name,
             )),
         })
         .collect::<Result<_, _>>()?;
-    Ok((pid, params))
+    Ok((pid, MainParams::Typed(params)))
 }
 
-/// `usage: <bin> <a: int> <b: string>`
-pub(crate) fn main_usage(bin: &str, params: &[(String, Prim)]) -> String {
+/// `usage: <bin> <a: int> <b: string>`, or `usage: <bin> <args...>`
+pub(crate) fn main_usage(bin: &str, params: &MainParams) -> String {
     let mut s = format!("usage: {bin}");
-    for (n, p) in params {
-        s.push_str(&format!(" <{n}: {}>", Type::Prim(*p)));
+    match params {
+        MainParams::Typed(ps) => {
+            for (n, p) in ps {
+                s.push_str(&format!(" <{n}: {}>", Type::Prim(*p)));
+            }
+        }
+        MainParams::Argv(n) => s.push_str(&format!(" <{n}...>")),
     }
     s
 }

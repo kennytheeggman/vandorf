@@ -776,6 +776,20 @@ mod codegen {
     }
 
     #[test]
+    fn main_passes_argv_to_a_single_string_array() {
+        let prog = vandorf::compile("t.sys", "proc Tool(A): string { func A(args: []string): string; }").unwrap();
+        let mut opts = go::GoOptions::new("app", Some("example.com/m/app".into()));
+        opts.mains = vec![spec("tool", "Tool", "main")];
+        let src = &go::generate(&prog, &opts).unwrap().mains[0].files["main_vandorf.go"];
+        assert!(src.contains("app.RunTool(context.Background(), os.Args[1:])") && !src.contains("len(os.Args)"), "{src}");
+        assert!(src.contains("usage: tool <args...>") && !src.contains("strconv"), "{src}");
+        let opts = rust::RustOptions { module_dir: Some("app".into()), mains: vec![spec("tool", "Tool", "bin/tool.rs")], crate_name: Some("demo".into()) };
+        let src = &rust::generate(&prog, &opts).unwrap().mains[0].files["tool.rs"];
+        assert!(src.contains("std::env::args().skip(1).map(") && src.contains("demo::app::run_tool(arg_args)"), "{src}");
+        assert!(!src.contains("args.len()"), "{src}");
+    }
+
+    #[test]
     fn main_requires_entry_proc_with_primitive_params() {
         let mut opts = go::GoOptions::new("app", Some("x".into()));
         opts.mains = vec![spec("calc", "Calc", "main")];

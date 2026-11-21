@@ -15,6 +15,14 @@ pub fn same(s: Str) -> Result<Str, String> {
     Ok(s)
 }
 
+pub fn same_strs(s: List<Str>) -> Result<List<Str>, String> {
+    Ok(s)
+}
+
+pub fn fail(msg: Str) -> Result<Str, String> {
+    Err(msg.to_string())
+}
+
 // ---- Tokens ----
 
 /// Multi-character symbols, longest first.

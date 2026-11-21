@@ -204,16 +204,28 @@ fn main_artifact(
     w.line(&format!("const USAGE: &str = {};", quote(&usage)));
     w.line("");
     w.line("fn main() -> ExitCode {");
-    w.line("let args: Vec<String> = std::env::args().skip(1).collect();");
-    w.line(&format!("if args.len() != {} {{", params.len()));
-    w.line("eprintln!(\"{USAGE}\");");
-    w.line("return ExitCode::from(2);");
-    w.line("}");
+    let types = format!("{}::types", path.replacen("crate", krate, 1));
     let mut vars = vec![];
-    for (i, (name, p)) in params.iter().enumerate() {
+    let typed = match &params {
+        super::MainParams::Argv(name) => {
+            let var = local(&format!("arg_{name}"));
+            w.line(&format!("let {var}: {types}::List<{types}::Str> = std::env::args().skip(1).map(|a| {types}::Str::from(a.as_str())).collect();"));
+            vars.push(var);
+            &[][..]
+        }
+        super::MainParams::Typed(ps) => {
+            w.line("let args: Vec<String> = std::env::args().skip(1).collect();");
+            w.line(&format!("if args.len() != {} {{", ps.len()));
+            w.line("eprintln!(\"{USAGE}\");");
+            w.line("return ExitCode::from(2);");
+            w.line("}");
+            &ps[..]
+        }
+    };
+    for (i, (name, p)) in typed.iter().enumerate() {
         let var = local(&format!("arg_{name}"));
         if *p == Prim::String {
-            w.line(&format!("let {var} = {}::types::Str::from(args[{i}].as_str());", path.replacen("crate", krate, 1)));
+            w.line(&format!("let {var} = {types}::Str::from(args[{i}].as_str());"));
         } else {
             w.line(&format!("let {var} = match args[{i}].parse::<{}>() {{", g.rust_type(&Type::Prim(*p))));
             w.line("Ok(v) => v,");

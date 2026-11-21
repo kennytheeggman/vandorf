@@ -1,9 +1,15 @@
 // vcc <path>: parses a .sys file and summarizes it.
 proc Vcc(Args): string {
-	func Args(path: string): string = "../rs/src/leaf.rs:same";
+	func Args(argv: []string): []string = "../rs/src/leaf.rs:same_strs";
 	func Summary(f: File): string = "../rs/src/leaf.rs:summary";
 
-	Args -> Fs.Read(path = this);
+	Args switch {
+		(this.len == 1) -> Fs.Read(path = this[0]),
+		else -> Usage(msg = "usage: vcc <path>")
+	};
 	Fs.Read -> Parse(src = this);
 	Parse -> Summary(f = this);
 }
+
+// Fails with `msg`.
+func Usage(msg: string): string = "../rs/src/leaf.rs:fail";
