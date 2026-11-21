@@ -141,3 +141,166 @@ fn reports_typedef_errors_like_the_reference() {
         }
     }
 }
+
+// ---- Declarations ----
+
+fn show(t: &v::Type) -> String {
+    vcc::vcc::run_show_type(t.clone()).unwrap().to_string()
+}
+
+fn ref_members(ms: &[(String, r::Type)]) -> String {
+    ms.iter().map(|(n, t)| format!("{n}: {t}")).collect::<Vec<_>>().join(", ")
+}
+
+fn vcc_members(ms: &[v::Member]) -> String {
+    ms.iter().map(|m| format!("{}: {}", m.name, show(&m.ty))).collect::<Vec<_>>().join(", ")
+}
+
+/// Each node as one line, the same for both.
+fn ref_nodes(prog: &vandorf::sema::Program) -> Vec<String> {
+    use vandorf::sema::NodeKind as K;
+    let mut out: Vec<String> = prog
+        .nodes
+        .iter()
+        .map(|n| {
+            let kind = match &n.kind {
+                K::Func(f) => {
+                    let imps: Vec<String> = f.imps.iter().map(|i| format!("{}:{}", i.written, i.function)).collect();
+                    format!("func ({}): {} = {}", ref_members(&f.params), f.ret, imps.join(", "))
+                }
+                K::Proc(p) => {
+                    let parent = p.parent.map_or(-1, |x| x as i64);
+                    format!("proc parent={parent} entry={} ret={} locals={:?}", p.entry, p.ret, p.locals)
+                }
+                K::Alias(b) => format!("alias of {b}"),
+                K::Id(ps) => format!("id ({})", ref_members(ps)),
+            };
+            format!("{} @{}..{} {kind}", n.qual.join("."), n.span.start, n.span.end)
+        })
+        .collect();
+    for (name, g) in &prog.globals {
+        out.push(match g {
+            vandorf::sema::Global::Node(n) => format!("global {name} = {n}"),
+            vandorf::sema::Global::Interface(fs) => format!("global {name} = interface {fs:?}"),
+        });
+    }
+    out.push(format!("top {:?}", prog.top_procs));
+    out
+}
+
+fn vcc_nodes(cx: &v::Cx) -> Vec<String> {
+    use v::NodeKind as K;
+    let mut out: Vec<String> = cx
+        .nodes
+        .iter()
+        .map(|n| {
+            let kind = match &n.kind {
+                K::Func(f) => {
+                    let imps: Vec<String> = f.imps.iter().map(|i| format!("{}:{}", i.file, i.function)).collect();
+                    format!("func ({}): {} = {}", vcc_members(&f.params), show(&f.ret), imps.join(", "))
+                }
+                K::Proc(p) => {
+                    let locals: Vec<usize> = p.locals.iter().map(|&l| l as usize).collect();
+                    format!("proc parent={} entry={} ret={} locals={locals:?}", p.parent, p.entry, show(&p.ret))
+                }
+                K::Alias(b) => format!("alias of {b}"),
+                K::Id(ps) => format!("id ({})", vcc_members(ps)),
+            };
+            let qual: Vec<&str> = n.qual.iter().map(|s| &**s).collect();
+            format!("{} @{}..{} {kind}", qual.join("."), n.span.at, n.span.end)
+        })
+        .collect();
+    for (name, g) in cx.globals.iter() {
+        out.push(match g {
+            v::Global::Node(n) => format!("global {name} = {n}"),
+            v::Global::Interface(fs) => {
+                let fs: std::collections::BTreeMap<String, usize> = fs.iter().map(|(k, v)| (k.to_string(), *v as usize)).collect();
+                format!("global {name} = interface {fs:?}")
+            }
+        });
+    }
+    let top: Vec<usize> = cx.top.iter().map(|&t| t as usize).collect();
+    out.push(format!("top {top:?}"));
+    out
+}
+
+/// vcc's declarations of one source, against the reference's.
+fn check_decls(src: &str) {
+    let file = vandorf::parser::parse(src, 0).unwrap();
+    let vfile = vcc::vcc::run_parse(src.into()).unwrap();
+    let cx = vcc::vcc::run_declare(vfile).unwrap();
+    let errors: Vec<(String, usize, usize)> = cx.ty.errors.iter().map(|e| (e.msg.to_string(), e.span.at as usize, e.span.end as usize)).collect();
+    match vandorf::sema::analyze(&file) {
+        Ok(prog) => {
+            assert!(errors.is_empty(), "{src}: vcc reports {errors:?}");
+            let (a, b) = (ref_nodes(&prog), vcc_nodes(&cx));
+            assert!(a == b, "{src}\nreference:\n{}\nvcc:\n{}", a.join("\n"), b.join("\n"));
+        }
+        // Errors vcc doesn't report yet come from building graphs.
+        Err(_) if errors.is_empty() => {}
+        Err(es) => {
+            let want: Vec<(String, usize, usize)> = es.iter().map(|e| (e.msg.clone(), e.span.start, e.span.end)).collect();
+            assert_eq!(errors, want, "{src}");
+        }
+    }
+}
+
+const DECL_CASES: &[&str] = &[
+    r#"interface IO { func Read(p: string): string = "io.go:Read", "io.rs:read"; func Read(): int; }
+       func Top(x: int): R<int>;
+       type R<T> = { x: T };
+       proc P(A): int {
+           func A(): int;
+           proc Q(B): int { func B(): int; B -> A(); };
+           A -> Q() as Q2;
+           Q2 switch { (this > 0) -> id(1), else -> Q() as Q2 };
+       }
+       proc Main(S): int { func S(): int; S -> P(); }"#,
+    "proc P(A): int { func A(): int; func A(): int; }",
+    "proc P(A): int { func B(): int; }",
+    "proc P(A): int { func A(): int; A -> id(1) as X; }",
+    "proc P(A): int { func A(): int; func B(): int; A -> B() as B; }",
+    "proc P(A): int { func A(): int; func B(): int; func C(): int; A -> B() as X; X -> C() as X; }",
+    "proc P(A): int { func A(): int; func B(): int; A -> B() as X; X -> X() as Y; }",
+    "proc P(A): int { func A(): int; A -> Nope() as X; }",
+    "interface I { func F(): int; } proc P(A): int { func A(): int; A -> I() as X; }",
+    "interface I { func F(): int; } proc P(A): int { func A(): int; A -> I.G() as X; }",
+    "proc P(A): int { func A(): int; A -> A.x() as X; }",
+    "func F(): int; func F(): int; proc P(A): int { func A(): int; }",
+    "proc P(A): Q { func A(): int; }",
+    "proc P(A): int { func A(x: Q): int; }",
+];
+
+#[test]
+fn declares_like_the_reference() {
+    for src in DECL_CASES {
+        check_decls(src);
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for f in ["tests/fixtures/test1.sys", "examples/demo/demo.sys", "examples/demo/calc.sys"] {
+        if let Ok(src) = std::fs::read_to_string(root.join(f)) {
+            check_decls(&src);
+        }
+    }
+}
+
+#[test]
+fn declares_projects_like_the_reference() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for dir in ["selfhost", "examples/demo"] {
+        let p = vandorf::project::load(&root.join(dir).join("vandorf.toml")).unwrap();
+        let prog = vandorf::check_files(&p.files).unwrap();
+        let mut all = v::File { types: Default::default(), interfaces: Default::default(), nodes: Default::default() };
+        for f in &p.files {
+            let vf = vcc::vcc::run_parse(f.text.as_str().into()).unwrap();
+            all = v::File { types: all.types.concat(&vf.types), interfaces: all.interfaces.concat(&vf.interfaces), nodes: all.nodes.concat(&vf.nodes) };
+        }
+        let cx = vcc::vcc::run_declare(all).unwrap();
+        assert!(cx.ty.errors.is_empty(), "{dir}: {:?}", cx.ty.errors);
+        let (a, b) = (ref_nodes(&prog), vcc_nodes(&cx));
+        // Spans are per file: compare without them.
+        let strip = |xs: Vec<String>| -> Vec<String> { xs.into_iter().map(|l| l.split(" @").next().unwrap().to_string() + &l.split_once(' ').map_or(String::new(), |(_, r)| r.split_once(' ').map_or(String::new(), |(_, k)| format!(" {k}")))).collect() };
+        let (a, b) = (strip(a), strip(b));
+        assert!(a == b, "{dir}: first difference at {:?}", a.iter().zip(&b).find(|(x, y)| x != y));
+    }
+}

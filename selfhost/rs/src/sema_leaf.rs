@@ -297,3 +297,138 @@ pub fn last_int(xs: List<i64>) -> Result<i64, String> {
 pub fn pop_int(xs: List<i64>) -> Result<List<i64>, String> {
     Ok(xs[..xs.len() - 1].into())
 }
+
+// ---- Declarations ----
+
+fn push<T: Clone>(xs: List<T>, x: T) -> List<T> {
+    xs.concat(&vec![x].into())
+}
+
+fn updated<T: Clone>(xs: List<T>, i: i64, f: impl FnOnce(&mut T)) -> List<T> {
+    let mut v: Vec<T> = xs.into_iter().collect();
+    f(&mut v[i as usize]);
+    v.into()
+}
+
+pub fn cx_error(mut cx: Cx, msg: Str, span: Span) -> Result<Cx, String> {
+    cx.ty = with_error(cx.ty, msg, span)?;
+    Ok(cx)
+}
+
+pub fn with_ty(mut cx: Cx, ty: TyCx) -> Result<Cx, String> {
+    cx.ty = ty;
+    Ok(cx)
+}
+
+pub fn with_node(mut cx: Cx, n: NodeDecl) -> Result<Cx, String> {
+    cx.nodes = push(cx.nodes, n);
+    Ok(cx)
+}
+
+pub fn with_global(mut cx: Cx, name: Str, g: Global) -> Result<Cx, String> {
+    cx.globals = cx.globals.merge(&Map::from_iter([(name, g)]));
+    Ok(cx)
+}
+
+pub fn with_top(mut cx: Cx, id: i64) -> Result<Cx, String> {
+    cx.top = push(cx.top, id);
+    Ok(cx)
+}
+
+pub fn with_id(mut cx: Cx, at: i64, id: i64) -> Result<Cx, String> {
+    cx.ids = cx.ids.merge(&Map::from_iter([(at, id)]));
+    Ok(cx)
+}
+
+pub fn with_alias(mut cx: Cx, a: PendingAlias) -> Result<Cx, String> {
+    cx.aliases = push(cx.aliases, a);
+    Ok(cx)
+}
+
+pub fn with_proc(mut cx: Cx, p: PendingProc) -> Result<Cx, String> {
+    cx.procs = push(cx.procs, p);
+    Ok(cx)
+}
+
+pub fn set_proc(mut cx: Cx, id: i64, entry: i64, locals: List<i64>) -> Result<Cx, String> {
+    cx.nodes = updated(cx.nodes, id, |n| {
+        if let NodeKind::Proc(p) = &mut n.kind {
+            p.entry = entry;
+            p.locals = locals;
+        }
+    });
+    Ok(cx)
+}
+
+pub fn set_alias(mut cx: Cx, lid: i64, of: i64) -> Result<Cx, String> {
+    cx.nodes = updated(cx.nodes, lid, |n| n.kind = NodeKind::Alias(of));
+    Ok(cx)
+}
+
+pub fn empty_graph(_n: i64) -> Result<Graph, String> {
+    Ok(Graph { edges: Map::default(), regions: List::default(), region_of: Map::default(), opens: Map::default() })
+}
+
+pub fn show_path(p: Path) -> Result<Str, String> {
+    Ok(p.segs.iter().map(|s| &*s.name).collect::<Vec<_>>().join(".").into())
+}
+
+pub fn qual_name(n: NodeDecl) -> Result<Str, String> {
+    Ok(n.qual.iter().map(|s| &**s).collect::<Vec<_>>().join(".").into())
+}
+
+pub fn proc_ret(n: NodeDecl) -> Result<Type, String> {
+    match n.kind {
+        NodeKind::Proc(p) => Ok(p.ret),
+        _ => Err("proc_ret: not a proc".into()),
+    }
+}
+
+pub fn is_alias(n: NodeDecl) -> Result<bool, String> {
+    Ok(matches!(n.kind, NodeKind::Alias(_)))
+}
+
+pub fn node_name(n: Node) -> Result<Ident, String> {
+    Ok(match n {
+        Node::Func(f) => f.name,
+        Node::Proc(p) => p.name,
+    })
+}
+
+pub fn top_arms(stack: List<List<Arm>>) -> Result<List<Arm>, String> {
+    stack.last().cloned().ok_or_else(|| "top_arms: empty".into())
+}
+
+pub fn pop_arms(stack: List<List<Arm>>) -> Result<List<List<Arm>>, String> {
+    Ok(stack[..stack.len() - 1].into())
+}
+
+pub fn rest_arms(arms: List<Arm>) -> Result<List<Arm>, String> {
+    Ok(arms[1..].into())
+}
+
+pub fn is_id(t: Target) -> Result<bool, String> {
+    Ok(matches!(t.id, OptValue::Some(_)))
+}
+
+pub fn alias_of(t: Target) -> Result<OptIdent, String> {
+    Ok(t.alias)
+}
+
+/// The local called `name` of proc `pid` or an enclosing proc, innermost
+/// first; -1 if none.
+pub fn find_local(nodes: List<NodeDecl>, pid: i64, name: Str) -> Result<i64, String> {
+    let mut scope = pid;
+    while scope >= 0 {
+        let NodeKind::Proc(p) = &nodes[scope as usize].kind else { return Err("find_local: not a proc".into()) };
+        if let Some(&l) = p.locals.iter().find(|&&l| nodes[l as usize].qual.last() == Some(&name)) {
+            return Ok(l);
+        }
+        scope = p.parent;
+    }
+    Ok(-1)
+}
+
+pub fn segs_from(ids: List<Ident>, from: i64) -> Result<List<Ident>, String> {
+    Ok(ids[(from as usize).min(ids.len())..].into())
+}
