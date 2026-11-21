@@ -42,6 +42,9 @@ pub struct File {
 #[derive(Debug, Clone)]
 pub struct TypeDecl {
     pub name: Ident,
+    /// Type parameters: `type R<T> = ..` is generic, and each use with
+    /// arguments (`R<int>`) is its own typedef.
+    pub params: Vec<Ident>,
     pub ty: TypeExpr,
 }
 
@@ -103,6 +106,8 @@ pub struct TypeExpr {
 #[derive(Debug, Clone)]
 pub enum TypeExprKind {
     Named(Ident),
+    /// `R<A, B>`: a generic typedef with type arguments.
+    Inst(Ident, Vec<TypeExpr>),
     Array(Box<TypeExpr>),
     /// `map[K]V`
     Map(Box<TypeExpr>, Box<TypeExpr>),

@@ -68,11 +68,11 @@ impl TypeTable {
     pub fn build(prog: &Program) -> TypeTable {
         let mut t = TypeTable {
             defs: prog.types.clone(),
-            reserved: prog.types.iter().map(|d| exported(&d.name)).collect(),
+            reserved: prog.types.iter().map(|d| exported(&d.ident)).collect(),
             ..Default::default()
         };
         for (id, d) in prog.types.iter().enumerate() {
-            let name = exported(&d.name);
+            let name = exported(&d.ident);
             match t.register(&Type::Named(id, d.name.clone()), &name, &format!("typedef {}", d.name)) {
                 TyRef::Named(i) if t.types[i].name == name => {}
                 r => t.aliases.push((name, r)),
@@ -170,7 +170,7 @@ impl TypeTable {
             ),
             Type::Named(id, n) => {
                 let d = &self.defs[*id];
-                let (def, recursive, name) = (d.ty.clone(), d.recursive, exported(n));
+                let (def, recursive, name) = (d.ty.clone(), d.recursive, exported(&d.ident));
                 if !recursive {
                     return match &def {
                         Type::Struct(_) | Type::Enum(_) => self.shape(&def, &name, &format!("typedef {n}"), Some(&name), None),

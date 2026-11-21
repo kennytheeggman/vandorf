@@ -2,11 +2,12 @@
 //!
 //! ```text
 //! file      := (typedef | interface | func ';' | proc ';'?)*
-//! typedef   := 'type' IDENT '=' type ';'
+//! typedef   := 'type' IDENT ('<' IDENT,+ '>')? '=' type ';'
 //! interface := 'interface' IDENT '{' (func ';')* '}'
 //! func      := 'func' IDENT '(' (field (',' field)*)? ')' (':' type)? ('=' STRING (',' STRING)*)?
 //! proc      := 'proc' IDENT '(' IDENT ')' ':' type '{' ((func | proc | edge) ';')* '}'
-//! type      := '[' ']' type | 'map' '[' type ']' type | 'enum' '{' variant,* '}' | '{' field,* '}' | IDENT
+//! type      := '[' ']' type | 'map' '[' type ']' type | 'enum' '{' variant,* '}' | '{' field,* '}'
+//!            | IDENT ('<' type,+ '>')?               a typedef, or a generic one with arguments
 //! variant   := IDENT ('(' type ')')?
 //! field     := IDENT ':' type
 //! edge      := path '->' target
@@ -77,6 +78,20 @@ fn ws<'a>() -> impl Parser<'a, In<'a>, (), Extra<'a>> + Clone {
 /// A punctuation token followed by trailing whitespace.
 fn sym<'a>(s: &'static str) -> impl Parser<'a, In<'a>, (), Extra<'a>> + Clone {
     just(s).ignored().then_ignore(ws())
+}
+
+/// The `>` closing type arguments or parameters. `>=` right after it is
+/// rejected: it reads as the comparison operator.
+fn close_angle<'a>() -> impl Parser<'a, In<'a>, (), Extra<'a>> + Clone {
+    just('>')
+        .then(just('=').rewind().or_not())
+        .validate(|(_, eq), e, emitter| {
+            if eq.is_some() {
+                emitter.emit(Rich::custom(e.span(), "write `> =` here: `>=` is the comparison operator"));
+            }
+        })
+        .ignored()
+        .then_ignore(ws())
 }
 
 fn kw<'a>(s: &'static str) -> impl Parser<'a, In<'a>, (), Extra<'a>> + Clone {
@@ -170,7 +185,12 @@ fn type_expr<'a>() -> impl Parser<'a, In<'a>, TypeExpr, Extra<'a>> + Clone {
             .then(ty.clone())
             .map(|(k, v)| TypeExprKind::Map(Box::new(k), Box::new(v)));
 
-        let named = ident().map(TypeExprKind::Named);
+        let named = ident()
+            .then(ty.clone().separated_by(sym(",")).at_least(1).collect::<Vec<_>>().delimited_by(sym("<"), close_angle()).or_not())
+            .map(|(n, args)| match args {
+                None => TypeExprKind::Named(n),
+                Some(args) => TypeExprKind::Inst(n, args),
+            });
 
         choice((array, map, enum_, struct_, named))
             .map_with(|kind, e| TypeExpr { kind, span: e.span() })
@@ -501,12 +521,14 @@ fn file<'a>() -> impl Parser<'a, In<'a>, File, Extra<'a>> {
         Interface(Interface),
         Node(Node),
     }
+    let params = ident().separated_by(sym(",")).at_least(1).collect::<Vec<_>>().delimited_by(sym("<"), close_angle());
     let typedef = kw("type")
         .ignore_then(ident())
+        .then(params.or_not())
         .then_ignore(sym("="))
         .then(type_expr())
         .then_ignore(sym(";"))
-        .map(|(name, ty)| TypeDecl { name, ty });
+        .map(|((name, params), ty)| TypeDecl { name, params: params.unwrap_or_default(), ty });
     let interface = kw("interface")
         .ignore_then(ident())
         .then(

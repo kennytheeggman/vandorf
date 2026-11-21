@@ -227,6 +227,54 @@ fn typedef_errors() {
 }
 
 #[test]
+fn generic_typedefs_are_instantiated() {
+    let prog = compile(
+        r#"
+        type R<T> = { x: T, pos: int };
+        type List<T> = enum { Nil, Cons({ h: T, t: List<T> }) };
+        type Toks = R<[]string>;
+        proc P(A): R<List<int>> {
+            func A(r: Toks, s: R<[]string>, m: map[string]R<int>): R<List<int>>;
+        }
+        "#,
+    );
+    let names: Vec<(&str, &str)> = prog.types.iter().map(|d| (d.name.as_str(), d.ident.as_str())).collect();
+    for want in [("R<[]string>", "RStringList"), ("List<int>", "ListInt"), ("R<List<int>>", "RListInt"), ("R<int>", "RInt")] {
+        assert!(names.contains(&want), "{names:?}");
+    }
+    // One instance per distinct use; recursion points back at itself.
+    assert_eq!(names.iter().filter(|(n, _)| *n == "R<[]string>").count(), 1, "{names:?}");
+    let list = prog.types.iter().find(|d| d.name == "List<int>").unwrap();
+    assert!(list.recursive);
+    // An instance is its body with the arguments substituted.
+    let r = vandorf::types::Type::Named(prog.types.iter().position(|d| d.name == "R<int>").unwrap(), "R<int>".into());
+    assert_eq!(r.field("x", &prog.types).unwrap().to_string(), "int");
+}
+
+#[test]
+fn generic_typedef_errors() {
+    let p = "proc P(X): int { func X(): int; }";
+    for (src, want) in [
+        ("type R<T> = { x: T }; type A = R;", "R is generic: give it type arguments, as in R<T>"),
+        ("type R<T> = { x: T }; type A = R<int, int>;", "R takes 1 type argument, not 2"),
+        ("type A = int; type B = A<int>;", "A isn't generic, so it takes no type arguments"),
+        ("type R<T> = { x: int };", "type parameter T is unused"),
+        ("type R<T, T> = { x: T };", "duplicate type parameter T"),
+        ("type R<int> = { x: int };", "type parameter int has the name of a type"),
+        ("type R<T> = { x: Q };", "unknown type Q"),
+        ("type R<T> = { x: R<[]T> }; type A = R<int>;", "type R never stops expanding"),
+        ("type W<T> = W<T>; type A = W<int>;", "type W<int> refers to itself, so it must be a struct or enum"),
+        ("type R<T> = { x: T }; type A = R<{ a: int }>;", "a type argument can't be a struct or enum written out"),
+        ("type R<T> = { x: T }; type A = R<void>;", "void can't be a type argument"),
+        ("type M<K> = { m: map[K]int }; type A = M<float>;", "map keys are ints or strings, not float (in M<float>)"),
+        ("type Id<T> = T; proc Q(X): int { func X(v: Id<void>): int; }", "void can't be a type argument"),
+    ] {
+        let e = compile_err(&format!("{src} {p}"));
+        assert!(e.contains(want), "{src}: {e}");
+    }
+}
+
+#[test]
 fn typedefs_are_structural() {
     // A typedef and its definition written out are interchangeable, both ways.
     compile(
@@ -631,6 +679,25 @@ mod codegen {
         assert!(procs.contains("fn unimplemented_p_b("), "{procs}");
         assert!(out.impls[0].signature.contains("crate::out::app::types::PAOut"), "{:?}", out.impls);
         assert!(rust::generate(&prog, &rust::RustOptions::default()).is_err());
+    }
+
+    #[test]
+    fn generic_instances_are_named_types() {
+        let src = r#"
+            type R<T> = { x: T, pos: int };
+            type Toks = R<[]string>;
+            proc P(A): R<int> { func A(r: Toks): R<int>; }
+        "#;
+        let prog = vandorf::compile("t.sys", src).unwrap();
+        let rs = rust::generate(&prog, &rust::RustOptions { module_dir: Some("app".into()), ..Default::default() }).unwrap();
+        let types = &rs.types.files["types.rs"];
+        assert!(types.contains("pub struct RStringList {") && types.contains("pub struct RInt {"), "{types}");
+        assert!(types.contains("pub type Toks = RStringList;"), "{types}");
+        let mut opts = go::GoOptions::new("app", None);
+        opts.types_dir = ".".into();
+        let go = go::generate(&prog, &opts).unwrap();
+        let types = &go.types.files["types_vandorf.go"];
+        assert!(types.contains("type RStringList struct") && types.contains("type RInt struct"), "{types}");
     }
 
     #[test]

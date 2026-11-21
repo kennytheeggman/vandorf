@@ -45,10 +45,13 @@ pub enum Type {
     Named(TypeId, String),
 }
 
-/// `type Name = ty;`
+/// `type Name = ty;`, or one instance of a generic typedef (`R<int>`).
 #[derive(Debug, Clone)]
 pub struct TypeDef {
+    /// The name as shown in messages: `Name`, or `R<int>` for an instance.
     pub name: String,
+    /// An identifier for generated code: `Name`, or `RInt` for `R<int>`.
+    pub ident: String,
     pub ty: Type,
     /// Whether the definition refers back to itself, directly or through
     /// other typedefs. Recursive typedefs are always structs or enums.
@@ -213,6 +216,7 @@ mod tests {
         // L3 with a string head.
         let list = |id, n: &str, head: Type| TypeDef {
             name: n.into(),
+            ident: n.into(),
             ty: e(&[("Nil", VOID), ("Cons", s(&[("h", head), ("t", named(id, n))]))]),
             recursive: true,
         };

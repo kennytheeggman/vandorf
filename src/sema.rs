@@ -411,6 +411,11 @@ pub fn analyze(file: &ast::File) -> Result<Program, Vec<Error>> {
     let mut cx = Cx {
         prog: Program { types: vec![], nodes: vec![], globals: BTreeMap::new(), top_procs: vec![] },
         type_names: HashMap::new(),
+        generics: HashMap::new(),
+        broken: HashSet::new(),
+        insts: HashMap::new(),
+        bound: vec![],
+        type_spans: vec![],
         procs: vec![],
         aliases: vec![],
         ids: HashMap::new(),
@@ -420,7 +425,11 @@ pub fn analyze(file: &ast::File) -> Result<Program, Vec<Error>> {
     if !cx.errors.is_empty() {
         return Err(cx.errors);
     }
+    let declared = cx.prog.types.len();
     cx.declare_file(file);
+    if cx.errors.is_empty() {
+        cx.check_typedefs(declared);
+    }
     cx.resolve_aliases();
     if !cx.errors.is_empty() {
         return Err(cx.errors);
@@ -436,12 +445,39 @@ pub fn analyze(file: &ast::File) -> Result<Program, Vec<Error>> {
 struct Cx<'a> {
     prog: Program,
     type_names: HashMap<String, TypeId>,
+    /// Generic typedefs, by name. They aren't types themselves: each use
+    /// with arguments is an instance, a typedef of its own.
+    generics: HashMap<String, &'a ast::TypeDecl>,
+    /// Generic typedefs whose bodies have errors (already reported).
+    broken: HashSet<String>,
+    /// Instances, by name as displayed (`R<int>`).
+    insts: HashMap<String, TypeId>,
+    /// The type parameters of the instance being resolved, innermost last.
+    bound: Vec<HashMap<String, Type>>,
+    /// Where each typedef was declared, or (an instance) first used.
+    type_spans: Vec<Span>,
     procs: Vec<(NodeId, &'a ast::Proc)>,
     /// Alias nodes, the proc they're in, and the target declaring them.
     aliases: Vec<(NodeId, NodeId, &'a ast::Target)>,
     /// The node of each `id(..)` target, by the position of its `id`.
     ids: HashMap<(usize, usize), NodeId>,
     errors: Vec<Error>,
+}
+
+/// A type as part of an identifier, for naming instances: `int` -> `Int`,
+/// `[]Field` -> `FieldList`, `map[string]int` -> `MapStringInt`.
+fn ident_of(t: &Type, defs: &[TypeDef]) -> String {
+    let cap = |s: &str| {
+        let mut c = s.chars();
+        c.next().map_or(String::new(), |f| f.to_ascii_uppercase().to_string() + c.as_str())
+    };
+    match t {
+        Type::Prim(p) => format!("{p:?}"),
+        Type::Array(e) => ident_of(e, defs) + "List",
+        Type::Map(k, v) => format!("Map{}{}", ident_of(k, defs), ident_of(v, defs)),
+        Type::Named(id, _) => cap(&defs[*id].ident),
+        Type::Struct(_) | Type::Enum(_) => unreachable!("rejected as type arguments"),
+    }
 }
 
 /// The targets of an edge.
@@ -469,22 +505,30 @@ impl<'a> Cx<'a> {
 
     /// Declares all typedefs before resolving any, so they can refer to each
     /// other in any order, then rejects cycles that never reach a structure.
-    fn declare_types(&mut self, decls: &[ast::TypeDecl]) {
+    fn declare_types(&mut self, decls: &'a [ast::TypeDecl]) {
         for d in decls {
             let name = &d.name.name;
             if Prim::from_name(name).is_some() {
                 self.errors.push(Error { msg: format!("{name} is a built-in type"), span: d.name.span });
-            } else if self.type_names.contains_key(name) {
+            } else if self.type_names.contains_key(name) || self.generics.contains_key(name) {
                 self.errors.push(Error { msg: format!("duplicate type {name}"), span: d.name.span });
-            } else {
+            } else if d.params.is_empty() {
                 self.type_names.insert(name.clone(), self.prog.types.len());
-                self.prog.types.push(TypeDef { name: name.clone(), ty: Type::Prim(Prim::Void), recursive: false });
+                self.prog.types.push(TypeDef { name: name.clone(), ident: name.clone(), ty: Type::Prim(Prim::Void), recursive: false });
+                self.type_spans.push(d.name.span);
+            } else {
+                self.generics.insert(name.clone(), d);
+            }
+        }
+        for d in decls {
+            if !d.params.is_empty() && self.generics.get(&d.name.name).is_some_and(|g| std::ptr::eq(*g, d)) {
+                self.check_generic(d);
             }
         }
         let mut ok = vec![];
         for d in decls {
             let Some(&id) = self.type_names.get(&d.name.name) else { continue };
-            if ok.contains(&id) {
+            if ok.contains(&id) || !d.params.is_empty() {
                 continue; // a duplicate's second declaration
             }
             if let Some(t) = self.ty(&d.ty) {
@@ -492,16 +536,21 @@ impl<'a> Cx<'a> {
                 ok.push(id);
             }
         }
-        if !self.errors.is_empty() {
-            return;
+        if self.errors.is_empty() {
+            self.check_typedefs(0);
         }
+    }
+
+    /// Marks which typedefs from `from` on are recursive, and rejects those
+    /// that refer to themselves without being a struct or enum, or name void.
+    fn check_typedefs(&mut self, from: TypeId) {
         // Typedef reference graph; a typedef is recursive if it reaches itself.
         let edges: Vec<Vec<TypeId>> = self.prog.types.iter().map(|d| {
             let mut out = vec![];
             d.ty.named(&mut out);
             out
         }).collect();
-        for (id, d) in decls.iter().enumerate() {
+        for id in from..self.prog.types.len() {
             let mut seen = vec![false; edges.len()];
             let mut stack = edges[id].clone();
             while let Some(n) = stack.pop() {
@@ -510,16 +559,160 @@ impl<'a> Cx<'a> {
                 }
             }
             self.prog.types[id].recursive = seen[id];
-            let def = &self.prog.types[id];
+            let (def, span) = (&self.prog.types[id], self.type_spans[id]);
             if def.recursive && !matches!(def.ty, Type::Struct(_) | Type::Enum(_)) {
-                self.errors.push(Error {
-                    msg: format!("type {} refers to itself, so it must be a struct or enum", d.name.name),
-                    span: d.name.span,
-                });
+                self.errors.push(Error { msg: format!("type {} refers to itself, so it must be a struct or enum", def.name), span });
             } else if !def.recursive && def.ty.unfold(&self.prog.types).is_void() {
-                self.errors.push(Error { msg: format!("type {} names void", d.name.name), span: d.name.span });
+                self.errors.push(Error { msg: format!("type {} names void", def.name), span });
             }
         }
+    }
+
+    /// Checks a generic typedef's parameters and the names in its body; the
+    /// rest is checked per instance.
+    fn check_generic(&mut self, d: &ast::TypeDecl) {
+        let before = self.errors.len();
+        let mut params: Vec<&str> = vec![];
+        for p in &d.params {
+            let n = p.name.as_str();
+            if params.contains(&n) {
+                self.errors.push(Error { msg: format!("duplicate type parameter {n}"), span: p.span });
+            } else if Prim::from_name(n).is_some() || self.type_names.contains_key(n) || self.generics.contains_key(n) {
+                self.errors.push(Error { msg: format!("type parameter {n} has the name of a type"), span: p.span });
+            }
+            params.push(n);
+        }
+        let mut used = HashSet::new();
+        self.check_body(&d.ty, &params, &mut used);
+        for p in &d.params {
+            if !used.contains(p.name.as_str()) {
+                self.errors.push(Error { msg: format!("type parameter {} is unused", p.name), span: p.span });
+            }
+        }
+        if self.errors.len() > before {
+            self.broken.insert(d.name.name.clone());
+        }
+    }
+
+    fn check_body<'t>(&mut self, t: &'t ast::TypeExpr, params: &[&str], used: &mut HashSet<&'t str>) {
+        use ast::TypeExprKind as K;
+        match &t.kind {
+            K::Named(n) => {
+                if params.contains(&n.name.as_str()) {
+                    used.insert(n.name.as_str());
+                } else if let Some(msg) = self.named_error(n) {
+                    self.errors.push(Error { msg, span: n.span });
+                }
+            }
+            K::Inst(n, args) => {
+                if let Some(msg) = self.inst_error(n, args.len()) {
+                    self.errors.push(Error { msg, span: n.span });
+                }
+                args.iter().for_each(|a| self.check_body(a, params, used));
+            }
+            K::Array(e) => self.check_body(e, params, used),
+            K::Map(k, v) => {
+                self.check_body(k, params, used);
+                self.check_body(v, params, used);
+            }
+            K::Struct(fs) => fs.iter().for_each(|f| self.check_body(&f.ty, params, used)),
+            K::Enum(vs) => vs.iter().filter_map(|v| v.payload.as_ref()).for_each(|p| self.check_body(p, params, used)),
+        }
+    }
+
+    /// Why `n`, written without arguments, isn't a type.
+    fn named_error(&self, n: &ast::Ident) -> Option<String> {
+        let name = &n.name;
+        if Prim::from_name(name).is_some() || self.type_names.contains_key(name) || self.bound.last().is_some_and(|b| b.contains_key(name)) {
+            None
+        } else if let Some(g) = self.generics.get(name) {
+            let ps: Vec<&str> = g.params.iter().map(|p| p.name.as_str()).collect();
+            Some(format!("{name} is generic: give it type arguments, as in {name}<{}>", ps.join(", ")))
+        } else {
+            Some(format!("unknown type {name}"))
+        }
+    }
+
+    /// Why `n<..>` with `count` arguments isn't a type.
+    fn inst_error(&self, n: &ast::Ident, count: usize) -> Option<String> {
+        let name = &n.name;
+        match self.generics.get(name) {
+            Some(g) if g.params.len() == count => None,
+            Some(g) => Some(format!("{name} takes {} type argument{}, not {count}", g.params.len(), if g.params.len() == 1 { "" } else { "s" })),
+            None if Prim::from_name(name).is_some() || self.type_names.contains_key(name) || self.bound.last().is_some_and(|b| b.contains_key(name)) => {
+                Some(format!("{name} isn't generic, so it takes no type arguments"))
+            }
+            None => Some(format!("unknown type {name}")),
+        }
+    }
+
+    /// The typedef for `n<args>`, made the first time it's used: the body
+    /// with the arguments substituted.
+    fn instance(&mut self, n: &ast::Ident, args: &[ast::TypeExpr]) -> Option<Type> {
+        if let Some(msg) = self.inst_error(n, args.len()) {
+            self.errors.push(Error { msg, span: n.span });
+            return None;
+        }
+        let decl = self.generics[&n.name];
+        let mut tys = vec![];
+        for a in args {
+            let t = self.ty(a)?;
+            if t.is_void() {
+                self.errors.push(Error { msg: "void can't be a type argument".into(), span: a.span });
+                return None;
+            }
+            if matches!(t, Type::Struct(_) | Type::Enum(_)) {
+                self.errors.push(Error {
+                    msg: "a type argument can't be a struct or enum written out: name it with a typedef".into(),
+                    span: a.span,
+                });
+                return None;
+            }
+            tys.push(t);
+        }
+        if self.broken.contains(&n.name) {
+            return None;
+        }
+        let shown: Vec<String> = tys.iter().map(|t| t.to_string()).collect();
+        let key = format!("{}<{}>", n.name, shown.join(", "));
+        if let Some(&id) = self.insts.get(&key) {
+            return Some(Type::Named(id, key));
+        }
+        if self.bound.len() >= 32 {
+            self.errors.push(Error { msg: format!("type {} never stops expanding: it uses itself with ever larger arguments", n.name), span: n.span });
+            return None;
+        }
+        let id = self.prog.types.len();
+        let ident = n.name.clone() + &tys.iter().map(|t| ident_of(t, &self.prog.types)).collect::<String>();
+        self.prog.types.push(TypeDef { name: key.clone(), ident, ty: Type::Prim(Prim::Void), recursive: false });
+        self.type_spans.push(n.span);
+        self.insts.insert(key.clone(), id);
+
+        let before = self.errors.len();
+        self.bound.push(decl.params.iter().map(|p| p.name.clone()).zip(tys).collect());
+        let body = self.ty(&decl.ty);
+        self.bound.pop();
+        // Say which instance an error in a generic body came from, once.
+        if self.bound.is_empty() {
+            for e in &mut self.errors[before..] {
+                e.msg = format!("{} (in {key})", e.msg);
+            }
+        }
+        self.prog.types[id].ty = body?;
+        // A cycle of names that never reaches a structure (`type W<T> =
+        // W<T>;`) would make unfolding loop; cut it here.
+        let mut seen = vec![id];
+        let mut t = &self.prog.types[id].ty;
+        while let Type::Named(next, _) = t {
+            if seen.contains(next) {
+                self.errors.push(Error { msg: format!("type {key} refers to itself, so it must be a struct or enum"), span: n.span });
+                self.prog.types[id].ty = Type::Prim(Prim::Void);
+                return None;
+            }
+            seen.push(*next);
+            t = &self.prog.types[*next].ty;
+        }
+        Some(Type::Named(id, key))
     }
 
     // ---- Declarations ----
@@ -710,14 +903,21 @@ impl<'a> Cx<'a> {
     fn ty(&mut self, t: &ast::TypeExpr) -> Option<Type> {
         use ast::TypeExprKind as K;
         Some(match &t.kind {
-            K::Named(n) => match Prim::from_name(&n.name) {
-                Some(p) => Type::Prim(p),
-                None if self.type_names.contains_key(&n.name) => Type::Named(self.type_names[&n.name], n.name.clone()),
-                None => {
-                    self.errors.push(Error { msg: format!("unknown type {}", n.name), span: n.span });
-                    return None;
+            K::Named(n) => {
+                if let Some(t) = self.bound.last().and_then(|b| b.get(&n.name)) {
+                    return Some(t.clone());
                 }
-            },
+                match Prim::from_name(&n.name) {
+                    Some(p) => Type::Prim(p),
+                    None if self.type_names.contains_key(&n.name) => Type::Named(self.type_names[&n.name], n.name.clone()),
+                    None => {
+                        let msg = self.named_error(n).unwrap_or_else(|| format!("unknown type {}", n.name));
+                        self.errors.push(Error { msg, span: n.span });
+                        return None;
+                    }
+                }
+            }
+            K::Inst(n, args) => self.instance(n, args)?,
             K::Array(t) => Type::Array(Box::new(self.ty(t)?)),
             K::Map(k, v) => {
                 let (kt, vt) = (self.ty(k), self.ty(v));

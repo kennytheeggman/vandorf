@@ -40,6 +40,16 @@ proc Calc(Build): int {
   primitives, arrays, or already-named shapes become aliases (`type Ids =
   []int`). Fields that would make a type contain itself are `*T` in Go and
   `Box<T>` in Rust.
+- **Generic typedefs**: `type R<T> = { x: T, pos: int };`, used with type
+  arguments wherever a type goes: `func F(): R<[]Tok>`. Each distinct use is
+  its own typedef, the body with the arguments substituted, so `R<int>` and
+  `{ x: int, pos: int }` are the same type. Codegen names instances after
+  their arguments (`R<[]Tok>` -> `RTokList`, `Map<string, int>` ->
+  `MapStringInt`), in Go and Rust alike. Arguments are typedefs, primitives
+  (not void), arrays or maps; a struct or enum argument needs a typedef.
+  A recursive generic may only use itself with arguments that don't grow
+  (`List<T>` inside `List<T>`). Write `> =`, not `>=`, before an `=`.
+  Funcs and procs aren't generic.
 - **Aliases**: `-> B(..) as B2` calls a separate instance of `B` named `B2`,
   with its own output and outgoing edge, so one func can be used at several
   points in a proc. Later edges call the same instance with `-> B2(..)`, or
