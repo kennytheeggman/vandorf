@@ -64,3 +64,80 @@ fn accepts_like_the_reference() {
         }
     }
 }
+
+/// vcc's typedef phase: the typedefs it resolves (a prefix of the
+/// reference's, which adds instances used in signatures) and its errors.
+fn vcc_types(srcs: &[&str]) -> (Vec<(String, String, String, bool)>, Vec<(String, usize, usize)>) {
+    let mut decls = vec![];
+    for s in srcs {
+        decls.extend(vcc::vcc::run_parse((*s).into()).unwrap_or_else(|e| panic!("{e}")).types.iter().cloned());
+    }
+    let cx = vcc::vcc::run_types_of(decls.into()).unwrap();
+    let types = cx.types.iter().map(|d| (d.name.to_string(), d.ident.to_string(), vcc::vcc::run_show_type(d.ty.clone()).unwrap().to_string(), d.recursive)).collect();
+    let errors = cx.errors.iter().map(|e| (e.msg.to_string(), e.span.at as usize, e.span.end as usize)).collect();
+    (types, errors)
+}
+
+fn ref_types(prog: &vandorf::sema::Program) -> Vec<(String, String, String, bool)> {
+    prog.types.iter().map(|d| (d.name.clone(), d.ident.clone(), d.ty.to_string(), d.recursive)).collect()
+}
+
+#[test]
+fn resolves_typedefs_like_the_reference() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for dir in ["selfhost", "examples/demo"] {
+        let p = vandorf::project::load(&root.join(dir).join("vandorf.toml")).unwrap();
+        let prog = vandorf::check_files(&p.files).unwrap();
+        let srcs: Vec<&str> = p.files.iter().map(|f| f.text.as_str()).collect();
+        let (types, errors) = vcc_types(&srcs);
+        assert!(errors.is_empty(), "{dir}: {errors:?}");
+        let want = ref_types(&prog);
+        assert_eq!(types, want[..types.len()], "{dir}");
+    }
+}
+
+/// Typedef programs, valid and not: the typedef tests of tests/pipeline.rs.
+const TYPEDEF_CASES: &[&str] = &[
+    "type A = B; type B = A;",
+    "type L = []L;",
+    "type U = void;",
+    "type int = string;",
+    "type A = int; type A = string;",
+    "type E = enum { A, A };",
+    "type S = { a: int, a: int };",
+    "type M = map[float]int;",
+    "type R<T> = { x: T, pos: int }; type L<T> = enum { Nil, Cons({ h: T, t: L<T> }) }; type X = R<L<[]int>>; type Y = map[string]R<int>;",
+    "type R<T> = { x: T }; type A = R;",
+    "type R<T> = { x: T }; type A = R<int, int>;",
+    "type A = int; type B = A<int>;",
+    "type R<T> = { x: int };",
+    "type R<T, T> = { x: T };",
+    "type R<int> = { x: int };",
+    "type R<T> = { x: Q };",
+    "type R<T> = { x: R<[]T> }; type A = R<int>;",
+    "type W<T> = W<T>; type A = W<int>;",
+    "type R<T> = { x: T }; type A = R<{ a: int }>;",
+    "type R<T> = { x: T }; type A = R<void>;",
+    "type M<K> = { m: map[K]int }; type A = M<float>;",
+    "type Id<T> = T; type A = Id<Id<int>>; type B = Id<A>;",
+    "type T = enum { Leaf(int), Node({ kids: []T, m: map[string]T }) };",
+];
+
+#[test]
+fn reports_typedef_errors_like_the_reference() {
+    for src in TYPEDEF_CASES {
+        let full = format!("{src} proc P(X): int {{ func X(): int; }}");
+        let (types, errors) = vcc_types(&[&full]);
+        let file = vandorf::parser::parse(&full, 0).unwrap();
+        match vandorf::sema::analyze(&file) {
+            Ok(prog) => {
+                assert!(errors.is_empty(), "{src}: vcc reports {errors:?}");
+                assert_eq!(types, ref_types(&prog)[..types.len()], "{src}");
+            }
+            Err(es) => {
+                let want: Vec<(String, usize, usize)> = es.iter().map(|e| (e.msg.clone(), e.span.start, e.span.end)).collect();
+                assert_eq!(errors, want, "{src}");
+            }
+        }
+    }
+}

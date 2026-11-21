@@ -42,3 +42,258 @@ pub fn new_pair(o: OptPair) -> Result<List<Pair>, String> {
         OptPair::None => List::default(),
     })
 }
+
+// ---- Typedefs ----
+
+
+
+const PRIMS: &[&str] = &["void", "int", "float", "bool", "string"];
+
+pub fn is_prim(name: Str) -> Result<bool, String> {
+    Ok(PRIMS.contains(&&*name))
+}
+
+pub fn itoa(i: i64) -> Result<Str, String> {
+    Ok(i.to_string().into())
+}
+
+pub fn cap(s: Str) -> Result<Str, String> {
+    let mut c = s.chars();
+    Ok(c.next().map_or(String::new(), |f| f.to_ascii_uppercase().to_string() + c.as_str()).into())
+}
+
+pub fn plural(n: i64) -> Result<Str, String> {
+    Ok(if n == 1 { "".into() } else { "s".into() })
+}
+
+pub fn join(parts: List<Str>, sep: Str) -> Result<Str, String> {
+    Ok(parts.join(&*sep).into())
+}
+
+pub fn with_error(mut cx: TyCx, msg: Str, span: Span) -> Result<TyCx, String> {
+    cx.errors = cx.errors.concat(&vec![Diag { msg, span }].into());
+    Ok(cx)
+}
+
+pub fn with_errors(mut cx: TyCx, errors: List<Diag>) -> Result<TyCx, String> {
+    cx.errors = errors;
+    Ok(cx)
+}
+
+pub fn with_types(mut cx: TyCx, types: List<TypeDef>) -> Result<TyCx, String> {
+    cx.types = types;
+    Ok(cx)
+}
+
+pub fn with_bound(mut cx: TyCx, bound: List<Map<Str, Type>>) -> Result<TyCx, String> {
+    cx.bound = bound;
+    Ok(cx)
+}
+
+pub fn with_generic(mut cx: TyCx, d: TypeDecl) -> Result<TyCx, String> {
+    cx.generics = cx.generics.merge(&Map::from_iter([(d.name.name.clone(), d)]));
+    Ok(cx)
+}
+
+pub fn with_broken(mut cx: TyCx, name: Str) -> Result<TyCx, String> {
+    cx.broken = cx.broken.merge(&Map::from_iter([(name, true)]));
+    Ok(cx)
+}
+
+pub fn with_recursive(mut cx: TyCx, id: i64, rec: bool) -> Result<TyCx, String> {
+    let mut v: Vec<TypeDef> = cx.types.into_iter().collect();
+    v[id as usize].recursive = rec;
+    cx.types = v.into();
+    Ok(cx)
+}
+
+fn push_def(mut cx: TyCx, name: Str, ident: Str, span: Span) -> TyCx {
+    cx.types = cx.types.concat(&vec![TypeDef { name, ident, ty: Type::Prim("void".into()), recursive: false }].into());
+    cx.spans = cx.spans.concat(&vec![span].into());
+    cx
+}
+
+pub fn new_def(cx: TyCx, name: Str, ident: Str, span: Span) -> Result<TyCx, String> {
+    let id = cx.types.len() as i64;
+    let mut cx = push_def(cx, name.clone(), ident, span);
+    cx.names = cx.names.merge(&Map::from_iter([(name, id)]));
+    Ok(cx)
+}
+
+pub fn new_inst(cx: TyCx, key: Str, ident: Str, span: Span) -> Result<TyCx, String> {
+    let id = cx.types.len() as i64;
+    let mut cx = push_def(cx, key.clone(), ident, span);
+    cx.insts = cx.insts.merge(&Map::from_iter([(key, id)]));
+    Ok(cx)
+}
+
+pub fn set_ty(types: List<TypeDef>, id: i64, t: Type) -> Result<List<TypeDef>, String> {
+    let mut v: Vec<TypeDef> = types.into_iter().collect();
+    v[id as usize].ty = t;
+    Ok(v.into())
+}
+
+pub fn in_instance(errors: List<Diag>, from: i64, key: Str) -> Result<List<Diag>, String> {
+    Ok(errors
+        .into_iter()
+        .enumerate()
+        .map(|(i, mut e)| {
+            if i as i64 >= from {
+                e.msg = format!("{} (in {key})", e.msg).into();
+            }
+            e
+        })
+        .collect())
+}
+
+pub fn bound(bound: List<Map<Str, Type>>, name: Str) -> Result<MaybeType, String> {
+    Ok(bound.last().and_then(|b| b.get(&name)).map_or(MaybeType::None, |t| MaybeType::Some(t.clone())))
+}
+
+pub fn is_bound(bound: List<Map<Str, Type>>, name: Str) -> Result<bool, String> {
+    Ok(bound.last().is_some_and(|b| b.contains_key(&name)))
+}
+
+pub fn param_map(params: List<Ident>, args: List<Type>) -> Result<Map<Str, Type>, String> {
+    Ok(params.iter().map(|p| p.name.clone()).zip(args.iter().cloned()).collect())
+}
+
+pub fn param_names(ps: List<Ident>) -> Result<Str, String> {
+    Ok(ps.iter().map(|p| &*p.name).collect::<Vec<_>>().join(", ").into())
+}
+
+pub fn ident_names(ids: List<Ident>) -> Result<List<Str>, String> {
+    Ok(ids.iter().map(|p| p.name.clone()).collect())
+}
+
+pub fn is_key_type(t: Type) -> Result<bool, String> {
+    Ok(matches!(&t, Type::Prim(p) if &**p == "int" || &**p == "string"))
+}
+
+pub fn has_member(ms: List<Member>, name: Str) -> Result<bool, String> {
+    Ok(ms.iter().any(|m| m.name == name))
+}
+
+pub fn has_int(seen: List<i64>, x: i64) -> Result<bool, String> {
+    Ok(seen.contains(&x))
+}
+
+pub fn has_str(xs: List<Str>, x: Str) -> Result<bool, String> {
+    Ok(xs.contains(&x))
+}
+
+pub fn is_struct_or_enum(t: Type) -> Result<bool, String> {
+    Ok(matches!(t, Type::Struct(_) | Type::Enum(_)))
+}
+
+pub fn is_some(t: MaybeType) -> Result<bool, String> {
+    Ok(matches!(t, MaybeType::Some(_)))
+}
+
+pub fn unwrap_t(t: MaybeType) -> Result<Type, String> {
+    match t {
+        MaybeType::Some(t) => Ok(t),
+        MaybeType::None => Err("unwrap_t: None".into()),
+    }
+}
+
+pub fn unwrap_tys(m: MaybeTypes) -> Result<List<Type>, String> {
+    match m {
+        MaybeTypes::Some(t) => Ok(t),
+        MaybeTypes::None => Err("unwrap_tys: None".into()),
+    }
+}
+
+pub fn array_of(t: MaybeType) -> Result<MaybeType, String> {
+    Ok(match t {
+        MaybeType::Some(t) => MaybeType::Some(Type::Array(std::sync::Arc::new(t))),
+        MaybeType::None => MaybeType::None,
+    })
+}
+
+pub fn struct_of(ms: MaybeMembers) -> Result<MaybeType, String> {
+    Ok(match ms {
+        MaybeMembers::Some(ms) => MaybeType::Some(Type::Struct(ms)),
+        MaybeMembers::None => MaybeType::None,
+    })
+}
+
+pub fn enum_of(ms: MaybeMembers) -> Result<MaybeType, String> {
+    Ok(match ms {
+        MaybeMembers::Some(ms) => MaybeType::Some(Type::Enum(ms)),
+        MaybeMembers::None => MaybeType::None,
+    })
+}
+
+pub fn map_of(k: Type, v: MaybeType) -> Result<MaybeType, String> {
+    Ok(match v {
+        MaybeType::Some(v) => MaybeType::Some(Type::Map(std::sync::Arc::new(TypeMap { key: std::sync::Arc::new(k), value: std::sync::Arc::new(v) }))),
+        MaybeType::None => MaybeType::None,
+    })
+}
+
+pub fn members_if(ok: bool, ms: List<Member>) -> Result<MaybeMembers, String> {
+    Ok(if ok { MaybeMembers::Some(ms) } else { MaybeMembers::None })
+}
+
+pub fn map_value(t: Type) -> Result<Type, String> {
+    match t {
+        Type::Map(m) => Ok((*m.value).clone()),
+        _ => Err("map_value: not a map".into()),
+    }
+}
+
+pub fn field_types(fs: List<Field>) -> Result<List<TypeExpr>, String> {
+    Ok(fs.iter().map(|f| f.ty.clone()).collect())
+}
+
+pub fn payload_types(vs: List<Variant>) -> Result<List<TypeExpr>, String> {
+    Ok(vs.iter().filter_map(|v| match &v.payload {
+        OptType::Some(p) => Some(p.clone()),
+        OptType::None => None,
+    }).collect())
+}
+
+pub fn name_span(k: TypeKind) -> Result<Span, String> {
+    match k {
+        TypeKind::Named(n) => Ok(n.span),
+        TypeKind::Inst(i) => Ok(i.name.span),
+        _ => Err("name_span: not a name".into()),
+    }
+}
+
+pub fn inst_args(k: TypeKind) -> Result<List<TypeExpr>, String> {
+    match k {
+        TypeKind::Inst(i) => Ok(i.args),
+        _ => Err("inst_args: not an instance".into()),
+    }
+}
+
+/// A type's direct parts, in order (what NamedIn looks inside).
+pub fn parts(t: Type) -> Result<List<Type>, String> {
+    Ok(match t {
+        Type::Prim(_) | Type::Named(_) => List::default(),
+        Type::Array(e) => vec![(*e).clone()].into(),
+        Type::Map(m) => vec![(*m.key).clone(), (*m.value).clone()].into(),
+        Type::Struct(ms) | Type::Enum(ms) => ms.iter().map(|m| m.ty.clone()).collect(),
+    })
+}
+
+pub fn name_of(t: Type) -> Result<List<i64>, String> {
+    Ok(match t {
+        Type::Named(n) => vec![n.id].into(),
+        _ => List::default(),
+    })
+}
+
+pub fn rest(ts: List<Type>) -> Result<List<Type>, String> {
+    Ok(ts[1..].into())
+}
+
+pub fn last_int(xs: List<i64>) -> Result<i64, String> {
+    xs.last().copied().ok_or_else(|| "last_int: empty".into())
+}
+
+pub fn pop_int(xs: List<i64>) -> Result<List<i64>, String> {
+    Ok(xs[..xs.len() - 1].into())
+}

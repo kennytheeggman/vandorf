@@ -1,0 +1,501 @@
+// Typedefs: declaring them, generic ones and their instances, and resolving
+// written types (src/sema.rs: declare_types .. ty in the reference).
+
+type Diag = { msg: string, span: Span };
+
+// Sema's state while resolving types.
+type TyCx = {
+	types: []TypeDef,
+	// Where each typedef was declared, or (an instance) first used.
+	spans: []Span,
+	// Typedefs that aren't generic, by name.
+	names: map[string]int,
+	// Generic typedefs, by name; each use with arguments is an instance.
+	generics: map[string]TypeDecl,
+	// Generic typedefs whose bodies have errors, already reported.
+	broken: map[string]bool,
+	// Instances, by name as shown (`R<int>`).
+	insts: map[string]int,
+	// The type parameters of the instances being resolved, innermost last.
+	bound: []map[string]Type,
+	errors: []Diag
+};
+
+type TyOut = { cx: TyCx, t: MaybeType };
+type MaybeMembers = enum { None, Some([]Member) };
+type MaybeStr = enum { None, Some(string) };
+
+func IsPrim(name: string): bool = "../../rs/src/sema_leaf.rs:is_prim";
+func Itoa(i: int): string = "../../rs/src/sema_leaf.rs:itoa";
+func Cap(s: string): string = "../../rs/src/sema_leaf.rs:cap";
+// Struct updates of the state.
+func WithError(cx: TyCx, msg: string, span: Span): TyCx = "../../rs/src/sema_leaf.rs:with_error";
+func WithTypes(cx: TyCx, types: []TypeDef): TyCx = "../../rs/src/sema_leaf.rs:with_types";
+func WithBound(cx: TyCx, bound: []map[string]Type): TyCx = "../../rs/src/sema_leaf.rs:with_bound";
+// cx with a new typedef: name, ident, declared at span.
+func NewDef(cx: TyCx, name: string, ident: string, span: Span): TyCx = "../../rs/src/sema_leaf.rs:new_def";
+func NewInst(cx: TyCx, key: string, ident: string, span: Span): TyCx = "../../rs/src/sema_leaf.rs:new_inst";
+func SetTy(types: []TypeDef, id: int, t: Type): []TypeDef = "../../rs/src/sema_leaf.rs:set_ty";
+// errors[from..] with " (in key)" appended.
+func InInstance(errors: []Diag, from: int, key: string): []Diag = "../../rs/src/sema_leaf.rs:in_instance";
+// The innermost bound type parameter `name`, if any.
+func Bound(bound: []map[string]Type, name: string): MaybeType = "../../rs/src/sema_leaf.rs:bound";
+func Join(parts: []string, sep: string): string = "../../rs/src/sema_leaf.rs:join";
+func IsKeyType(t: Type): bool = "../../rs/src/sema_leaf.rs:is_key_type";
+func HasMember(ms: []Member, name: string): bool = "../../rs/src/sema_leaf.rs:has_member";
+func ParamMap(params: []Ident, args: []Type): map[string]Type = "../../rs/src/sema_leaf.rs:param_map";
+
+// ---- Resolving a written type ----
+
+proc Ty(At): TyOut {
+	func At(s: { cx: TyCx, t: TypeExpr }): { cx: TyCx, t: TypeExpr } = "../../rs/src/sema_leaf.rs:same";
+	func Kind(k: TypeKind): TypeKind = "../../rs/src/sema_leaf.rs:same";
+	func ArrayOf(t: MaybeType): MaybeType = "../../rs/src/sema_leaf.rs:array_of";
+	func StructOf(ms: MaybeMembers): MaybeType = "../../rs/src/sema_leaf.rs:struct_of";
+	func EnumOf(ms: MaybeMembers): MaybeType = "../../rs/src/sema_leaf.rs:enum_of";
+	At -> Kind(k = this.t.kind);
+	Kind switch {
+		Named(n) -> NamedTy(s = { cx = At.cx, n = n }),
+		Inst(i) -> Instance(s = { cx = At.cx, n = i.name, args = i.args, i = 0, tys = [] }),
+		Array(e) -> Ty(s = { cx = At.cx, t = e }) as Elem,
+		Map(m) -> TyMap(s = { cx = At.cx, key = m.key, value = m.value }),
+		Struct(fs) -> Fields(s = { cx = At.cx, fs = fs, i = 0, ok = true, acc = [] }),
+		Enum(vs) -> Variants(s = { cx = At.cx, vs = vs, i = 0, acc = [] })
+	};
+	Elem -> id({ cx = this.cx, t = ArrayOf(t = this.t) });
+	Fields -> id({ cx = this.cx, t = StructOf(ms = this.ms) });
+	Variants -> id({ cx = this.cx, t = EnumOf(ms = this.ms) });
+}
+
+// A name without type arguments: a bound type parameter, a primitive or a
+// typedef.
+proc NamedTy(At): TyOut {
+	func At(s: { cx: TyCx, n: Ident }): { cx: TyCx, n: Ident } = "../../rs/src/sema_leaf.rs:same";
+	At -> Bound(bound = this.cx.bound, name = this.n.name);
+	Bound switch {
+		Some(t) -> id({ cx = At.cx, t = Some(t) }),
+		else -> switch {
+			(IsPrim(name = At.n.name)) -> id({ cx = At.cx, t = Some(Prim(At.n.name)) }),
+			(At.n.name in At.cx.names) -> id({ cx = At.cx, t = Some(Named({ id = At.cx.names[At.n.name], name = At.n.name })) }),
+			else -> NameProblem(s = { cx = At.cx, name = At.n.name })
+		}
+	};
+	NameProblem switch {
+		Some(msg) -> id({ cx = WithError(cx = At.cx, msg = msg, span = At.n.span), t = None() }),
+		else -> id({ cx = WithError(cx = At.cx, msg = "unknown type " + At.n.name, span = At.n.span), t = None() })
+	};
+}
+
+// Why `name`, written without arguments, isn't a type (None if it is).
+proc NameProblem(At): MaybeStr {
+	func At(s: { cx: TyCx, name: string }): { cx: TyCx, name: string } = "../../rs/src/sema_leaf.rs:same";
+	func ParamNames(ps: []Ident): string = "../../rs/src/sema_leaf.rs:param_names";
+	At switch {
+		(IsPrim(name = this.name) || this.name in this.cx.names || IsBoundName(bound = this.cx.bound, name = this.name)) -> id(None()),
+		(this.name in this.cx.generics) -> id(Some(this.name + " is generic: give it type arguments, as in " + this.name + "<" + ParamNames(ps = this.cx.generics[this.name].params) + ">")),
+		else -> id(Some("unknown type " + this.name))
+	};
+}
+
+func IsBoundName(bound: []map[string]Type, name: string): bool = "../../rs/src/sema_leaf.rs:is_bound";
+
+// Why `name<..>` with `count` arguments isn't a type (None if it is).
+proc InstProblem(At): MaybeStr {
+	func At(s: { cx: TyCx, name: string, count: int }): { cx: TyCx, name: string, count: int } = "../../rs/src/sema_leaf.rs:same";
+	func Plural(n: int): string = "../../rs/src/sema_leaf.rs:plural";
+	At switch {
+		(this.name in this.cx.generics && this.cx.generics[this.name].params.len == this.count) -> id(None()),
+		(this.name in this.cx.generics) -> id(Some(this.name + " takes " + Itoa(i = this.cx.generics[this.name].params.len) + " type argument" + Plural(n = this.cx.generics[this.name].params.len) + ", not " + Itoa(i = this.count))),
+		(IsPrim(name = this.name) || this.name in this.cx.names || IsBoundName(bound = this.cx.bound, name = this.name)) -> id(Some(this.name + " isn't generic, so it takes no type arguments")),
+		else -> id(Some("unknown type " + this.name))
+	};
+}
+
+proc TyMap(At): TyOut {
+	func At(s: { cx: TyCx, key: TypeExpr, value: TypeExpr }): { cx: TyCx, key: TypeExpr, value: TypeExpr } = "../../rs/src/sema_leaf.rs:same";
+	func MapOf(k: Type, v: MaybeType): MaybeType = "../../rs/src/sema_leaf.rs:map_of";
+	At -> Ty(s = { cx = this.cx, t = this.key }) as Key;
+	Key -> Ty(s = { cx = this.cx, t = At.value }) as Val;
+	Val -> KeyT(t = Key.t);
+	func KeyT(t: MaybeType): MaybeType = "../../rs/src/sema_leaf.rs:same";
+	KeyT switch {
+		Some(kt) -> Unfold(s = { t = kt, defs = Val.cx.types }) as KeyShape,
+		else -> id({ cx = Val.cx, t = None() })
+	};
+	KeyShape switch {
+		(IsKeyType(t = this)) -> id({ cx = Val.cx, t = MapOf(k = UnwrapT(t = Key.t), v = Val.t) }),
+		else -> ShowType(t = UnwrapT(t = Key.t)) as Shown
+	};
+	Shown -> id({ cx = WithError(cx = Val.cx, msg = "map keys are ints or strings, not " + this, span = At.key.span), t = None() });
+}
+
+func UnwrapT(t: MaybeType): Type = "../../rs/src/sema_leaf.rs:unwrap_t";
+
+// fs, each resolved; None if any field is a duplicate or doesn't resolve
+// (all are still checked).
+proc Fields(At): { cx: TyCx, ms: MaybeMembers } {
+	func At(s: { cx: TyCx, fs: []Field, i: int, ok: bool, acc: []Member }): { cx: TyCx, fs: []Field, i: int, ok: bool, acc: []Member } = "../../rs/src/sema_leaf.rs:same";
+	func Done(ok: bool, ms: []Member): MaybeMembers = "../../rs/src/sema_leaf.rs:members_if";
+	At switch {
+		(this.i == this.fs.len) -> id({ cx = this.cx, ms = Done(ok = this.ok, ms = this.acc) }),
+		(HasMember(ms = this.acc, name = this.fs[this.i].name.name)) -> Ty(s = { cx = WithError(cx = this.cx, msg = "duplicate field " + this.fs[this.i].name.name, span = this.fs[this.i].name.span), t = this.fs[this.i].ty }) as Dup,
+		else -> Ty(s = { cx = this.cx, t = this.fs[this.i].ty }) as One
+	};
+	Dup switch {
+		{ cx = _, t = Some(t) } -> At(s = { cx = Dup.cx, fs = At.fs, i = At.i + 1, ok = false, acc = At.acc + [{ name = At.fs[At.i].name.name, ty = t }] }),
+		else -> At(s = { cx = Dup.cx, fs = At.fs, i = At.i + 1, ok = false, acc = At.acc })
+	};
+	One switch {
+		{ cx = _, t = Some(t) } -> At(s = { cx = One.cx, fs = At.fs, i = At.i + 1, ok = At.ok, acc = At.acc + [{ name = At.fs[At.i].name.name, ty = t }] }),
+		else -> At(s = { cx = One.cx, fs = At.fs, i = At.i + 1, ok = false, acc = At.acc })
+	};
+}
+
+// vs, each resolved (void for no payload); stops at the first duplicate or
+// payload that doesn't resolve.
+proc Variants(At): { cx: TyCx, ms: MaybeMembers } {
+	func At(s: { cx: TyCx, vs: []Variant, i: int, acc: []Member }): { cx: TyCx, vs: []Variant, i: int, acc: []Member } = "../../rs/src/sema_leaf.rs:same";
+	func Payload(p: OptType): OptType = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.vs.len) -> id({ cx = this.cx, ms = Some(this.acc) }),
+		(HasMember(ms = this.acc, name = this.vs[this.i].name.name)) -> id({ cx = WithError(cx = this.cx, msg = "duplicate variant " + this.vs[this.i].name.name, span = this.vs[this.i].name.span), ms = None() }),
+		else -> Payload(p = this.vs[this.i].payload)
+	};
+	Payload switch {
+		Some(p) -> Ty(s = { cx = At.cx, t = p }) as PT,
+		else -> At(s = { cx = At.cx, vs = At.vs, i = At.i + 1, acc = At.acc + [{ name = At.vs[At.i].name.name, ty = Prim("void") }] })
+	};
+	PT switch {
+		{ cx = _, t = Some(t) } -> At(s = { cx = PT.cx, vs = At.vs, i = At.i + 1, acc = At.acc + [{ name = At.vs[At.i].name.name, ty = t }] }),
+		else -> id({ cx = PT.cx, ms = None() })
+	};
+}
+
+// ---- Instances ----
+
+// The typedef for `n<args>`, made the first time it's used: the generic
+// body with the arguments substituted.
+proc Instance(At): TyOut {
+	func At(s: { cx: TyCx, n: Ident, args: []TypeExpr, i: int, tys: []Type }): { cx: TyCx, n: Ident, args: []TypeExpr, i: int, tys: []Type } = "../../rs/src/sema_leaf.rs:same";
+	func Key(k: string): string = "../../rs/src/sema_leaf.rs:same";
+	At -> InstProblem(s = { cx = this.cx, name = this.n.name, count = this.args.len });
+	InstProblem switch {
+		Some(msg) -> id({ cx = WithError(cx = At.cx, msg = msg, span = At.n.span), t = None() }),
+		else -> InstArgs(s = { cx = At.cx, args = At.args, i = 0, tys = [] }) as Args
+	};
+	Args switch {
+		{ cx = _, tys = Some(tys) } -> switch {
+			(At.n.name in Args.cx.broken) -> id({ cx = Args.cx, t = None() }),
+			else -> ShowAll(s = { ts = tys, i = 0, acc = [] })
+		},
+		else -> id({ cx = Args.cx, t = None() })
+	};
+	ShowAll -> Key(k = At.n.name + "<" + Join(parts = this, sep = ", ") + ">");
+	Key switch {
+		(this in Args.cx.insts) -> id({ cx = Args.cx, t = Some(Named({ id = Args.cx.insts[this], name = this })) }),
+		(Args.cx.bound.len >= 32) -> id({ cx = WithError(cx = Args.cx, msg = "type " + At.n.name + " never stops expanding: it uses itself with ever larger arguments", span = At.n.span), t = None() }),
+		else -> IdentAll(s = { ts = TysOf(m = Args.tys), types = Args.cx.types, i = 0, acc = "" })
+	};
+	IdentAll -> InstBody(s = { cx = NewInst(cx = Args.cx, key = Key, ident = At.n.name + this, span = At.n.span), key = Key, n = At.n, tys = TysOf(m = Args.tys) });
+}
+
+type MaybeTypes = enum { None, Some([]Type) };
+func TysOf(m: MaybeTypes): []Type = "../../rs/src/sema_leaf.rs:unwrap_tys";
+
+// The arguments, resolved; None at the first that doesn't resolve or is
+// void or a struct or enum written out.
+proc InstArgs(At): { cx: TyCx, tys: MaybeTypes } {
+	func At(s: { cx: TyCx, args: []TypeExpr, i: int, tys: []Type }): { cx: TyCx, args: []TypeExpr, i: int, tys: []Type } = "../../rs/src/sema_leaf.rs:same";
+	func WrittenOut(t: Type): bool = "../../rs/src/sema_leaf.rs:is_struct_or_enum";
+	At switch {
+		(this.i == this.args.len) -> id({ cx = this.cx, tys = Some(this.tys) }),
+		else -> Ty(s = { cx = this.cx, t = this.args[this.i] }) as One
+	};
+	One switch {
+		{ cx = _, t = Some(t) } -> switch {
+			(IsVoid(t = t)) -> id({ cx = WithError(cx = One.cx, msg = "void can't be a type argument", span = At.args[At.i].span), tys = None() }),
+			(WrittenOut(t = t)) -> id({ cx = WithError(cx = One.cx, msg = "a type argument can't be a struct or enum written out: name it with a typedef", span = At.args[At.i].span), tys = None() }),
+			else -> At(s = { cx = One.cx, args = At.args, i = At.i + 1, tys = At.tys + [t] })
+		},
+		else -> id({ cx = One.cx, tys = None() })
+	};
+}
+
+// Resolves a new instance's body: the generic's, with its parameters bound
+// to the arguments. cx already has the instance (the last typedef).
+proc InstBody(At): TyOut {
+	func At(s: { cx: TyCx, key: string, n: Ident, tys: []Type }): { cx: TyCx, key: string, n: Ident, tys: []Type } = "../../rs/src/sema_leaf.rs:same";
+	At -> Ty(s = { cx = WithBound(cx = this.cx, bound = this.cx.bound + [ParamMap(params = this.cx.generics[this.n.name].params, args = this.tys)]), t = this.cx.generics[this.n.name].ty }) as Body;
+	// Which instance an error in a generic body came from, said once.
+	Body switch {
+		(At.cx.bound.len == 0) -> Restore(cx = WithErrors(cx = WithBound(cx = this.cx, bound = At.cx.bound), errors = InInstance(errors = this.cx.errors, from = At.cx.errors.len, key = At.key))),
+		else -> Restore(cx = WithBound(cx = this.cx, bound = At.cx.bound))
+	};
+	func Restore(cx: TyCx): TyCx = "../../rs/src/sema_leaf.rs:same";
+	Restore switch {
+		(IsSome(t = Body.t)) -> ChainCycle(s = { types = SetTy(types = this.types, id = At.cx.types.len - 1, t = UnwrapT(t = Body.t)), start = At.cx.types.len - 1, seen = [At.cx.types.len - 1], t = UnwrapT(t = Body.t) }),
+		else -> id({ cx = this, t = None() })
+	};
+	// A cycle of names that never reaches a structure (`type W<T> = W<T>;`)
+	// would make unfolding loop; cut it here.
+	ChainCycle switch {
+		(this) -> id({ cx = WithTypes(cx = WithError(cx = Restore, msg = "type " + At.key + " refers to itself, so it must be a struct or enum", span = At.n.span), types = SetTy(types = Restore.types, id = At.cx.types.len - 1, t = Prim("void"))), t = None() }),
+		else -> id({ cx = WithTypes(cx = Restore, types = SetTy(types = Restore.types, id = At.cx.types.len - 1, t = UnwrapT(t = Body.t))), t = Some(Named({ id = At.cx.types.len - 1, name = At.key })) })
+	};
+}
+
+func IsSome(t: MaybeType): bool = "../../rs/src/sema_leaf.rs:is_some";
+func WithErrors(cx: TyCx, errors: []Diag): TyCx = "../../rs/src/sema_leaf.rs:with_errors";
+
+// Whether following typedef names from `t` comes back to one already seen.
+proc ChainCycle(At): bool {
+	func At(s: { types: []TypeDef, start: int, seen: []int, t: Type }): { types: []TypeDef, start: int, seen: []int, t: Type } = "../../rs/src/sema_leaf.rs:same";
+	func T(t: Type): Type = "../../rs/src/sema_leaf.rs:same";
+	func Seen(seen: []int, x: int): bool = "../../rs/src/sema_leaf.rs:has_int";
+	At -> T(t = this.t);
+	T switch {
+		Named(n) -> switch {
+			(Seen(seen = At.seen, x = n.id)) -> id(true),
+			else -> At(s = { types = At.types, start = At.start, seen = At.seen + [n.id], t = At.types[n.id].ty })
+		},
+		else -> id(false)
+	};
+}
+
+// Each type, shown.
+proc ShowAll(At): []string {
+	func At(s: { ts: []Type, i: int, acc: []string }): { ts: []Type, i: int, acc: []string } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.ts.len) -> id(this.acc),
+		else -> ShowType(t = this.ts[this.i])
+	};
+	ShowType -> At(s = { ts = At.ts, i = At.i + 1, acc = At.acc + [this] });
+}
+
+// The types as part of an identifier, for naming instances: `int` -> `Int`,
+// `[]Field` -> `FieldList`, `map[string]int` -> `MapStringInt`.
+proc IdentAll(At): string {
+	func At(s: { ts: []Type, types: []TypeDef, i: int, acc: string }): { ts: []Type, types: []TypeDef, i: int, acc: string } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.ts.len) -> id(this.acc),
+		else -> IdentOf(s = { t = this.ts[this.i], types = this.types })
+	};
+	IdentOf -> At(s = { ts = At.ts, types = At.types, i = At.i + 1, acc = At.acc + this });
+}
+
+proc IdentOf(At): string {
+	func At(s: { t: Type, types: []TypeDef }): { t: Type, types: []TypeDef } = "../../rs/src/sema_leaf.rs:same";
+	func T(t: Type): Type = "../../rs/src/sema_leaf.rs:same";
+	func PrimIdent(p: string): string = "../../rs/src/sema_leaf.rs:cap";
+	At -> T(t = this.t);
+	T switch {
+		Prim(p) -> id(PrimIdent(p = p)),
+		Named(n) -> id(Cap(s = At.types[n.id].ident)),
+		Array(e) -> IdentOf(s = { t = e, types = At.types }) as Elem,
+		Map(m) -> IdentOf(s = { t = m.key, types = At.types }) as Key,
+		else -> id("")
+	};
+	Elem -> id(this + "List");
+	Key -> IdentOf(s = { t = MapValue(t = T), types = At.types }) as Val;
+	Val -> id("Map" + Key + this);
+}
+
+func MapValue(t: Type): Type = "../../rs/src/sema_leaf.rs:map_value";
+
+// ---- Declaring typedefs ----
+
+// Declares all typedefs before resolving any, so they can refer to each
+// other in any order, then rejects cycles that never reach a structure.
+proc DeclareTypes(At): TyCx {
+	func At(s: { cx: TyCx, decls: []TypeDecl, i: int }): { cx: TyCx, decls: []TypeDecl, i: int } = "../../rs/src/sema_leaf.rs:same";
+	func WithGeneric(cx: TyCx, d: TypeDecl): TyCx = "../../rs/src/sema_leaf.rs:with_generic";
+	At switch {
+		(this.i == this.decls.len) -> CheckGenerics(s = { cx = this.cx, decls = this.decls, i = 0 }),
+		(IsPrim(name = this.decls[this.i].name.name)) -> At(s = { cx = WithError(cx = this.cx, msg = this.decls[this.i].name.name + " is a built-in type", span = this.decls[this.i].name.span), decls = this.decls, i = this.i + 1 }),
+		(this.decls[this.i].name.name in this.cx.names || this.decls[this.i].name.name in this.cx.generics) -> At(s = { cx = WithError(cx = this.cx, msg = "duplicate type " + this.decls[this.i].name.name, span = this.decls[this.i].name.span), decls = this.decls, i = this.i + 1 }),
+		(this.decls[this.i].params.len == 0) -> At(s = { cx = NewDef(cx = this.cx, name = this.decls[this.i].name.name, ident = this.decls[this.i].name.name, span = this.decls[this.i].name.span), decls = this.decls, i = this.i + 1 }),
+		else -> At(s = { cx = WithGeneric(cx = this.cx, d = this.decls[this.i]), decls = this.decls, i = this.i + 1 })
+	};
+	CheckGenerics -> ResolveDecls(s = { cx = this, decls = At.decls, i = 0, ok = [] });
+	ResolveDecls switch {
+		(this.errors.len == 0) -> CheckTypedefs(s = { cx = this, from = 0 }),
+		else -> id(this)
+	};
+}
+
+// Checks each generic typedef's first declaration.
+proc CheckGenerics(At): TyCx {
+	func At(s: { cx: TyCx, decls: []TypeDecl, i: int }): { cx: TyCx, decls: []TypeDecl, i: int } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.decls.len) -> id(this.cx),
+		(this.decls[this.i].params.len > 0 && this.decls[this.i].name.name in this.cx.generics && this.cx.generics[this.decls[this.i].name.name].name.span.at == this.decls[this.i].name.span.at) -> CheckGeneric(s = { cx = this.cx, d = this.decls[this.i] }),
+		else -> At(s = { cx = this.cx, decls = this.decls, i = this.i + 1 })
+	};
+	CheckGeneric -> At(s = { cx = this, decls = At.decls, i = At.i + 1 });
+}
+
+// Resolves each typedef that isn't generic, once.
+proc ResolveDecls(At): TyCx {
+	func At(s: { cx: TyCx, decls: []TypeDecl, i: int, ok: []int }): { cx: TyCx, decls: []TypeDecl, i: int, ok: []int } = "../../rs/src/sema_leaf.rs:same";
+	func Done(ok: []int, x: int): bool = "../../rs/src/sema_leaf.rs:has_int";
+	At switch {
+		(this.i == this.decls.len) -> id(this.cx),
+		(this.decls[this.i].params.len > 0 || !(this.decls[this.i].name.name in this.cx.names)) -> At(s = { cx = this.cx, decls = this.decls, i = this.i + 1, ok = this.ok }),
+		(Done(ok = this.ok, x = this.cx.names[this.decls[this.i].name.name])) -> At(s = { cx = this.cx, decls = this.decls, i = this.i + 1, ok = this.ok }),
+		else -> Ty(s = { cx = this.cx, t = this.decls[this.i].ty })
+	};
+	Ty switch {
+		{ cx = _, t = Some(t) } -> At(s = { cx = WithTypes(cx = Ty.cx, types = SetTy(types = Ty.cx.types, id = At.cx.names[At.decls[At.i].name.name], t = t)), decls = At.decls, i = At.i + 1, ok = At.ok + [At.cx.names[At.decls[At.i].name.name]] }),
+		else -> At(s = { cx = Ty.cx, decls = At.decls, i = At.i + 1, ok = At.ok })
+	};
+}
+
+// A generic typedef's parameters and the names in its body; the rest is
+// checked per instance.
+proc CheckGeneric(At): TyCx {
+	func At(s: { cx: TyCx, d: TypeDecl }): { cx: TyCx, d: TypeDecl } = "../../rs/src/sema_leaf.rs:same";
+	func WithBroken(cx: TyCx, name: string): TyCx = "../../rs/src/sema_leaf.rs:with_broken";
+	At -> CheckParams(s = { cx = this.cx, ps = this.d.params, i = 0, seen = [] });
+	CheckParams -> CheckBody(s = { cx = this, t = At.d.ty, params = IdentNames(ids = At.d.params), used = [] }) as Body;
+	Body -> Unused(s = { cx = this.cx, ps = At.d.params, used = this.used, i = 0 });
+	Unused switch {
+		(this.errors.len > At.cx.errors.len) -> id(WithBroken(cx = this, name = At.d.name.name)),
+		else -> id(this)
+	};
+}
+
+func IdentNames(ids: []Ident): []string = "../../rs/src/sema_leaf.rs:ident_names";
+func HasStr(xs: []string, x: string): bool = "../../rs/src/sema_leaf.rs:has_str";
+
+proc CheckParams(At): TyCx {
+	func At(s: { cx: TyCx, ps: []Ident, i: int, seen: []string }): { cx: TyCx, ps: []Ident, i: int, seen: []string } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.ps.len) -> id(this.cx),
+		(HasStr(xs = this.seen, x = this.ps[this.i].name)) -> At(s = { cx = WithError(cx = this.cx, msg = "duplicate type parameter " + this.ps[this.i].name, span = this.ps[this.i].span), ps = this.ps, i = this.i + 1, seen = this.seen + [this.ps[this.i].name] }),
+		(IsPrim(name = this.ps[this.i].name) || this.ps[this.i].name in this.cx.names || this.ps[this.i].name in this.cx.generics) -> At(s = { cx = WithError(cx = this.cx, msg = "type parameter " + this.ps[this.i].name + " has the name of a type", span = this.ps[this.i].span), ps = this.ps, i = this.i + 1, seen = this.seen + [this.ps[this.i].name] }),
+		else -> At(s = { cx = this.cx, ps = this.ps, i = this.i + 1, seen = this.seen + [this.ps[this.i].name] })
+	};
+}
+
+proc Unused(At): TyCx {
+	func At(s: { cx: TyCx, ps: []Ident, used: []string, i: int }): { cx: TyCx, ps: []Ident, used: []string, i: int } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.ps.len) -> id(this.cx),
+		(HasStr(xs = this.used, x = this.ps[this.i].name)) -> At(s = { cx = this.cx, ps = this.ps, used = this.used, i = this.i + 1 }),
+		else -> At(s = { cx = WithError(cx = this.cx, msg = "type parameter " + this.ps[this.i].name + " is unused", span = this.ps[this.i].span), ps = this.ps, used = this.used, i = this.i + 1 })
+	};
+}
+
+type BodyCheck = { cx: TyCx, t: TypeExpr, params: []string, used: []string };
+
+// The names in a generic body: parameters (recorded as used) or types.
+proc CheckBody(At): { cx: TyCx, used: []string } {
+	func At(s: BodyCheck): BodyCheck = "../../rs/src/sema_leaf.rs:same";
+	func Kind(k: TypeKind): TypeKind = "../../rs/src/sema_leaf.rs:same";
+	func Exprs(fs: []Field): []TypeExpr = "../../rs/src/sema_leaf.rs:field_types";
+	func Payloads(vs: []Variant): []TypeExpr = "../../rs/src/sema_leaf.rs:payload_types";
+	At -> Kind(k = this.t.kind);
+	Kind switch {
+		Named(n) -> switch {
+			(HasStr(xs = At.params, x = n.name)) -> id({ cx = At.cx, used = At.used + [n.name] }),
+			else -> NameProblem(s = { cx = At.cx, name = n.name }) as NP
+		},
+		Inst(i) -> InstProblem(s = { cx = At.cx, name = i.name.name, count = i.args.len }) as IP,
+		Array(e) -> CheckBodies(s = { cx = At.cx, ts = [e], params = At.params, used = At.used, i = 0 }) as Parts,
+		Map(m) -> CheckBodies(s = { cx = At.cx, ts = [m.key, m.value], params = At.params, used = At.used, i = 0 }) as Parts,
+		Struct(fs) -> CheckBodies(s = { cx = At.cx, ts = Exprs(fs = fs), params = At.params, used = At.used, i = 0 }) as Parts,
+		Enum(vs) -> CheckBodies(s = { cx = At.cx, ts = Payloads(vs = vs), params = At.params, used = At.used, i = 0 }) as Parts
+	};
+	NP switch {
+		Some(msg) -> id({ cx = WithError(cx = At.cx, msg = msg, span = NameSpan(k = Kind)), used = At.used }),
+		else -> id({ cx = At.cx, used = At.used })
+	};
+	IP switch {
+		Some(msg) -> CheckBodies(s = { cx = WithError(cx = At.cx, msg = msg, span = NameSpan(k = Kind)), ts = InstArgExprs(k = Kind), params = At.params, used = At.used, i = 0 }) as Parts,
+		else -> CheckBodies(s = { cx = At.cx, ts = InstArgExprs(k = Kind), params = At.params, used = At.used, i = 0 }) as Parts
+	};
+}
+
+func NameSpan(k: TypeKind): Span = "../../rs/src/sema_leaf.rs:name_span";
+func InstArgExprs(k: TypeKind): []TypeExpr = "../../rs/src/sema_leaf.rs:inst_args";
+
+proc CheckBodies(At): { cx: TyCx, used: []string } {
+	func At(s: { cx: TyCx, ts: []TypeExpr, params: []string, used: []string, i: int }): { cx: TyCx, ts: []TypeExpr, params: []string, used: []string, i: int } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.ts.len) -> id({ cx = this.cx, used = this.used }),
+		else -> CheckBody(s = { cx = this.cx, t = this.ts[this.i], params = this.params, used = this.used })
+	};
+	CheckBody -> At(s = { cx = this.cx, ts = At.ts, params = At.params, used = this.used, i = At.i + 1 });
+}
+
+// ---- Recursion ----
+
+// Marks which typedefs from `from` on are recursive, and rejects those that
+// refer to themselves without being a struct or enum, or that name void.
+proc CheckTypedefs(At): TyCx {
+	func At(s: { cx: TyCx, from: int }): { cx: TyCx, from: int } = "../../rs/src/sema_leaf.rs:same";
+	At -> NamedEdges(s = { types = this.cx.types, i = 0, acc = [] });
+	NamedEdges -> MarkTypedefs(s = { cx = At.cx, edges = this, id = At.from });
+}
+
+proc MarkTypedefs(At): TyCx {
+	func At(s: { cx: TyCx, edges: [][]int, id: int }): { cx: TyCx, edges: [][]int, id: int } = "../../rs/src/sema_leaf.rs:same";
+	func Structure(t: Type): bool = "../../rs/src/sema_leaf.rs:is_struct_or_enum";
+	At switch {
+		(this.id == this.cx.types.len) -> id(this.cx),
+		else -> Reach(s = { edges = this.edges, stack = this.edges[this.id], seen = [:] })
+	};
+	Reach switch {
+		(At.id in this && !Structure(t = At.cx.types[At.id].ty)) -> At(s = { cx = WithError(cx = Rec(cx = At.cx, id = At.id, rec = true), msg = "type " + At.cx.types[At.id].name + " refers to itself, so it must be a struct or enum", span = At.cx.spans[At.id]), edges = At.edges, id = At.id + 1 }),
+		(At.id in this) -> At(s = { cx = Rec(cx = At.cx, id = At.id, rec = true), edges = At.edges, id = At.id + 1 }),
+		else -> Unfold(s = { t = At.cx.types[At.id].ty, defs = At.cx.types })
+	};
+	Unfold switch {
+		(IsVoid(t = this)) -> At(s = { cx = WithError(cx = Rec(cx = At.cx, id = At.id, rec = false), msg = "type " + At.cx.types[At.id].name + " names void", span = At.cx.spans[At.id]), edges = At.edges, id = At.id + 1 }),
+		else -> At(s = { cx = Rec(cx = At.cx, id = At.id, rec = false), edges = At.edges, id = At.id + 1 })
+	};
+}
+
+func Rec(cx: TyCx, id: int, rec: bool): TyCx = "../../rs/src/sema_leaf.rs:with_recursive";
+
+// For each typedef, the typedefs its definition names directly (not through
+// another typedef).
+proc NamedEdges(At): [][]int {
+	func At(s: { types: []TypeDef, i: int, acc: [][]int }): { types: []TypeDef, i: int, acc: [][]int } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.types.len) -> id(this.acc),
+		else -> NamedIn(s = { ts = [this.types[this.i].ty], acc = [] })
+	};
+	NamedIn -> At(s = { types = At.types, i = At.i + 1, acc = At.acc + [this] });
+}
+
+// Typedefs the types mention, depth first, in order.
+proc NamedIn(At): []int {
+	func At(s: { ts: []Type, acc: []int }): { ts: []Type, acc: []int } = "../../rs/src/sema_leaf.rs:same";
+	func Parts(t: Type): []Type = "../../rs/src/sema_leaf.rs:parts";
+	func NameOf(t: Type): []int = "../../rs/src/sema_leaf.rs:name_of";
+	At switch {
+		(this.ts.len == 0) -> id(this.acc),
+		else -> At(s = { ts = Parts(t = this.ts[0]) + Rest(ts = this.ts), acc = this.acc + NameOf(t = this.ts[0]) })
+	};
+}
+
+func Rest(ts: []Type): []Type = "../../rs/src/sema_leaf.rs:rest";
+
+// The typedefs reachable from `stack` along `edges`.
+proc Reach(At): map[int]bool {
+	func At(s: { edges: [][]int, stack: []int, seen: map[int]bool }): { edges: [][]int, stack: []int, seen: map[int]bool } = "../../rs/src/sema_leaf.rs:same";
+	func Last(xs: []int): int = "../../rs/src/sema_leaf.rs:last_int";
+	func Pop(xs: []int): []int = "../../rs/src/sema_leaf.rs:pop_int";
+	At switch {
+		(this.stack.len == 0) -> id(this.seen),
+		(Last(xs = this.stack) in this.seen) -> At(s = { edges = this.edges, stack = Pop(xs = this.stack), seen = this.seen }),
+		else -> At(s = { edges = this.edges, stack = Pop(xs = this.stack) + this.edges[Last(xs = this.stack)], seen = this.seen + [Last(xs = this.stack): true] })
+	};
+}
+
+// The typedefs of a program, declared and resolved, from an empty state.
+proc TypesOf(At): TyCx {
+	func At(decls: []TypeDecl): []TypeDecl = "../../rs/src/sema_leaf.rs:same";
+	At -> DeclareTypes(s = { cx = { types = [], spans = [], names = [:], generics = [:], broken = [:], insts = [:], bound = [], errors = [] }, decls = this, i = 0 });
+}
