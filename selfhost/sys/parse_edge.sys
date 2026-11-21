@@ -14,11 +14,11 @@ proc PEdge(At): R<Edge> {
 		(IsWord(t = this.tok, s = "collect")) -> Expect(toks = this.toks, pos = this.pos + 1, text = "each", what = "each after collect") as CollectEach,
 		else -> Expect(toks = this.toks, pos = this.pos, text = "for", what = "->, switch, collect each or for each") as For
 	};
-	CallTarget -> id({ x = { source = PPath.x, kind = Call(this.x), span = { at = PPath.x.span.at, end = At.toks[this.pos - 1].end } }, pos = this.pos });
+	CallTarget -> id({ x = { source = PPath.x, kind = Call(this.x), span = { at = PPath.x.span.at, end = At.toks[this.pos - 1].end, file = PPath.x.span.file } }, pos = this.pos });
 
 	SwitchOpen -> PArms(toks = this.toks, pos = this.pos);
 	PArms -> Expect(toks = At.toks, pos = this.pos, text = "}", what = ", or }") as SwitchClose;
-	SwitchClose -> id({ x = { source = PPath.x, kind = Match(PArms.x), span = { at = PPath.x.span.at, end = this.prev.end } }, pos = this.pos });
+	SwitchClose -> id({ x = { source = PPath.x, kind = Match(PArms.x), span = { at = PPath.x.span.at, end = this.prev.end, file = PPath.x.span.file } }, pos = this.pos });
 
 	CollectEach -> Expect(toks = this.toks, pos = this.pos, text = "(", what = "( after collect each") as CollectOpen;
 	CollectOpen -> NeedIdent(toks = this.toks, pos = this.pos, what = "the collected node") as CollectDim;
@@ -26,7 +26,7 @@ proc PEdge(At): R<Edge> {
 	CollectClose -> Expect(toks = this.toks, pos = this.pos, text = "->", what = "->") as CollectArrow;
 	CollectArrow -> PTarget(toks = this.toks, pos = this.pos) as CollectTarget;
 	CollectTarget -> id({
-		x = { source = PPath.x, kind = Collect({ dim = MkIdent(t = CollectDim.tok), target = this.x }), span = { at = PPath.x.span.at, end = At.toks[this.pos - 1].end } },
+		x = { source = PPath.x, kind = Collect({ dim = MkIdent(t = CollectDim.tok), target = this.x }), span = { at = PPath.x.span.at, end = At.toks[this.pos - 1].end, file = PPath.x.span.file } },
 		pos = this.pos
 	});
 
@@ -37,7 +37,7 @@ proc PEdge(At): R<Edge> {
 	ForClose -> Expect(toks = this.toks, pos = this.pos, text = "->", what = "->") as ForArrow;
 	ForArrow -> PTarget(toks = this.toks, pos = this.pos) as ForTarget;
 	ForTarget -> id({
-		x = { source = PPath.x, kind = ForEach({ dim = ForDim.x, target = this.x }), span = { at = PPath.x.span.at, end = At.toks[this.pos - 1].end } },
+		x = { source = PPath.x, kind = ForEach({ dim = ForDim.x, target = this.x }), span = { at = PPath.x.span.at, end = At.toks[this.pos - 1].end, file = PPath.x.span.file } },
 		pos = this.pos
 	});
 }
@@ -119,7 +119,7 @@ proc PArm(At): R<Arm> {
 	ElseBody -> id({ x = { head = Else(), span = SpanOf(t = At.tok), body = this.x }, pos = this.pos });
 	Cond -> Expect(toks = At.toks, pos = this.pos, text = "->", what = "-> after the condition") as CondArrow;
 	CondArrow -> PArmBody(toks = this.toks, pos = this.pos) as CondBody;
-	CondBody -> id({ x = { head = Cond(Cond.x), span = { at = At.tok.at, end = At.toks[CondArrow.pos - 2].end }, body = this.x }, pos = this.pos });
+	CondBody -> id({ x = { head = Cond(Cond.x), span = { at = At.tok.at, end = At.toks[CondArrow.pos - 2].end, file = At.tok.file }, body = this.x }, pos = this.pos });
 	PPat -> Expect(toks = At.toks, pos = this.pos, text = "->", what = "| or -> after the pattern") as PatArrow;
 	PatArrow -> PArmBody(toks = this.toks, pos = this.pos) as PatBody;
 	PatBody -> id({ x = { head = Pat(PPat.x), span = PPat.x.span, body = this.x }, pos = this.pos });
@@ -134,7 +134,7 @@ proc PArmBody(At): R<Body> {
 	};
 	Open -> PArms(toks = this.toks, pos = this.pos);
 	PArms -> Expect(toks = At.toks, pos = this.pos, text = "}", what = ", or }") as Close;
-	Close -> id({ x = Switch({ arms = PArms.x, span = { at = At.tok.at, end = this.prev.end } }), pos = this.pos });
+	Close -> id({ x = Switch({ arms = PArms.x, span = { at = At.tok.at, end = this.prev.end, file = At.tok.file } }), pos = this.pos });
 	PTarget -> id({ x = Call(this.x), pos = this.pos });
 }
 
@@ -168,7 +168,7 @@ proc PAlt(At): R<Pat> {
 		else -> NeedIdent(toks = this.toks, pos = this.pos, what = "a pattern")
 	};
 	PPatFields -> Expect(toks = At.toks, pos = this.pos, text = "}", what = ", or }") as FieldsClose;
-	FieldsClose -> id({ x = { kind = Struct(PPatFields.x), span = { at = At.tok.at, end = this.prev.end } }, pos = this.pos });
+	FieldsClose -> id({ x = { kind = Struct(PPatFields.x), span = { at = At.tok.at, end = this.prev.end, file = At.tok.file } }, pos = this.pos });
 	NeedIdent -> At(toks = this.toks, pos = this.pos) as AfterName;
 	AfterName switch {
 		(IsSym(t = this.tok, s = "(")) -> At(toks = this.toks, pos = this.pos + 1) as Inside,
@@ -177,14 +177,14 @@ proc PAlt(At): R<Pat> {
 	};
 	Inside switch {
 		(IsSym(t = this.tok, s = ")")) -> id({
-			x = { kind = Variant({ tag = MkIdent(t = NeedIdent.tok), payload = None() }), span = { at = NeedIdent.tok.at, end = this.tok.end } },
+			x = { kind = Variant({ tag = MkIdent(t = NeedIdent.tok), payload = None() }), span = { at = NeedIdent.tok.at, end = this.tok.end, file = NeedIdent.tok.file } },
 			pos = this.pos + 1
 		}),
 		else -> PPat(toks = this.toks, pos = this.pos) as Payload
 	};
 	Payload -> Expect(toks = At.toks, pos = this.pos, text = ")", what = ") after the payload's pattern") as PayloadClose;
 	PayloadClose -> id({
-		x = { kind = Variant({ tag = MkIdent(t = NeedIdent.tok), payload = Some(Payload.x) }), span = { at = NeedIdent.tok.at, end = this.prev.end } },
+		x = { kind = Variant({ tag = MkIdent(t = NeedIdent.tok), payload = Some(Payload.x) }), span = { at = NeedIdent.tok.at, end = this.prev.end, file = NeedIdent.tok.file } },
 		pos = this.pos
 	});
 }

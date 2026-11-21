@@ -299,23 +299,23 @@ type Analysis = { prog: Program, errors: []Diag };
 // The whole of sema: declarations, then each proc's graph. Errors in one
 // graph don't stop the others.
 proc Analyze(At): Analysis {
-	func At(s: { src: string, file: File }): { src: string, file: File } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { srcs: []string, file: File }): { srcs: []string, file: File } = "../../rs/src/sema_leaf.rs:same";
 	At -> Declare(file = this.file);
 	Declare switch {
 		(this.ty.errors.len > 0) -> id({ prog = { types = this.ty.types, nodes = this.nodes, globals = this.globals, top = this.top }, errors = this.ty.errors }),
-		else -> Graphs(s = { cx = this, src = At.src, i = 0, errors = [] })
+		else -> Graphs(s = { cx = this, srcs = At.srcs, i = 0, errors = [] })
 	};
 }
 
 proc Graphs(At): Analysis {
-	func At(s: { cx: Cx, src: string, i: int, errors: []Diag }): { cx: Cx, src: string, i: int, errors: []Diag } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { cx: Cx, srcs: []string, i: int, errors: []Diag }): { cx: Cx, srcs: []string, i: int, errors: []Diag } = "../../rs/src/sema_leaf.rs:same";
 	func SetGraph(cx: Cx, pid: int, g: Graph): Cx = "../../rs/src/sema_leaf.rs:set_graph";
 	At switch {
 		(this.i == this.cx.procs.len) -> id({ prog = { types = this.cx.ty.types, nodes = this.cx.nodes, globals = this.cx.globals, top = this.cx.top }, errors = this.errors }),
-		else -> BuildGraph(s = { env = { types = this.cx.ty.types, nodes = this.cx.nodes, globals = this.cx.globals, ids = this.cx.ids, pid = this.cx.procs[this.i].id, src = this.src }, p = this.cx.procs[this.i].p })
+		else -> BuildGraph(s = { env = { types = this.cx.ty.types, nodes = this.cx.nodes, globals = this.cx.globals, ids = this.cx.ids, pid = this.cx.procs[this.i].id, srcs = this.srcs }, p = this.cx.procs[this.i].p })
 	};
 	BuildGraph switch {
-		Ok(g) -> At(s = { cx = SetGraph(cx = At.cx, pid = At.cx.procs[At.i].id, g = g), src = At.src, i = At.i + 1, errors = At.errors }),
-		Err(e) -> At(s = { cx = At.cx, src = At.src, i = At.i + 1, errors = At.errors + [e] })
+		Ok(g) -> At(s = { cx = SetGraph(cx = At.cx, pid = At.cx.procs[At.i].id, g = g), srcs = At.srcs, i = At.i + 1, errors = At.errors }),
+		Err(e) -> At(s = { cx = At.cx, srcs = At.srcs, i = At.i + 1, errors = At.errors + [e] })
 	};
 }

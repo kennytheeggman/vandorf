@@ -328,7 +328,7 @@ proc CheckGenerics(At): TyCx {
 	func At(s: { cx: TyCx, decls: []TypeDecl, i: int }): { cx: TyCx, decls: []TypeDecl, i: int } = "../../rs/src/sema_leaf.rs:same";
 	At switch {
 		(this.i == this.decls.len) -> id(this.cx),
-		(this.decls[this.i].params.len > 0 && this.decls[this.i].name.name in this.cx.generics && this.cx.generics[this.decls[this.i].name.name].name.span.at == this.decls[this.i].name.span.at) -> CheckGeneric(s = { cx = this.cx, d = this.decls[this.i] }),
+		(this.decls[this.i].params.len > 0 && this.decls[this.i].name.name in this.cx.generics && this.cx.generics[this.decls[this.i].name.name].name.span.at == this.decls[this.i].name.span.at && this.cx.generics[this.decls[this.i].name.name].name.span.file == this.decls[this.i].name.span.file) -> CheckGeneric(s = { cx = this.cx, d = this.decls[this.i] }),
 		else -> At(s = { cx = this.cx, decls = this.decls, i = this.i + 1 })
 	};
 	CheckGeneric -> At(s = { cx = this, decls = At.decls, i = At.i + 1 });

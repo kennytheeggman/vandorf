@@ -4,9 +4,9 @@
 // kind: "ident", "int", "float", "str", "sym" or "eof". `text` is the
 // token as written, except for "str", where it's the decoded value. `at`
 // and `end` are byte offsets into the source.
-type Tok = { kind: string, text: string, at: int, end: int };
+type Tok = { kind: string, text: string, at: int, end: int, file: int };
 
-func Lex(src: string): []Tok = "../rs/src/leaf.rs:lex";
+func Lex(src: string, file: int): []Tok = "../rs/src/leaf.rs:lex";
 
 // Pure helpers the parser calls in expressions.
 func MkIdent(t: Tok): Ident = "../rs/src/leaf.rs:mk_ident";

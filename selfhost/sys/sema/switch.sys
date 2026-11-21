@@ -14,7 +14,7 @@ proc Switch(At): Res<[]SArm> {
 	func At(s: { env: Env, sc: Scope, src: Path, arms: []Arm, span: Span, nested: bool }): { env: Env, sc: Scope, src: Path, arms: []Arm, span: Span, nested: bool } = "../../rs/src/sema_leaf.rs:same";
 	At switch {
 		(HeadIndex(arms = this.arms, kind = "pat") >= 0 && this.nested) -> id(Err({ msg = "a nested switch has nothing new to match, so its arms are conditions: (expr) -> ..", span = this.arms[HeadIndex(arms = this.arms, kind = "pat")].span })),
-		(HeadIndex(arms = this.arms, kind = "pat") >= 0 && HeadIndex(arms = this.arms, kind = "cond") >= 0) -> id(Err({ msg = "this switch matches patterns (like " + Slice(src = this.env.src, span = this.arms[HeadIndex(arms = this.arms, kind = "pat")].span) + "), so its arms can't be conditions; put conditions in a switch under a pattern arm: Pat -> switch { (cond) -> .., else -> .. }", span = this.arms[HeadIndex(arms = this.arms, kind = "cond")].span })),
+		(HeadIndex(arms = this.arms, kind = "pat") >= 0 && HeadIndex(arms = this.arms, kind = "cond") >= 0) -> id(Err({ msg = "this switch matches patterns (like " + Slice(src = this.env.srcs[this.arms[HeadIndex(arms = this.arms, kind = "pat")].span.file], span = this.arms[HeadIndex(arms = this.arms, kind = "pat")].span) + "), so its arms can't be conditions; put conditions in a switch under a pattern arm: Pat -> switch { (cond) -> .., else -> .. }", span = this.arms[HeadIndex(arms = this.arms, kind = "cond")].span })),
 		else -> Arms(s = { env = this.env, sc = this.sc, src = this.src, arms = this.arms, i = 0, acc = [] })
 	};
 	Arms switch {
@@ -84,11 +84,11 @@ proc ArmBody(At): Res<SArm> {
 		Switch(sw) -> Switch(s = { env = At.env, sc = At.sc, src = At.src, arms = sw.arms, span = sw.span, nested = true })
 	};
 	CallOf switch {
-		Ok(c) -> id(Ok({ test = At.test, label = Slice(src = At.env.src, span = At.arm.span), body = Call(c) })),
+		Ok(c) -> id(Ok({ test = At.test, label = Slice(src = At.env.srcs[At.arm.span.file], span = At.arm.span), body = Call(c) })),
 		Err(e) -> id(Err(e))
 	};
 	Switch switch {
-		Ok(arms) -> id(Ok({ test = At.test, label = Slice(src = At.env.src, span = At.arm.span), body = Switch(arms) })),
+		Ok(arms) -> id(Ok({ test = At.test, label = Slice(src = At.env.srcs[At.arm.span.file], span = At.arm.span), body = Switch(arms) })),
 		Err(e) -> id(Err(e))
 	};
 }

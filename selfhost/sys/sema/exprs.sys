@@ -5,7 +5,8 @@
 type Res<T> = enum { Ok(T), Err(Diag) };
 type Typed = { e: Expr, t: Type };
 // What expressions can see: the program so far, and the proc they're in.
-type Env = { types: []TypeDef, nodes: []NodeDecl, globals: map[string]Global, ids: map[int]int, pid: int, src: string };
+// srcs: the program's files' text, by file id.
+type Env = { types: []TypeDef, nodes: []NodeDecl, globals: map[string]Global, ids: map[string]int, pid: int, srcs: []string };
 // `this`, and the bindings of the switch arms around.
 type Scope = { this: Type, binds: []Member };
 
@@ -504,11 +505,11 @@ proc CallOf(At): Res<Call> {
 	func OwnLocal(nodes: []NodeDecl, pid: int, name: string): int = "../../rs/src/sema_leaf.rs:own_local";
 	At -> IdValue(t = this.t);
 	IdValue switch {
-		Some(v) -> Check(s = { env = At.env, sc = At.sc, v = v, want = NodeRet(nodes = At.env.nodes, n = At.env.ids[At.t.node.span.at]) }) as IdV,
+		Some(v) -> Check(s = { env = At.env, sc = At.sc, v = v, want = NodeRet(nodes = At.env.nodes, n = At.env.ids[SpanKey(s = At.t.node.span)]) }) as IdV,
 		else -> AliasOf(t = At.t)
 	};
 	IdV switch {
-		Ok(x) -> id(Ok({ target = At.env.ids[At.t.node.span.at], args = [{ name = "value", param = NodeRet(nodes = At.env.nodes, n = At.env.ids[At.t.node.span.at]), value = x }], span = At.t.node.span })),
+		Ok(x) -> id(Ok({ target = At.env.ids[SpanKey(s = At.t.node.span)], args = [{ name = "value", param = NodeRet(nodes = At.env.nodes, n = At.env.ids[SpanKey(s = At.t.node.span)]), value = x }], span = At.t.node.span })),
 		Err(e) -> id(Err(Prefixed(d = e, prefix = "id: ")))
 	};
 	AliasOf switch {

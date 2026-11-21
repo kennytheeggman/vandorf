@@ -335,7 +335,11 @@ pub fn with_top(mut cx: Cx, id: i64) -> Result<Cx, String> {
     Ok(cx)
 }
 
-pub fn with_id(mut cx: Cx, at: i64, id: i64) -> Result<Cx, String> {
+pub fn span_key(s: Span) -> Result<Str, String> {
+    Ok(format!("{}:{}", s.file, s.at).into())
+}
+
+pub fn with_id(mut cx: Cx, at: Str, id: i64) -> Result<Cx, String> {
     cx.ids = cx.ids.merge(&Map::from_iter([(at, id)]));
     Ok(cx)
 }

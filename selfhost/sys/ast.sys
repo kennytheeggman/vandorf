@@ -1,7 +1,8 @@
 // The surface syntax, as the parser produces it: what was written, with
 // spans. Not name-resolved or typed.
 
-type Span = { at: int, end: int };
+// `file`: the index of the file it's in, among a program's files.
+type Span = { at: int, end: int, file: int };
 type Ident = { name: string, span: Span };
 type Path = { segs: []Ident, span: Span };
 

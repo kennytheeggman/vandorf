@@ -45,7 +45,13 @@ type BodyItems = { nodes: []Node, edges: []Edge };
 // Parses a whole file.
 proc Parse(Start): File {
 	func Start(src: string): string = "../rs/src/leaf.rs:same";
-	Start -> Lex(src = this);
+	Start -> ParseFile(src = this, file = 0);
+}
+
+// Parses the `file`th of a program's files.
+proc ParseFile(Start): File {
+	func Start(src: string, file: int): { src: string, file: int } = "../rs/src/leaf.rs:src_file";
+	Start -> Lex(src = this.src, file = this.file);
 	Lex -> PItems(toks = this, pos = 0, acc = { types = [], interfaces = [], nodes = [] });
 	PItems -> id(this.x);
 }

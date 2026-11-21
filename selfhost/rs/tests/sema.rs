@@ -548,7 +548,7 @@ fn trim_spans(src: &str, line: &str) -> String {
 fn check_analysis(src: &str) {
     let Ok(file) = vandorf::parser::parse(src, 0) else { return };
     let vfile = vcc::vcc::run_parse(src.into()).unwrap_or_else(|e| panic!("{src}: {e}"));
-    let a = vcc::vcc::run_analyze(v::AnalyzeAtS { src: src.into(), file: vfile }).unwrap_or_else(|e| panic!("{src}: {e}"));
+    let a = vcc::vcc::run_analyze(v::AnalyzeAtS { srcs: vec![v::Str::from(src)].into(), file: vfile }).unwrap_or_else(|e| panic!("{src}: {e}"));
     let errors: Vec<(String, usize, usize)> = a.errors.iter().map(|e| (e.msg.to_string(), e.span.at as usize, trim_end(src, e.span.at as usize, e.span.end as usize))).collect();
     match vandorf::sema::analyze(&file) {
         Ok(prog) => {
@@ -629,4 +629,46 @@ fn analyzes_pipeline_programs_like_the_reference() {
 fn analyzes_test1_like_the_reference() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     check_analysis(&std::fs::read_to_string(root.join("tests/fixtures/test1.sys")).unwrap());
+}
+
+/// Every `@a..b` in a dump dropped: spans are per file.
+fn no_spans(line: &str) -> String {
+    let mut out = String::new();
+    let mut rest = line;
+    while let Some(i) = rest.find('@') {
+        out.push_str(&rest[..i]);
+        let tail = &rest[i + 1..];
+        let n = tail.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(tail.len());
+        if n > 0 && tail[..n].contains("..") {
+            rest = &tail[n..];
+        } else {
+            out.push('@');
+            rest = tail;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+#[test]
+fn analyzes_projects_like_the_reference() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for dir in ["selfhost", "examples/demo"] {
+        let p = vandorf::project::load(&root.join(dir).join("vandorf.toml")).unwrap();
+        let prog = vandorf::check_files(&p.files).unwrap();
+        let mut all = v::File { types: Default::default(), interfaces: Default::default(), nodes: Default::default() };
+        for (i, f) in p.files.iter().enumerate() {
+            let vf = vcc::vcc::run_parse_file(f.text.as_str().into(), i as i64).unwrap();
+            all = v::File { types: all.types.concat(&vf.types), interfaces: all.interfaces.concat(&vf.interfaces), nodes: all.nodes.concat(&vf.nodes) };
+        }
+        let srcs: v::List<v::Str> = p.files.iter().map(|f| v::Str::from(f.text.as_str())).collect();
+        let a = vcc::vcc::run_analyze(v::AnalyzeAtS { srcs, file: all }).unwrap();
+        assert!(a.errors.is_empty(), "{dir}: {:?}", a.errors);
+        let strip = |xs: Vec<String>| -> Vec<String> { xs.iter().map(|l| no_spans(l)).collect() };
+        let (x, y) = (strip(r_graph(&prog)), strip(v_graph(&a.prog)));
+        assert_eq!(x.len(), y.len(), "{dir}");
+        if let Some((p, q)) = x.iter().zip(&y).find(|(p, q)| p != q) {
+            panic!("{dir}: first difference\n  reference: {p}\n  vcc:       {q}");
+        }
+    }
 }

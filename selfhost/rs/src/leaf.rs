@@ -15,6 +15,10 @@ pub fn same(s: Str) -> Result<Str, String> {
     Ok(s)
 }
 
+pub fn src_file(src: Str, file: i64) -> Result<ParseFileStartOut, String> {
+    Ok(ParseFileStartOut { src, file })
+}
+
 pub fn same_strs(s: List<Str>) -> Result<List<Str>, String> {
     Ok(s)
 }
@@ -28,13 +32,13 @@ pub fn fail(msg: Str) -> Result<Str, String> {
 /// Multi-character symbols, longest first.
 const SYMS: &[&str] = &["->", "==", "!=", "<=", ">=", "&&", "||"];
 
-fn tok(kind: &str, text: &str, at: usize, end: usize) -> Tok {
-    Tok { kind: kind.into(), text: text.into(), at: at as i64, end: end as i64 }
+fn tok(kind: &str, text: &str, at: usize, end: usize, file: i64) -> Tok {
+    Tok { kind: kind.into(), text: text.into(), at: at as i64, end: end as i64, file }
 }
 
 /// Splits `src` into tokens, ending with an "eof" token. `//` starts a
 /// comment.
-pub fn lex(src: Str) -> Result<List<Tok>, String> {
+pub fn lex(src: Str, file: i64) -> Result<List<Tok>, String> {
     let b = src.as_bytes();
     let mut toks = vec![];
     let mut i = 0;
@@ -51,7 +55,7 @@ pub fn lex(src: Str) -> Result<List<Tok>, String> {
             while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
                 i += 1;
             }
-            toks.push(tok("ident", &src[start..i], start, i));
+            toks.push(tok("ident", &src[start..i], start, i, file));
         } else if c.is_ascii_digit() {
             while i < b.len() && b[i].is_ascii_digit() {
                 i += 1;
@@ -64,7 +68,7 @@ pub fn lex(src: Str) -> Result<List<Tok>, String> {
                     i += 1;
                 }
             }
-            toks.push(tok(kind, &src[start..i], start, i));
+            toks.push(tok(kind, &src[start..i], start, i, file));
         } else if c == b'"' {
             let mut text = String::new();
             i += 1;
@@ -91,19 +95,19 @@ pub fn lex(src: Str) -> Result<List<Tok>, String> {
                     }
                 }
             }
-            toks.push(tok("str", &text, start, i));
+            toks.push(tok("str", &text, start, i, file));
         } else if let Some(s) = SYMS.iter().find(|s| src[i..].starts_with(**s)) {
             i += s.len();
-            toks.push(tok("sym", s, start, i));
+            toks.push(tok("sym", s, start, i, file));
         } else if "(){}[]<>,;:.=+-*/%!|".contains(c as char) {
             i += 1;
-            toks.push(tok("sym", &src[start..i], start, i));
+            toks.push(tok("sym", &src[start..i], start, i, file));
         } else {
             let ch = src[i..].chars().next().unwrap();
             return Err(format!("{i}: unexpected character {ch:?}"));
         }
     }
-    toks.push(tok("eof", "", b.len(), b.len()));
+    toks.push(tok("eof", "", b.len(), b.len(), file));
     Ok(toks.into())
 }
 
@@ -114,7 +118,7 @@ fn get(toks: &[Tok], pos: i64) -> Tok {
 }
 
 pub fn at(toks: List<Tok>, pos: i64) -> Result<Cur, String> {
-    let (tok_, prev) = (get(&toks, pos), if pos > 0 { get(&toks, pos - 1) } else { tok("sof", "", 0, 0) });
+    let (tok_, prev) = (get(&toks, pos), if pos > 0 { get(&toks, pos - 1) } else { tok("sof", "", 0, 0, toks.first().map_or(0, |t| t.file)) });
     Ok(Cur { toks, pos, tok: tok_, prev })
 }
 
@@ -249,11 +253,11 @@ pub fn is_close(t: Tok) -> Result<bool, String> {
 // ---- Syntax ----
 
 pub fn span_of(t: Tok) -> Result<Span, String> {
-    Ok(Span { at: t.at, end: t.end })
+    Ok(Span { at: t.at, end: t.end, file: t.file })
 }
 
 pub fn mk_ident(t: Tok) -> Result<Ident, String> {
-    Ok(Ident { name: t.text, span: Span { at: t.at, end: t.end } })
+    Ok(Ident { name: t.text, span: Span { at: t.at, end: t.end, file: t.file } })
 }
 
 pub fn path_end(t: Tok, segs: List<Ident>) -> Result<i64, String> {
@@ -275,7 +279,7 @@ pub fn impl_of(t: Tok) -> Result<ImplRef, String> {
     if file.is_empty() || function.is_empty() || !is_ident {
         return Err(bad());
     }
-    Ok(ImplRef { file: file.into(), function: function.into(), span: Span { at: t.at, end: t.end } })
+    Ok(ImplRef { file: file.into(), function: function.into(), span: Span { at: t.at, end: t.end, file: t.file } })
 }
 
 pub fn op_at(t: Tok, level: i64) -> Result<bool, String> {
@@ -291,7 +295,7 @@ pub fn op_at(t: Tok, level: i64) -> Result<bool, String> {
 }
 
 pub fn combine(op: Tok, l: Value, r: Value) -> Result<Value, String> {
-    let span = Span { at: l.span.at, end: r.span.end };
+    let span = Span { at: l.span.at, end: r.span.end, file: l.span.file };
     let kind = if &*op.text == "in" {
         ValueKind::In(Arc::new(ValueKindIn { key: Arc::new(l), map: Arc::new(r) }))
     } else {
@@ -301,7 +305,7 @@ pub fn combine(op: Tok, l: Value, r: Value) -> Result<Value, String> {
 }
 
 pub fn prefix(op: Tok, e: Value) -> Result<Value, String> {
-    let span = Span { at: op.at, end: e.span.end };
+    let span = Span { at: op.at, end: e.span.end, file: op.file };
     let kind = match (&*op.text, &*e.kind) {
         ("-", ValueKind::Int(i)) => ValueKind::Int(-i),
         ("-", ValueKind::Float(f)) => ValueKind::Float(-f),
@@ -314,7 +318,7 @@ pub fn or_of(pats: List<Pat>) -> Result<Pat, String> {
     if pats.len() == 1 {
         return Ok(pats[0].clone());
     }
-    let span = Span { at: pats[0].span.at, end: pats.last().unwrap().span.end };
+    let span = Span { at: pats[0].span.at, end: pats.last().unwrap().span.end, file: pats[0].span.file };
     Ok(Pat { kind: Arc::new(PatKind::Or(pats)), span })
 }
 

@@ -70,12 +70,12 @@ proc PPostRest(AtV): R<Value> {
 	Close -> AtV(
 		toks = this.toks,
 		pos = this.pos,
-		left = { kind = Index({ e = AtV.left, key = Key.x }), span = { at = AtV.left.span.at, end = this.prev.end } }
+		left = { kind = Index({ e = AtV.left, key = Key.x }), span = { at = AtV.left.span.at, end = this.prev.end, file = AtV.left.span.file } }
 	);
 	NeedName -> AtV(
 		toks = this.toks,
 		pos = this.pos,
-		left = { kind = Field({ e = AtV.left, name = MkIdent(t = this.tok) }), span = { at = AtV.left.span.at, end = this.tok.end } }
+		left = { kind = Field({ e = AtV.left, name = MkIdent(t = this.tok) }), span = { at = AtV.left.span.at, end = this.tok.end, file = AtV.left.span.file } }
 	);
 }
 
@@ -95,7 +95,7 @@ proc PAtom(At): R<Value> {
 		else -> PPath(toks = this.toks, pos = this.pos)
 	};
 	StructArgs -> Expect(toks = At.toks, pos = this.pos, text = "}", what = ", or }") as StructClose;
-	StructClose -> id({ x = { kind = Struct(StructArgs.x), span = { at = At.tok.at, end = this.prev.end } }, pos = this.pos });
+	StructClose -> id({ x = { kind = Struct(StructArgs.x), span = { at = At.tok.at, end = this.prev.end, file = At.tok.file } }, pos = this.pos });
 	PBracket -> id(this);
 	Paren -> Expect(toks = At.toks, pos = this.pos, text = ")", what = ")") as ParenClose;
 	ParenClose -> id({ x = Paren.x, pos = this.pos });
@@ -106,7 +106,7 @@ proc PAtom(At): R<Value> {
 	};
 	PApplyArgs -> Expect(toks = At.toks, pos = this.pos, text = ")", what = ", or )") as ApplyClose;
 	ApplyClose -> id({
-		x = { kind = Apply({ name = PPath.x, args = PApplyArgs.x }), span = { at = PPath.x.span.at, end = this.prev.end } },
+		x = { kind = Apply({ name = PPath.x, args = PApplyArgs.x }), span = { at = PPath.x.span.at, end = this.prev.end, file = PPath.x.span.file } },
 		pos = this.pos
 	});
 }
@@ -116,10 +116,10 @@ proc PBracket(At): R<Value> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
 	At switch {
 		(IsSym(t = this.tok, s = ":")) -> Expect(toks = this.toks, pos = this.pos + 1, text = "]", what = "] in [:]") as EmptyMap,
-		(IsSym(t = this.tok, s = "]")) -> id({ x = { kind = Array([]), span = { at = this.prev.at, end = this.tok.end } }, pos = this.pos + 1 }),
+		(IsSym(t = this.tok, s = "]")) -> id({ x = { kind = Array([]), span = { at = this.prev.at, end = this.tok.end, file = this.prev.file } }, pos = this.pos + 1 }),
 		else -> PExpr(toks = this.toks, pos = this.pos) as First
 	};
-	EmptyMap -> id({ x = { kind = Map([]), span = { at = At.prev.at, end = this.prev.end } }, pos = this.pos });
+	EmptyMap -> id({ x = { kind = Map([]), span = { at = At.prev.at, end = this.prev.end, file = At.prev.file } }, pos = this.pos });
 	First -> At(toks = At.toks, pos = this.pos) as AfterFirst;
 	AfterFirst switch {
 		(IsSym(t = this.tok, s = ":")) -> PExpr(toks = this.toks, pos = this.pos + 1) as FirstValue,
@@ -128,11 +128,11 @@ proc PBracket(At): R<Value> {
 	FirstValue -> PEntriesRest(toks = At.toks, pos = this.pos);
 	PEntriesRest -> Expect(toks = At.toks, pos = this.pos, text = "]", what = ", or ]") as MapClose;
 	MapClose -> id({
-		x = { kind = Map([{ key = First.x, value = FirstValue.x }] + PEntriesRest.x), span = { at = At.prev.at, end = this.prev.end } },
+		x = { kind = Map([{ key = First.x, value = FirstValue.x }] + PEntriesRest.x), span = { at = At.prev.at, end = this.prev.end, file = At.prev.file } },
 		pos = this.pos
 	});
 	PValuesRest -> Expect(toks = At.toks, pos = this.pos, text = "]", what = ", or ]") as ArrayClose;
-	ArrayClose -> id({ x = { kind = Array([First.x] + PValuesRest.x), span = { at = At.prev.at, end = this.prev.end } }, pos = this.pos });
+	ArrayClose -> id({ x = { kind = Array([First.x] + PValuesRest.x), span = { at = At.prev.at, end = this.prev.end, file = At.prev.file } }, pos = this.pos });
 }
 
 // (',' expr)* ','?, stopping at a closing bracket.

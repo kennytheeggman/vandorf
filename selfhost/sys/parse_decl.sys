@@ -166,23 +166,23 @@ proc PType(At): R<TypeExpr> {
 		else -> NeedIdent(toks = this.toks, pos = this.pos, what = "a type")
 	};
 	ArrClose -> PType(toks = this.toks, pos = this.pos) as Elem;
-	Elem -> id({ x = { kind = Array(this.x), span = { at = At.tok.at, end = this.x.span.end } }, pos = this.pos });
+	Elem -> id({ x = { kind = Array(this.x), span = { at = At.tok.at, end = this.x.span.end, file = At.tok.file } }, pos = this.pos });
 	MapOpen -> PType(toks = this.toks, pos = this.pos) as Key;
 	Key -> Expect(toks = At.toks, pos = this.pos, text = "]", what = "] after the map's key type") as MapClose;
 	MapClose -> PType(toks = this.toks, pos = this.pos) as Val;
-	Val -> id({ x = { kind = Map({ key = Key.x, value = this.x }), span = { at = At.tok.at, end = this.x.span.end } }, pos = this.pos });
+	Val -> id({ x = { kind = Map({ key = Key.x, value = this.x }), span = { at = At.tok.at, end = this.x.span.end, file = At.tok.file } }, pos = this.pos });
 	EnumOpen -> PVariants(toks = this.toks, pos = this.pos);
 	PVariants -> Expect(toks = At.toks, pos = this.pos, text = "}", what = ", or }") as EnumClose;
-	EnumClose -> id({ x = { kind = Enum(PVariants.x), span = { at = At.tok.at, end = this.prev.end } }, pos = this.pos });
+	EnumClose -> id({ x = { kind = Enum(PVariants.x), span = { at = At.tok.at, end = this.prev.end, file = At.tok.file } }, pos = this.pos });
 	PFieldList -> Expect(toks = At.toks, pos = this.pos, text = "}", what = ", or }") as StructClose;
-	StructClose -> id({ x = { kind = Struct(PFieldList.x), span = { at = At.tok.at, end = this.prev.end } }, pos = this.pos });
+	StructClose -> id({ x = { kind = Struct(PFieldList.x), span = { at = At.tok.at, end = this.prev.end, file = At.tok.file } }, pos = this.pos });
 	NeedIdent -> At(toks = this.toks, pos = this.pos) as AfterName;
 	AfterName switch {
 		(IsSym(t = this.tok, s = "<")) -> PTypeArgs(toks = this.toks, pos = this.pos + 1),
 		else -> id({ x = { kind = Named(MkIdent(t = NeedIdent.tok)), span = SpanOf(t = NeedIdent.tok) }, pos = this.pos })
 	};
 	PTypeArgs -> CloseAngle(toks = At.toks, pos = this.pos);
-	CloseAngle -> id({ x = { kind = Inst({ name = MkIdent(t = NeedIdent.tok), args = PTypeArgs.x }), span = { at = NeedIdent.tok.at, end = this.prev.end } }, pos = this.pos });
+	CloseAngle -> id({ x = { kind = Inst({ name = MkIdent(t = NeedIdent.tok), args = PTypeArgs.x }), span = { at = NeedIdent.tok.at, end = this.prev.end, file = NeedIdent.tok.file } }, pos = this.pos });
 }
 
 // type (',' type)*   (after '<')
@@ -252,7 +252,7 @@ proc PPath(At): R<Path> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
 	At -> NeedIdent(toks = this.toks, pos = this.pos, what = "a name");
 	NeedIdent -> PSegs(toks = this.toks, pos = this.pos);
-	PSegs -> id({ x = { segs = [MkIdent(t = NeedIdent.tok)] + this.x, span = { at = NeedIdent.tok.at, end = PathEnd(t = NeedIdent.tok, segs = this.x) } }, pos = this.pos });
+	PSegs -> id({ x = { segs = [MkIdent(t = NeedIdent.tok)] + this.x, span = { at = NeedIdent.tok.at, end = PathEnd(t = NeedIdent.tok, segs = this.x), file = NeedIdent.tok.file } }, pos = this.pos });
 }
 
 // ('.' NAME)*

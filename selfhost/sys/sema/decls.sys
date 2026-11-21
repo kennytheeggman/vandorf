@@ -16,7 +16,7 @@ type Cx = {
 	// Alias nodes to point at what they instance, once all are declared.
 	aliases: []PendingAlias,
 	// The node of each id(..) target, by where its `id` is.
-	ids: map[int]int
+	ids: map[string]int
 };
 
 type Declared = { cx: Cx, id: int };
@@ -26,7 +26,9 @@ func WithTy(cx: Cx, ty: TyCx): Cx = "../../rs/src/sema_leaf.rs:with_ty";
 func WithNode(cx: Cx, n: NodeDecl): Cx = "../../rs/src/sema_leaf.rs:with_node";
 func WithGlobal(cx: Cx, name: string, g: Global): Cx = "../../rs/src/sema_leaf.rs:with_global";
 func WithTop(cx: Cx, id: int): Cx = "../../rs/src/sema_leaf.rs:with_top";
-func WithId(cx: Cx, at: int, id: int): Cx = "../../rs/src/sema_leaf.rs:with_id";
+func WithId(cx: Cx, at: string, id: int): Cx = "../../rs/src/sema_leaf.rs:with_id";
+// Where a span starts, as a key: "file:at".
+func SpanKey(s: Span): string = "../../rs/src/sema_leaf.rs:span_key";
 func WithAlias(cx: Cx, a: PendingAlias): Cx = "../../rs/src/sema_leaf.rs:with_alias";
 func WithProc(cx: Cx, p: PendingProc): Cx = "../../rs/src/sema_leaf.rs:with_proc";
 // cx with proc `id`'s entry and locals set.
@@ -215,7 +217,7 @@ proc DeclareIds(At): IdsOut {
 	AliasOf switch {
 		Some(a) -> At(s = { cx = CxError(cx = At.cx, msg = "id ends the proc, so it can't be named", span = a.span), ts = At.ts, i = At.i + 1, n = At.n, qual = At.qual, pid = At.pid, locals = At.locals }),
 		else -> At(s = {
-			cx = WithId(cx = WithNode(cx = At.cx, n = { qual = At.qual + ["id" + Itoa(i = At.n + 1)], span = At.ts[At.i].node.span, kind = Id([{ name = "value", ty = ProcRet(n = At.cx.nodes[At.pid]) }]) }), at = At.ts[At.i].node.span.at, id = At.cx.nodes.len),
+			cx = WithId(cx = WithNode(cx = At.cx, n = { qual = At.qual + ["id" + Itoa(i = At.n + 1)], span = At.ts[At.i].node.span, kind = Id([{ name = "value", ty = ProcRet(n = At.cx.nodes[At.pid]) }]) }), at = SpanKey(s = At.ts[At.i].node.span), id = At.cx.nodes.len),
 			ts = At.ts, i = At.i + 1, n = At.n + 1, qual = At.qual, pid = At.pid, locals = At.locals + [At.cx.nodes.len]
 		})
 	};
