@@ -68,7 +68,7 @@ pub fn has_proc(prog: &Program, name: &str) -> bool {
     find_proc(prog, name).is_some()
 }
 
-fn find_proc(prog: &Program, name: &str) -> Option<NodeId> {
+pub(crate) fn find_proc(prog: &Program, name: &str) -> Option<NodeId> {
     prog.top_procs.iter().copied().find(|&p| prog.node(p).name() == name && matches!(prog.node(p).kind, NodeKind::Proc(_)))
 }
 

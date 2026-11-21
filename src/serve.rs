@@ -139,6 +139,7 @@ fn compile(base: &Path, body: &str) -> Result<Value, String> {
             let mut go_opts = GoOptions::new("app", Some("example.com/app".into()));
             go_opts.mains = main.iter().map(|m| MainSpec { path: "main".into(), ..m.clone() }).collect();
             let rust_opts = RustOptions {
+                servers: vec![],
                 module_dir: Some("app".into()),
                 mains: main.iter().map(|m| MainSpec { path: "main.rs".into(), ..m.clone() }).collect(),
                 crate_name: Some("my_crate".into()),
@@ -179,6 +180,7 @@ fn preview_project(p: &project::Project, prog: &mut vandorf::sema::Program, dirs
         let out = p.root.join(&r.out);
         project::rebase_impls(prog, dirs, &out);
         let opts = RustOptions {
+            servers: vec![],
             module_dir: r.module_dir.clone().or_else(|| crate::rust_module_dir(&out)),
             mains: crate::rust_mains(&m.bin.iter().collect::<Vec<_>>()),
             crate_name: crate::rust_lib_name(&out),

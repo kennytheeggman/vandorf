@@ -1,0 +1,37 @@
+// Procs the demo's HTTP server ([http.api] in vandorf.toml) runs: requests
+// and results cross as JSON, decoded into these types.
+type Shape = enum { Dot, Circle(float), Rect({ w: float, h: float }) };
+type Report = { count: int, total: float, kinds: map[string]int };
+type Measured = { kind: string, area: float };
+type Fold = { xs: []Measured, r: Report, i: int };
+
+// The area of each shape, summed, and how many there are of each kind.
+proc Measure(Shapes): Report {
+	func Shapes(shapes: []Shape): []Shape = "../go/app/impl.go:Shapes", "../rs/src/impls.rs:shapes";
+	func Area(s: Shape): Measured = "../go/app/impl.go:Area", "../rs/src/impls.rs:area";
+	func Step(f: Fold): Fold = "../go/app/impl.go:Step", "../rs/src/impls.rs:step";
+
+	Shapes for each (this) -> Area(s = this);
+	Area collect each (Area) -> Step(f = { xs = this, r = { count = 0, total = 0.0, kinds = [:] }, i = 0 });
+	// One measured shape at a time into the report.
+	Step switch {
+		(this.i == this.xs.len) -> id(this.r),
+		(this.xs[this.i].kind in this.r.kinds) -> Step(f = { ..this, i = this.i + 1, r = {
+			..this.r,
+			count = this.r.count + 1,
+			total = this.r.total + this.xs[this.i].area,
+			kinds = this.r.kinds + [this.xs[this.i].kind: this.r.kinds[this.xs[this.i].kind] + 1]
+		} }),
+		else -> Step(f = { ..this, i = this.i + 1, r = {
+			..this.r,
+			count = this.r.count + 1,
+			total = this.r.total + this.xs[this.i].area,
+			kinds = this.r.kinds + [this.xs[this.i].kind: 1]
+		} })
+	};
+}
+
+// A greeting, for GET with a query string.
+proc Hello(Greet): string {
+	func Greet(name: string, times: int): string = "../go/app/impl.go:Greet", "../rs/src/impls.rs:greet";
+}

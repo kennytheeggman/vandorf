@@ -165,12 +165,19 @@ fn run(argv: Vec<String>) -> Result<(), String> {
                     }
                 }
             };
+            if !m.http.is_empty() && m.rust.is_none() {
+                return Err(format!("{}: [http.*] servers are generated in Rust: configure [rust]", project::MANIFEST));
+            }
+            if !m.http.is_empty() && m.go.is_some() {
+                eprintln!("note: [http.*] servers are generated in Rust only, for now");
+            }
             if let Some(g) = &m.go {
                 let out = p.root.join(&g.out);
                 go(&mut prog, &unit.dirs, &out, g.package.clone(), g.module.clone(), g.types_dir.clone(), go_mains(p, g, &bins))?;
             }
             if let Some(r) = &m.rust {
-                rust(&mut prog, &unit.dirs, &p.root.join(&r.out), r.module_dir.clone(), rust_mains(&bins))?;
+                let servers: Vec<(&String, &project::Server)> = if args.input.is_none() { m.http.iter().collect() } else { vec![] };
+                rust(&mut prog, &unit.dirs, &p.root.join(&r.out), r.module_dir.clone(), rust_mains(&bins), &servers, &p.root)?;
             }
             Ok(())
         }
@@ -182,7 +189,7 @@ fn run(argv: Vec<String>) -> Result<(), String> {
         "rust" => {
             let out = out_dir(&args)?;
             let mains = single_main(&args, "main.rs");
-            rust(&mut prog, &unit.dirs, &out, args.module_dir.clone(), mains)
+            rust(&mut prog, &unit.dirs, &out, args.module_dir.clone(), mains, &[], Path::new("."))
         }
         other => Err(format!("unknown command {other}\n\n{USAGE}")),
     }
@@ -246,15 +253,64 @@ fn single_main(args: &Args, path: &str) -> Vec<MainSpec> {
     vec![MainSpec { name: "main".into(), entry, path: path.into() }]
 }
 
-fn rust(prog: &mut Program, dirs: &[PathBuf], out: &Path, module_dir: Option<String>, mains: Vec<MainSpec>) -> Result<(), String> {
+fn rust(
+    prog: &mut Program,
+    dirs: &[PathBuf],
+    out: &Path,
+    module_dir: Option<String>,
+    mains: Vec<MainSpec>,
+    servers: &[(&String, &project::Server)],
+    root: &Path,
+) -> Result<(), String> {
     std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
     project::rebase_impls(prog, dirs, out);
-    let opts = RustOptions { module_dir: module_dir.or_else(|| rust_module_dir(out)), mains, crate_name: rust_lib_name(out) };
+    let module_dir = module_dir.or_else(|| rust_module_dir(out));
+    let servers = servers.iter().map(|(name, s)| server_spec(name, s, root, out, module_dir.as_deref())).collect::<Result<_, _>>()?;
+    let opts = RustOptions { module_dir, mains, crate_name: rust_lib_name(out), servers };
     let output = codegen::rust::generate(prog, &opts)?;
     let written = write_output(out, &output)?;
     format_with("rustfmt", &["--edition", "2024"], &written);
     check_impls(out, &output, "fn");
     Ok(())
+}
+
+/// An `[http.<name>]` table as the Rust backend takes it: routes split into
+/// method and path, static files as the server's source file reaches them.
+fn server_spec(name: &str, s: &project::Server, root: &Path, out: &Path, module_dir: Option<&str>) -> Result<codegen::rust::ServerSpec, String> {
+    let mut routes = vec![];
+    for (route, proc) in &s.routes {
+        let Some((method, path)) = route.split_once(' ').map(|(m, p)| (m.trim(), p.trim())).filter(|(m, p)| {
+            !m.is_empty() && m.chars().all(|c| c.is_ascii_uppercase()) && p.starts_with('/')
+        }) else {
+            return Err(format!("{}: [http.{name}] route {route:?} should be a method and a path, like \"POST /api/calc\"", project::MANIFEST));
+        };
+        routes.push((method.to_string(), path.to_string(), proc.clone()));
+    }
+    let path = s.rust.clone().unwrap_or_else(|| format!("bin/{name}.rs"));
+    // The crate's src/ is module_dir above out.
+    let up = module_dir.map_or(0, |d| d.split('/').filter(|x| !x.is_empty()).count());
+    let mut src = project::normalize(&project::absolute(out));
+    for _ in 0..up {
+        src.pop();
+    }
+    let file_dir = project::normalize(&src.join(&path)).parent().map(Path::to_path_buf).unwrap_or(src);
+    let mut statics = vec![];
+    for (url, file) in &s.statics {
+        let full = project::normalize(&project::absolute(&root.join(file)));
+        if !full.is_file() {
+            return Err(format!("{}: [http.{name}] serves {file}, which does not exist", project::MANIFEST));
+        }
+        let ctype = match full.extension().and_then(|e| e.to_str()).unwrap_or("") {
+            "html" | "htm" => "text/html; charset=utf-8",
+            "js" | "mjs" => "text/javascript; charset=utf-8",
+            "css" => "text/css; charset=utf-8",
+            "json" => "application/json",
+            "svg" => "image/svg+xml",
+            _ => "text/plain; charset=utf-8",
+        };
+        statics.push((url.clone(), project::slash(&project::relative(&full, &file_dir)), ctype.to_string()));
+    }
+    Ok(codegen::rust::ServerSpec { name: name.into(), addr: s.addr.clone(), routes, statics, path })
 }
 
 fn out_dir(args: &Args) -> Result<PathBuf, String> {

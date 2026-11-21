@@ -15,3 +15,8 @@ entry = "Main"
 
 [bin.calc]                   # calc <base: int>
 entry = "Calc"
+
+[http.api]                   # rs/src/bin/api.rs
+addr = "127.0.0.1:8099"
+routes = { "POST /api/measure" = "Measure", "GET /api/hello" = "Hello" }
+static = { "/" = "web/index.html" }

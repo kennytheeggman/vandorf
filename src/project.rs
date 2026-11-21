@@ -15,6 +15,12 @@
 //! out = "rs/src/app"         # a module directory under the crate's src/
 //! module_dir = "app"         # out relative to src/; default: from Cargo.toml
 //!
+//! [http.api]                 # an HTTP server (Rust only, for now)
+//! addr = "127.0.0.1:8080"
+//! routes = { "POST /api/calc" = "Calc" }   # a route runs a top-level proc
+//! static = { "/" = "web/index.html" }      # files served as they are
+//! rust = "bin/api.rs"        # under the crate's src/; default bin/<name>.rs
+//!
 //! [bin.demo]                 # an executable per configured backend
 //! entry = "Main"             # the top-level proc it runs; default "Main"
 //! go = "go/cmd/demo"         # Go main package; default <go.out>/../cmd/<name>
@@ -45,6 +51,23 @@ pub struct Manifest {
     pub rust: Option<RustTarget>,
     #[serde(default)]
     pub bin: BTreeMap<String, Bin>,
+    #[serde(default)]
+    pub http: BTreeMap<String, Server>,
+}
+
+/// `[http.<name>]`: an HTTP server whose routes run top-level procs.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Server {
+    pub addr: String,
+    /// `"POST /api/calc" = "Calc"`
+    pub routes: BTreeMap<String, String>,
+    /// `"/" = "web/index.html"`: files served as they are, embedded in
+    /// the executable. Paths are relative to the manifest.
+    #[serde(default, rename = "static")]
+    pub statics: BTreeMap<String, String>,
+    /// Rust file under the crate's src/; default bin/<name>.rs.
+    pub rust: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -220,6 +220,27 @@ Funcs without a reference for a backend call a generated stub that returns an
 error. `vandorf go`/`rust` warn when a referenced file or function is missing,
 printing the expected signature.
 
+## HTTP servers
+
+```toml
+[http.api]                   # rs/src/bin/api.rs; Rust only, for now
+addr = "127.0.0.1:8099"
+routes = { "POST /api/measure" = "Measure", "GET /api/hello" = "Hello" }
+static = { "/" = "web/index.html" }
+```
+
+Each route runs a top-level proc through its typed `run_<proc>`; only the
+request and the result cross as JSON. A proc's parameters come from a JSON
+object body, or from the query string (each value read as JSON if it
+parses, else as a string). Structs are objects, maps objects keyed by
+string, and enums `"Tag"` or `{"Tag": payload}`. Results are 200 and JSON;
+a request that doesn't decode is a 400, a proc that fails a 500, both with
+`{"error": ".."}`. Static files are embedded in the executable.
+
+`vandorf build` writes `http.rs` into the module (the JSON codec, std-only
+server and a `handle_<name>` per server) and the server's executable. The
+demo's `[http.api]` serves `sys/api.sys`.
+
 ## Bins
 
 A bin (`[bin.<name>]`, or `--main`/`--entry Proc` on the single-file

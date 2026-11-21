@@ -809,6 +809,7 @@ mod codegen {
             module_dir: Some("out/app".into()),
             mains: vec![spec("main", "Tool", "main.rs"), spec("tool", "Tool", "bin/tool.rs")],
             crate_name: Some("demo".into()),
+            ..Default::default()
         };
         let mains = rust::generate(&prog, &opts).unwrap().mains;
         assert_eq!(mains[0].dir, "../..");
@@ -821,6 +822,40 @@ mod codegen {
     }
 
     #[test]
+    fn rust_http_servers_route_to_procs() {
+        let src = r#"
+            type Shape = enum { Dot, Circle(float) };
+            proc Area(A): float { func A(s: Shape, k: { n: int }): float; }
+            proc Hi(B): string { func B(name: string): string; }
+        "#;
+        let prog = vandorf::compile("t.sys", src).unwrap();
+        let srv = rust::ServerSpec {
+            name: "web-api".into(),
+            addr: "127.0.0.1:9".into(),
+            routes: vec![("POST".into(), "/area".into(), "Area".into()), ("GET".into(), "/hi".into(), "Hi".into())],
+            statics: vec![("/".into(), "../../index.html".into(), "text/html".into())],
+            path: "bin/web.rs".into(),
+        };
+        let opts = rust::RustOptions { module_dir: Some("app".into()), crate_name: Some("demo".into()), servers: vec![srv.clone()], ..Default::default() };
+        let out = rust::generate(&prog, &opts).unwrap();
+        let http = &out.code.files["http.rs"];
+        assert!(out.code.files["mod.rs"].contains("pub mod http;"));
+        assert!(http.contains("impl Json for types::Shape {") && http.contains("impl Json for types::AreaAK {"), "{http}");
+        assert!(http.contains("let s: types::Shape = arg(params, \"s\")?;") && http.contains("super::run_area(s, k)"), "{http}");
+        assert!(http.contains("pub fn handle_web_api(") && http.contains("(\"GET\", \"/hi\") => Some(call_hi(params)),"), "{http}");
+        let bin = &out.mains[0];
+        assert_eq!((bin.dir.as_str(), bin.files.keys().next().unwrap().as_str()), ("../bin", "web.rs"));
+        let bin = &bin.files["web.rs"];
+        assert!(bin.contains("include_str!(\"../../index.html\")") && bin.contains("demo::app::http::serve(\"127.0.0.1:9\", demo::app::http::handle_web_api, STATICS);"), "{bin}");
+        // No servers: no http.rs.
+        assert!(!rust::generate(&prog, &rust::RustOptions { module_dir: Some("app".into()), ..Default::default() }).unwrap().code.files.contains_key("http.rs"));
+        // A route to a proc that isn't there.
+        let srv = rust::ServerSpec { routes: vec![("GET".into(), "/x".into(), "Nope".into())], ..srv };
+        let opts = rust::RustOptions { servers: vec![srv], ..opts };
+        assert!(rust::generate(&prog, &opts).unwrap_err().contains("http server web-api runs proc Nope, but there is no top-level proc Nope"));
+    }
+
+    #[test]
     fn main_passes_argv_to_a_single_string_array() {
         let prog = vandorf::compile("t.sys", "proc Tool(A): string { func A(args: []string): string; }").unwrap();
         let mut opts = go::GoOptions::new("app", Some("example.com/m/app".into()));
@@ -828,7 +863,7 @@ mod codegen {
         let src = &go::generate(&prog, &opts).unwrap().mains[0].files["main_vandorf.go"];
         assert!(src.contains("app.RunTool(context.Background(), os.Args[1:])") && !src.contains("len(os.Args)"), "{src}");
         assert!(src.contains("usage: tool <args...>") && !src.contains("strconv"), "{src}");
-        let opts = rust::RustOptions { module_dir: Some("app".into()), mains: vec![spec("tool", "Tool", "bin/tool.rs")], crate_name: Some("demo".into()) };
+        let opts = rust::RustOptions { module_dir: Some("app".into()), mains: vec![spec("tool", "Tool", "bin/tool.rs")], crate_name: Some("demo".into()), ..Default::default() };
         let src = &rust::generate(&prog, &opts).unwrap().mains[0].files["tool.rs"];
         assert!(src.contains("std::env::args().skip(1).map(") && src.contains("demo::app::run_tool(arg_args)"), "{src}");
         assert!(!src.contains("args.len()"), "{src}");

@@ -110,3 +110,24 @@ func Found(ctx context.Context, name string, slot int, kind string, total int) (
 func Missing(ctx context.Context, name string, known []string) (string, error) {
 	return fmt.Sprintf("%s: not declared; known: %s", name, strings.Join(known, ", ")), nil
 }
+
+// ---- api.sys ----
+
+func Shapes(ctx context.Context, shapes []types.Shape) ([]types.Shape, error) { return shapes, nil }
+
+func Area(ctx context.Context, s types.Shape) (types.Measured, error) {
+	switch s.Tag {
+	case "Circle":
+		return types.Measured{Kind: "circle", Area: 3.141592653589793 * s.Circle * s.Circle}, nil
+	case "Rect":
+		return types.Measured{Kind: "rect", Area: s.Rect.W * s.Rect.H}, nil
+	default:
+		return types.Measured{Kind: "dot"}, nil
+	}
+}
+
+func Step(ctx context.Context, f types.Fold) (types.Fold, error) { return f, nil }
+
+func Greet(ctx context.Context, name string, times int) (string, error) {
+	return strings.TrimSpace(strings.Repeat("hello, "+name+"! ", times)), nil
+}

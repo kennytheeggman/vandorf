@@ -115,3 +115,26 @@ pub fn missing(name: Str, known: List<Str>) -> Result<Str, String> {
     let known: Vec<&str> = known.iter().map(|k| &**k).collect();
     Ok(format!("{name}: not declared; known: {}", known.join(", ")).into())
 }
+
+// ---- api.sys ----
+
+pub fn shapes(shapes: List<types::Shape>) -> Result<List<types::Shape>, String> {
+    Ok(shapes)
+}
+
+pub fn area(s: types::Shape) -> Result<types::Measured, String> {
+    let (kind, area) = match s {
+        types::Shape::Dot => ("dot", 0.0),
+        types::Shape::Circle(r) => ("circle", std::f64::consts::PI * r * r),
+        types::Shape::Rect(r) => ("rect", r.w * r.h),
+    };
+    Ok(types::Measured { kind: kind.into(), area })
+}
+
+pub fn step(f: types::Fold) -> Result<types::Fold, String> {
+    Ok(f)
+}
+
+pub fn greet(name: Str, times: i64) -> Result<Str, String> {
+    Ok(format!("hello, {name}! ").repeat(times.max(0) as usize).trim_end().into())
+}
