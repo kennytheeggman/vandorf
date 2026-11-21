@@ -21,7 +21,7 @@ mod tests {
         impls::reset();
         // Start: "ab"; Loop: 2+3=5 -> loops, 2+6=8 -> loops, 2+9=11 -> ForEach(11)
         // ForEach(11) = 385 -> Branch2Begin "sum=385" -> Foo.Call 7 -> Branch2End -> End(S)
-        assert_eq!(app::run_bar(1, "ab".into()).unwrap(), "end:S");
+        assert_eq!(&*app::run_bar(1, "ab".into()).unwrap(), "end:S");
         assert_eq!(impls::logged(), vec![7]);
     }
 
@@ -35,8 +35,8 @@ mod tests {
     fn classify() {
         use app::types::{Expr, ExprAdd};
         let lit = |i| Expr::Lit(i);
-        let neg = |e| Expr::Neg(Box::new(e));
-        let add = |l, r| Expr::Add(Box::new(ExprAdd { l: Box::new(l), r: Box::new(r) }));
+        let neg = |e| Expr::Neg(std::sync::Arc::new(e));
+        let add = |l, r| Expr::Add(std::sync::Arc::new(ExprAdd { l: std::sync::Arc::new(l), r: std::sync::Arc::new(r) }));
         for (e, want) in [
             (lit(4), "small even"),
             (lit(3), "literal"),
@@ -47,19 +47,19 @@ mod tests {
             (add(lit(1), lit(2)), "sum of literals"),
             (add(lit(1), neg(lit(2))), "something else"),
         ] {
-            assert_eq!(app::run_classify(e.clone()).unwrap(), want, "{e:?}");
+            assert_eq!(&*app::run_classify(e.clone()).unwrap(), want, "{e:?}");
         }
     }
 
     #[test]
     fn resolve() {
-        let names: Vec<String> = ["a", "b", "tmp"].map(String::from).into();
+        let names: app::types::List<app::types::Str> = ["a", "b", "tmp"].into_iter().map(Into::into).collect();
         for (q, want) in [
             ("b", "b: slot 1 (var) of 3"),
             ("len", "len: slot 3 (builtin) of 3"),
             ("tmp", "tmp: not declared; known: a, b, len"),
         ] {
-            assert_eq!(app::run_resolve(names.clone(), q.into()).unwrap(), want);
+            assert_eq!(&*app::run_resolve(names.clone(), q.into()).unwrap(), want);
         }
     }
 }
