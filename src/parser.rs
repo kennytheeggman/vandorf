@@ -3,7 +3,7 @@
 //! ```text
 //! file      := (interface | func ';' | proc ';'?)*
 //! interface := 'interface' IDENT '{' (func ';')* '}'
-//! func      := 'func' IDENT '(' (field (',' field)*)? ')' (':' type)? ('=' STRING)?
+//! func      := 'func' IDENT '(' (field (',' field)*)? ')' (':' type)? ('=' STRING (',' STRING)*)?
 //! proc      := 'proc' IDENT '(' IDENT ')' ':' type '{' ((func | proc | edge) ';')* '}'
 //! type      := '[' ']' type | 'enum' '{' variant,* '}' | '{' field,* '}' | IDENT
 //! variant   := IDENT ('(' type ')')?
@@ -17,7 +17,8 @@
 //! path      := IDENT ('.' IDENT)*
 //! ```
 //!
-//! The `= "file:function"` suffix on a func names the code that implements it.
+//! The `= "file:function", ...` suffix on a func names the code that implements
+//! it, one reference per target language (picked by file extension).
 //! `//` starts a line comment.
 
 use crate::ast::*;
@@ -165,8 +166,12 @@ fn func<'a>() -> impl Parser<'a, &'a str, Func, Extra<'a>> + Clone {
                 .delimited_by(sym("("), sym(")")),
         )
         .then(sym(":").ignore_then(type_expr()).or_not())
-        .then(sym("=").ignore_then(impl_ref()).or_not())
-        .map(|(((name, params), ret), imp)| Func { name, params, ret, imp })
+        .then(
+            sym("=")
+                .ignore_then(impl_ref().separated_by(sym(",")).at_least(1).collect::<Vec<_>>())
+                .or_not(),
+        )
+        .map(|(((name, params), ret), imps)| Func { name, params, ret, imps: imps.unwrap_or_default() })
 }
 
 fn target<'a>() -> impl Parser<'a, &'a str, Target, Extra<'a>> + Clone {
@@ -291,10 +296,10 @@ mod tests {
 
     #[test]
     fn parses_impl_ref() {
-        let f = parse(r#"func A(x: int): int = "impl/a.go:DoA";"#).unwrap();
+        let f = parse(r#"func A(x: int): int = "impl/a.go:DoA", "a.rs:do_a";"#).unwrap();
         let Node::Func(func) = &f.nodes[0] else { panic!() };
-        let imp = func.imp.as_ref().unwrap();
-        assert_eq!((imp.file.as_str(), imp.function.as_str()), ("impl/a.go", "DoA"));
+        let got: Vec<_> = func.imps.iter().map(|i| (i.file.as_str(), i.function.as_str())).collect();
+        assert_eq!(got, vec![("impl/a.go", "DoA"), ("a.rs", "do_a")]);
     }
 
     #[test]

@@ -171,3 +171,51 @@ fn parse_errors_are_rendered() {
     let e = compile_err("proc P(A): int { func A(: int; }");
     assert!(e.contains("Error"), "{e}");
 }
+
+mod codegen {
+    use vandorf::codegen::{go, rust};
+
+    const SRC: &str = r#"
+        proc P(A): int {
+            func A(): { n: int } = "a.go:A", "../impls/a.rs:a";
+            func B(i: int): int = "../other/b.go:B";
+            A -> B(i = A.n);
+        }
+    "#;
+
+    #[test]
+    fn go_types_are_a_separate_package() {
+        let prog = vandorf::compile("t.sys", SRC).unwrap();
+        let out = go::generate(&prog, &go::GoOptions::new("app", Some("example.com/m/app".into()))).unwrap();
+        assert_eq!(out.types.dir, "types");
+        let p = &out.code.files["p_vandorf.go"];
+        assert!(p.contains("\"example.com/m/app/types\""), "{p}");
+        assert!(p.contains("other \"example.com/m/other\""), "{p}");
+        assert!(p.contains("A(ctx)") && p.contains("other.B(ctx"), "{p}");
+        assert!(out.types.files["types_vandorf.go"].starts_with("// Code generated"));
+        // No module path: impls elsewhere and the types package can't be imported.
+        assert!(go::generate(&prog, &go::GoOptions::new("app", None)).is_err());
+    }
+
+    #[test]
+    fn go_types_in_code_package() {
+        let prog = vandorf::compile("t.sys", r#"proc P(A): int { func A(): int; }"#).unwrap();
+        let mut opts = go::GoOptions::new("app", None);
+        opts.types_dir = ".".into();
+        let out = go::generate(&prog, &opts).unwrap();
+        assert_eq!(out.types.dir, "");
+        assert!(out.code.files.contains_key("stubs_vandorf.go"));
+    }
+
+    #[test]
+    fn rust_impl_paths_become_module_paths() {
+        let prog = vandorf::compile("t.sys", SRC).unwrap();
+        let out = rust::generate(&prog, &rust::RustOptions { module_dir: Some("out/app".into()) }).unwrap();
+        let procs = &out.code.files["procs.rs"];
+        assert!(procs.contains("crate::out::impls::a::a()"), "{procs}");
+        // B has no .rs reference: stubbed.
+        assert!(procs.contains("fn unimplemented_p_b("), "{procs}");
+        assert!(out.impls[0].signature.contains("crate::out::app::types::PAOut"), "{:?}", out.impls);
+        assert!(rust::generate(&prog, &rust::RustOptions { module_dir: None }).is_err());
+    }
+}

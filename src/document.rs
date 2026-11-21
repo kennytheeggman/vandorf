@@ -221,7 +221,9 @@ fn layout(prog: &Program, pid: NodeId) -> Grid {
             NodeKind::Func(f) => Node {
                 ty: NodeType::Func,
                 label: display_label(prog, pid, n),
-                sublabel: f.imp.as_ref().map(|i| format!("{}:{}", i.file, i.function)),
+                sublabel: (!f.imps.is_empty()).then(|| {
+                    f.imps.iter().map(|i| format!("{}:{}", i.file, i.function)).collect::<Vec<_>>().join(" · ")
+                }),
             },
             NodeKind::Proc(_) => Node { ty: NodeType::Proc, label: decl.qual_name(), sublabel: None },
         }

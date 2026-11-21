@@ -64,7 +64,14 @@ pub enum NodeKind {
 pub struct FuncDecl {
     pub params: Vec<(String, Type)>,
     pub ret: Type,
-    pub imp: Option<ast::ImplRef>,
+    pub imps: Vec<ast::ImplRef>,
+}
+
+impl FuncDecl {
+    /// The implementation reference whose file has the given extension.
+    pub fn imp(&self, ext: &str) -> Option<&ast::ImplRef> {
+        self.imps.iter().find(|i| i.file.rsplit_once('.').is_some_and(|(_, e)| e == ext))
+    }
 }
 
 #[derive(Debug)]
@@ -278,7 +285,7 @@ impl<'a> Cx<'a> {
             Some(t) => self.ty(t),
             None => Some(Type::Prim(Prim::Void)),
         };
-        let decl = FuncDecl { params: params?, ret: ret?, imp: f.imp.clone() };
+        let decl = FuncDecl { params: params?, ret: ret?, imps: f.imps.clone() };
         Some(self.push_node(NodeDecl { qual, span: f.name.span, kind: NodeKind::Func(decl) }))
     }
 

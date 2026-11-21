@@ -1,43 +1,44 @@
-//! Go code generation.
+//! Go backend.
+//!
+//! # Artifacts
+//!
+//! - **types** (`<types dir>/types_vandorf.go`, its own package by default):
+//!   one named Go type per struct/enum shape in the [`TypeTable`]. Structs
+//!   are structs with exported fields; enums are
+//!   `struct{ Tag string; <Variant> <payload>; ... }`.
+//! - **code** (the output package): the procs, their private input structs,
+//!   stubs and runtime helpers. Imports the types package and the impls.
+//!
+//! The types live in a separate package so that implementations in other
+//! packages can use them: the code package imports the implementations, so
+//! implementations can't import the code package.
 //!
 //! # Model
 //!
-//! Sequential edges are tail calls, so a proc compiles to a state machine
-//! rather than nested calls: each node gets a program counter and an input and
-//! output slot in a per-proc env struct, and an edge is "write the target's
-//! input slot, set pc, continue". Back edges (`Loop -> Loop`) don't grow the
-//! stack.
-//!
-//! A `for each` opens a region (see [`crate::sema::Region`]), compiled to its
-//! own state machine function that runs once per element, concurrently, on a
-//! copy of the env. The parent resumes at the collect target with the ordered
-//! results bound to `this`.
+//! Sequential edges are tail calls, so a proc compiles to a state machine:
+//! each node gets a program counter and an input and output slot in a
+//! per-proc env struct, and an edge is "write the target's input slot, set
+//! pc, continue". Back edges (`Loop -> Loop`) don't grow the stack. A
+//! `for each` region (see [`crate::sema::Region`]) compiles to its own state
+//! machine run once per element, concurrently, on a copy of the env; the
+//! parent resumes at the collect target with the ordered results as `this`.
 //!
 //! # Implementations
 //!
-//! A func's `= "file:function"` names the Go function to call, with the
-//! signature
+//! A func's `"file.go:Function"` reference names the Go function to call:
 //!
 //! ```go
 //! func Function(ctx context.Context, <params in declared order>) (<ret>, error)
 //! func Function(ctx context.Context, <params>) error // void funcs
 //! ```
 //!
-//! The file path is relative to the generated package's directory. A file in
-//! that directory is in the same package and is called directly; a file in
-//! another directory is imported as `<import base>/<dir>` and called as
-//! `<dir>.Function`. Funcs without an implementation call a generated stub
-//! that returns an error.
-//!
-//! # Types
-//!
-//! Vandorf types are structural and map onto anonymous Go types, so impls
-//! need no generated types and can live in any package: structs become
-//! structs with exported fields in declaration order, enums become
-//! `struct{ Tag string; <Variant> <payload>; ... }`. Where vandorf coerces (an
-//! enum into a wider one, or a struct with reordered fields), a generated
-//! `coerceN` helper converts.
+//! The file is relative to the code package's directory. A file in that
+//! directory is in the same package and is called directly; a file elsewhere
+//! is imported (`<import base>/<dir>`). Funcs without a `.go` reference call a
+//! generated stub that returns an error.
 
+use super::types::{Shape, TyRef, TypeTable};
+use super::{Artifact, ImplUse, Output, Writer, dir_of, exported, gname, join_path, quote};
 use crate::sema::{Call, Edge, Expr, NodeId, NodeKind, Program, Ref, RegionId, Root};
 use crate::types::{Prim, Type};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -45,33 +46,40 @@ use std::fmt::Write as _;
 
 #[derive(Debug, Clone)]
 pub struct GoOptions {
+    /// Package name of the code artifact.
     pub package: String,
-    /// Import path of the generated package, used to import impls that live
-    /// in other directories.
+    /// Import path of the code package's directory. Needed to import the
+    /// types package and impls in other directories.
     pub import_base: Option<String>,
+    /// Directory of the types package, relative to the code package's
+    /// directory. Empty or `.` puts the types in the code package.
+    pub types_dir: String,
 }
 
-#[derive(Debug)]
-pub struct GoOutput {
-    /// File name -> source.
-    pub files: BTreeMap<String, String>,
-    /// Every implementation the generated code calls, for the caller to verify.
-    pub impls: Vec<ImplUse>,
+impl GoOptions {
+    pub fn new(package: impl Into<String>, import_base: Option<String>) -> GoOptions {
+        GoOptions { package: package.into(), import_base, types_dir: "types".into() }
+    }
 }
 
-#[derive(Debug, Clone)]
-pub struct ImplUse {
-    pub node: String,
-    pub file: String,
-    pub function: String,
-    /// The Go signature the implementation must have.
-    pub signature: String,
-}
-
-pub fn generate(prog: &Program, opts: &GoOptions) -> Result<GoOutput, String> {
+pub fn generate(prog: &Program, opts: &GoOptions) -> Result<Output, String> {
+    let table = TypeTable::build(prog);
+    let separate = !matches!(opts.types_dir.trim_matches('/'), "" | ".");
+    let (types_pkg, types_import) = if separate {
+        let dir = opts.types_dir.trim_matches('/');
+        let base = opts.import_base.as_deref().ok_or(
+            "the types package needs an import path: pass --module, run inside a Go module, or put types in the code package (--types-dir .)",
+        )?;
+        let import = join_path(base, dir).ok_or_else(|| format!("cannot resolve import path for types dir {dir}"))?;
+        (ident(import.rsplit('/').next().unwrap()), Some(import))
+    } else {
+        (opts.package.clone(), None)
+    };
     let mut g = Gen {
         prog,
         opts,
+        table: &table,
+        tq: if separate { format!("{types_pkg}.") } else { String::new() },
         imports: BTreeMap::new(),
         coercions: HashMap::new(),
         helpers: vec![],
@@ -79,22 +87,35 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<GoOutput, String> {
     };
     g.check_names()?;
 
+    let types = Artifact {
+        dir: if separate { opts.types_dir.trim_matches('/').to_string() } else { String::new() },
+        files: BTreeMap::from([("types_vandorf.go".to_string(), g.typegen(&types_pkg))]),
+    };
+
+    // Each file imports the types package only if its code (not comments)
+    // mentions it; Go rejects unused imports.
+    let file = |body: &str, mut imports: Vec<(String, Option<String>)>| {
+        if let Some(ti) = &types_import
+            && body.lines().any(|l| !l.trim_start().starts_with("//") && l.contains(&g_tq(&types_pkg)))
+        {
+            imports.push((ti.clone(), None));
+        }
+        let mut w = header(&opts.package, &imports);
+        w.raw(body);
+        w.out
+    };
+
     let mut files = BTreeMap::new();
     for &p in &prog.top_procs {
         g.imports.clear();
-        let mut body = Writer::default();
+        let mut body = Writer::new("\t");
         g.emit_proc_tree(&mut body, p)?;
-        let mut imports: Vec<(String, Option<String>)> =
-            vec![("context".into(), None), ("fmt".into(), None)];
-        for (path, alias) in &g.imports {
-            imports.push((path.clone(), Some(alias.clone())));
-        }
-        let mut w = header(&opts.package, &imports);
-        w.raw(&body.out);
-        files.insert(format!("{}_vandorf.go", prog.node(p).name().to_lowercase()), w.out);
+        let mut imports = vec![("context".to_string(), None), ("fmt".to_string(), None)];
+        imports.extend(g.imports.iter().map(|(path, alias)| (path.clone(), Some(alias.clone()))));
+        files.insert(format!("{}_vandorf.go", prog.node(p).name().to_lowercase()), file(&body.out, imports));
     }
 
-    let mut w = header(&opts.package, &[]);
+    let mut w = Writer::new("\t");
     for (id, n) in prog.nodes.iter().enumerate() {
         if let NodeKind::Func(f) = &n.kind {
             w.line(&format!("// {} is the input of {}.", g.in_type(id), n.qual_name()));
@@ -106,44 +127,46 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<GoOutput, String> {
             w.line("");
         }
     }
-    files.insert("types_vandorf.go".into(), w.out);
+    files.insert("inputs_vandorf.go".into(), file(&w.out, vec![]));
 
     if !g.stubs.is_empty() {
-        let mut w = header(&opts.package, &[("context".into(), None), ("errors".into(), None)]);
+        let mut w = Writer::new("\t");
         for &n in &g.stubs.clone() {
             let decl = prog.node(n);
             let stub = format!("unimplemented{}", gname(prog, n));
-            w.line(&format!("// {stub} stands in for {}, which names no implementation. Write", decl.qual_name()));
+            let msg = quote(&format!("{} is not implemented", decl.qual_name()));
+            w.line(&format!("// {stub} stands in for {}, which names no .go implementation. Write", decl.qual_name()));
             w.line(&format!("//\t{}", g.signature(n, "Name", true)));
             w.line("// and add `= \"file.go:Name\"` to its declaration.");
             w.line(&format!("{} {{", g.signature(n, &stub, false)));
             let ret = prog.ret(n);
             if ret.is_void() {
-                w.line(&format!("return errors.New({})", go_quote(&format!("{} is not implemented", decl.qual_name()))));
+                w.line(&format!("return errors.New({msg})"));
             } else {
                 w.line(&format!("var zero {}", g.go_type(ret)));
-                w.line(&format!("return zero, errors.New({})", go_quote(&format!("{} is not implemented", decl.qual_name()))));
+                w.line(&format!("return zero, errors.New({msg})"));
             }
             w.line("}");
             w.line("");
         }
-        files.insert("stubs_vandorf.go".into(), w.out);
+        let imports = vec![("context".to_string(), None), ("errors".to_string(), None)];
+        files.insert("stubs_vandorf.go".into(), file(&w.out, imports));
     }
 
-    let mut w = header(&opts.package, &[("context".into(), None), ("sync".into(), None)]);
-    w.raw(RUNTIME);
+    let mut body = RUNTIME.to_string();
     for h in &g.helpers {
-        w.line("");
-        w.raw(h);
+        body.push('\n');
+        body.push_str(h);
     }
-    files.insert("runtime_vandorf.go".into(), w.out);
+    let imports = vec![("context".to_string(), None), ("sync".to_string(), None)];
+    files.insert("runtime_vandorf.go".into(), file(&body, imports));
 
     let impls = prog
         .nodes
         .iter()
         .enumerate()
         .filter_map(|(id, n)| match &n.kind {
-            NodeKind::Func(f) => f.imp.as_ref().map(|i| ImplUse {
+            NodeKind::Func(f) => f.imp("go").map(|i| ImplUse {
                 node: n.qual_name(),
                 file: i.file.clone(),
                 function: i.function.clone(),
@@ -152,12 +175,20 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<GoOutput, String> {
             NodeKind::Proc(_) => None,
         })
         .collect();
-    Ok(GoOutput { files, impls })
+    Ok(Output { types, code: Artifact { dir: String::new(), files }, impls })
+}
+
+fn g_tq(pkg: &str) -> String {
+    format!("{pkg}.")
 }
 
 struct Gen<'a> {
     prog: &'a Program,
     opts: &'a GoOptions,
+    table: &'a TypeTable,
+    /// Qualifier for named types in the code package: `types.`, or empty when
+    /// the types are in the code package.
+    tq: String,
     /// Impl imports of the file being generated: path -> alias.
     imports: BTreeMap<String, String>,
     coercions: HashMap<(String, String), String>,
@@ -165,16 +196,10 @@ struct Gen<'a> {
     stubs: BTreeSet<NodeId>,
 }
 
-/// Go name of a node: its qualified name, segments exported and joined.
-fn gname(prog: &Program, n: NodeId) -> String {
-    prog.node(n).qual.iter().map(|s| exported(s)).collect()
-}
-
 impl Gen<'_> {
     // ---- Names ----
 
-    /// Rejects programs whose names would collide or be invalid once mapped
-    /// to Go.
+    /// Rejects programs whose names would collide or be invalid in Go.
     fn check_names(&self) -> Result<(), String> {
         let mut seen: HashMap<String, String> = HashMap::new();
         for (id, n) in self.prog.nodes.iter().enumerate() {
@@ -182,15 +207,18 @@ impl Gen<'_> {
             if let Some(prev) = seen.insert(g.clone(), n.qual_name()) {
                 return Err(format!("{prev} and {} both map to the Go name {g}", n.qual_name()));
             }
-            let mut types: Vec<&Type> = vec![self.prog.ret(id)];
             if let NodeKind::Func(f) = &n.kind {
-                types.extend(f.params.iter().map(|(_, t)| t));
-                check_fields(&f.params.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), false)
-                    .map_err(|e| format!("{}: {e}", n.qual_name()))?;
+                let names: Vec<&str> = f.params.iter().map(|(n, _)| n.as_str()).collect();
+                check_fields(&names, false).map_err(|e| format!("{}: {e}", n.qual_name()))?;
             }
-            for t in types {
-                check_type(t).map_err(|e| format!("{}: {e}", n.qual_name()))?;
-            }
+        }
+        for t in &self.table.types {
+            let (names, is_enum) = match &t.shape {
+                Shape::Struct(fs) => (fs, false),
+                Shape::Enum(vs) => (vs, true),
+            };
+            let names: Vec<&str> = names.iter().map(|(n, _)| n.as_str()).collect();
+            check_fields(&names, is_enum).map_err(|e| format!("{} ({}): {e}", t.name, t.origin))?;
         }
         Ok(())
     }
@@ -220,34 +248,32 @@ impl Gen<'_> {
     /// The Go function a func node calls.
     fn callee(&mut self, n: NodeId) -> Result<String, String> {
         let NodeKind::Func(f) = &self.prog.node(n).kind else { unreachable!() };
-        let Some(imp) = &f.imp else {
+        let Some(imp) = f.imp("go") else {
             self.stubs.insert(n);
             return Ok(format!("unimplemented{}", gname(self.prog, n)));
         };
-        let dir = match imp.file.rsplit_once('/') {
-            Some((d, _)) => d.trim_end_matches('/'),
-            None => "",
-        };
+        let dir = dir_of(&imp.file).trim_end_matches('/');
         if dir.is_empty() || dir == "." {
             return Ok(imp.function.clone());
         }
+        let qual = self.prog.node(n).qual_name();
         let Some(base) = &self.opts.import_base else {
             return Err(format!(
-                "{} is implemented in {}, outside the generated package, but no import base is known (pass --module or run inside a Go module)",
-                self.prog.node(n).qual_name(), imp.file,
+                "{qual} is implemented in {}, outside the code package, but its import path is unknown (pass --module or run inside a Go module)",
+                imp.file,
             ));
         };
-        let path = join_import(base, dir)
-            .ok_or_else(|| format!("{}: cannot resolve import for {}", self.prog.node(n).qual_name(), imp.file))?;
+        let path = join_path(base, dir).ok_or_else(|| format!("{qual}: cannot resolve import for {}", imp.file))?;
         let alias = match self.imports.get(&path) {
             Some(a) => a.clone(),
             None => {
-                let stem: String = path.rsplit('/').next().unwrap().chars()
-                    .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-                    .collect();
+                let stem = ident(path.rsplit('/').next().unwrap());
+                let taken = |a: &str, imports: &BTreeMap<String, String>| {
+                    imports.values().any(|x| x == a) || ["context", "fmt"].contains(&a) || g_tq(a) == self.tq
+                };
                 let mut alias = stem.clone();
                 let mut i = 2;
-                while self.imports.values().any(|a| *a == alias) || ["context", "fmt"].contains(&alias.as_str()) {
+                while taken(&alias, &self.imports) {
                     alias = format!("{stem}{i}");
                     i += 1;
                 }
@@ -260,9 +286,36 @@ impl Gen<'_> {
 
     // ---- Types ----
 
-    fn go_type(&self, t: &Type) -> String {
-        match t {
-            Type::Prim(p) => match p {
+    fn typegen(&self, pkg: &str) -> String {
+        let mut w = header(pkg, &[]);
+        for t in &self.table.types {
+            w.line(&format!("// {} is the type of the {}.", t.name, t.origin));
+            match &t.shape {
+                Shape::Struct(fs) => {
+                    w.line(&format!("type {} struct {{", t.name));
+                    for (n, r) in fs {
+                        w.line(&format!("{} {}", exported(n), self.render(r, "")));
+                    }
+                }
+                Shape::Enum(vs) => {
+                    let tags: Vec<String> = vs.iter().map(|(n, _)| quote(n)).collect();
+                    w.line(&format!("// Tag is one of {}; the field it names holds the payload.", tags.join(", ")));
+                    w.line(&format!("type {} struct {{", t.name));
+                    w.line("Tag string");
+                    for (n, r) in vs {
+                        w.line(&format!("{} {}", exported(n), self.render(r, "")));
+                    }
+                }
+            }
+            w.line("}");
+            w.line("");
+        }
+        w.out
+    }
+
+    fn render(&self, r: &TyRef, qual: &str) -> String {
+        match r {
+            TyRef::Prim(p) => match p {
                 Prim::Void => "struct{}",
                 Prim::Int => "int",
                 Prim::Float => "float64",
@@ -270,17 +323,14 @@ impl Gen<'_> {
                 Prim::String => "string",
             }
             .into(),
-            Type::Array(t) => format!("[]{}", self.go_type(t)),
-            Type::Struct(fs) => {
-                let fs: Vec<String> = fs.iter().map(|(n, t)| format!("{} {}", exported(n), self.go_type(t))).collect();
-                format!("struct{{ {} }}", fs.join("; "))
-            }
-            Type::Enum(vs) => {
-                let mut fs = vec!["Tag string".to_string()];
-                fs.extend(vs.iter().map(|(n, t)| format!("{} {}", exported(n), self.go_type(t))));
-                format!("struct{{ {} }}", fs.join("; "))
-            }
+            TyRef::Array(e) => format!("[]{}", self.render(e, qual)),
+            TyRef::Named(i) => format!("{qual}{}", self.table.types[*i].name),
         }
+    }
+
+    /// A vandorf type as written in the code package.
+    fn go_type(&self, t: &Type) -> String {
+        self.render(&self.table.get(t), &self.tq)
     }
 
     /// Converts `expr` of type `from` to `to`, which sema checked accepts it.
@@ -295,7 +345,7 @@ impl Gen<'_> {
         }
         let name = format!("coerce{}", self.coercions.len());
         self.coercions.insert(key, name.clone());
-        let mut w = Writer::default();
+        let mut w = Writer::new("\t");
         w.line(&format!("func {name}(v {src}) (r {dst}) {{"));
         match (from, to) {
             (Type::Array(f), Type::Array(t)) => {
@@ -317,7 +367,7 @@ impl Gen<'_> {
                 w.line("switch v.Tag {");
                 for (n, f) in fvs {
                     let v = exported(n);
-                    w.line(&format!("case {}:", go_quote(n)));
+                    w.line(&format!("case {}:", quote(n)));
                     let e = self.coerce(&format!("v.{v}"), f, to.variant(n).unwrap());
                     w.line(&format!("r.{v} = {e}"));
                 }
@@ -352,7 +402,7 @@ impl Gen<'_> {
                 Expr::Variant { tag, payload } => {
                     let pt = a.param.variant(tag).unwrap();
                     let p = self.coerce(&self.reference(payload), &payload.ty, pt);
-                    format!("{}{{Tag: {}, {}: {p}}}", self.go_type(&a.param), go_quote(tag), exported(tag))
+                    format!("{}{{Tag: {}, {}: {p}}}", self.go_type(&a.param), quote(tag), exported(tag))
                 }
             };
             parts.push(format!("{}: {v}", exported(&a.name)));
@@ -398,9 +448,9 @@ impl Gen<'_> {
 
         let params = prog.params(pid);
         let ret = self.go_type(&proc.ret);
-        let sig: Vec<String> = params.iter().map(|(p, t)| format!("{} {}", go_param(p), self.go_type(t))).collect();
+        let sig: String = params.iter().map(|(p, t)| format!(", {} {}", go_param(p), self.go_type(t))).collect();
         w.line(&format!("// Run{name} runs proc {}.", prog.node(pid).qual_name()));
-        w.line(&format!("func Run{name}(ctx context.Context{}) ({ret}, error) {{", sig.iter().map(|s| format!(", {s}")).collect::<String>()));
+        w.line(&format!("func Run{name}(ctx context.Context{sig}) ({ret}, error) {{"));
         w.line(&format!("var zero {ret}"));
         w.line(&format!("env := &{env}{{}}"));
         let fields: Vec<String> = params.iter().map(|(p, _)| format!("{}: {}", exported(p), go_param(p))).collect();
@@ -410,15 +460,15 @@ impl Gen<'_> {
         w.line("}");
         w.line("");
 
-        for (&opener, &r) in sorted(&g.opens) {
+        let mut opens: Vec<(NodeId, RegionId)> = g.opens.iter().map(|(&n, &r)| (n, r)).collect();
+        opens.sort_by_key(|&(_, r)| r);
+        for (opener, r) in opens {
             let region = &g.regions[r];
             let Some(Edge::ForEach { call, .. }) = g.edges.get(&opener) else { unreachable!() };
             let sink = self.go_type(prog.ret(region.sink.unwrap()));
-            w.line(&format!("// {} runs one element of the for each from {}.", region_fn(prog, pid, r), prog.node(opener).qual_name()));
-            w.line(&format!(
-                "func {}(ctx context.Context, env *{env}, elem {}) ({sink}, error) {{",
-                region_fn(prog, pid, r), self.go_type(&region.elem),
-            ));
+            let f = region_fn(prog, pid, r);
+            w.line(&format!("// {f} runs one element of the for each from {}.", prog.node(opener).qual_name()));
+            w.line(&format!("func {f}(ctx context.Context, env *{env}, elem {}) ({sink}, error) {{", self.go_type(&region.elem)));
             w.line(&format!("var zero {sink}"));
             w.line("this := elem");
             w.line("_ = this");
@@ -442,7 +492,8 @@ impl Gen<'_> {
             self.emit_node(w, pid, n)?;
         }
         w.line("default:");
-        w.line(&format!("return zero, fmt.Errorf({}, pc)", go_quote(&format!("{}: invalid state %d", self.prog.node(pid).qual_name()))));
+        let msg = quote(&format!("{}: invalid state %d", self.prog.node(pid).qual_name()));
+        w.line(&format!("return zero, fmt.Errorf({msg}, pc)"));
         w.line("}");
         w.line("}");
         Ok(())
@@ -452,6 +503,7 @@ impl Gen<'_> {
         let prog = self.prog;
         let proc = prog.proc(pid);
         let id = gname(prog, n);
+        let qual = prog.node(n).qual_name();
         let ret = prog.ret(n);
         let mut call = match prog.node(n).kind {
             NodeKind::Func(_) => self.callee(n)?,
@@ -471,7 +523,7 @@ impl Gen<'_> {
             w.line(&format!("this, err := {call}"));
         }
         w.line("if err != nil {");
-        w.line(&format!("return zero, fmt.Errorf({}, err)", go_quote(&format!("{}: %w", prog.node(n).qual_name()))));
+        w.line(&format!("return zero, fmt.Errorf({}, err)", quote(&format!("{qual}: %w"))));
         w.line("}");
         w.line(&format!("env.out{id} = this"));
 
@@ -491,9 +543,9 @@ impl Gen<'_> {
                         w.line("default:");
                     } else if is_enum {
                         if ret.variant(cond).is_none() {
-                            return Err(format!("{}: match arm {cond:?} is not a variant of {ret}", prog.node(n).qual_name()));
+                            return Err(format!("{qual}: match arm {cond:?} is not a variant of {ret}"));
                         }
-                        w.line(&format!("case {}:", go_quote(cond)));
+                        w.line(&format!("case {}:", quote(cond)));
                     } else {
                         // No expression grammar yet: the arm is a Go boolean
                         // expression over `this`.
@@ -503,7 +555,7 @@ impl Gen<'_> {
                 }
                 w.line("}");
                 if !arms.iter().any(|(c, _)| c == "else") {
-                    w.line(&format!("return zero, fmt.Errorf({}, this)", go_quote(&format!("{}: no match arm for %v", prog.node(n).qual_name()))));
+                    w.line(&format!("return zero, fmt.Errorf({}, this)", quote(&format!("{qual}: no match arm for %v"))));
                 }
             }
             Edge::ForEach { dim, .. } => {
@@ -513,7 +565,8 @@ impl Gen<'_> {
                 let out = self.go_type(prog.ret(sink));
                 w.line(&format!(
                     "results, err := fanOut(ctx, {}, func(ctx context.Context, elem {}) ({out}, error) {{",
-                    self.reference(dim), self.go_type(&region.elem),
+                    self.reference(dim),
+                    self.go_type(&region.elem),
                 ));
                 w.line("env := *env");
                 w.line(&format!("return {}(ctx, &env, elem)", region_fn(prog, pid, r)));
@@ -548,12 +601,6 @@ fn region_fn(prog: &Program, pid: NodeId, r: RegionId) -> String {
     format!("run{}Region{r}", gname(prog, pid))
 }
 
-fn sorted<K: Ord, V>(m: &HashMap<K, V>) -> Vec<(&K, &V)> {
-    let mut v: Vec<_> = m.iter().collect();
-    v.sort_by(|a, b| a.0.cmp(b.0));
-    v
-}
-
 fn check_fields(names: &[&str], is_enum: bool) -> Result<(), String> {
     let mut seen: HashMap<String, &str> = HashMap::new();
     if is_enum {
@@ -567,38 +614,10 @@ fn check_fields(names: &[&str], is_enum: bool) -> Result<(), String> {
     Ok(())
 }
 
-fn check_type(t: &Type) -> Result<(), String> {
-    match t {
-        Type::Prim(_) => Ok(()),
-        Type::Array(t) => check_type(t),
-        Type::Struct(fs) | Type::Enum(fs) => {
-            check_fields(&fs.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), matches!(t, Type::Enum(_)))?;
-            fs.iter().try_for_each(|(_, t)| check_type(t))
-        }
-    }
-}
-
-/// Joins a relative directory onto an import path, resolving `.` and `..`.
-fn join_import(base: &str, dir: &str) -> Option<String> {
-    let mut segs: Vec<&str> = base.split('/').collect();
-    for s in dir.split('/') {
-        match s {
-            "" | "." => {}
-            ".." => {
-                segs.pop()?;
-            }
-            s => segs.push(s),
-        }
-    }
-    (!segs.is_empty()).then(|| segs.join("/"))
-}
-
-fn exported(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        Some(f) => f.to_ascii_uppercase().to_string() + c.as_str(),
-        None => String::new(),
-    }
+/// A Go identifier from a path segment.
+fn ident(s: &str) -> String {
+    let s: String = s.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+    if s.starts_with(|c: char| c.is_ascii_digit()) { format!("p{s}") } else { s }
 }
 
 const GO_RESERVED: &[&str] = &[
@@ -612,23 +631,8 @@ fn go_param(s: &str) -> String {
     if GO_RESERVED.contains(&s) { format!("{s}_") } else { s.to_string() }
 }
 
-fn go_quote(s: &str) -> String {
-    let mut out = String::from("\"");
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
-}
-
 fn header(pkg: &str, imports: &[(String, Option<String>)]) -> Writer {
-    let mut w = Writer::default();
+    let mut w = Writer::new("\t");
     w.line("// Code generated by vandorf. DO NOT EDIT.");
     w.line("");
     w.line(&format!("package {pkg}"));
@@ -637,44 +641,14 @@ fn header(pkg: &str, imports: &[(String, Option<String>)]) -> Writer {
         w.line("import (");
         for (path, alias) in imports {
             match alias {
-                Some(a) => w.line(&format!("{a} {}", go_quote(path))),
-                None => w.line(&go_quote(path)),
+                Some(a) => w.line(&format!("{a} {}", quote(path))),
+                None => w.line(&quote(path)),
             }
         }
         w.line(")");
         w.line("");
     }
     w
-}
-
-/// Emits lines with gofmt-style tab indentation inferred from braces, so the
-/// output is readable without running gofmt.
-#[derive(Default)]
-struct Writer {
-    out: String,
-    depth: usize,
-}
-
-impl Writer {
-    fn line(&mut self, s: &str) {
-        let s = s.trim();
-        if s.starts_with('}') || s.starts_with(')') {
-            self.depth = self.depth.saturating_sub(1);
-        }
-        let depth = if s.starts_with("case ") || s == "default:" { self.depth.saturating_sub(1) } else { self.depth };
-        if !s.is_empty() {
-            self.out.push_str(&"\t".repeat(depth));
-        }
-        self.out.push_str(s);
-        self.out.push('\n');
-        if s.ends_with('{') || s.ends_with('(') {
-            self.depth += 1;
-        }
-    }
-
-    fn raw(&mut self, s: &str) {
-        self.out.push_str(s);
-    }
 }
 
 const RUNTIME: &str = r#"// fanOut runs f over xs concurrently and returns the results in input order.

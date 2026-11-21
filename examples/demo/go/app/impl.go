@@ -5,22 +5,17 @@ import (
 	"fmt"
 	"strings"
 	"sync/atomic"
+
+	"example.com/demo/app/types"
 )
 
-// Range returns 0..i-1. Its return type is the structural Go form of
-// { l: []int, s: string }.
-func Range(ctx context.Context, i int) (struct {
-	L []int
-	S string
-}, error) {
+// Range returns 0..i-1.
+func Range(ctx context.Context, i int) (types.ForEachStartOut, error) {
 	l := make([]int, i)
 	for j := range l {
 		l[j] = j
 	}
-	return struct {
-		L []int
-		S string
-	}{L: l, S: fmt.Sprint(i)}, nil
+	return types.ForEachStartOut{L: l, S: fmt.Sprint(i)}, nil
 }
 
 func Square(ctx context.Context, i int, l []int) (int, error) { return i * i, nil }
@@ -55,13 +50,6 @@ func Log(ctx context.Context, i int) error {
 	return nil
 }
 
-type End = struct {
-	Tag string
-	I   string
-	S   struct{}
-	B   struct{ I int }
-}
-
-func Finish(ctx context.Context, r End) (string, error) {
+func Finish(ctx context.Context, r types.BarEndR) (string, error) {
 	return "end:" + r.Tag, nil
 }

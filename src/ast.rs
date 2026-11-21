@@ -50,8 +50,9 @@ pub struct Func {
     pub name: Ident,
     pub params: Vec<Field>,
     pub ret: Option<TypeExpr>,
-    /// `= "path/to/file.go:Function"`
-    pub imp: Option<ImplRef>,
+    /// `= "impl.go:Function", "impls.rs:function"`: one per target language,
+    /// selected by file extension.
+    pub imps: Vec<ImplRef>,
 }
 
 /// A `file:function` reference to the code that implements a leaf func.

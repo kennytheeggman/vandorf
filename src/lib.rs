@@ -11,23 +11,39 @@ pub mod parser;
 pub mod sema;
 pub mod types;
 
-use ariadne::{Color, Label, Report, ReportKind, Source};
+use ariadne::{Color, Config, IndexType, Label, Report, ReportKind, Source};
+use std::ops::Range;
 
-/// Parses and checks `src`, rendering any diagnostics into the error string.
-pub fn compile(name: &str, src: &str) -> Result<sema::Program, String> {
-    let file = parser::parse(src).map_err(|errs| {
-        render(name, src, errs.iter().map(|e| (e.to_string(), e.span().into_range())))
-    })?;
-    sema::analyze(&file)
-        .map_err(|errs| render(name, src, errs.iter().map(|e| (e.msg.clone(), e.span.into_range()))))
+/// An error at a byte range of the source.
+#[derive(Debug, Clone)]
+pub struct Diagnostic {
+    pub msg: String,
+    pub span: Range<usize>,
 }
 
-fn render(name: &str, src: &str, errs: impl Iterator<Item = (String, std::ops::Range<usize>)>) -> String {
+/// Parses and checks `src`.
+pub fn check(src: &str) -> Result<sema::Program, Vec<Diagnostic>> {
+    let file = parser::parse(src).map_err(|errs| {
+        errs.iter().map(|e| Diagnostic { msg: e.to_string(), span: e.span().into_range() }).collect::<Vec<_>>()
+    })?;
+    sema::analyze(&file).map_err(|errs| {
+        errs.into_iter().map(|e| Diagnostic { msg: e.msg, span: e.span.into_range() }).collect()
+    })
+}
+
+/// Parses and checks `src`, rendering any diagnostics for a terminal.
+pub fn compile(name: &str, src: &str) -> Result<sema::Program, String> {
+    check(src).map_err(|d| render(name, src, &d, true))
+}
+
+pub fn render(name: &str, src: &str, diags: &[Diagnostic], color: bool) -> String {
+    let config = Config::default().with_color(color).with_index_type(IndexType::Byte);
     let mut out = Vec::new();
-    for (msg, span) in errs {
-        Report::build(ReportKind::Error, (name, span.clone()))
-            .with_message(&msg)
-            .with_label(Label::new((name, span)).with_message(&msg).with_color(Color::Red))
+    for d in diags {
+        Report::build(ReportKind::Error, (name, d.span.clone()))
+            .with_config(config)
+            .with_message(&d.msg)
+            .with_label(Label::new((name, d.span.clone())).with_message(&d.msg).with_color(Color::Red))
             .finish()
             .write((name, Source::from(src)), &mut out)
             .unwrap();

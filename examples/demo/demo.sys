@@ -1,28 +1,29 @@
 // test/fixtures/test1.sys from the Go implementation, with implementations.
-// Impl paths are relative to the generated package (app/).
+// Each func names one implementation per backend; paths are relative to the
+// generated code's directory (go/app for Go, rs/src/app for Rust).
 
 interface Foo {
-	// Lives in another package: imported as example.com/demo/effects.
-	func Call(s: string): int = "../effects/foo.go:Call";
+	// Outside the generated package/module.
+	func Call(s: string): int = "../effects/foo.go:Call", "../effects.rs:call";
 }
 
 proc ForEach(Start): int {
-	func Start(i: int): { l: []int, s: string } = "impl.go:Range";
-	func Process(i: int, l: []int): int = "impl.go:Square";
-	func Collect(l: []int): int = "impl.go:Sum";
+	func Start(i: int): { l: []int, s: string } = "impl.go:Range", "../impls.rs:range";
+	func Process(i: int, l: []int): int = "impl.go:Square", "../impls.rs:square";
+	func Collect(l: []int): int = "impl.go:Sum", "../impls.rs:sum";
 
 	Start for each (Start.l) -> Process(i = this, l = Start.l);
 	Process collect each (Process) -> Collect(l = this);
 }
 
 proc Bar(Start): string {
-	func Start(a: int, b: string): string = "impl.go:Repeat";
-	func Loop(s: string): int = "impl.go:Grow";
+	func Start(a: int, b: string): string = "impl.go:Repeat", "../impls.rs:repeat";
+	func Loop(s: string): int = "impl.go:Grow", "../impls.rs:grow";
 	// No implementation: calls a generated stub that returns an error.
 	func Branch1(i: int): string;
-	func Branch2Begin(i: int): string = "impl.go:Describe";
-	func Branch2End(i: int) = "impl.go:Log";
-	func End(r: enum { I(string), S, B({i: int}) }): string = "impl.go:Finish";
+	func Branch2Begin(i: int): string = "impl.go:Describe", "../impls.rs:describe";
+	func Branch2End(i: int) = "impl.go:Log", "../impls.rs:log";
+	func End(r: enum { I(string), S, B({i: int}) }): string = "impl.go:Finish", "../impls.rs:finish";
 
 	Start -> Loop(s = this);
 	Loop switch {
