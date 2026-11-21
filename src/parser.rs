@@ -14,6 +14,7 @@
 //!            | path 'collect' 'each' '(' IDENT ')' '->' target
 //!            | path 'for' 'each' '(' expr ')' '->' target
 //! target    := path '(' (arg (',' arg)*)? ')' ('as' IDENT)?
+//!            | 'id' '(' expr ')'                   end the proc with a value
 //! arm       := (pat | '(' expr ')' | 'else') '->' (target | 'switch' '{' arm,* '}')
 //! pat       := alt ('|' alt)*
 //! alt       := '_' | IDENT                          wildcard, binding
@@ -55,7 +56,7 @@ type Extra<'a> = extra::Err<ParseError<'a>>;
 
 const KEYWORDS: &[&str] = &[
     "interface", "func", "proc", "enum", "switch", "collect", "for", "each", "as", "type",
-    "true", "false", "else", "map", "in",
+    "true", "false", "else", "map", "in", "id",
 ];
 
 /// Parses one source file; its spans carry `id`.
@@ -380,10 +381,16 @@ fn target<'a>() -> impl Parser<'a, In<'a>, Target, Extra<'a>> + Clone {
         .then_ignore(assign())
         .then(value())
         .map(|(name, value)| Arg { name, value });
-    path()
+    let id = text::ascii::keyword("id")
+        .map_with(|_, e| Path { segs: vec![Ident { name: "id".into(), span: e.span() }], span: e.span() })
+        .then_ignore(ws())
+        .then(value().delimited_by(sym("("), sym(")")))
+        .then(kw("as").ignore_then(ident()).or_not())
+        .map(|((node, v), alias)| Target { node, args: vec![], alias, id: Some(v) });
+    id.or(path()
         .then(arg.separated_by(sym(",")).collect().delimited_by(sym("("), sym(")")))
         .then(kw("as").ignore_then(ident()).or_not())
-        .map(|((node, args), alias)| Target { node, args, alias })
+        .map(|((node, args), alias)| Target { node, args, alias, id: None }))
 }
 
 fn pattern<'a>() -> impl Parser<'a, In<'a>, Pat, Extra<'a>> + Clone {

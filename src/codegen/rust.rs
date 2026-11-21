@@ -89,11 +89,11 @@ pub fn generate(prog: &Program, opts: &RustOptions) -> Result<Output, String> {
     w.raw(RUNTIME);
     w.raw(&body.out);
     for (id, n) in prog.nodes.iter().enumerate() {
-        if let NodeKind::Func(f) = &n.kind {
+        if let NodeKind::Func(_) | NodeKind::Id(_) = &n.kind {
             w.line(&format!("/// Input of {}.", n.qual_name()));
             w.line("#[derive(Debug, Clone)]");
             w.line(&format!("struct {} {{", in_type(prog, id)));
-            for (name, t) in &f.params {
+            for (name, t) in prog.params(id) {
                 w.line(&format!("{}: {},", rust_ident(name), g.rust_type(t)));
             }
             w.line("}");
@@ -155,7 +155,7 @@ pub use procs::*;
                 function: i.function.clone(),
                 signature: g.signature(id, &i.function, &types_path),
             }),
-            NodeKind::Proc(_) | NodeKind::Alias(_) => None,
+            NodeKind::Proc(_) | NodeKind::Alias(_) | NodeKind::Id(_) => None,
         })
         .collect();
     Ok(Output { types, code, mains, impls })
@@ -252,7 +252,7 @@ struct Gen<'a> {
 
 fn in_type(prog: &Program, n: NodeId) -> String {
     match &prog.node(n).kind {
-        NodeKind::Func(_) => format!("In{}", gname(prog, n)),
+        NodeKind::Func(_) | NodeKind::Id(_) => format!("In{}", gname(prog, n)),
         NodeKind::Proc(p) => in_type(prog, p.entry),
         NodeKind::Alias(b) => in_type(prog, *b),
     }
@@ -689,16 +689,22 @@ impl Gen<'_> {
         let base = prog.base(n);
         let callee = match prog.node(base).kind {
             NodeKind::Proc(_) => format!("run_{}", snake(&gname(prog, base))),
+            NodeKind::Id(_) => String::new(),
             _ => self.callee(n)?,
         };
         let args: Vec<String> = prog.params(n).iter().map(|(p, _)| format!("input.{}", rust_ident(p))).collect();
 
         w.line(&format!("Pc{}::{} => {{", gname(prog, pid), gname(prog, n)));
         w.line(&format!("let input = get(&env.in_{id}, {})?.clone();", quote(&qual)));
-        w.line(&format!(
-            "let this = {callee}({}).map_err(|e| wrap({}, e.into()))?;",
-            args.join(", "), quote(&qual),
-        ));
+        if let NodeKind::Id(_) = prog.node(n).kind {
+            // id: the value is the output.
+            w.line("let this = input.value;");
+        } else {
+            w.line(&format!(
+                "let this = {callee}({}).map_err(|e| wrap({}, e.into()))?;",
+                args.join(", "), quote(&qual),
+            ));
+        }
         w.line(&format!("env.out_{id} = Some(this.clone());"));
 
         match proc.graph.edges.get(&n) {

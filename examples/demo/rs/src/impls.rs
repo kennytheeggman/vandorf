@@ -92,10 +92,6 @@ pub fn small(i: i64) -> Result<bool, String> {
     Ok(i.abs() < 100)
 }
 
-pub fn say(s: String) -> Result<String, String> {
-    Ok(s)
-}
-
 /// Gives each name its index as a slot.
 pub fn declare(names: Vec<String>, query: String) -> Result<types::ResolveDeclareOut, String> {
     let scope = names

@@ -128,10 +128,10 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<Output, String> {
 
     let mut w = Writer::new("\t");
     for (id, n) in prog.nodes.iter().enumerate() {
-        if let NodeKind::Func(f) = &n.kind {
+        if let NodeKind::Func(_) | NodeKind::Id(_) = &n.kind {
             w.line(&format!("// {} is the input of {}.", g.in_type(id), n.qual_name()));
             w.line(&format!("type {} struct {{", g.in_type(id)));
-            for (name, t) in &f.params {
+            for (name, t) in prog.params(id) {
                 w.line(&format!("{} {}", exported(name), g.go_type(t)));
             }
             w.line("}");
@@ -186,7 +186,7 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<Output, String> {
                 function: i.function.clone(),
                 signature: g.signature(id, &i.function, true),
             }),
-            NodeKind::Proc(_) | NodeKind::Alias(_) => None,
+            NodeKind::Proc(_) | NodeKind::Alias(_) | NodeKind::Id(_) => None,
         })
         .collect();
     let mains = opts.mains.iter().map(|m| main_artifact(prog, opts, m)).collect::<Result<_, _>>()?;
@@ -316,7 +316,7 @@ impl Gen<'_> {
 
     fn in_type(&self, n: NodeId) -> String {
         match &self.prog.node(n).kind {
-            NodeKind::Func(_) => format!("in{}", gname(self.prog, n)),
+            NodeKind::Func(_) | NodeKind::Id(_) => format!("in{}", gname(self.prog, n)),
             NodeKind::Proc(p) => self.in_type(p.entry),
             NodeKind::Alias(b) => self.in_type(*b),
         }
@@ -815,6 +815,7 @@ impl Gen<'_> {
         let base = prog.base(n);
         let mut call = match prog.node(base).kind {
             NodeKind::Proc(_) => format!("Run{}", gname(prog, base)),
+            NodeKind::Id(_) => String::new(),
             _ => self.callee(n)?,
         };
         call.push_str("(ctx");
@@ -824,15 +825,20 @@ impl Gen<'_> {
         call.push(')');
 
         w.line(&format!("case {}:", pc_name(prog, pid, n)));
-        if matches!(prog.node(base).kind, NodeKind::Func(_)) && ret.is_void() {
+        if let NodeKind::Id(_) = prog.node(n).kind {
+            // id: the value is the output.
+            w.line(&format!("this := env.in{id}.Value"));
+        } else if matches!(prog.node(base).kind, NodeKind::Func(_)) && ret.is_void() {
             w.line(&format!("err := {call}"));
             w.line("this := struct{}{}");
         } else {
             w.line(&format!("this, err := {call}"));
         }
-        w.line("if err != nil {");
-        w.line(&format!("return zero, fmt.Errorf({}, err)", quote(&format!("{qual}: %w"))));
-        w.line("}");
+        if !matches!(prog.node(n).kind, NodeKind::Id(_)) {
+            w.line("if err != nil {");
+            w.line(&format!("return zero, fmt.Errorf({}, err)", quote(&format!("{qual}: %w"))));
+            w.line("}");
+        }
         w.line(&format!("env.out{id} = this"));
 
         let Some(edge) = proc.graph.edges.get(&n) else {

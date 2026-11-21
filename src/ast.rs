@@ -190,6 +190,9 @@ pub struct Target {
     /// `as Name`: call a separate instance of `node`, named `Name` in this
     /// proc, with its own output and outgoing edge.
     pub alias: Option<Ident>,
+    /// `id(value)`: end the proc with `value` (then `node` is `id`, and
+    /// `args` is empty).
+    pub id: Option<Value>,
 }
 
 /// `name = value`, in a call or a struct literal.

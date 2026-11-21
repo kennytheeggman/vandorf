@@ -65,6 +65,9 @@ pub enum NodeKind {
     /// the edge is in. It has `B`'s parameters, return and implementation,
     /// but its own output and outgoing edge.
     Alias(NodeId),
+    /// `-> id(value)`: ends the proc with `value`. Its one parameter,
+    /// `value`, has the proc's return type.
+    Id(Vec<(String, Type)>),
 }
 
 #[derive(Debug)]
@@ -355,6 +358,7 @@ impl Program {
             NodeKind::Func(f) => &f.params,
             NodeKind::Proc(p) => self.params(p.entry),
             NodeKind::Alias(b) => self.params(*b),
+            NodeKind::Id(params) => params,
         }
     }
 
@@ -363,6 +367,7 @@ impl Program {
             NodeKind::Func(f) => &f.ret,
             NodeKind::Proc(p) => &p.ret,
             NodeKind::Alias(b) => self.ret(*b),
+            NodeKind::Id(params) => &params[0].1,
         }
     }
 
@@ -408,6 +413,7 @@ pub fn analyze(file: &ast::File) -> Result<Program, Vec<Error>> {
         type_names: HashMap::new(),
         procs: vec![],
         aliases: vec![],
+        ids: HashMap::new(),
         errors: vec![],
     };
     cx.declare_types(&file.types);
@@ -433,6 +439,8 @@ struct Cx<'a> {
     procs: Vec<(NodeId, &'a ast::Proc)>,
     /// Alias nodes, the proc they're in, and the target declaring them.
     aliases: Vec<(NodeId, NodeId, &'a ast::Target)>,
+    /// The node of each `id(..)` target, by the position of its `id`.
+    ids: HashMap<(usize, usize), NodeId>,
     errors: Vec<Error>,
 }
 
@@ -609,7 +617,25 @@ impl<'a> Cx<'a> {
             }
             locals.push(lid);
         }
-        for t in p.edges.iter().flat_map(|e| targets(&e.kind)) {
+        // Each `id(..)` is a node of its own.
+        let mut n_ids = 0;
+        for t in p.edges.iter().flat_map(|e| targets(&e.kind)).filter(|t| t.id.is_some()) {
+            if let Some(a) = &t.alias {
+                self.errors.push(Error { msg: "id ends the proc, so it can't be named".into(), span: a.span });
+                continue;
+            }
+            n_ids += 1;
+            let mut q = qual.clone();
+            q.push(format!("id{n_ids}"));
+            let ret = match &self.prog.nodes[id].kind {
+                NodeKind::Proc(d) => d.ret.clone(),
+                _ => unreachable!(),
+            };
+            let lid = self.push_node(NodeDecl { qual: q, span: t.node.span, kind: NodeKind::Id(vec![("value".into(), ret)]) });
+            locals.push(lid);
+            self.ids.insert((t.node.span.start, t.node.span.context), lid);
+        }
+        for t in p.edges.iter().flat_map(|e| targets(&e.kind)).filter(|t| t.id.is_none()) {
             let Some(a) = &t.alias else { continue };
             let of = t.node.to_string();
             match (names.contains_key(a.name.as_str()), aliased.get(a.name.as_str())) {
@@ -1073,6 +1099,15 @@ impl<'a> Cx<'a> {
     }
 
     fn call(&self, pid: NodeId, t: &ast::Target, sc: &Scope) -> Result<Call, Error> {
+        if let Some(v) = &t.id {
+            let target = self.ids[&(t.node.span.start, t.node.span.context)];
+            let ret = self.prog.ret(target);
+            let value = self.check(pid, v, ret, sc).map_err(|mut e| {
+                e.msg = format!("id: {}", e.msg);
+                e
+            })?;
+            return Ok(Call { target, args: vec![CallArg { name: "value".into(), param: ret.clone(), value }], span: t.node.span });
+        }
         let target = self.target(pid, t)?;
         let named: Vec<(&ast::Ident, &ast::Value)> = t.args.iter().map(|a| (&a.name, &a.value)).collect();
         self.args(pid, target, &named, t.node.span, sc)

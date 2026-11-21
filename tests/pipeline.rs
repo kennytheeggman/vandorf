@@ -531,6 +531,37 @@ fn reads_in_for_each_regions() {
 }
 
 #[test]
+fn id_ends_a_proc_with_a_value() {
+    // Literals take the proc's return type; any arm or a collect can end in id.
+    let prog = compile(
+        r#"
+        proc P(A): { n: int, tags: []string } {
+            func A(): int;
+            func B(i: int): []int;
+            func C(i: int): int;
+            A switch {
+                (this > 0) -> id({ n = this, tags = ["pos"] }),
+                (this == 0) -> B(i = this),
+                else -> id({ n = -this, tags = [] })
+            };
+            B for each (this) -> C(i = this);
+            C collect each (C) -> id({ n = this.len, tags = ["many"] });
+        }
+        "#,
+    );
+    let doc = vandorf::document::generate(&prog);
+    let labels: Vec<&str> = doc.grids["P"].rows.iter().flat_map(|r| &r.nodes).map(|n| n.label.as_str()).collect();
+    assert_eq!(labels.iter().filter(|l| **l == "id").count(), 3, "{labels:?}");
+
+    let e = compile_err("proc P(A): int { func A(): int; A -> id(\"s\"); }");
+    assert!(e.contains("id: expected int, found a string literal"), "{e}");
+    let e = compile_err("proc P(A): int { func A(): int; A -> id(this) as X; }");
+    assert!(e.contains("id ends the proc, so it can't be named"), "{e}");
+    let e = compile_err("proc P(A): int { func A(): []int; A for each (this) -> id(this); }");
+    assert!(e.contains("ends inside a for each region without a collect"), "{e}");
+}
+
+#[test]
 fn parse_errors_are_rendered() {
     let e = compile_err("proc P(A): int { func A(: int; }");
     assert!(e.contains("Error"), "{e}");

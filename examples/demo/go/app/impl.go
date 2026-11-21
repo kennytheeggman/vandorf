@@ -90,8 +90,6 @@ func Look(ctx context.Context, e types.Expr) (types.Expr, error) { return e, nil
 // Small reports whether |i| < 100.
 func Small(ctx context.Context, i int) (bool, error) { return i > -100 && i < 100, nil }
 
-func Say(ctx context.Context, s string) (string, error) { return s, nil }
-
 // Declare gives each name its index as a slot.
 func Declare(ctx context.Context, names []string, query string) (types.ResolveDeclareOut, error) {
 	scope := types.Scope{}

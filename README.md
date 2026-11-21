@@ -49,6 +49,11 @@ proc Calc(Build): int {
   They're checked against the parameter's type (an int literal also passes
   as a float) and can nest references to node outputs.
 
+- **`id(value)`** ends a proc with a value, checked against the proc's
+  return type: `A switch { (this > 0) -> id({ n = this, tags = [] }), .. }`.
+  It's the identity func, built in, so procs don't need an identity leaf per
+  result type. Each `id(..)` is its own node (drawn as `id`).
+
 Field, parameter and argument names may be keywords (`{ type: string }`).
 
 An edge may only read outputs of nodes that ran on every path to it (the
