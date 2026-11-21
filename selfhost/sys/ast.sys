@@ -8,7 +8,8 @@ type Path = { segs: []Ident, span: Span };
 type OptIdent = enum { None, Some(Ident) };
 
 type File = { types: []TypeDecl, interfaces: []Interface, nodes: []Node };
-type TypeDecl = { name: Ident, ty: TypeExpr };
+// `params` is empty unless the typedef is generic: `type R<T> = ..`.
+type TypeDecl = { name: Ident, params: []Ident, ty: TypeExpr };
 type Interface = { name: Ident, funcs: []Func };
 type Node = enum { Func(Func), Proc(Proc) };
 
@@ -21,6 +22,8 @@ type Field = { name: Ident, ty: TypeExpr };
 type TypeExpr = { kind: TypeKind, span: Span };
 type TypeKind = enum {
 	Named(Ident),
+	// `R<A, B>`: a generic typedef with type arguments.
+	Inst({ name: Ident, args: []TypeExpr }),
 	Array(TypeExpr),
 	Map({ key: TypeExpr, value: TypeExpr }),
 	Struct([]Field),

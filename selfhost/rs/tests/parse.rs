@@ -55,6 +55,9 @@ fn r_file(o: &mut Out, f: &r::File) {
     for t in &f.types {
         o.open("type");
         r_ident(o, &t.name);
+        for p in &t.params {
+            r_ident(o, p);
+        }
         r_ty(o, &t.ty);
         o.close();
     }
@@ -140,6 +143,13 @@ fn r_ty(o: &mut Out, t: &r::TypeExpr) {
         K::Named(i) => {
             o.open("named");
             r_ident(o, i);
+        }
+        K::Inst(i, args) => {
+            o.open("inst");
+            r_ident(o, i);
+            for a in args {
+                r_ty(o, a);
+            }
         }
         K::Array(e) => {
             o.open("array");
@@ -380,6 +390,9 @@ fn v_file(o: &mut Out, f: &v::File) {
     for t in &f.types {
         o.open("type");
         v_ident(o, &t.name);
+        for p in &t.params {
+            v_ident(o, p);
+        }
         v_ty(o, &t.ty);
         o.close();
     }
@@ -465,6 +478,13 @@ fn v_ty(o: &mut Out, t: &v::TypeExpr) {
         K::Named(i) => {
             o.open("named");
             v_ident(o, i);
+        }
+        K::Inst(i) => {
+            o.open("inst");
+            v_ident(o, &i.name);
+            for a in &i.args {
+                v_ty(o, a);
+            }
         }
         K::Array(e) => {
             o.open("array");
@@ -757,6 +777,10 @@ fn parses_tricky_syntax_like_the_reference() {
             other -> id(0)
         }; }"#,
         // Types, impls, interfaces, nested procs, collect and for each.
+        r#"type R<T> = { x: T, pos: int };
+        type Pair<A, B> = { l: A, r: map[string]R<B> };
+        type L = R<Pair<[]int, R<string>>>;
+        func F(p: Pair<int, int>): R<L> = "a.rs:f";"#,
         r#"type T = enum { Leaf(int), Node({ type: string, kids: []T, m: map[string]T }) };
         interface Fs { func Read(path: string): string = "a.rs:read", "b.go:Read"; }
         func Top(x: int);
@@ -781,6 +805,10 @@ fn reports_syntax_errors() {
         ("func F(x: int) = \"nocolon\";", "expected \"file:function\""),
         ("type T = enum { A, B(int };", "expected ) after the payload, found '}'"),
         ("proc P(A): int { A switch { (this) -> X() X() }; }", "expected , or }, found 'X'"),
+        ("type R<T>= { x: T };", "write `> =` here: `>=` is the comparison operator"),
+        ("type R<T> = { x: T }; func F(): R<int>= \"a.rs:f\";", "write `> =` here"),
+        ("type A = R<int;", "expected > to close the type arguments, found ';'"),
+        ("type R<> = int;", "expected a type parameter, found '>'"),
     ] {
         let e = vcc::vcc::run_parse(src.into()).unwrap_err().to_string();
         assert!(e.contains(want), "{src}: {e}");

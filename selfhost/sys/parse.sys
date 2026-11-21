@@ -1,8 +1,9 @@
 // The parser's steps and results. Every parse proc takes (toks, pos), starts
 // with a local `At` (the shared leaf below), and ends with
-// id({ x = <what it parsed>, pos = <the next token> }). Lists are right
-// recursive: an item, then the rest of the list (or nothing). A list proc
-// stops at a closing bracket and leaves it for its caller to expect.
+// id({ x = <what it parsed>, pos = <the next token> }), an R<T>. Lists are
+// loops: a back edge to a loop head (an AtAcc<T> leaf) that carries the
+// items so far. A list proc stops at a closing bracket and leaves it for
+// its caller to expect.
 //
 // Steps that check a token fail with "expected <what>, found <token>"; a
 // switch's else arm usually goes to one, so the error says what would have
@@ -30,29 +31,16 @@ func IsSym(t: Tok, s: string): bool = "../rs/src/leaf.rs:is_sym";
 func IsWord(t: Tok, s: string): bool = "../rs/src/leaf.rs:is_word";
 // A closing bracket: where a list stops.
 func IsClose(t: Tok): bool = "../rs/src/leaf.rs:is_close";
+// toks[pos] must be the `>` closing type arguments or parameters; `>=`
+// there is an error, since it lexes as the comparison operator.
+func CloseAngle(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:close_angle";
 
-type TypeR = { x: TypeExpr, pos: int };
-type FieldR = { x: Field, pos: int };
-type FieldsR = { x: []Field, pos: int };
-type VariantsR = { x: []Variant, pos: int };
-type PathR = { x: Path, pos: int };
-type FileR = { x: File, pos: int };
-type FuncR = { x: Func, pos: int };
-type FuncsR = { x: []Func, pos: int };
-type ImplsR = { x: []ImplRef, pos: int };
-type ProcR = { x: Proc, pos: int };
-type BodyR = { x: { nodes: []Node, edges: []Edge }, pos: int };
-type EdgeR = { x: Edge, pos: int };
-type TargetR = { x: Target, pos: int };
-type ArgsR = { x: []Arg, pos: int };
-type ArmsR = { x: []Arm, pos: int };
-type PatR = { x: Pat, pos: int };
-type PatsR = { x: []Pat, pos: int };
-type PatFieldsR = { x: []PatField, pos: int };
-type ValueR = { x: Value, pos: int };
-type ValuesR = { x: []Value, pos: int };
-type EntriesR = { x: []Entry, pos: int };
-type ApplyArgsR = { x: []ApplyArg, pos: int };
+// What a parse step returns: what it parsed, and the index of the next
+// token.
+type R<T> = { x: T, pos: int };
+// A list loop's head: the position, and the items so far.
+type AtAcc<T> = { cur: Cur, acc: T };
+type BodyItems = { nodes: []Node, edges: []Edge };
 
 // Parses a whole file.
 proc Parse(Start): File {

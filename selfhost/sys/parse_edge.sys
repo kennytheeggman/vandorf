@@ -4,7 +4,7 @@
 //              | 'switch' '{' arm,* '}'
 //              | 'collect' 'each' '(' IDENT ')' '->' target
 //              | 'for' 'each' '(' expr ')' '->' target )
-proc PEdge(At): EdgeR {
+proc PEdge(At): R<Edge> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
 	At -> PPath(toks = this.toks, pos = this.pos);
 	PPath -> At(toks = At.toks, pos = this.pos) as Kw;
@@ -43,7 +43,7 @@ proc PEdge(At): EdgeR {
 }
 
 // target := 'id' '(' expr ')' ('as' IDENT)? | path '(' (arg (',' arg)*)? ')' ('as' IDENT)?
-proc PTarget(At): TargetR {
+proc PTarget(At): R<Target> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
 	At switch {
 		(IsWord(t = this.tok, s = "id")) -> Expect(toks = this.toks, pos = this.pos + 1, text = "(", what = "( after id") as IdOpen,
@@ -64,7 +64,7 @@ proc PTarget(At): TargetR {
 }
 
 // ('as' IDENT)?
-proc PAlias(At): { x: OptIdent, pos: int } {
+proc PAlias(At): R<OptIdent> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
 	At switch {
 		(IsWord(t = this.tok, s = "as")) -> NeedIdent(toks = this.toks, pos = this.pos + 1, what = "the alias's name"),
@@ -74,11 +74,9 @@ proc PAlias(At): { x: OptIdent, pos: int } {
 }
 
 // (NAME '=' expr),* ','?, stopping at a closing bracket.
-type AtArgs = { cur: Cur, acc: []Arg };
-
-proc PArgList(At): ArgsR {
+proc PArgList(At): R<[]Arg> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	func Loop(toks: []Tok, pos: int, acc: []Arg): AtArgs = "../rs/src/leaf.rs:at_args";
+	func Loop(toks: []Tok, pos: int, acc: []Arg): AtAcc<[]Arg> = "../rs/src/leaf.rs:at_args";
 	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
 	Loop switch {
 		(IsClose(t = this.cur.tok)) -> id({ x = this.acc, pos = this.cur.pos }),
@@ -94,11 +92,9 @@ proc PArgList(At): ArgsR {
 }
 
 // arm (',' arm)* ','?, stopping at a closing bracket.
-type AtArms = { cur: Cur, acc: []Arm };
-
-proc PArms(At): ArmsR {
+proc PArms(At): R<[]Arm> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	func Loop(toks: []Tok, pos: int, acc: []Arm): AtArms = "../rs/src/leaf.rs:at_arms";
+	func Loop(toks: []Tok, pos: int, acc: []Arm): AtAcc<[]Arm> = "../rs/src/leaf.rs:at_arms";
 	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
 	Loop switch {
 		(IsClose(t = this.cur.tok)) -> id({ x = this.acc, pos = this.cur.pos }),
@@ -112,7 +108,7 @@ proc PArms(At): ArmsR {
 }
 
 // arm := ('else' | '(' expr ')' ... | pattern) '->' (target | 'switch' '{' arm,* '}')
-proc PArm(At): { x: Arm, pos: int } {
+proc PArm(At): R<Arm> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
 	At switch {
 		(IsWord(t = this.tok, s = "else")) -> Expect(toks = this.toks, pos = this.pos + 1, text = "->", what = "-> after else") as ElseArrow,
@@ -130,7 +126,7 @@ proc PArm(At): { x: Arm, pos: int } {
 }
 
 // target | 'switch' '{' arm,* '}'
-proc PArmBody(At): { x: Body, pos: int } {
+proc PArmBody(At): R<Body> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
 	At switch {
 		(IsWord(t = this.tok, s = "switch")) -> Expect(toks = this.toks, pos = this.pos + 1, text = "{", what = "{ after switch") as Open,
@@ -143,7 +139,7 @@ proc PArmBody(At): { x: Body, pos: int } {
 }
 
 // pat := alt ('|' alt)*
-proc PPat(At): PatR {
+proc PPat(At): R<Pat> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
 	At -> PAlts(toks = this.toks, pos = this.pos);
 	PAlts -> id({ x = OrOf(pats = this.x), pos = this.pos });
@@ -152,11 +148,9 @@ proc PPat(At): PatR {
 // One pattern, or an Or of several.
 func OrOf(pats: []Pat): Pat = "../rs/src/leaf.rs:or_of";
 
-type AtPats = { cur: Cur, acc: []Pat };
-
-proc PAlts(At): PatsR {
+proc PAlts(At): R<[]Pat> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	func Loop(toks: []Tok, pos: int, acc: []Pat): AtPats = "../rs/src/leaf.rs:at_pats";
+	func Loop(toks: []Tok, pos: int, acc: []Pat): AtAcc<[]Pat> = "../rs/src/leaf.rs:at_pats";
 	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
 	Loop -> PAlt(toks = this.cur.toks, pos = this.cur.pos);
 	PAlt -> At(toks = Loop.cur.toks, pos = this.pos) as After;
@@ -167,7 +161,7 @@ proc PAlts(At): PatsR {
 }
 
 // alt := '_' | IDENT | IDENT '(' pat? ')' | '{' (NAME '=' pat),* '}'
-proc PAlt(At): PatR {
+proc PAlt(At): R<Pat> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
 	At switch {
 		(IsSym(t = this.tok, s = "{")) -> PPatFields(toks = this.toks, pos = this.pos + 1),
@@ -196,11 +190,9 @@ proc PAlt(At): PatR {
 }
 
 // (NAME '=' pat),* ','?, stopping at a closing bracket.
-type AtPatFields = { cur: Cur, acc: []PatField };
-
-proc PPatFields(At): PatFieldsR {
+proc PPatFields(At): R<[]PatField> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	func Loop(toks: []Tok, pos: int, acc: []PatField): AtPatFields = "../rs/src/leaf.rs:at_pat_fields";
+	func Loop(toks: []Tok, pos: int, acc: []PatField): AtAcc<[]PatField> = "../rs/src/leaf.rs:at_pat_fields";
 	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
 	Loop switch {
 		(IsClose(t = this.cur.tok)) -> id({ x = this.acc, pos = this.cur.pos }),

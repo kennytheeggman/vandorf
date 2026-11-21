@@ -13,13 +13,13 @@ func Combine(op: Tok, l: Value, r: Value): Value = "../rs/src/leaf.rs:combine";
 // `op e` for ! and -; `-` and a number literal make a negative literal.
 func Prefix(op: Tok, e: Value): Value = "../rs/src/leaf.rs:prefix";
 
-proc PExpr(At): ValueR {
+proc PExpr(At): R<Value> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
 	At -> PBin(toks = this.toks, pos = this.pos, level = 0);
 }
 
 // The operators of one level, each operand an expression of the next.
-proc PBin(AtL): ValueR {
+proc PBin(AtL): R<Value> {
 	func AtL(toks: []Tok, pos: int, level: int): AtLevel = "../rs/src/leaf.rs:at_level";
 	AtL switch {
 		(this.level == 5) -> PUnary(toks = this.cur.toks, pos = this.cur.pos),
@@ -29,7 +29,7 @@ proc PBin(AtL): ValueR {
 }
 
 // (op operand)* after `left`, folding to the left: a loop back to AtLV.
-proc PBinRest(AtLV): ValueR {
+proc PBinRest(AtLV): R<Value> {
 	func AtLV(toks: []Tok, pos: int, level: int, left: Value): AtLevelValue = "../rs/src/leaf.rs:at_level_value";
 	AtLV switch {
 		(OpAt(t = this.cur.tok, level = this.level)) -> PBin(toks = this.cur.toks, pos = this.cur.pos + 1, level = this.level + 1) as Right,
@@ -42,7 +42,7 @@ proc PBinRest(AtLV): ValueR {
 }
 
 // unary := ('!' | '-') unary | postfix
-proc PUnary(At): ValueR {
+proc PUnary(At): R<Value> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
 	At switch {
 		(IsSym(t = this.tok, s = "!") || IsSym(t = this.tok, s = "-")) -> PUnary(toks = this.toks, pos = this.pos + 1) as Operand,
@@ -52,14 +52,14 @@ proc PUnary(At): ValueR {
 }
 
 // postfix := atom ('[' expr ']' | '.' NAME)*
-proc PPostfix(At): ValueR {
+proc PPostfix(At): R<Value> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
 	At -> PAtom(toks = this.toks, pos = this.pos);
 	PAtom -> PPostRest(toks = At.toks, pos = this.pos, left = this.x);
 }
 
 // ('[' expr ']' | '.' NAME)* after `left`: a loop back to AtV.
-proc PPostRest(AtV): ValueR {
+proc PPostRest(AtV): R<Value> {
 	func AtV(toks: []Tok, pos: int, left: Value): AtValue = "../rs/src/leaf.rs:at_value";
 	AtV switch {
 		(IsSym(t = this.cur.tok, s = "[")) -> PExpr(toks = this.cur.toks, pos = this.cur.pos + 1) as Key,
@@ -81,7 +81,7 @@ proc PPostRest(AtV): ValueR {
 
 // atom := INT | FLOAT | STRING | 'true' | 'false' | '{' arg,* '}' | '[' ... ']'
 //       | '(' expr ')' | path | path '(' ((NAME '=')? expr),* ')'
-proc PAtom(At): ValueR {
+proc PAtom(At): R<Value> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
 	At switch {
 		(this.tok.kind == "int") -> id({ x = { kind = Int(IntOf(t = this.tok)), span = SpanOf(t = this.tok) }, pos = this.pos + 1 }),
@@ -112,7 +112,7 @@ proc PAtom(At): ValueR {
 }
 
 // After '[': '[' ':' ']' | '[' (expr ':' expr),+ ','? ']' | '[' expr,* ','? ']'
-proc PBracket(At): ValueR {
+proc PBracket(At): R<Value> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
 	At switch {
 		(IsSym(t = this.tok, s = ":")) -> Expect(toks = this.toks, pos = this.pos + 1, text = "]", what = "] in [:]") as EmptyMap,
@@ -136,11 +136,9 @@ proc PBracket(At): ValueR {
 }
 
 // (',' expr)* ','?, stopping at a closing bracket.
-type AtValues = { cur: Cur, acc: []Value };
-
-proc PValuesRest(At): ValuesR {
+proc PValuesRest(At): R<[]Value> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	func Loop(toks: []Tok, pos: int, acc: []Value): AtValues = "../rs/src/leaf.rs:at_values";
+	func Loop(toks: []Tok, pos: int, acc: []Value): AtAcc<[]Value> = "../rs/src/leaf.rs:at_values";
 	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
 	Loop switch {
 		(IsSym(t = this.cur.tok, s = ",")) -> At(toks = this.cur.toks, pos = this.cur.pos + 1) as AfterComma,
@@ -154,11 +152,9 @@ proc PValuesRest(At): ValuesR {
 }
 
 // (',' expr ':' expr)* ','?, stopping at a closing bracket.
-type AtEntries = { cur: Cur, acc: []Entry };
-
-proc PEntriesRest(At): EntriesR {
+proc PEntriesRest(At): R<[]Entry> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	func Loop(toks: []Tok, pos: int, acc: []Entry): AtEntries = "../rs/src/leaf.rs:at_entries";
+	func Loop(toks: []Tok, pos: int, acc: []Entry): AtAcc<[]Entry> = "../rs/src/leaf.rs:at_entries";
 	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
 	Loop switch {
 		(IsSym(t = this.cur.tok, s = ",")) -> At(toks = this.cur.toks, pos = this.cur.pos + 1) as AfterComma,
@@ -174,11 +170,9 @@ proc PEntriesRest(At): EntriesR {
 }
 
 // ((NAME '=')? expr),* ','?, stopping at a closing bracket.
-type AtApplyArgs = { cur: Cur, acc: []ApplyArg };
-
-proc PApplyArgs(At): ApplyArgsR {
+proc PApplyArgs(At): R<[]ApplyArg> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	func Loop(toks: []Tok, pos: int, acc: []ApplyArg): AtApplyArgs = "../rs/src/leaf.rs:at_apply_args";
+	func Loop(toks: []Tok, pos: int, acc: []ApplyArg): AtAcc<[]ApplyArg> = "../rs/src/leaf.rs:at_apply_args";
 	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
 	Loop switch {
 		(IsClose(t = this.cur.tok)) -> id({ x = this.acc, pos = this.cur.pos }),
@@ -191,7 +185,7 @@ proc PApplyArgs(At): ApplyArgsR {
 	};
 }
 
-proc PApplyArg(At): { x: ApplyArg, pos: int } {
+proc PApplyArg(At): R<ApplyArg> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
 	At switch {
 		(this.tok.kind == "ident" && IsSym(t = this.toks[this.pos + 1], s = "=")) -> Expect(toks = this.toks, pos = this.pos + 1, text = "=", what = "=") as Eq,

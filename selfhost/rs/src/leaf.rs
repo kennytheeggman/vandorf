@@ -120,60 +120,64 @@ pub fn at_level_value(toks: List<Tok>, pos: i64, level: i64, left: Value) -> Res
 
 // Loop heads: the token at `pos`, and what the loop has gathered so far.
 
-pub fn at_file(toks: List<Tok>, pos: i64, acc: File) -> Result<AtFile, String> {
-    Ok(AtFile { cur: at(toks, pos)?, acc })
+pub fn at_file(toks: List<Tok>, pos: i64, acc: File) -> Result<AtAccFile, String> {
+    Ok(AtAccFile { cur: at(toks, pos)?, acc })
 }
 
-pub fn at_funcs(toks: List<Tok>, pos: i64, acc: List<Func>) -> Result<AtFuncs, String> {
-    Ok(AtFuncs { cur: at(toks, pos)?, acc })
+pub fn at_funcs(toks: List<Tok>, pos: i64, acc: List<Func>) -> Result<AtAccFuncList, String> {
+    Ok(AtAccFuncList { cur: at(toks, pos)?, acc })
 }
 
-pub fn at_impls(toks: List<Tok>, pos: i64, acc: List<ImplRef>) -> Result<AtImpls, String> {
-    Ok(AtImpls { cur: at(toks, pos)?, acc })
+pub fn at_impls(toks: List<Tok>, pos: i64, acc: List<ImplRef>) -> Result<AtAccImplRefList, String> {
+    Ok(AtAccImplRefList { cur: at(toks, pos)?, acc })
 }
 
-pub fn at_body(toks: List<Tok>, pos: i64, acc: BodyItems) -> Result<AtBody, String> {
-    Ok(AtBody { cur: at(toks, pos)?, acc })
+pub fn at_body(toks: List<Tok>, pos: i64, acc: BodyItems) -> Result<AtAccBodyItems, String> {
+    Ok(AtAccBodyItems { cur: at(toks, pos)?, acc })
 }
 
-pub fn at_fields(toks: List<Tok>, pos: i64, acc: List<TypeDecl>) -> Result<AtFields, String> {
-    Ok(AtFields { cur: at(toks, pos)?, acc })
+pub fn at_fields(toks: List<Tok>, pos: i64, acc: List<Field>) -> Result<AtAccFieldList, String> {
+    Ok(AtAccFieldList { cur: at(toks, pos)?, acc })
 }
 
-pub fn at_variants(toks: List<Tok>, pos: i64, acc: List<Variant>) -> Result<AtVariants, String> {
-    Ok(AtVariants { cur: at(toks, pos)?, acc })
+pub fn at_variants(toks: List<Tok>, pos: i64, acc: List<Variant>) -> Result<AtAccVariantList, String> {
+    Ok(AtAccVariantList { cur: at(toks, pos)?, acc })
 }
 
-pub fn at_segs(toks: List<Tok>, pos: i64, acc: List<Ident>) -> Result<AtSegs, String> {
-    Ok(AtSegs { cur: at(toks, pos)?, acc })
+pub fn at_types(toks: List<Tok>, pos: i64, acc: List<TypeExpr>) -> Result<AtAccTypeExprList, String> {
+    Ok(AtAccTypeExprList { cur: at(toks, pos)?, acc })
 }
 
-pub fn at_args(toks: List<Tok>, pos: i64, acc: List<Arg>) -> Result<AtArgs, String> {
-    Ok(AtArgs { cur: at(toks, pos)?, acc })
+pub fn at_segs(toks: List<Tok>, pos: i64, acc: List<Ident>) -> Result<AtAccIdentList, String> {
+    Ok(AtAccIdentList { cur: at(toks, pos)?, acc })
 }
 
-pub fn at_arms(toks: List<Tok>, pos: i64, acc: List<Arm>) -> Result<AtArms, String> {
-    Ok(AtArms { cur: at(toks, pos)?, acc })
+pub fn at_args(toks: List<Tok>, pos: i64, acc: List<Arg>) -> Result<AtAccArgList, String> {
+    Ok(AtAccArgList { cur: at(toks, pos)?, acc })
 }
 
-pub fn at_pats(toks: List<Tok>, pos: i64, acc: List<Pat>) -> Result<AtPats, String> {
-    Ok(AtPats { cur: at(toks, pos)?, acc })
+pub fn at_arms(toks: List<Tok>, pos: i64, acc: List<Arm>) -> Result<AtAccArmList, String> {
+    Ok(AtAccArmList { cur: at(toks, pos)?, acc })
 }
 
-pub fn at_pat_fields(toks: List<Tok>, pos: i64, acc: List<PatField>) -> Result<AtPatFields, String> {
-    Ok(AtPatFields { cur: at(toks, pos)?, acc })
+pub fn at_pats(toks: List<Tok>, pos: i64, acc: List<Pat>) -> Result<AtAccPatList, String> {
+    Ok(AtAccPatList { cur: at(toks, pos)?, acc })
 }
 
-pub fn at_values(toks: List<Tok>, pos: i64, acc: List<Value>) -> Result<AtValues, String> {
-    Ok(AtValues { cur: at(toks, pos)?, acc })
+pub fn at_pat_fields(toks: List<Tok>, pos: i64, acc: List<PatField>) -> Result<AtAccPatFieldList, String> {
+    Ok(AtAccPatFieldList { cur: at(toks, pos)?, acc })
 }
 
-pub fn at_entries(toks: List<Tok>, pos: i64, acc: List<Entry>) -> Result<AtEntries, String> {
-    Ok(AtEntries { cur: at(toks, pos)?, acc })
+pub fn at_values(toks: List<Tok>, pos: i64, acc: List<Value>) -> Result<AtAccValueList, String> {
+    Ok(AtAccValueList { cur: at(toks, pos)?, acc })
 }
 
-pub fn at_apply_args(toks: List<Tok>, pos: i64, acc: List<ApplyArg>) -> Result<AtApplyArgs, String> {
-    Ok(AtApplyArgs { cur: at(toks, pos)?, acc })
+pub fn at_entries(toks: List<Tok>, pos: i64, acc: List<Entry>) -> Result<AtAccEntryList, String> {
+    Ok(AtAccEntryList { cur: at(toks, pos)?, acc })
+}
+
+pub fn at_apply_args(toks: List<Tok>, pos: i64, acc: List<ApplyArg>) -> Result<AtAccApplyArgList, String> {
+    Ok(AtAccApplyArgList { cur: at(toks, pos)?, acc })
 }
 
 pub fn at_value(toks: List<Tok>, pos: i64, left: Value) -> Result<AtValue, String> {
@@ -200,6 +204,14 @@ fn matched(toks: List<Tok>, pos: i64, ok: impl Fn(&Tok) -> bool, what: &str) -> 
 
 pub fn expect(toks: List<Tok>, pos: i64, text: Str, what: Str) -> Result<Cur, String> {
     matched(toks, pos, |t| (&*t.kind == "sym" || &*t.kind == "ident") && t.text == text, &what)
+}
+
+pub fn close_angle(toks: List<Tok>, pos: i64) -> Result<Cur, String> {
+    let t = get(&toks, pos);
+    if &*t.kind == "sym" && &*t.text == ">=" {
+        return Err(format!("{}:{}: write `> =` here: `>=` is the comparison operator", t.at, t.end));
+    }
+    matched(toks, pos, |t| &*t.kind == "sym" && &*t.text == ">", "> to close the type arguments")
 }
 
 pub fn need_ident(toks: List<Tok>, pos: i64, what: Str) -> Result<Cur, String> {
