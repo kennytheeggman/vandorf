@@ -116,3 +116,29 @@ fn generates_rust_types_like_the_reference() {
         }
     }
 }
+
+#[test]
+fn generates_rust_procs_like_the_reference() {
+    use vandorf::codegen::rust;
+    let mut n = 0;
+    for (name, prog, srcs) in &programs() {
+        let srcs: Vec<&str> = srcs.iter().map(|s| s.as_str()).collect();
+        let want = rust::generate(prog, &rust::RustOptions { module_dir: Some("app".into()), ..Default::default() });
+        let got = vcc::vcc::run_rust_generate(v::RustGenerateAtS { prog: analyze(&srcs), module_dir: v::MaybeStr::Some("app".into()) }).unwrap();
+        match (want, &got.err) {
+            (Ok(out), v::MaybeStr::None) => {
+                for (file, text) in [("procs.rs", &got.procs), ("mod.rs", &got.modrs), ("types.rs", &got.types)] {
+                    let want = out.code.files.get(file).or(out.types.files.get(file)).unwrap();
+                    if **want != **text {
+                        let line = want.lines().zip(text.lines()).position(|(a, b)| a != b);
+                        panic!("{name}: {file} differs at line {line:?}:\n  reference: {:?}\n  vcc:       {:?}", line.and_then(|l| want.lines().nth(l)), line.and_then(|l| text.lines().nth(l)));
+                    }
+                }
+                n += 1;
+            }
+            (Err(e), v::MaybeStr::Some(g)) => assert_eq!(e, g.to_string(), "{name}"),
+            (w, g) => panic!("{name}: reference {:?}, vcc {g:?}", w.map(|_| ())),
+        }
+    }
+    assert!(n > 15, "{n}");
+}

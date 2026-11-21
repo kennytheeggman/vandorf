@@ -497,3 +497,806 @@ pub fn rust_field_type(t: Table, i: i64, m: RefMember) -> Result<Str, String> {
     let s = rust_render(t.clone(), m.r, "".into())?;
     Ok(if t.boxed.contains_key(&Str::from(format!("{i}:{}", m.name))) { format!("std::sync::Arc<{s}>").into() } else { s })
 }
+
+// ---- Rust procs: pure helpers ----
+
+fn unfold<'a>(mut t: &'a Type, defs: &'a [TypeDef]) -> &'a Type {
+    while let Type::Named(n) = t {
+        t = &defs[n.id as usize].ty;
+    }
+    t
+}
+
+fn member<'a>(t: &'a Type, defs: &'a [TypeDef], name: &str) -> Option<&'a Type> {
+    match unfold(t, defs) {
+        Type::Struct(ms) | Type::Enum(ms) => ms.iter().find(|m| &*m.name == name).map(|m| &m.ty),
+        _ => None,
+    }
+}
+
+/// A field or variant payload's type.
+pub fn member_of(defs: List<TypeDef>, t: Type, name: Str) -> Result<Type, String> {
+    member(&t, &defs, &name).cloned().ok_or_else(|| format!("member_of: no {name}"))
+}
+
+pub fn unfolded(defs: List<TypeDef>, t: Type) -> Result<Type, String> {
+    Ok(unfold(&t, &defs).clone())
+}
+
+fn rtype(t: &Table, ty: &Type) -> Result<String, String> {
+    let r = get(t.clone(), ty.clone())?;
+    Ok(rust_render(t.clone(), r, "types::".into())?.to_string())
+}
+
+/// A vandorf type as written in procs.rs.
+pub fn rust_type(t: Table, ty: Type) -> Result<Str, String> {
+    Ok(rtype(&t, &ty)?.into())
+}
+
+fn boxed(t: &Table, ty: &Type, part: &str) -> bool {
+    matches!(get(t.clone(), ty.clone()), Ok(TyRef::Named(i)) if t.boxed.contains_key(&Str::from(format!("{i}:{part}"))))
+}
+
+/// Whether part (a field, or variant's payload) of ty is behind an Arc.
+pub fn ty_boxed(t: Table, ty: Type, part: Str) -> Result<bool, String> {
+    Ok(boxed(&t, &ty, &part))
+}
+
+/// A Ref's field path: `.a.b`, whether the last field is boxed, and
+/// whether an earlier one is (a value can't move out from behind an Arc).
+pub fn ref_path(t: Table, r: Ref) -> Result<RefPathOut, String> {
+    let mut ty = r.root_ty.clone();
+    let (mut is_boxed, mut through, mut path) = (false, false, String::new());
+    for f in r.fields.iter() {
+        through |= is_boxed;
+        is_boxed = boxed(&t, &ty, f);
+        ty = member(&ty, &t.defs, f).cloned().ok_or("ref_path: no field")?;
+        path.push('.');
+        path.push_str(&rust_ident_of(f));
+    }
+    Ok(RefPathOut { path: path.into(), boxed: is_boxed, through })
+}
+
+pub fn float_lit(f: f64) -> Result<Str, String> {
+    Ok(format!("{f:?}_f64").into())
+}
+
+pub fn in_type(nodes: List<NodeDecl>, n: i64) -> Result<Str, String> {
+    match &nodes[n as usize].kind {
+        NodeKind::Func(_) | NodeKind::Id(_) => Ok(format!("In{}", gname(nodes[n as usize].clone())?).into()),
+        NodeKind::Proc(p) => in_type(nodes.clone(), p.entry),
+        NodeKind::Alias(b) => in_type(nodes.clone(), *b),
+    }
+}
+
+pub fn base_of(nodes: List<NodeDecl>, n: i64) -> Result<i64, String> {
+    Ok(match nodes[n as usize].kind {
+        NodeKind::Alias(b) => b,
+        _ => n,
+    })
+}
+
+/// The func's implementation in a `.rs` file, if any.
+pub fn rs_impl(n: NodeDecl, ext: Str) -> Result<MaybeImpl, String> {
+    let NodeKind::Func(f) = &n.kind else { return err("rs_impl: not a func") };
+    Ok(f.imps
+        .iter()
+        .find(|i| i.file.rsplit_once('.').is_some_and(|(_, e)| *e == *ext))
+        .map_or(MaybeImpl::None, |i| MaybeImpl::Some(i.clone())))
+}
+
+pub fn join_path(base: Str, rel: Str) -> Result<MaybeStr, String> {
+    let mut segs: Vec<&str> = base.split('/').filter(|s| !s.is_empty() && *s != ".").collect();
+    for s in rel.split('/') {
+        match s {
+            "" | "." => {}
+            ".." => {
+                if segs.pop().is_none() {
+                    return Ok(MaybeStr::None);
+                }
+            }
+            s => segs.push(s),
+        }
+    }
+    Ok(MaybeStr::Some(segs.join("/").into()))
+}
+
+/// `impls.rs` -> `crate::impls`, `a/mod.rs` -> `crate::a`, `lib.rs` -> `crate`.
+pub fn module_path(file: Str) -> Result<MaybeStr, String> {
+    let stem = file.strip_suffix(".rs").unwrap_or(&file);
+    let mut segs: Vec<&str> = stem.split('/').filter(|s| !s.is_empty()).collect();
+    if segs.last() == Some(&"mod") {
+        segs.pop();
+    }
+    if segs == ["lib"] || segs == ["main"] {
+        segs.clear();
+    }
+    let valid = |s: &str| s.chars().enumerate().all(|(i, c)| c == '_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit()));
+    if !segs.iter().all(|s| valid(s)) {
+        return Ok(MaybeStr::None);
+    }
+    let mut path = String::from("crate");
+    for s in segs {
+        path.push_str("::");
+        path.push_str(&rust_ident_of(s));
+    }
+    Ok(MaybeStr::Some(path.into()))
+}
+
+/// All procs, parents before children, in source order.
+pub fn all_procs_ordered(nodes: List<NodeDecl>, top: List<i64>) -> Result<List<i64>, String> {
+    let mut out = vec![];
+    let mut stack: Vec<i64> = top.iter().rev().copied().collect();
+    while let Some(p) = stack.pop() {
+        out.push(p);
+        let NodeKind::Proc(d) = &nodes[p as usize].kind else { continue };
+        for &l in d.locals.iter().rev() {
+            if matches!(nodes[l as usize].kind, NodeKind::Proc(_)) {
+                stack.push(l);
+            }
+        }
+    }
+    Ok(out.into())
+}
+
+fn field_ref(t: &Table, ty: &Type, x: &str, f: &str) -> String {
+    if boxed(t, ty, f) { format!("(&*{x}.{})", rust_ident_of(f)) } else { format!("(&{x}.{})", rust_ident_of(f)) }
+}
+
+fn pat_test_of(t: &Table, p: &SPat, x: &str) -> Result<Option<String>, String> {
+    Ok(match &*p.kind {
+        SPatKind::Wild | SPatKind::Bind(_) => None,
+        SPatKind::Variant(v) => {
+            let path = format!("{}::{}", rtype(t, &p.ty)?, rust_ident_of(&v.tag));
+            let MaybePat::Some(q) = &*v.payload else { return Ok(Some(format!("matches!({x}, {path})"))) };
+            let inner = if boxed(t, &p.ty, &v.tag) { "&**p" } else { "p" };
+            Some(match pat_test_of(t, q, &format!("({inner})"))? {
+                None => format!("matches!({x}, {path}(..))"),
+                Some(c) => format!("matches!({x}, {path}(p) if {c})"),
+            })
+        }
+        SPatKind::Struct(fs) => {
+            let mut tests = vec![];
+            for f in fs.iter() {
+                if let Some(c) = pat_test_of(t, &f.pat, &field_ref(t, &p.ty, x, &f.name))? {
+                    tests.push(c);
+                }
+            }
+            (!tests.is_empty()).then(|| format!("({})", tests.join(" && ")))
+        }
+        SPatKind::Or(alts) => {
+            let mut tests = vec![];
+            for a in alts.iter() {
+                match pat_test_of(t, a, x)? {
+                    Some(c) => tests.push(c),
+                    None => return Ok(None),
+                }
+            }
+            Some(format!("({})", tests.join(" || ")))
+        }
+    })
+}
+
+/// A bool expression testing whether x (a `&T`) matches p; None if it
+/// always does.
+pub fn pat_test(t: Table, p: SPat, x: Str) -> Result<MaybeStr, String> {
+    Ok(pat_test_of(&t, &p, &x)?.map_or(MaybeStr::None, |s| MaybeStr::Some(s.into())))
+}
+
+fn pat_binds_of(t: &Table, p: &SPat, x: String, out: &mut Vec<PatBind>) -> Result<(), String> {
+    match &*p.kind {
+        SPatKind::Wild | SPatKind::Or(_) => {}
+        SPatKind::Bind(b) => out.push(PatBind { name: b.clone(), expr: x.into() }),
+        SPatKind::Variant(v) => {
+            if let MaybePat::Some(q) = &*v.payload {
+                let path = format!("{}::{}", rtype(t, &p.ty)?, rust_ident_of(&v.tag));
+                let inner = if boxed(t, &p.ty, &v.tag) { "&**p" } else { "p" };
+                pat_binds_of(t, q, format!("(match {x} {{ {path}(p) => {inner}, _ => unreachable!() }})"), out)?;
+            }
+        }
+        SPatKind::Struct(fs) => {
+            for f in fs.iter() {
+                pat_binds_of(t, &f.pat, field_ref(t, &p.ty, &x, &f.name), out)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Expressions (of type `&T`) for p's bindings, given x matches p.
+pub fn pat_binds(t: Table, p: SPat, x: Str) -> Result<List<PatBind>, String> {
+    let mut out = vec![];
+    pat_binds_of(&t, &p, x.to_string(), &mut out)?;
+    Ok(out.into())
+}
+
+fn arm_leaves_of(a: &SArm, out: &mut Vec<Call>) {
+    match &a.body {
+        SBody::Call(c) => out.push(c.clone()),
+        SBody::Switch(arms) => arms.iter().for_each(|a| arm_leaves_of(a, out)),
+    }
+}
+
+fn conds_of(a: &SArm, out: &mut Vec<Expr>) {
+    if let Test::Cond(e) = &a.test {
+        out.push(e.clone());
+    }
+    if let SBody::Switch(arms) = &a.body {
+        arms.iter().for_each(|a| conds_of(a, out));
+    }
+}
+
+fn refs_of(e: &Expr, out: &mut Vec<i64>) {
+    let parts = crate::sema_leaf::expr_parts(e.clone()).unwrap_or_default();
+    if let Expr::Ref(r) = e {
+        if let Root::Node(n) = &r.root {
+            out.push(*n);
+        }
+    }
+    for p in parts.iter() {
+        refs_of(p, out);
+    }
+}
+
+fn edge_reads(g: &Graph, n: i64) -> Vec<i64> {
+    let mut exprs: Vec<Expr> = vec![];
+    match g.edges.get(&n) {
+        Some(SEdge::Match(arms)) => arms.iter().for_each(|a| conds_of(a, &mut exprs)),
+        Some(SEdge::ForEach(f)) => exprs.push(f.dim.clone()),
+        _ => {}
+    }
+    if let Some(e) = g.edges.get(&n) {
+        let calls = match e {
+            SEdge::Call(c) | SEdge::Collect(c) => vec![c.clone()],
+            SEdge::ForEach(f) => vec![f.call.clone()],
+            SEdge::Match(arms) => {
+                let mut out = vec![];
+                arms.iter().for_each(|a| arm_leaves_of(a, &mut out));
+                out
+            }
+        };
+        for c in calls {
+            exprs.extend(c.args.iter().map(|a| a.value.clone()));
+        }
+    }
+    let mut out = vec![];
+    for e in &exprs {
+        refs_of(e, &mut out);
+    }
+    out
+}
+
+/// Nodes whose output some edge reads.
+pub fn read_nodes(g: Graph) -> Result<Map<i64, bool>, String> {
+    Ok(g.edges.keys().flat_map(|&n| edge_reads(&g, n)).map(|n| (n, true)).collect())
+}
+
+fn succs(g: &Graph, n: i64) -> Vec<i64> {
+    match g.edges.get(&n) {
+        None | Some(SEdge::Collect(_)) => vec![],
+        Some(SEdge::ForEach(f)) => {
+            let sink = g.regions[g.opens[&n] as usize].sink;
+            let mut out = vec![f.call.target];
+            if let Some(SEdge::Collect(c)) = g.edges.get(&sink) {
+                out.push(c.target);
+            }
+            out
+        }
+        Some(SEdge::Call(c)) => vec![c.target],
+        Some(SEdge::Match(arms)) => {
+            let mut out = vec![];
+            arms.iter().for_each(|a| arm_leaves_of(a, &mut out));
+            out.iter().map(|c| c.target).collect()
+        }
+    }
+}
+
+/// Whether m's slot can still be read once control moves to target.
+pub fn live_after(g: Graph, target: i64, m: i64) -> Result<bool, String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut stack = vec![target];
+    while let Some(x) = stack.pop() {
+        if x == m || !seen.insert(x) {
+            continue;
+        }
+        if edge_reads(&g, x).contains(&m) {
+            return Ok(true);
+        }
+        stack.extend(succs(&g, x));
+    }
+    Ok(false)
+}
+
+/// The reads to move: each owner's reads that no later read of the same
+/// owner overlaps (one path a prefix of the other); a node's only if its
+/// slot is taken.
+pub fn moved_reads(seen: List<Seen>, taken: Map<i64, bool>) -> Result<Map<i64, bool>, String> {
+    let overlaps = |a: &[Str], b: &[Str]| a.iter().zip(b).all(|(x, y)| x == y);
+    let mut out = vec![];
+    for i in 0..seen.len() {
+        let s = &seen[i];
+        let movable = match s.node {
+            n if n >= 0 => taken.contains_key(&n),
+            _ => true,
+        };
+        if movable && !seen[i + 1..].iter().any(|o| o.owner == s.owner && overlaps(&s.path, &o.path)) {
+            out.push((i as i64, true));
+        }
+    }
+    Ok(out.into_iter().collect())
+}
+
+// ---- Rust procs: state and text ----
+
+pub fn g_with_moves(mut g: RGen, moves: Moves) -> Result<RGen, String> {
+    g.moves = moves;
+    Ok(g)
+}
+
+pub fn g_coercion(mut g: RGen, key: Str, name: Str) -> Result<RGen, String> {
+    g.coercions = g.coercions.merge(&Map::from_iter([(key, name)]));
+    Ok(g)
+}
+
+pub fn g_helper(mut g: RGen, h: Str) -> Result<RGen, String> {
+    g.helpers = g.helpers.concat(&vec![h].into());
+    Ok(g)
+}
+
+pub fn g_stub(mut g: RGen, n: i64) -> Result<RGen, String> {
+    g.stubs = g.stubs.merge(&Map::from_iter([(n, true)]));
+    Ok(g)
+}
+
+pub fn g_failed(mut g: RGen, msg: Str) -> Result<RGen, String> {
+    if matches!(g.failed, MaybeStr::None) {
+        g.failed = MaybeStr::Some(msg);
+    }
+    Ok(g)
+}
+
+pub fn g_fatal(mut g: RGen, msg: Str) -> Result<RGen, String> {
+    if matches!(g.fatal, MaybeStr::None) {
+        g.fatal = MaybeStr::Some(msg);
+    }
+    Ok(g)
+}
+
+pub fn g_proc(mut g: RGen, name: Str) -> Result<RGen, String> {
+    g.proc_name = name;
+    Ok(g)
+}
+
+pub fn first_error(g: RGen) -> Result<MaybeStr, String> {
+    Ok(match (g.fatal, g.failed) {
+        (MaybeStr::Some(e), _) | (MaybeStr::None, MaybeStr::Some(e)) => MaybeStr::Some(e),
+        _ => MaybeStr::None,
+    })
+}
+
+pub fn no_moves(_n: i64) -> Result<Moves, String> {
+    Ok(Moves { active: false, recording: false, seen: List::default(), moved: Map::default(), taken: Map::default(), next: 0 })
+}
+
+pub fn recording(_n: i64) -> Result<Moves, String> {
+    Ok(Moves { active: true, recording: true, ..no_moves(0)? })
+}
+
+pub fn moving(moved: Map<i64, bool>, taken: Map<i64, bool>) -> Result<Moves, String> {
+    Ok(Moves { active: true, recording: false, moved, taken, ..no_moves(0)? })
+}
+
+pub fn move_read(mut m: Moves, owner: Str, node: i64, path: List<Str>) -> Result<MoveOut, String> {
+    if !m.active {
+        return Ok(MoveOut { m, moving: false });
+    }
+    let i = m.next;
+    m.next += 1;
+    if m.recording {
+        m.seen = m.seen.concat(&vec![Seen { owner, node, path }].into());
+        return Ok(MoveOut { m, moving: false });
+    }
+    let moving = m.moved.contains_key(&i);
+    Ok(MoveOut { m, moving })
+}
+
+pub fn taken_slots(seen: List<Seen>, g: Graph, target: i64) -> Result<Map<i64, bool>, String> {
+    let mut out = vec![];
+    for s in seen.iter().filter(|s| s.node >= 0) {
+        if !live_after(g.clone(), target, s.node)? {
+            out.push((s.node, true));
+        }
+    }
+    Ok(out.into_iter().collect())
+}
+
+pub fn sorted_keys(taken: Map<i64, bool>) -> Result<List<i64>, String> {
+    Ok(taken.keys().copied().collect())
+}
+
+pub fn snake_gname(n: NodeDecl) -> Result<Str, String> {
+    snake(gname(n)?)
+}
+
+fn sn(nodes: &List<NodeDecl>, n: i64) -> String {
+    snake_gname(nodes[n as usize].clone()).unwrap().to_string()
+}
+
+fn gn(nodes: &List<NodeDecl>, n: i64) -> String {
+    gname(nodes[n as usize].clone()).unwrap().to_string()
+}
+
+fn qn(nodes: &List<NodeDecl>, n: i64) -> String {
+    crate::sema_leaf::qual_name(nodes[n as usize].clone()).unwrap().to_string()
+}
+
+fn q(s: &str) -> String {
+    quote(s.into()).unwrap().to_string()
+}
+
+pub fn slot_lines(g: RGen, taken: List<i64>) -> Result<List<Line>, String> {
+    Ok(taken
+        .iter()
+        .map(|&n| {
+            let id = sn(&g.prog.nodes, n);
+            Line::L(format!("let slot_{id} = take_slot(&mut env.out_{id}, {})?;", q(&qn(&g.prog.nodes, n))).into())
+        })
+        .collect())
+}
+
+pub fn bind_lines(bs: List<PatBind>) -> Result<List<Line>, String> {
+    Ok(bs.iter().map(|b| Line::L(format!("let b_{} = {}.clone();", b.name, b.expr).into())).collect())
+}
+
+pub fn coercion_name(at: RCoerceAtS) -> Result<Str, String> {
+    Ok(format!("coerce_{}", at.g.coercions.len()).into())
+}
+
+pub fn new_coercion(at: RCoerceAtS) -> Result<RGen, String> {
+    let key = format!("{} -> {}", rtype(&at.g.table, &at.from)?, rtype(&at.g.table, &at.to)?);
+    let name = coercion_name(at.clone())?;
+    g_coercion(at.g, key.into(), name)
+}
+
+pub fn is_some_e(m: MaybeExpr) -> Result<bool, String> {
+    Ok(matches!(m, MaybeExpr::Some(_)))
+}
+
+pub fn unwrap_me(m: MaybeExpr) -> Result<Expr, String> {
+    match m {
+        MaybeExpr::Some(e) => Ok((*e).clone()),
+        MaybeExpr::None => err("unwrap_me"),
+    }
+}
+
+pub fn is_some_s(m: MaybeStr) -> Result<bool, String> {
+    Ok(matches!(m, MaybeStr::Some(_)))
+}
+
+pub fn unwrap_s(m: MaybeStr) -> Result<Str, String> {
+    match m {
+        MaybeStr::Some(s) => Ok(s),
+        MaybeStr::None => err("unwrap_s"),
+    }
+}
+
+pub fn pat_of_test(t: Test) -> Result<SPat, String> {
+    match t {
+        Test::Pat(p) => Ok(p),
+        _ => err("pat_of_test"),
+    }
+}
+
+pub fn ref_of(e: Expr) -> Result<Ref, String> {
+    match e {
+        Expr::Ref(r) => Ok(r),
+        _ => err("ref_of"),
+    }
+}
+
+pub fn call_of(e: Expr) -> Result<Call, String> {
+    match e {
+        Expr::Call(c) => Ok(c),
+        _ => err("call_of"),
+    }
+}
+
+pub fn index_ty(e: Expr) -> Result<Type, String> {
+    match e {
+        Expr::Index(x) => Ok(x.ty.clone()),
+        _ => err("index_ty"),
+    }
+}
+
+pub fn index_key_e(e: Expr) -> Result<Expr, String> {
+    match e {
+        Expr::Index(x) => Ok((*x.key).clone()),
+        _ => err("index_key_e"),
+    }
+}
+
+pub fn field_ty(e: Expr) -> Result<Type, String> {
+    match e {
+        Expr::Field(x) => Ok(x.ty.clone()),
+        _ => err("field_ty"),
+    }
+}
+
+pub fn field_name_e(e: Expr) -> Result<Str, String> {
+    match e {
+        Expr::Field(x) => Ok(x.name.clone()),
+        _ => err("field_name_e"),
+    }
+}
+
+pub fn merge_ty(e: Expr) -> Result<Type, String> {
+    match e {
+        Expr::Merge(x) => Ok(x.ty.clone()),
+        Expr::Remove(x) => Ok(x.ty.clone()),
+        _ => err("merge_ty"),
+    }
+}
+
+pub fn merge_r_e(e: Expr) -> Result<Expr, String> {
+    match e {
+        Expr::Merge(x) => Ok((*x.r).clone()),
+        _ => err("merge_r_e"),
+    }
+}
+
+pub fn remove_keys_e(e: Expr) -> Result<Expr, String> {
+    match e {
+        Expr::Remove(x) => Ok((*x.keys).clone()),
+        _ => err("remove_keys_e"),
+    }
+}
+
+pub fn query_ty(e: Expr) -> Result<Type, String> {
+    match e {
+        Expr::Query(x) => Ok(x.ty.clone()),
+        _ => err("query_ty"),
+    }
+}
+
+pub fn query_q(e: Expr) -> Result<Str, String> {
+    match e {
+        Expr::Query(x) => Ok(x.q.clone()),
+        _ => err("query_q"),
+    }
+}
+
+pub fn variant_tag_e(e: Expr) -> Result<Str, String> {
+    match e {
+        Expr::Variant(x) => Ok(x.tag.clone()),
+        _ => err("variant_tag_e"),
+    }
+}
+
+pub fn unary_op(e: Expr) -> Result<Str, String> {
+    match e {
+        Expr::Unary(x) => Ok(x.op.clone()),
+        _ => err("unary_op"),
+    }
+}
+
+pub fn binary_r_e(e: Expr) -> Result<Expr, String> {
+    match e {
+        Expr::Binary(x) => Ok((*x.r).clone()),
+        _ => err("binary_r_e"),
+    }
+}
+
+pub fn binary_op_e(e: Expr) -> Result<Str, String> {
+    match e {
+        Expr::Binary(x) => Ok(x.op.clone()),
+        _ => err("binary_op_e"),
+    }
+}
+
+pub fn binary_operand(e: Expr) -> Result<Str, String> {
+    match e {
+        Expr::Binary(x) => Ok(x.operand.clone()),
+        _ => err("binary_operand"),
+    }
+}
+
+pub fn in_key_e(e: Expr) -> Result<Expr, String> {
+    match e {
+        Expr::In(x) => Ok((*x.key).clone()),
+        _ => err("in_key_e"),
+    }
+}
+
+fn params_of(nodes: &List<NodeDecl>, n: i64) -> List<Member> {
+    crate::sema_leaf::node_params(nodes.clone(), n).unwrap()
+}
+
+pub fn input_args(nodes: List<NodeDecl>, n: i64) -> Result<Str, String> {
+    Ok(params_of(&nodes, n).iter().map(|p| format!("input.{}", rust_ident_of(&p.name))).collect::<Vec<_>>().join(", ").into())
+}
+
+fn graph(nodes: &List<NodeDecl>, pid: i64) -> Graph {
+    crate::doc_leaf::graph_of(nodes[pid as usize].clone()).unwrap()
+}
+
+pub fn node_head(g: RGen, pid: i64, n: i64, run: Str) -> Result<List<Line>, String> {
+    let nodes = &g.prog.nodes;
+    let id = sn(nodes, n);
+    let mut out = vec![
+        Line::L(format!("Pc{}::{} => {{", gn(nodes, pid), gn(nodes, n)).into()),
+        Line::L(format!("let input = take_slot(&mut env.in_{id}, {})?;", q(&qn(nodes, n))).into()),
+        Line::L(run),
+    ];
+    if read_nodes(graph(nodes, pid))?.contains_key(&n) {
+        out.push(Line::L(format!("env.out_{id} = Some(this.clone());").into()));
+    }
+    Ok(out.into())
+}
+
+pub fn collect_call(g: Graph, n: i64) -> Result<Call, String> {
+    let sink = g.regions[g.opens[&n] as usize].sink;
+    match g.edges.get(&sink) {
+        Some(SEdge::Collect(c)) => Ok(c.clone()),
+        _ => err("collect_call"),
+    }
+}
+
+pub fn for_each_call_of(g: Graph, opener: i64) -> Result<Call, String> {
+    match g.edges.get(&opener) {
+        Some(SEdge::ForEach(f)) => Ok(f.call.clone()),
+        _ => err("for_each_call_of"),
+    }
+}
+
+pub fn region_fn(g: RGen, pid: i64, r: i64) -> Result<Str, String> {
+    Ok(format!("run_{}_region{r}", sn(&g.prog.nodes, pid)).into())
+}
+
+pub fn opens_by_region(g: Graph) -> Result<List<i64>, String> {
+    let mut opens: Vec<(i64, i64)> = g.opens.iter().map(|(&n, &r)| (n, r)).collect();
+    opens.sort_by_key(|&(_, r)| r);
+    Ok(opens.into_iter().map(|(n, _)| n).collect())
+}
+
+fn ret_of(nodes: &List<NodeDecl>, n: i64) -> Type {
+    crate::sema_leaf::node_ret(nodes.clone(), n).unwrap()
+}
+
+pub fn proc_prelude(g: RGen, pid: i64) -> Result<List<Line>, String> {
+    let nodes = &g.prog.nodes;
+    let gr = graph(nodes, pid);
+    let NodeKind::Proc(p) = &nodes[pid as usize].kind else { return err("proc_prelude") };
+    let name = gn(nodes, pid);
+    let (env, pc) = (format!("Env{name}"), format!("Pc{name}"));
+    let order: Vec<i64> = gr.regions.iter().flat_map(|r| r.nodes.to_vec()).collect();
+    let mut out: Vec<String> = vec![format!("// ---- proc {} ----", qn(nodes, pid)), "".into(), "#[derive(Debug, Clone, Default)]".into(), format!("struct {env} {{")];
+    for &n in &order {
+        let id = sn(nodes, n);
+        out.push(format!("in_{id}: Option<{}>,", in_type(nodes.clone(), n)?));
+        out.push(format!("out_{id}: Option<{}>,", rtype(&g.table, &ret_of(nodes, n))?));
+    }
+    out.extend(["}".into(), "".into(), "#[derive(Debug, Clone, Copy, PartialEq, Eq)]".into(), format!("enum {pc} {{")]);
+    for &n in &order {
+        out.push(format!("{},", gn(nodes, n)));
+    }
+    out.extend(["}".into(), "".into()]);
+    let params = params_of(nodes, pid);
+    let sig: Vec<String> = params.iter().map(|m| Ok(format!("{}: {}", rust_local(m.name.clone())?, rtype(&g.table, &m.ty)?))).collect::<Result<_, String>>()?;
+    out.push(format!("/// Runs proc {}.", qn(nodes, pid)));
+    out.push(format!("pub fn run_{}({}) -> Result<{}, Error> {{", snake(name.clone().into())?, sig.join(", "), rtype(&g.table, &p.ret)?));
+    out.push(format!("let mut env = {env}::default();"));
+    let fields: Vec<String> = params.iter().map(|m| Ok(format!("{}: {}", rust_ident_of(&m.name), rust_local(m.name.clone())?))).collect::<Result<_, String>>()?;
+    out.push(format!("env.in_{} = Some({} {{ {} }});", sn(nodes, p.entry), in_type(nodes.clone(), p.entry)?, fields.join(", ")));
+    out.push(format!("let mut pc = {pc}::{};", gn(nodes, p.entry)));
+    Ok(out.into_iter().map(|s| Line::L(s.into())).collect())
+}
+
+pub fn region_head(g: RGen, pid: i64, opener: i64) -> Result<List<Line>, String> {
+    let nodes = &g.prog.nodes;
+    let gr = graph(nodes, pid);
+    let r = gr.opens[&opener];
+    let region = &gr.regions[r as usize];
+    let sink = rtype(&g.table, &ret_of(nodes, region.sink))?;
+    Ok(vec![
+        Line::L(format!("/// One element of the for each from {}.", qn(nodes, opener)).into()),
+        Line::L(format!("fn {}(mut env: Env{}, elem: {}) -> Result<{sink}, Error> {{", region_fn(g.clone(), pid, r)?, gn(nodes, pid), rtype(&g.table, &region.elem)?).into()),
+        Line::L("let this = elem;".into()),
+    ]
+    .into())
+}
+
+pub fn name_clash(prog: Program) -> Result<MaybeStr, String> {
+    let mut seen: std::collections::HashMap<String, String> = Default::default();
+    for (id, n) in prog.nodes.iter().enumerate() {
+        let s = sn(&prog.nodes, id as i64);
+        let qual = qn(&prog.nodes, id as i64);
+        if let Some(prev) = seen.insert(s.clone(), qual.clone()) {
+            let _ = n;
+            return Ok(MaybeStr::Some(format!("{prev} and {qual} both map to the Rust name {s}").into()));
+        }
+    }
+    Ok(MaybeStr::None)
+}
+
+pub fn trim_dir(d: MaybeStr) -> Result<MaybeStr, String> {
+    Ok(match d {
+        MaybeStr::Some(s) => MaybeStr::Some(s.trim_matches('/').into()),
+        MaybeStr::None => MaybeStr::None,
+    })
+}
+
+pub fn bad_module_dir(d: MaybeStr) -> Result<MaybeStr, String> {
+    Ok(match d {
+        MaybeStr::Some(s) => match module_path(s.clone())? {
+            MaybeStr::None => MaybeStr::Some(format!("module dir {s} is not a valid module path").into()),
+            MaybeStr::Some(_) => MaybeStr::None,
+        },
+        MaybeStr::None => MaybeStr::None,
+    })
+}
+
+pub fn mod_rs(_n: i64) -> Result<Str, String> {
+    Ok("\
+// Code generated by vandorf. DO NOT EDIT.
+//! Procs generated by vandorf. Implementations take and return the types in
+//! [`types`].
+
+pub mod types;
+mod procs;
+
+pub use procs::*;
+"
+    .into())
+}
+
+fn signature(g: &RGen, n: i64, name: &str, types_path: &str) -> Result<String, String> {
+    let qual = format!("{types_path}::");
+    let params: Vec<String> = params_of(&g.prog.nodes, n)
+        .iter()
+        .map(|m| Ok(format!("{}: {}", rust_local(m.name.clone())?, rust_render(g.table.clone(), get(g.table.clone(), m.ty.clone())?, qual.as_str().into())?)))
+        .collect::<Result<_, String>>()?;
+    let ret = rust_render(g.table.clone(), get(g.table.clone(), ret_of(&g.prog.nodes, n))?, qual.as_str().into())?;
+    Ok(format!("pub fn {name}({}) -> Result<{ret}, E>", params.join(", ")))
+}
+
+pub fn procs_file(g: RGen, body: Str) -> Result<Str, String> {
+    let nodes = &g.prog.nodes;
+    let mut ls: Vec<Line> = vec![
+        Line::L("// Code generated by vandorf. DO NOT EDIT.".into()),
+        Line::L("#![allow(unused, non_snake_case, non_camel_case_types, unreachable_patterns, unreachable_code, clippy::all)]".into()),
+        Line::L("".into()),
+        Line::L("use super::types;".into()),
+        Line::Raw(RUST_RUNTIME.into()),
+        Line::Raw(body),
+    ];
+    let l = |s: String| Line::L(s.into());
+    for (id, n) in nodes.iter().enumerate() {
+        let id = id as i64;
+        if matches!(n.kind, NodeKind::Func(_) | NodeKind::Id(_)) {
+            ls.push(l(format!("/// Input of {}.", qn(nodes, id))));
+            ls.push(l("#[derive(Debug, Clone)]".into()));
+            ls.push(l(format!("struct {} {{", in_type(nodes.clone(), id)?)));
+            for m in params_of(nodes, id).iter() {
+                ls.push(l(format!("{}: {},", rust_ident_of(&m.name), rtype(&g.table, &m.ty)?)));
+            }
+            ls.push(l("}".into()));
+            ls.push(l("".into()));
+        }
+    }
+    for &n in g.stubs.keys() {
+        let qual = qn(nodes, n);
+        ls.push(l(format!("/// Stands in for {qual}, which names no .rs implementation. Write")));
+        ls.push(l(format!("/// `{}`", signature(&g, n, "name", "types")?)));
+        ls.push(l("/// and add `= \"file.rs:name\"` to its declaration.".into()));
+        let params: Vec<String> = params_of(nodes, n).iter().map(|m| Ok(format!("_: {}", rtype(&g.table, &m.ty)?))).collect::<Result<_, String>>()?;
+        ls.push(l(format!("fn unimplemented_{}({}) -> Result<{}, Error> {{", sn(nodes, n), params.join(", "), rtype(&g.table, &ret_of(nodes, n))?)));
+        ls.push(l(format!("Err({}.into())", q(&format!("{qual} is not implemented")))));
+        ls.push(l("}".into()));
+        ls.push(l("".into()));
+    }
+    for h in g.helpers.iter() {
+        ls.push(Line::Raw(h.clone()));
+        ls.push(l("".into()));
+    }
+    render_lines(ls.into(), "    ".into())
+}
