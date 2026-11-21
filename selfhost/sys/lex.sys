@@ -1,0 +1,9 @@
+// Tokens. Lexing is a pure leaf (vandorf strings have no character access);
+// everything from here on is .sys.
+
+// kind: "ident", "int", "float", "str", "sym" or "eof". `text` is the
+// token as written, except for "str", where it's the decoded value. `at`
+// and `end` are byte offsets into the source.
+type Tok = { kind: string, text: string, at: int, end: int };
+
+func Lex(src: string): []Tok = "../rs/src/leaf.rs:lex";

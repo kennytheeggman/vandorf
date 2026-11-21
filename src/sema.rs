@@ -256,7 +256,8 @@ pub enum Expr {
     /// `.len` of a map, array or string, `.keys` or `.values` of a map (in
     /// key order); `ty` is `e`'s type.
     Query { e: Box<Expr>, ty: Type, q: Query },
-    /// `m + n`: a new map with both, `n` winning; `ty` is the map type.
+    /// `m + n`: a new map with both, `n` winning; or `xs + ys`, a new array
+    /// with both. `ty` is the map or array type.
     Merge { l: Box<Expr>, r: Box<Expr>, ty: Type },
     /// `m - keys`: a new map without those keys; `ty` is the map type.
     Remove { m: Box<Expr>, keys: Box<Expr>, ty: Type },
@@ -990,6 +991,15 @@ impl<'a> Cx<'a> {
                 let b = prim(Prim::Bool);
                 let (l, r) = (self.check(pid, l, &b, sc)?, self.check(pid, r, &b, sc)?);
                 (Expr::Binary { op: *op, l: Box::new(l), r: Box::new(r), operand: Prim::Bool }, b)
+            }
+            // `xs + ys`: a new array with both.
+            V::Binary(BinOp::Add, lv, rv) if matches!(self.synth(pid, lv, sc)?.1.unfold(defs), Type::Array(_)) => {
+                let (l, lt) = self.synth(pid, lv, sc)?;
+                let r = self.check(pid, rv, &lt, sc)?;
+                (Expr::Merge { l: Box::new(l), r: Box::new(r), ty: lt.clone() }, lt)
+            }
+            V::Binary(op, lv, _) if !matches!(op, BinOp::And | BinOp::Or) && matches!(self.synth(pid, lv, sc)?.1.unfold(defs), Type::Array(_)) => {
+                return err(v.span, format!("{} doesn't apply to arrays; + joins them", op.symbol()));
             }
             V::Binary(op @ (BinOp::Add | BinOp::Sub), lv, rv) if matches!(self.synth(pid, lv, sc)?.1.unfold(defs), Type::Map(..)) => {
                 let (l, lt) = self.synth(pid, lv, sc)?;

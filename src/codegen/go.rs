@@ -356,7 +356,9 @@ impl Gen<'_> {
                 imp.file,
             ));
         };
-        let path = join_path(base, dir).ok_or_else(|| format!("{qual}: cannot resolve import for {}", imp.file))?;
+        let path = join_path(base, dir)
+            .filter(|p| !p.is_empty())
+            .ok_or_else(|| format!("{qual}: {} is outside the Go module {base} is in", imp.file))?;
         let alias = match self.imports.get(&path) {
             Some(a) => a.clone(),
             None => {
@@ -687,7 +689,8 @@ impl Gen<'_> {
             Expr::Merge { l, r, ty } => {
                 let l = self.own(w, l);
                 let r = self.value(w, r, ty);
-                format!("mapMerge({l}, {r})")
+                let f = if matches!(ty.unfold(&prog.types), Type::Array(_)) { "sliceConcat" } else { "mapMerge" };
+                format!("{f}({l}, {r})")
             }
             Expr::Remove { m, keys, ty } => {
                 let Type::Map(k, _) = ty.unfold(&prog.types) else { unreachable!() };
@@ -1073,6 +1076,12 @@ func mapMerge[K comparable, V any](a, b map[K]V) map[K]V {
 		r[k] = v
 	}
 	return r
+}
+
+// sliceConcat returns a new slice with a's elements, then b's.
+func sliceConcat[E any](a, b []E) []E {
+	r := make([]E, 0, len(a)+len(b))
+	return append(append(r, a...), b...)
 }
 
 // mapRemove returns a new map without the keys ks.

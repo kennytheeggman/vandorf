@@ -1,0 +1,6 @@
+// I/O: the only impure part of vcc. Everything else is pure: procs, and
+// leaf funcs in rs/src/leaf.rs.
+
+interface Fs {
+	func Read(path: string): string = "../rs/src/io.rs:read";
+}

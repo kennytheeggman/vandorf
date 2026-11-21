@@ -110,6 +110,7 @@ Adjust switch {
   it isn't there, so check first with `k in m` (or `.len`).
 - `m + n` is a new map with both (`n` wins); `m - keys` one without `keys`
   (an array, e.g. `["tmp"]`).
+- `xs + ys` is a new array with both (`acc + [x]` to append).
 - `.len` of maps, arrays and strings; `.keys` and `.values` of maps, in key
   order, so `for each (this.m.keys)` visits keys in the same order in both
   backends. A `for each` takes any array expression.

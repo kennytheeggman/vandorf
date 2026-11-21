@@ -400,6 +400,12 @@ fn map_errors() {
     assert!(e.contains("the type of this literal isn't known here"), "{e}");
     let e = compile_err("proc P(S): int { func S(): { m: map[string]int }; func T(b: bool): int; S -> T(b = 1 in this.m); }");
     assert!(e.contains("expected string, found an int literal"), "{e}");
+    // Array concatenation; the right side takes the left's type.
+    compile(&m("K(ks = this.m.keys + [\"z\"] + this.m.keys)"));
+    let e = compile_err(&m("K(ks = this.m.keys + [1])"));
+    assert!(e.contains("expected string, found an int literal"), "{e}");
+    let e = compile_err(&m("K(ks = this.m.keys - [\"z\"])"));
+    assert!(e.contains("- doesn't apply to arrays; + joins them"), "{e}");
     // Lookups, queries, merges and removals, and for each over keys.
     compile(&m(r#"U(m = this.m + ["n": this.m["x"] + this.xs[0] + this.s.len + this.m.values.len] - this.m.keys - ["y"])"#));
     compile(
