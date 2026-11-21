@@ -1597,7 +1597,10 @@ impl<'a> Cx<'a> {
                 None => err(r.span, format!("{} never runs in this proc", self.prog.nodes[n].qual_name())),
             }
         };
-        for (&src, edge) in &g.edges {
+        // In node order, so the error reported is always the same one.
+        let mut edges: Vec<(NodeId, &Edge)> = g.edges.iter().map(|(&n, e)| (n, e)).collect();
+        edges.sort_by_key(|&(n, _)| n);
+        for (src, edge) in edges {
             let Some(&r) = g.region_of.get(&src) else { continue };
             let scope = match edge {
                 Edge::ForEach { dim, .. } => {
@@ -1681,7 +1684,10 @@ impl<'a> Cx<'a> {
             }
             refs
         }
-        for (&src, edge) in &g.edges {
+        // In node order, so the error reported is always the same one.
+        let mut edges: Vec<(NodeId, &Edge)> = g.edges.iter().map(|(&n, e)| (n, e)).collect();
+        edges.sort_by_key(|&(n, _)| n);
+        for (src, edge) in edges {
             let Some(&r) = g.region_of.get(&src) else { continue };
             match edge {
                 Edge::Call(c) => check(args(c), r, src, src)?,
