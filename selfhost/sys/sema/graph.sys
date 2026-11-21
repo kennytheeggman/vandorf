@@ -5,7 +5,6 @@
 type GraphIn = { env: Env, p: Proc, g: Graph };
 
 func NoGraph(n: int): Graph = "../../rs/src/sema_leaf.rs:empty_graph";
-func WithEdge(g: Graph, n: int, e: SEdge): Graph = "../../rs/src/sema_leaf.rs:with_edge";
 // g with a new region (its id is the old regions.len).
 func NewRegion(g: Graph, parent: int, entry: int, elem: Type): Graph = "../../rs/src/sema_leaf.rs:new_region";
 // g with node n in region r.
@@ -98,7 +97,7 @@ proc AddEdge(At): Res<Graph> {
 	func At(s: { at: { env: Env, p: Proc, g: Graph, i: int }, src: int, e: SEdge }): { at: { env: Env, p: Proc, g: Graph, i: int }, src: int, e: SEdge } = "../../rs/src/sema_leaf.rs:same";
 	At switch {
 		(this.src in this.at.g.edges) -> id(Err({ msg = ShowPath(p = this.at.p.edges[this.at.i].source) + " already has an outgoing edge", span = this.at.p.edges[this.at.i].source.span })),
-		else -> GraphEdges(s = { env = this.at.env, p = this.at.p, g = WithEdge(g = this.at.g, n = this.src, e = this.e), i = this.at.i + 1 })
+		else -> GraphEdges(s = { env = this.at.env, p = this.at.p, g = { ..this.at.g, edges = this.at.g.edges + [this.src: this.e] }, i = this.at.i + 1 })
 	};
 }
 

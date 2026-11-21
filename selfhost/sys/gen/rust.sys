@@ -4,11 +4,8 @@
 type Line = enum { L(string), Raw(string) };
 
 func Lines(lines: []Line, indent: string): string = "../../rs/src/gen_leaf.rs:render_lines";
-func RustRuntime(n: int): string = "../../rs/src/gen_leaf.rs:rust_runtime";
 func RustShared(n: int): string = "../../rs/src/gen_leaf.rs:rust_shared";
 func RustIdent(s: string): string = "../../rs/src/gen_leaf.rs:rust_ident";
-func RustLocal(s: string): string = "../../rs/src/gen_leaf.rs:rust_local";
-func Snake(s: string): string = "../../rs/src/gen_leaf.rs:snake";
 func Quote(s: string): string = "../../rs/src/gen_leaf.rs:quote";
 func RustRender(t: Table, r: TyRef, qual: string): string = "../../rs/src/gen_leaf.rs:rust_render";
 

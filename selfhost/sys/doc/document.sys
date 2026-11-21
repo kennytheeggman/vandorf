@@ -26,13 +26,10 @@ type Layout = { rows: [][]int, pos: map[int]Pos, out: map[int][]Pending };
 func Place(l: Layout, n: int, r: int): Layout = "../../rs/src/doc_leaf.rs:place";
 // l without `set` and their recorded edges.
 func PushDown(l: Layout, set: map[int]bool): Layout = "../../rs/src/doc_leaf.rs:push_down";
-func WithOut(l: Layout, n: int, es: []Pending): Layout = "../../rs/src/doc_leaf.rs:with_out";
-func WithRow(l: Layout): Layout = "../../rs/src/doc_leaf.rs:with_row";
 func TrimRows(l: Layout): Layout = "../../rs/src/doc_leaf.rs:trim_rows";
 // The calls a switch can end in, each with the arm heads on the way.
 func ArmPaths(arms: []SArm): []{ labels: []string, call: Call } = "../../rs/src/doc_leaf.rs:arm_paths";
 // An arm's head as written, without the parentheses around a condition.
-func ArmLabel(s: string): string = "../../rs/src/doc_leaf.rs:arm_label";
 func Procs(nodes: []NodeDecl): []int = "../../rs/src/doc_leaf.rs:all_procs";
 func GraphOf(n: NodeDecl): Graph = "../../rs/src/doc_leaf.rs:graph_of";
 func Frontier(l: Layout, g: Graph): []int = "../../rs/src/doc_leaf.rs:frontier";
@@ -67,7 +64,7 @@ proc Sweep(At): Layout {
 	func At(s: SweepIn): SweepIn = "../../rs/src/sema_leaf.rs:same";
 	At switch {
 		(this.l.rows.len > this.g.region_of.len + 1 || Frontier(l = this.l, g = this.g).len == 0) -> id(this.l),
-		else -> Sources(s = { at = this, srcs = Frontier(l = this.l, g = this.g), last = this.l.rows.len - 1, row = this.l.rows.len, l = WithRow(l = this.l), i = 0 })
+		else -> Sources(s = { at = this, srcs = Frontier(l = this.l, g = this.g), last = this.l.rows.len - 1, row = this.l.rows.len, l = { ..this.l, rows = this.l.rows + [[]] }, i = 0 })
 	};
 	Sources -> At(s = { prog = At.prog, pid = At.pid, g = At.g, l = this });
 }
@@ -92,7 +89,7 @@ proc Record(At): Layout {
 	func At(s: { prog: Program, pid: int, src: int, row: int, outs: []Out, i: int, l: Layout, acc: []Pending }): { prog: Program, pid: int, src: int, row: int, outs: []Out, i: int, l: Layout, acc: []Pending } = "../../rs/src/sema_leaf.rs:same";
 	func Placed(l: Layout, target: int, back: bool): { l: Layout, back: bool } = "../../rs/src/sema_leaf.rs:pack_placed";
 	At switch {
-		(this.i == this.outs.len) -> id(WithOut(l = this.l, n = this.src, es = this.acc)),
+		(this.i == this.outs.len) -> id({ ..this.l, out = this.l.out + [this.src: this.acc] }),
 		(!(this.outs[this.i].target in this.l.pos)) -> Placed(l = Place(l = this.l, n = this.outs[this.i].target, r = this.row), target = this.outs[this.i].target, back = false),
 		(this.l.pos[this.outs[this.i].target].r == this.row) -> Placed(l = this.l, target = this.outs[this.i].target, back = false),
 		else -> Downstream(s = { l = this.l, stack = [this.outs[this.i].target], seen = [:] })

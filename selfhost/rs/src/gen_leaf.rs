@@ -31,15 +31,7 @@ pub fn with_key(mut t: Table, key: Str, i: i64) -> Result<Table, String> {
     Ok(t)
 }
 
-pub fn with_alias_ref(mut t: Table, a: Alias) -> Result<Table, String> {
-    t.aliases = t.aliases.concat(&vec![a].into());
-    Ok(t)
-}
 
-pub fn with_boxed(mut t: Table, boxed: Map<Str, bool>) -> Result<Table, String> {
-    t.boxed = boxed;
-    Ok(t)
-}
 
 pub fn reserved(types: List<TypeDef>) -> Result<Map<Str, bool>, String> {
     Ok(types.iter().map(|d| (Str::from(cap(&d.ident)), true)).collect())
@@ -98,9 +90,6 @@ pub fn get(t: Table, ty: Type) -> Result<TyRef, String> {
     go(&t, &ty)
 }
 
-pub fn is_boxed(t: Table, i: i64, name: Str) -> Result<bool, String> {
-    Ok(t.boxed.contains_key(&Str::from(format!("{i}:{name}"))))
-}
 
 pub fn find_boxed(t: Table) -> Result<Map<Str, bool>, String> {
     let edges: Vec<Vec<(Str, usize)>> = t
@@ -398,9 +387,6 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
 
 "##;
 
-pub fn rust_runtime(_n: i64) -> Result<Str, String> {
-    Ok(RUST_RUNTIME.into())
-}
 
 pub fn rust_shared(_n: i64) -> Result<Str, String> {
     Ok(RUST_SHARED.into())
@@ -828,25 +814,13 @@ pub fn moved_reads(seen: List<Seen>, taken: Map<i64, bool>) -> Result<Map<i64, b
 
 // ---- Rust procs: state and text ----
 
-pub fn g_with_moves(mut g: RGen, moves: Moves) -> Result<RGen, String> {
-    g.moves = moves;
-    Ok(g)
-}
 
 pub fn g_coercion(mut g: RGen, key: Str, name: Str) -> Result<RGen, String> {
     g.coercions = g.coercions.merge(&Map::from_iter([(key, name)]));
     Ok(g)
 }
 
-pub fn g_helper(mut g: RGen, h: Str) -> Result<RGen, String> {
-    g.helpers = g.helpers.concat(&vec![h].into());
-    Ok(g)
-}
 
-pub fn g_stub(mut g: RGen, n: i64) -> Result<RGen, String> {
-    g.stubs = g.stubs.merge(&Map::from_iter([(n, true)]));
-    Ok(g)
-}
 
 pub fn g_failed(mut g: RGen, msg: Str) -> Result<RGen, String> {
     if matches!(g.failed, MaybeStr::None) {
@@ -862,10 +836,6 @@ pub fn g_fatal(mut g: RGen, msg: Str) -> Result<RGen, String> {
     Ok(g)
 }
 
-pub fn g_proc(mut g: RGen, name: Str) -> Result<RGen, String> {
-    g.proc_name = name;
-    Ok(g)
-}
 
 pub fn first_error(g: RGen) -> Result<MaybeStr, String> {
     Ok(match (g.fatal, g.failed) {

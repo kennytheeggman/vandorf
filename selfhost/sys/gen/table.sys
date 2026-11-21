@@ -31,8 +31,6 @@ func Exported(s: string): string = "../../rs/src/sema_leaf.rs:cap";
 func WithType(t: Table, n: NamedType): Table = "../../rs/src/gen_leaf.rs:with_type";
 func WithShape(t: Table, i: int, s: Shape): Table = "../../rs/src/gen_leaf.rs:with_shape";
 func WithKey(t: Table, key: string, i: int): Table = "../../rs/src/gen_leaf.rs:with_key";
-func WithAliasRef(t: Table, a: Alias): Table = "../../rs/src/gen_leaf.rs:with_alias_ref";
-func WithBoxed(t: Table, boxed: map[string]bool): Table = "../../rs/src/gen_leaf.rs:with_boxed";
 // A fresh name based on hint; typedef names are reserved for the typedef
 // itself (typedef: the name of the typedef being registered, or "").
 func Unique(t: Table, hint: string, typedef: string): string = "../../rs/src/gen_leaf.rs:unique";
@@ -53,7 +51,7 @@ proc BuildTable(At): Table {
 	func Reserved(types: []TypeDef): map[string]bool = "../../rs/src/gen_leaf.rs:reserved";
 	At -> TypedefTypes(s = { t = { types = [], aliases = [], by_key = [:], boxed = [:], reserved = Reserved(types = this.types), defs = this.types }, i = 0 });
 	TypedefTypes -> NodeTypes(s = { t = this, prog = At, i = 0 });
-	NodeTypes -> id(WithBoxed(t = this, boxed = FindBoxed(t = this)));
+	NodeTypes -> id({ ..this, boxed = FindBoxed(t = this) });
 }
 
 proc TypedefTypes(At): Table {
@@ -65,9 +63,9 @@ proc TypedefTypes(At): Table {
 	Register switch {
 		{ t = _, r = Named(i) } -> switch {
 			(this.t.types[i].name == Exported(s = At.t.defs[At.i].ident)) -> At(s = { t = this.t, i = At.i + 1 }),
-			else -> At(s = { t = WithAliasRef(t = this.t, a = { name = Exported(s = At.t.defs[At.i].ident), r = this.r }), i = At.i + 1 })
+			else -> At(s = { t = { ..this.t, aliases = this.t.aliases + [{ name = Exported(s = At.t.defs[At.i].ident), r = this.r }] }, i = At.i + 1 })
 		},
-		else -> At(s = { t = WithAliasRef(t = this.t, a = { name = Exported(s = At.t.defs[At.i].ident), r = this.r }), i = At.i + 1 })
+		else -> At(s = { t = { ..this.t, aliases = this.t.aliases + [{ name = Exported(s = At.t.defs[At.i].ident), r = this.r }] }, i = At.i + 1 })
 	};
 }
 
@@ -129,11 +127,11 @@ proc RegShape(At): Registered {
 	func K(k: string): string = "../../rs/src/sema_leaf.rs:same";
 	At -> K(k = Key(t = this.ty, defs = this.t.defs));
 	K switch {
-		(this in At.t.by_key && At.rec >= 0) -> id({ t = WithKey(t = At.t, key = "#" + Itoa(i = At.rec), i = At.t.by_key[this]), r = Named(At.t.by_key[this]) }),
+		(this in At.t.by_key && At.rec >= 0) -> id({ t = { ..At.t, by_key = At.t.by_key + ["#" + Itoa(i = At.rec): At.t.by_key[this]] }, r = Named(At.t.by_key[this]) }),
 		(this in At.t.by_key) -> id({ t = At.t, r = Named(At.t.by_key[this]) }),
-		(At.rec >= 0) -> Parts(s = { t = WithType(t = WithKey(t = WithKey(t = At.t, key = "#" + Itoa(i = At.rec), i = At.t.types.len), key = this, i = At.t.types.len), n = { name = Unique(t = At.t, hint = At.hint, typedef = At.typedef), shape = Struct([]), origin = At.origin }), ms = MembersOf(t = At.ty), hint = At.hint, origin = At.origin, i = 0, acc = [] }),
+		(At.rec >= 0) -> Parts(s = { t = WithType(t = WithKey(t = { ..At.t, by_key = At.t.by_key + ["#" + Itoa(i = At.rec): At.t.types.len] }, key = this, i = At.t.types.len), n = { name = Unique(t = At.t, hint = At.hint, typedef = At.typedef), shape = Struct([]), origin = At.origin }), ms = MembersOf(t = At.ty), hint = At.hint, origin = At.origin, i = 0, acc = [] }),
 		// Reserve the slot so the parent is listed before its parts.
-		else -> Parts(s = { t = WithType(t = WithKey(t = At.t, key = this, i = At.t.types.len), n = { name = Unique(t = At.t, hint = At.hint, typedef = At.typedef), shape = Struct([]), origin = At.origin }), ms = MembersOf(t = At.ty), hint = At.hint, origin = At.origin, i = 0, acc = [] })
+		else -> Parts(s = { t = WithType(t = { ..At.t, by_key = At.t.by_key + [this: At.t.types.len] }, n = { name = Unique(t = At.t, hint = At.hint, typedef = At.typedef), shape = Struct([]), origin = At.origin }), ms = MembersOf(t = At.ty), hint = At.hint, origin = At.origin, i = 0, acc = [] })
 	};
 	Parts switch {
 		(IsStruct(t = At.ty)) -> id({ t = WithShape(t = this.t, i = At.t.types.len, s = Struct(this.ms)), r = Named(At.t.types.len) }),
@@ -152,5 +150,3 @@ proc Parts(At): { t: Table, ms: []RefMember } {
 
 // The backend view of a type: every struct and enum of a checked program is
 // in the table.
-func Get(t: Table, ty: Type): TyRef = "../../rs/src/gen_leaf.rs:get";
-func IsBoxed(t: Table, i: int, name: string): bool = "../../rs/src/gen_leaf.rs:is_boxed";

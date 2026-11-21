@@ -322,14 +322,4 @@ pub fn or_of(pats: List<Pat>) -> Result<Pat, String> {
     Ok(Pat { kind: Arc::new(PatKind::Or(pats)), span })
 }
 
-pub fn summary(f: File) -> Result<Str, String> {
-    let edges: usize = f.nodes.iter().map(count_edges).sum();
-    Ok(format!("{} types, {} interfaces, {} nodes, {edges} edges", f.types.len(), f.interfaces.len(), f.nodes.len()).into())
-}
 
-fn count_edges(n: &Node) -> usize {
-    match n {
-        Node::Proc(p) => p.edges.len() + p.nodes.iter().map(count_edges).sum::<usize>(),
-        Node::Func(_) => 0,
-    }
-}

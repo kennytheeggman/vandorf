@@ -11,11 +11,8 @@ type Project = { root: string, manifest: Manifest, paths: []string, srcs: []stri
 func ParseManifest(text: string): Res<Manifest> = "../../rs/src/cli_leaf.rs:parse_manifest";
 func JoinP(a: string, b: string): string = "../../rs/src/cli_leaf.rs:join";
 func Parent(p: string): string = "../../rs/src/cli_leaf.rs:parent";
-func Relative(target: string, from: string): string = "../../rs/src/cli_leaf.rs:relative";
 func SortDedup(xs: []string): []string = "../../rs/src/cli_leaf.rs:sort_dedup";
 func StartsWith(text: string, prefix: string): bool = "../../rs/src/cli_leaf.rs:starts_with";
-func RebaseImpls(prog: Program, dirs: []string, out: string): Program = "../../rs/src/cli_leaf.rs:rebase_impls";
-func RelSegs(root: string, dir: string): []string = "../../rs/src/cli_leaf.rs:rel_segs";
 func CargoLibName(toml: string, has_lib_rs: bool): string = "../../rs/src/cli_leaf.rs:cargo_lib_name";
 
 // The nearest directory at or above dir that has `marker`, or "".

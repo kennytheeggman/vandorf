@@ -110,15 +110,7 @@ pub fn push_down(mut l: Layout, set: Map<i64, bool>) -> Result<Layout, String> {
     Ok(l)
 }
 
-pub fn with_out(mut l: Layout, n: i64, es: List<Pending>) -> Result<Layout, String> {
-    l.out = l.out.merge(&Map::from_iter([(n, es)]));
-    Ok(l)
-}
 
-pub fn with_row(mut l: Layout) -> Result<Layout, String> {
-    l.rows = l.rows.concat(&vec![List::default()].into());
-    Ok(l)
-}
 
 pub fn trim_rows(mut l: Layout) -> Result<Layout, String> {
     let mut rows = rows_vec(&l);

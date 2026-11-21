@@ -41,19 +41,12 @@ func JoinPath(base: string, rel: string): MaybeStr = "../../rs/src/gen_leaf.rs:j
 func ModulePath(file: string): MaybeStr = "../../rs/src/gen_leaf.rs:module_path";
 func PatTest(t: Table, p: SPat, x: string): MaybeStr = "../../rs/src/gen_leaf.rs:pat_test";
 func PatBinds(t: Table, p: SPat, x: string): []PatBind = "../../rs/src/gen_leaf.rs:pat_binds";
-func ReadNodes(g: Graph): map[int]bool = "../../rs/src/gen_leaf.rs:read_nodes";
-func LiveAfter(g: Graph, target: int, m: int): bool = "../../rs/src/gen_leaf.rs:live_after";
 func MovedReads(seen: []Seen, taken: map[int]bool): map[int]bool = "../../rs/src/gen_leaf.rs:moved_reads";
 func MemberOf(defs: []TypeDef, t: Type, name: string): Type = "../../rs/src/gen_leaf.rs:member_of";
 func Unfolded(defs: []TypeDef, t: Type): Type = "../../rs/src/gen_leaf.rs:unfolded";
 // Struct updates of the generator's state.
-func GWith(g: RGen, moves: Moves): RGen = "../../rs/src/gen_leaf.rs:g_with_moves";
-func GCoercion(g: RGen, key: string, name: string): RGen = "../../rs/src/gen_leaf.rs:g_coercion";
-func GHelper(g: RGen, h: string): RGen = "../../rs/src/gen_leaf.rs:g_helper";
-func GStub(g: RGen, n: int): RGen = "../../rs/src/gen_leaf.rs:g_stub";
 func GFailed(g: RGen, msg: string): RGen = "../../rs/src/gen_leaf.rs:g_failed";
 func GFatal(g: RGen, msg: string): RGen = "../../rs/src/gen_leaf.rs:g_fatal";
-func GProc(g: RGen, name: string): RGen = "../../rs/src/gen_leaf.rs:g_proc";
 // Records a read; whether it moves (see Moves).
 func Move(m: Moves, owner: string, node: int, path: []string): { m: Moves, moving: bool } = "../../rs/src/gen_leaf.rs:move_read";
 func NoMoves(n: int): Moves = "../../rs/src/gen_leaf.rs:no_moves";
@@ -91,7 +84,7 @@ func NewCoercion(at: { g: RGen, expr: string, from: Type, to: Type }): RGen = ".
 // Pushes the helper and calls it.
 proc Helper(At): Emit {
 	func At(s: { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGen, lines: []Line }): { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGen, lines: []Line } = "../../rs/src/sema_leaf.rs:same";
-	At -> id({ g = GHelper(g = this.g, h = Lines(lines = this.lines, indent = "    ")), s = CoercionName(at = this.at) + "(" + this.at.expr + ")" });
+	At -> id({ g = { ..this.g, helpers = this.g.helpers + [Lines(lines = this.lines, indent = "    ")] }, s = CoercionName(at = this.at) + "(" + this.at.expr + ")" });
 }
 
 // Converts part n (a field, or variant n's payload) held in expr, through
@@ -140,7 +133,7 @@ proc RRef(At): Emit {
 		Node(n) -> Move(m = At.g.moves, owner = "node:" + Itoa(i = n), node = n, path = At.r.fields) as M,
 		Bind() -> Move(m = At.g.moves, owner = "bind:" + At.r.bind, node = -1, path = At.r.fields) as M
 	};
-	M -> RefText(s = { g = GWith(g = At.g, moves = this.m), r = At.r, moving = this.moving && !RefPath(t = At.g.table, r = At.r).through, rp = RefPath(t = At.g.table, r = At.r) });
+	M -> RefText(s = { g = { ..At.g, moves = this.m }, r = At.r, moving = this.moving && !RefPath(t = At.g.table, r = At.r).through, rp = RefPath(t = At.g.table, r = At.r) });
 }
 
 proc RefText(At): Emit {
@@ -344,7 +337,7 @@ proc RCallee(At): Emit {
 	At -> RsImpl(n = this.g.prog.nodes[BaseOf(nodes = this.g.prog.nodes, n = this.n)], ext = "rs");
 	RsImpl switch {
 		Some(imp) -> RImplPath(s = { g = At.g, n = BaseOf(nodes = At.g.prog.nodes, n = At.n), imp = imp }),
-		else -> id({ g = GStub(g = At.g, n = BaseOf(nodes = At.g.prog.nodes, n = At.n)), s = "unimplemented_" + SnakeG(n = At.g.prog.nodes[BaseOf(nodes = At.g.prog.nodes, n = At.n)]) })
+		else -> id({ g = { ..At.g, stubs = At.g.stubs + [BaseOf(nodes = At.g.prog.nodes, n = At.n): true] }, s = "unimplemented_" + SnakeG(n = At.g.prog.nodes[BaseOf(nodes = At.g.prog.nodes, n = At.n)]) })
 	};
 	RImplPath switch {
 		{ path = Some(p), err = _ } -> id({ g = At.g, s = p }),
@@ -398,10 +391,10 @@ proc RTransition(At): EmitLines {
 	func Recording(n: int): Moves = "../../rs/src/gen_leaf.rs:recording";
 	func Moving(moved: map[int]bool, taken: map[int]bool): Moves = "../../rs/src/gen_leaf.rs:moving";
 	func SlotLines(g: RGen, taken: []int): []Line = "../../rs/src/gen_leaf.rs:slot_lines";
-	At -> RInput(s = { g = GWith(g = this.g, moves = Recording(n = 0)), c = this.c }) as First;
-	First -> RInput(s = { g = GWith(g = this.g, moves = Moving(moved = MovedReads(seen = this.g.moves.seen, taken = Taken(seen = this.g.moves.seen, g = GraphOf(n = At.g.prog.nodes[At.pid]), target = At.c.target)), taken = Taken(seen = this.g.moves.seen, g = GraphOf(n = At.g.prog.nodes[At.pid]), target = At.c.target))), c = At.c }) as Second;
+	At -> RInput(s = { g = { ..this.g, moves = Recording(n = 0) }, c = this.c }) as First;
+	First -> RInput(s = { g = { ..this.g, moves = Moving(moved = MovedReads(seen = this.g.moves.seen, taken = Taken(seen = this.g.moves.seen, g = GraphOf(n = At.g.prog.nodes[At.pid]), target = At.c.target)), taken = Taken(seen = this.g.moves.seen, g = GraphOf(n = At.g.prog.nodes[At.pid]), target = At.c.target)) }, c = At.c }) as Second;
 	Second -> id({
-		g = GWith(g = this.g, moves = NoMoves(n = 0)),
+		g = { ..this.g, moves = NoMoves(n = 0) },
 		lines = SlotLines(g = At.g, taken = SortedTaken(taken = this.g.moves.taken)) + [
 			L("env.in_" + SnakeG(n = At.g.prog.nodes[At.c.target]) + " = Some(" + this.s + ");"),
 			L("pc = Pc" + Gname(n = At.g.prog.nodes[At.pid]) + "::" + Gname(n = At.g.prog.nodes[At.c.target]) + ";"),
@@ -515,7 +508,7 @@ proc RProc(At): EmitLines {
 	func At(s: { g: RGen, pid: int }): { g: RGen, pid: int } = "../../rs/src/sema_leaf.rs:same";
 	func Prelude(g: RGen, pid: int): []Line = "../../rs/src/gen_leaf.rs:proc_prelude";
 	func Opens(g: Graph): []int = "../../rs/src/gen_leaf.rs:opens_by_region";
-	At -> RLoop(s = { g = GProc(g = this.g, name = QualName(n = this.g.prog.nodes[this.pid])), pid = this.pid, nodes = GraphOf(n = this.g.prog.nodes[this.pid]).regions[0].nodes, i = 0, acc = [] });
+	At -> RLoop(s = { g = { ..this.g, proc_name = QualName(n = this.g.prog.nodes[this.pid]) }, pid = this.pid, nodes = GraphOf(n = this.g.prog.nodes[this.pid]).regions[0].nodes, i = 0, acc = [] });
 	RLoop -> RRegions(s = { g = this.g, pid = At.pid, opens = Opens(g = GraphOf(n = At.g.prog.nodes[At.pid])), i = 0, acc = Prelude(g = At.g, pid = At.pid) + this.lines + [L("}"), L("")] });
 }
 

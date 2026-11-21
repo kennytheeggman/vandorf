@@ -31,7 +31,6 @@ func Cap(s: string): string = "../../rs/src/sema_leaf.rs:cap";
 // Struct updates of the state.
 func WithError(cx: TyCx, msg: string, span: Span): TyCx = "../../rs/src/sema_leaf.rs:with_error";
 func WithTypes(cx: TyCx, types: []TypeDef): TyCx = "../../rs/src/sema_leaf.rs:with_types";
-func WithBound(cx: TyCx, bound: []map[string]Type): TyCx = "../../rs/src/sema_leaf.rs:with_bound";
 // cx with a new typedef: name, ident, declared at span.
 func NewDef(cx: TyCx, name: string, ident: string, span: Span): TyCx = "../../rs/src/sema_leaf.rs:new_def";
 func NewInst(cx: TyCx, key: string, ident: string, span: Span): TyCx = "../../rs/src/sema_leaf.rs:new_inst";
@@ -81,8 +80,8 @@ proc NamedTy(At): TyOut {
 		}
 	};
 	NameProblem switch {
-		Some(msg) -> id({ cx = WithError(cx = At.cx, msg = msg, span = At.n.span), t = None() }),
-		else -> id({ cx = WithError(cx = At.cx, msg = "unknown type " + At.n.name, span = At.n.span), t = None() })
+		Some(msg) -> id({ cx = { ..At.cx, errors = At.cx.errors + [{ msg = msg, span = At.n.span }] }, t = None() }),
+		else -> id({ cx = { ..At.cx, errors = At.cx.errors + [{ msg = "unknown type " + At.n.name, span = At.n.span }] }, t = None() })
 	};
 }
 
@@ -126,7 +125,7 @@ proc TyMap(At): TyOut {
 		(IsKeyType(t = this)) -> id({ cx = Val.cx, t = MapOf(k = UnwrapT(t = Key.t), v = Val.t) }),
 		else -> ShowType(t = UnwrapT(t = Key.t)) as Shown
 	};
-	Shown -> id({ cx = WithError(cx = Val.cx, msg = "map keys are ints or strings, not " + this, span = At.key.span), t = None() });
+	Shown -> id({ cx = { ..Val.cx, errors = Val.cx.errors + [{ msg = "map keys are ints or strings, not " + this, span = At.key.span }] }, t = None() });
 }
 
 func UnwrapT(t: MaybeType): Type = "../../rs/src/sema_leaf.rs:unwrap_t";
@@ -138,7 +137,7 @@ proc Fields(At): { cx: TyCx, ms: MaybeMembers } {
 	func Done(ok: bool, ms: []Member): MaybeMembers = "../../rs/src/sema_leaf.rs:members_if";
 	At switch {
 		(this.i == this.fs.len) -> id({ cx = this.cx, ms = Done(ok = this.ok, ms = this.acc) }),
-		(HasMember(ms = this.acc, name = this.fs[this.i].name.name)) -> Ty(s = { cx = WithError(cx = this.cx, msg = "duplicate field " + this.fs[this.i].name.name, span = this.fs[this.i].name.span), t = this.fs[this.i].ty }) as Dup,
+		(HasMember(ms = this.acc, name = this.fs[this.i].name.name)) -> Ty(s = { cx = { ..this.cx, errors = this.cx.errors + [{ msg = "duplicate field " + this.fs[this.i].name.name, span = this.fs[this.i].name.span }] }, t = this.fs[this.i].ty }) as Dup,
 		else -> Ty(s = { cx = this.cx, t = this.fs[this.i].ty }) as One
 	};
 	Dup switch {
@@ -158,7 +157,7 @@ proc Variants(At): { cx: TyCx, ms: MaybeMembers } {
 	func Payload(p: OptType): OptType = "../../rs/src/sema_leaf.rs:same";
 	At switch {
 		(this.i == this.vs.len) -> id({ cx = this.cx, ms = Some(this.acc) }),
-		(HasMember(ms = this.acc, name = this.vs[this.i].name.name)) -> id({ cx = WithError(cx = this.cx, msg = "duplicate variant " + this.vs[this.i].name.name, span = this.vs[this.i].name.span), ms = None() }),
+		(HasMember(ms = this.acc, name = this.vs[this.i].name.name)) -> id({ cx = { ..this.cx, errors = this.cx.errors + [{ msg = "duplicate variant " + this.vs[this.i].name.name, span = this.vs[this.i].name.span }] }, ms = None() }),
 		else -> Payload(p = this.vs[this.i].payload)
 	};
 	Payload switch {
@@ -180,7 +179,7 @@ proc Instance(At): TyOut {
 	func Key(k: string): string = "../../rs/src/sema_leaf.rs:same";
 	At -> InstProblem(s = { cx = this.cx, name = this.n.name, count = this.args.len });
 	InstProblem switch {
-		Some(msg) -> id({ cx = WithError(cx = At.cx, msg = msg, span = At.n.span), t = None() }),
+		Some(msg) -> id({ cx = { ..At.cx, errors = At.cx.errors + [{ msg = msg, span = At.n.span }] }, t = None() }),
 		else -> InstArgs(s = { cx = At.cx, args = At.args, i = 0, tys = [] }) as Args
 	};
 	Args switch {
@@ -193,7 +192,7 @@ proc Instance(At): TyOut {
 	ShowAll -> Key(k = At.n.name + "<" + Join(parts = this, sep = ", ") + ">");
 	Key switch {
 		(this in Args.cx.insts) -> id({ cx = Args.cx, t = Some(Named({ id = Args.cx.insts[this], name = this })) }),
-		(Args.cx.bound.len >= 32) -> id({ cx = WithError(cx = Args.cx, msg = "type " + At.n.name + " never stops expanding: it uses itself with ever larger arguments", span = At.n.span), t = None() }),
+		(Args.cx.bound.len >= 32) -> id({ cx = { ..Args.cx, errors = Args.cx.errors + [{ msg = "type " + At.n.name + " never stops expanding: it uses itself with ever larger arguments", span = At.n.span }] }, t = None() }),
 		else -> IdentAll(s = { ts = TysOf(m = Args.tys), types = Args.cx.types, i = 0, acc = "" })
 	};
 	IdentAll -> InstBody(s = { cx = NewInst(cx = Args.cx, key = Key, ident = At.n.name + this, span = At.n.span), key = Key, n = At.n, tys = TysOf(m = Args.tys) });
@@ -213,8 +212,8 @@ proc InstArgs(At): { cx: TyCx, tys: MaybeTypes } {
 	};
 	One switch {
 		{ cx = _, t = Some(t) } -> switch {
-			(IsVoid(t = t)) -> id({ cx = WithError(cx = One.cx, msg = "void can't be a type argument", span = At.args[At.i].span), tys = None() }),
-			(WrittenOut(t = t)) -> id({ cx = WithError(cx = One.cx, msg = "a type argument can't be a struct or enum written out: name it with a typedef", span = At.args[At.i].span), tys = None() }),
+			(IsVoid(t = t)) -> id({ cx = { ..One.cx, errors = One.cx.errors + [{ msg = "void can't be a type argument", span = At.args[At.i].span }] }, tys = None() }),
+			(WrittenOut(t = t)) -> id({ cx = { ..One.cx, errors = One.cx.errors + [{ msg = "a type argument can't be a struct or enum written out: name it with a typedef", span = At.args[At.i].span }] }, tys = None() }),
 			else -> At(s = { cx = One.cx, args = At.args, i = At.i + 1, tys = At.tys + [t] })
 		},
 		else -> id({ cx = One.cx, tys = None() })
@@ -225,11 +224,11 @@ proc InstArgs(At): { cx: TyCx, tys: MaybeTypes } {
 // to the arguments. cx already has the instance (the last typedef).
 proc InstBody(At): TyOut {
 	func At(s: { cx: TyCx, key: string, n: Ident, tys: []Type }): { cx: TyCx, key: string, n: Ident, tys: []Type } = "../../rs/src/sema_leaf.rs:same";
-	At -> Ty(s = { cx = WithBound(cx = this.cx, bound = this.cx.bound + [ParamMap(params = this.cx.generics[this.n.name].params, args = this.tys)]), t = this.cx.generics[this.n.name].ty }) as Body;
+	At -> Ty(s = { cx = { ..this.cx, bound = this.cx.bound + [ParamMap(params = this.cx.generics[this.n.name].params, args = this.tys)] }, t = this.cx.generics[this.n.name].ty }) as Body;
 	// Which instance an error in a generic body came from, said once.
 	Body switch {
-		(At.cx.bound.len == 0) -> Restore(cx = WithErrors(cx = WithBound(cx = this.cx, bound = At.cx.bound), errors = InInstance(errors = this.cx.errors, from = At.cx.errors.len, key = At.key))),
-		else -> Restore(cx = WithBound(cx = this.cx, bound = At.cx.bound))
+		(At.cx.bound.len == 0) -> Restore(cx = WithErrors(cx = { ..this.cx, bound = At.cx.bound }, errors = InInstance(errors = this.cx.errors, from = At.cx.errors.len, key = At.key))),
+		else -> Restore(cx = { ..this.cx, bound = At.cx.bound })
 	};
 	func Restore(cx: TyCx): TyCx = "../../rs/src/sema_leaf.rs:same";
 	Restore switch {
@@ -239,8 +238,8 @@ proc InstBody(At): TyOut {
 	// A cycle of names that never reaches a structure (`type W<T> = W<T>;`)
 	// would make unfolding loop; cut it here.
 	ChainCycle switch {
-		(this) -> id({ cx = WithTypes(cx = WithError(cx = Restore, msg = "type " + At.key + " refers to itself, so it must be a struct or enum", span = At.n.span), types = SetTy(types = Restore.types, id = At.cx.types.len - 1, t = Prim("void"))), t = None() }),
-		else -> id({ cx = WithTypes(cx = Restore, types = SetTy(types = Restore.types, id = At.cx.types.len - 1, t = UnwrapT(t = Body.t))), t = Some(Named({ id = At.cx.types.len - 1, name = At.key })) })
+		(this) -> id({ cx = WithTypes(cx = { ..Restore, errors = Restore.errors + [{ msg = "type " + At.key + " refers to itself, so it must be a struct or enum", span = At.n.span }] }, types = SetTy(types = Restore.types, id = At.cx.types.len - 1, t = Prim("void"))), t = None() }),
+		else -> id({ cx = { ..Restore, types = SetTy(types = Restore.types, id = At.cx.types.len - 1, t = UnwrapT(t = Body.t)) }, t = Some(Named({ id = At.cx.types.len - 1, name = At.key })) })
 	};
 }
 
@@ -311,10 +310,10 @@ proc DeclareTypes(At): TyCx {
 	func WithGeneric(cx: TyCx, d: TypeDecl): TyCx = "../../rs/src/sema_leaf.rs:with_generic";
 	At switch {
 		(this.i == this.decls.len) -> CheckGenerics(s = { cx = this.cx, decls = this.decls, i = 0 }),
-		(IsPrim(name = this.decls[this.i].name.name)) -> At(s = { cx = WithError(cx = this.cx, msg = this.decls[this.i].name.name + " is a built-in type", span = this.decls[this.i].name.span), decls = this.decls, i = this.i + 1 }),
-		(this.decls[this.i].name.name in this.cx.names || this.decls[this.i].name.name in this.cx.generics) -> At(s = { cx = WithError(cx = this.cx, msg = "duplicate type " + this.decls[this.i].name.name, span = this.decls[this.i].name.span), decls = this.decls, i = this.i + 1 }),
+		(IsPrim(name = this.decls[this.i].name.name)) -> At(s = { cx = { ..this.cx, errors = this.cx.errors + [{ msg = this.decls[this.i].name.name + " is a built-in type", span = this.decls[this.i].name.span }] }, decls = this.decls, i = this.i + 1 }),
+		(this.decls[this.i].name.name in this.cx.names || this.decls[this.i].name.name in this.cx.generics) -> At(s = { cx = { ..this.cx, errors = this.cx.errors + [{ msg = "duplicate type " + this.decls[this.i].name.name, span = this.decls[this.i].name.span }] }, decls = this.decls, i = this.i + 1 }),
 		(this.decls[this.i].params.len == 0) -> At(s = { cx = NewDef(cx = this.cx, name = this.decls[this.i].name.name, ident = this.decls[this.i].name.name, span = this.decls[this.i].name.span), decls = this.decls, i = this.i + 1 }),
-		else -> At(s = { cx = WithGeneric(cx = this.cx, d = this.decls[this.i]), decls = this.decls, i = this.i + 1 })
+		else -> At(s = { cx = { ..this.cx, generics = this.cx.generics + [this.decls[this.i].name.name: this.decls[this.i]] }, decls = this.decls, i = this.i + 1 })
 	};
 	CheckGenerics -> ResolveDecls(s = { cx = this, decls = At.decls, i = 0, ok = [] });
 	ResolveDecls switch {
@@ -345,7 +344,7 @@ proc ResolveDecls(At): TyCx {
 		else -> Ty(s = { cx = this.cx, t = this.decls[this.i].ty })
 	};
 	Ty switch {
-		{ cx = _, t = Some(t) } -> At(s = { cx = WithTypes(cx = Ty.cx, types = SetTy(types = Ty.cx.types, id = At.cx.names[At.decls[At.i].name.name], t = t)), decls = At.decls, i = At.i + 1, ok = At.ok + [At.cx.names[At.decls[At.i].name.name]] }),
+		{ cx = _, t = Some(t) } -> At(s = { cx = { ..Ty.cx, types = SetTy(types = Ty.cx.types, id = At.cx.names[At.decls[At.i].name.name], t = t) }, decls = At.decls, i = At.i + 1, ok = At.ok + [At.cx.names[At.decls[At.i].name.name]] }),
 		else -> At(s = { cx = Ty.cx, decls = At.decls, i = At.i + 1, ok = At.ok })
 	};
 }
@@ -359,7 +358,7 @@ proc CheckGeneric(At): TyCx {
 	CheckParams -> CheckBody(s = { cx = this, t = At.d.ty, params = IdentNames(ids = At.d.params), used = [] }) as Body;
 	Body -> Unused(s = { cx = this.cx, ps = At.d.params, used = this.used, i = 0 });
 	Unused switch {
-		(this.errors.len > At.cx.errors.len) -> id(WithBroken(cx = this, name = At.d.name.name)),
+		(this.errors.len > At.cx.errors.len) -> id({ ..this, broken = this.broken + [At.d.name.name: true] }),
 		else -> id(this)
 	};
 }
@@ -371,8 +370,8 @@ proc CheckParams(At): TyCx {
 	func At(s: { cx: TyCx, ps: []Ident, i: int, seen: []string }): { cx: TyCx, ps: []Ident, i: int, seen: []string } = "../../rs/src/sema_leaf.rs:same";
 	At switch {
 		(this.i == this.ps.len) -> id(this.cx),
-		(HasStr(xs = this.seen, x = this.ps[this.i].name)) -> At(s = { cx = WithError(cx = this.cx, msg = "duplicate type parameter " + this.ps[this.i].name, span = this.ps[this.i].span), ps = this.ps, i = this.i + 1, seen = this.seen + [this.ps[this.i].name] }),
-		(IsPrim(name = this.ps[this.i].name) || this.ps[this.i].name in this.cx.names || this.ps[this.i].name in this.cx.generics) -> At(s = { cx = WithError(cx = this.cx, msg = "type parameter " + this.ps[this.i].name + " has the name of a type", span = this.ps[this.i].span), ps = this.ps, i = this.i + 1, seen = this.seen + [this.ps[this.i].name] }),
+		(HasStr(xs = this.seen, x = this.ps[this.i].name)) -> At(s = { cx = { ..this.cx, errors = this.cx.errors + [{ msg = "duplicate type parameter " + this.ps[this.i].name, span = this.ps[this.i].span }] }, ps = this.ps, i = this.i + 1, seen = this.seen + [this.ps[this.i].name] }),
+		(IsPrim(name = this.ps[this.i].name) || this.ps[this.i].name in this.cx.names || this.ps[this.i].name in this.cx.generics) -> At(s = { cx = { ..this.cx, errors = this.cx.errors + [{ msg = "type parameter " + this.ps[this.i].name + " has the name of a type", span = this.ps[this.i].span }] }, ps = this.ps, i = this.i + 1, seen = this.seen + [this.ps[this.i].name] }),
 		else -> At(s = { cx = this.cx, ps = this.ps, i = this.i + 1, seen = this.seen + [this.ps[this.i].name] })
 	};
 }
@@ -382,7 +381,7 @@ proc Unused(At): TyCx {
 	At switch {
 		(this.i == this.ps.len) -> id(this.cx),
 		(HasStr(xs = this.used, x = this.ps[this.i].name)) -> At(s = { cx = this.cx, ps = this.ps, used = this.used, i = this.i + 1 }),
-		else -> At(s = { cx = WithError(cx = this.cx, msg = "type parameter " + this.ps[this.i].name + " is unused", span = this.ps[this.i].span), ps = this.ps, used = this.used, i = this.i + 1 })
+		else -> At(s = { cx = { ..this.cx, errors = this.cx.errors + [{ msg = "type parameter " + this.ps[this.i].name + " is unused", span = this.ps[this.i].span }] }, ps = this.ps, used = this.used, i = this.i + 1 })
 	};
 }
 
@@ -407,11 +406,11 @@ proc CheckBody(At): { cx: TyCx, used: []string } {
 		Enum(vs) -> CheckBodies(s = { cx = At.cx, ts = Payloads(vs = vs), params = At.params, used = At.used, i = 0 }) as Parts
 	};
 	NP switch {
-		Some(msg) -> id({ cx = WithError(cx = At.cx, msg = msg, span = NameSpan(k = Kind)), used = At.used }),
+		Some(msg) -> id({ cx = { ..At.cx, errors = At.cx.errors + [{ msg = msg, span = NameSpan(k = Kind) }] }, used = At.used }),
 		else -> id({ cx = At.cx, used = At.used })
 	};
 	IP switch {
-		Some(msg) -> CheckBodies(s = { cx = WithError(cx = At.cx, msg = msg, span = NameSpan(k = Kind)), ts = InstArgExprs(k = Kind), params = At.params, used = At.used, i = 0 }) as Parts,
+		Some(msg) -> CheckBodies(s = { cx = { ..At.cx, errors = At.cx.errors + [{ msg = msg, span = NameSpan(k = Kind) }] }, ts = InstArgExprs(k = Kind), params = At.params, used = At.used, i = 0 }) as Parts,
 		else -> CheckBodies(s = { cx = At.cx, ts = InstArgExprs(k = Kind), params = At.params, used = At.used, i = 0 }) as Parts
 	};
 }

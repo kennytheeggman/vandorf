@@ -85,20 +85,8 @@ pub fn with_types(mut cx: TyCx, types: List<TypeDef>) -> Result<TyCx, String> {
     Ok(cx)
 }
 
-pub fn with_bound(mut cx: TyCx, bound: List<Map<Str, Type>>) -> Result<TyCx, String> {
-    cx.bound = bound;
-    Ok(cx)
-}
 
-pub fn with_generic(mut cx: TyCx, d: TypeDecl) -> Result<TyCx, String> {
-    cx.generics = cx.generics.merge(&Map::from_iter([(d.name.name.clone(), d)]));
-    Ok(cx)
-}
 
-pub fn with_broken(mut cx: TyCx, name: Str) -> Result<TyCx, String> {
-    cx.broken = cx.broken.merge(&Map::from_iter([(name, true)]));
-    Ok(cx)
-}
 
 pub fn with_recursive(mut cx: TyCx, id: i64, rec: bool) -> Result<TyCx, String> {
     let mut v: Vec<TypeDef> = cx.types.into_iter().collect();
@@ -310,30 +298,14 @@ fn updated<T: Clone>(xs: List<T>, i: i64, f: impl FnOnce(&mut T)) -> List<T> {
     v.into()
 }
 
-pub fn cx_error(mut cx: Cx, msg: Str, span: Span) -> Result<Cx, String> {
-    cx.ty = with_error(cx.ty, msg, span)?;
-    Ok(cx)
-}
 
-pub fn with_ty(mut cx: Cx, ty: TyCx) -> Result<Cx, String> {
-    cx.ty = ty;
-    Ok(cx)
-}
 
 pub fn with_node(mut cx: Cx, n: NodeDecl) -> Result<Cx, String> {
     cx.nodes = push(cx.nodes, n);
     Ok(cx)
 }
 
-pub fn with_global(mut cx: Cx, name: Str, g: Global) -> Result<Cx, String> {
-    cx.globals = cx.globals.merge(&Map::from_iter([(name, g)]));
-    Ok(cx)
-}
 
-pub fn with_top(mut cx: Cx, id: i64) -> Result<Cx, String> {
-    cx.top = push(cx.top, id);
-    Ok(cx)
-}
 
 pub fn span_key(s: Span) -> Result<Str, String> {
     Ok(format!("{}:{}", s.file, s.at).into())
@@ -874,9 +846,6 @@ fn graph_of(mut g: Graph, f: impl FnOnce(&mut Graph)) -> Graph {
     g
 }
 
-pub fn with_edge(g: Graph, n: i64, e: SEdge) -> Result<Graph, String> {
-    Ok(graph_of(g, |g| g.edges = g.edges.clone().merge(&Map::from_iter([(n, e)]))))
-}
 
 pub fn new_region(g: Graph, parent: i64, entry: i64, elem: Type) -> Result<Graph, String> {
     Ok(graph_of(g, |g| g.regions = push(g.regions.clone(), Region { parent, entry, elem, nodes: List::default(), sink: -1 })))
