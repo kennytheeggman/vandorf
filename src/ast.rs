@@ -117,7 +117,8 @@ pub struct Edge {
 pub enum EdgeKind {
     /// `A -> B(..)`
     Call(Target),
-    /// `A switch { ("cond") -> B(..), .. }`
+    /// `A switch { Tag(x) -> B(..), else -> D(..) }` (patterns), or
+    /// `A switch { (cond) -> C(..), else -> D(..) }` (conditions).
     Match(Vec<Arm>),
     /// `A collect each (dim) -> B(..)`
     Collect { dim: Ident, target: Target },
@@ -127,9 +128,49 @@ pub enum EdgeKind {
 
 #[derive(Debug, Clone)]
 pub struct Arm {
-    pub cond: String,
-    pub cond_span: Span,
-    pub target: Target,
+    pub head: Head,
+    /// The arm's head as written, for diagram labels.
+    pub label: String,
+    pub span: Span,
+    pub body: Body,
+}
+
+#[derive(Debug, Clone)]
+pub enum Head {
+    /// Matches the structure of the source's output.
+    Pat(Pat),
+    /// `(expr)`: a bool condition.
+    Cond(Value),
+    Else,
+}
+
+#[derive(Debug, Clone)]
+pub enum Body {
+    Call(Target),
+    /// `switch { (cond) -> .., else -> .. }`, with the arm's bindings in scope.
+    Switch(Vec<Arm>, Span),
+}
+
+/// A structural pattern. It has the shape of the literal that builds the
+/// value: `Add({ l = Lit(x), r = _ })`.
+#[derive(Debug, Clone)]
+pub struct Pat {
+    pub kind: PatKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub enum PatKind {
+    /// `_`
+    Wild,
+    /// `x`: matches anything, naming it.
+    Bind(Ident),
+    /// `Tag(pat)`, or `Tag()` for a variant without payload.
+    Variant { tag: Ident, payload: Option<Box<Pat>> },
+    /// `{ a = pat, b = pat }`: every field, `_` for those that don't matter.
+    Struct(Vec<(Ident, Pat)>),
+    /// `pat | pat`
+    Or(Vec<Pat>),
 }
 
 #[derive(Debug, Clone)]
@@ -154,6 +195,7 @@ pub struct Value {
     pub span: Span,
 }
 
+/// An expression: an argument, a condition or a guard.
 #[derive(Debug, Clone)]
 pub enum ValueKind {
     /// `this.x`, `Start.l`
@@ -162,10 +204,64 @@ pub enum ValueKind {
     Float(f64),
     Str(String),
     Bool(bool),
-    /// `S(value)`, or `S()` for a variant without payload.
-    Variant { tag: Ident, payload: Option<Box<Value>> },
+    /// `Name(..)`: an enum variant (`S(value)`, or `S()` without payload),
+    /// or a call of a func (`F(a = value)`). Which one depends on the
+    /// expected type, so sema decides.
+    Apply { name: Path, args: Vec<ApplyArg> },
     /// `{ a = value, b = value }`
     Struct(Vec<Arg>),
     /// `[value, value]`
     Array(Vec<Value>),
+    Unary(UnOp, Box<Value>),
+    Binary(BinOp, Box<Value>, Box<Value>),
+}
+
+#[derive(Debug, Clone)]
+pub struct ApplyArg {
+    pub name: Option<Ident>,
+    pub value: Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnOp {
+    Not,
+    Neg,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinOp {
+    Or,
+    And,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+}
+
+impl BinOp {
+    /// The operator as written, which is also its Go and Rust spelling.
+    pub fn symbol(self) -> &'static str {
+        match self {
+            BinOp::Or => "||",
+            BinOp::And => "&&",
+            BinOp::Eq => "==",
+            BinOp::Ne => "!=",
+            BinOp::Lt => "<",
+            BinOp::Le => "<=",
+            BinOp::Gt => ">",
+            BinOp::Ge => ">=",
+            BinOp::Add => "+",
+            BinOp::Sub => "-",
+            BinOp::Mul => "*",
+            BinOp::Div => "/",
+            BinOp::Rem => "%",
+        }
+    }
 }

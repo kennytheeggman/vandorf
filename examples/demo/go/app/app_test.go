@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"example.com/demo/app/types"
 )
 
 func TestForEach(t *testing.T) {
@@ -46,5 +48,29 @@ func TestCalc(t *testing.T) {
 	got, err := RunCalc(context.Background(), 3)
 	if err != nil || got != 115 {
 		t.Fatalf("RunCalc(3) = %v, %v; want 115", got, err)
+	}
+}
+
+func TestClassify(t *testing.T) {
+	lit := func(i int) *types.Expr { return &types.Expr{Tag: "Lit", Lit: i} }
+	neg := func(e *types.Expr) *types.Expr { return &types.Expr{Tag: "Neg", Neg: e} }
+	add := func(l, r *types.Expr) *types.Expr { return &types.Expr{Tag: "Add", Add: &types.ExprAdd{L: l, R: r}} }
+	for _, c := range []struct {
+		e    *types.Expr
+		want string
+	}{
+		{lit(4), "small even"},
+		{lit(3), "literal"},
+		{lit(400), "literal"},
+		{neg(lit(1)), "negated literal"},
+		{neg(neg(lit(1))), "minus negated literal"},
+		{neg(neg(neg(lit(1)))), "minus minus negated literal"},
+		{add(lit(1), lit(2)), "sum of literals"},
+		{add(lit(1), neg(lit(2))), "something else"},
+	} {
+		got, err := RunClassify(context.Background(), *c.e)
+		if err != nil || got != c.want {
+			t.Errorf("RunClassify(%+v) = %q, %v; want %q", *c.e, got, err, c.want)
+		}
 	}
 }

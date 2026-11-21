@@ -52,7 +52,7 @@ fn back_edge_does_not_push_down() {
             func C(i: int): int;
             A -> B(i = this);
             B -> C(i = this);
-            C switch { ("this < 3") -> A(i = this), ("else") -> D(i = this) };
+            C switch { (this < 3) -> A(i = this), else -> D(i = this) };
             func D(i: int): int;
         }
         "#,
@@ -75,7 +75,7 @@ fn diamond_in_same_row_and_pushdown_of_subtree() {
             func X(): int;
             func D(): int;
             func E(): int;
-            A switch { ("L") -> B(), ("R") -> C() };
+            A switch { L() -> B(), R() -> C() };
             B -> D();
             C -> X();
             X -> D();
@@ -225,7 +225,7 @@ fn aliases_are_separate_nodes() {
             func A(): int;
             func B(i: int): int;
             func C(i: int): int;
-            A switch { ("this > 0") -> B(i = this) as B2, ("else") -> B(i = 0) as B2 };
+            A switch { (this > 0) -> B(i = this) as B2, else -> B(i = 0) as B2 };
             B2 -> B(i = B2);
             B -> C(i = this) as C2;
         }
@@ -241,10 +241,91 @@ fn aliases_are_separate_nodes() {
     let e = compile_err("proc P(A): int { func A(): int; func B(i: int): int; A -> B(i = this) as A; }");
     assert!(e.contains("alias A clashes with a node of that name in proc P"), "{e}");
     let e = compile_err(r#"proc P(A): int { func A(): int; func B(i: int): int; func C(i: int): int;
-        A switch { ("x") -> B(i = this) as D, ("else") -> C(i = this) as D }; }"#);
+        A switch { (this > 0) -> B(i = this) as D, else -> C(i = this) as D }; }"#);
     assert!(e.contains("D is already an alias of B"), "{e}");
     let e = compile_err("proc P(A): int { func A(): int; func B(i: int): int; A -> B(i = this) as B2; B2 -> B2(i = this) as B3; }");
     assert!(e.contains("B2 is itself an alias"), "{e}");
+}
+
+#[test]
+fn switch_errors() {
+    let sw = |arms: &str| format!(
+        "type E = enum {{ A(int), B, C({{ x: int, e: E }}) }}; proc P(S): int {{ func S(): E; func T(i: int): int; func Q(i: int): bool; S switch {{ {arms} }}; }}"
+    );
+    let e = compile_err(&sw("A(n) -> T(i = n), B() -> T(i = 0)"));
+    assert!(e.contains("switch on S doesn't cover C(_); add an arm for it, or an else"), "{e}");
+    let e = compile_err(&sw("A(_) -> T(i = 0), B() -> T(i = 0), C({ x = _, e = A(_) }) -> T(i = 1), C({ x = _, e = B() }) -> T(i = 2)"));
+    assert!(e.contains("doesn't cover C({ x = _, e = C(_) })"), "{e}");
+    let e = compile_err(&sw("A(_) -> T(i = 0), C({ x = _, e = _ }) | B() -> T(i = 1), B() -> T(i = 2)"));
+    assert!(e.contains("this arm is never taken"), "{e}");
+    let e = compile_err(&sw("A(_) -> T(i = 0), B() -> T(i = 1), C(_) -> T(i = 2), else -> T(i = 3)"));
+    assert!(e.contains("else is never taken"), "{e}");
+    let e = compile_err(&sw("else -> T(i = 0), B() -> T(i = 1)"));
+    assert!(e.contains("comes after else"), "{e}");
+    let e = compile_err(&sw("A(n) -> T(i = n), (true) -> T(i = 0), else -> T(i = 1)"));
+    assert!(e.contains("this switch matches patterns (like A(n)), so its arms can't be conditions"), "{e}");
+    let e = compile_err(&sw("A(n) -> switch { B() -> T(i = n), else -> T(i = 0) }, else -> T(i = 1)"));
+    assert!(e.contains("a nested switch has nothing new to match"), "{e}");
+    let e = compile_err(&sw("A(n) -> switch { (n > 0) -> T(i = n) }, else -> T(i = 1)"));
+    assert!(e.contains("needs an else arm"), "{e}");
+    let e = compile_err(&sw("B -> T(i = 0), else -> T(i = 1)"));
+    assert!(e.contains("B is a variant of E; write B() to match it"), "{e}");
+    let e = compile_err(&sw("A -> T(i = 0), else -> T(i = 1)"));
+    assert!(e.contains("A is a variant of E; write A(_) to match it"), "{e}");
+    let e = compile_err(&sw("A() -> T(i = 0), else -> T(i = 1)"));
+    assert!(e.contains("A carries int; write A(_) to ignore it"), "{e}");
+    let e = compile_err(&sw("B(_) -> T(i = 0), else -> T(i = 1)"));
+    assert!(e.contains("B carries nothing; write B()"), "{e}");
+    let e = compile_err(&sw("C({ x = n }) -> T(i = n), else -> T(i = 1)"));
+    assert!(e.contains("struct pattern is missing field e of { x: int, e: E }; write e = _ to ignore it"), "{e}");
+    let e = compile_err(&sw("C({ x = n, e = A(n) }) -> T(i = n), else -> T(i = 1)"));
+    assert!(e.contains("n is bound twice"), "{e}");
+    let e = compile_err(&sw("A(n) | B() -> T(i = 0), else -> T(i = 1)"));
+    assert!(e.contains("or-patterns can't bind names yet"), "{e}");
+    let e = compile_err(&sw("A(T) -> T(i = 0), else -> T(i = 1)"));
+    assert!(e.contains("binding T hides a node"), "{e}");
+    let e = compile_err(&sw("D() -> T(i = 0), else -> T(i = 1)"));
+    assert!(e.contains("E has no variant D"), "{e}");
+    let e = compile_err(&sw(r#"("this < 1") -> T(i = 0), else -> T(i = 1)"#));
+    assert!(e.contains("write (this < 1), without quotes"), "{e}");
+    let e = compile_err("proc P(S): int { func S(): int; func T(i: int): int; S switch { (this > 0) -> T(i = this) }; }");
+    assert!(e.contains("this switch on S needs an else arm"), "{e}");
+    let e = compile_err("proc P(S): int { func S(): int; func T(i: int): int; S switch { A(n) -> T(i = n), else -> T(i = 0) }; }");
+    assert!(e.contains("which isn't an enum, so A(..) can't match it"), "{e}");
+    // Exhaustive without an else: nested patterns, or-patterns, a nested
+    // switch using a binding, and a binding catching the rest.
+    compile(&sw(
+        "A(n) -> switch { (Q(i = n) && n % 2 == 1) -> T(i = n * 2), else -> T(i = -n) }, \
+         C({ x = x, e = A(_) | B() }) -> T(i = x), B() -> T(i = 0), other -> T(i = 9)",
+    ));
+    // A pattern switch on a struct, and binding the whole value.
+    compile(
+        "proc P(S): int { func S(): { a: bool, b: enum { X, Y(int) } }; func T(i: int): int; \
+         S switch { { a = _, b = Y(n) } -> T(i = n), { a = _, b = X() } -> T(i = 0) }; }",
+    );
+}
+
+#[test]
+fn expression_errors() {
+    let cond = |c: &str| format!(
+        "proc P(S): int {{ func S(): {{ i: int, f: float, s: string, b: bool }}; func T(i: int): int; func Q(i: int): bool; func R(i: int); S switch {{ ({c}) -> T(i = 0), else -> T(i = 1) }}; }}"
+    );
+    let e = compile_err(&cond("this.i + this.f > 0"));
+    assert!(e.contains("+ needs two operands of the same type (int, float, string), found int and float"), "{e}");
+    let e = compile_err(&cond("this.s % 2 == 0"));
+    assert!(e.contains("% needs two operands of the same type (int)"), "{e}");
+    let e = compile_err(&cond("this.i && this.b"));
+    assert!(e.contains("this.i has type int, but bool is expected"), "{e}");
+    let e = compile_err(&cond("Q(this.i)"));
+    assert!(e.contains("arguments of Q need names: Q(param = value)"), "{e}");
+    let e = compile_err(&cond("R(i = 1) == 1"));
+    assert!(e.contains("R returns nothing"), "{e}");
+    let e = compile_err(&cond("P(x = 1)"));
+    assert!(e.contains("P is not a func"), "{e}");
+    let e = compile_err(&cond("Nope(i = 1)"));
+    assert!(e.contains("Nope is neither a func nor a variant"), "{e}");
+    // Int literals mix with floats; strings compare and concatenate.
+    compile(&cond(r#"this.f * 2 > 1 && this.s + "x" != "y" && -this.i < 3 && !this.b"#));
 }
 
 #[test]

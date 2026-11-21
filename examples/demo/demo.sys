@@ -1,4 +1,7 @@
-// test/fixtures/test1.sys from the Go implementation, with implementations.
+// A tour of the language, run by both backends' tests (go/app/app_test.go,
+// rs/src/lib.rs). ForEach and Bar are tests/fixtures/test1.sys from the Go
+// implementation; the procs after them add a feature each.
+//
 // Each func names one implementation per backend; paths are relative to the
 // generated code's directory (go/app for Go, rs/src/app for Rust).
 
@@ -16,6 +19,9 @@ proc ForEach(Start): int {
 	Process collect each (Process) -> Collect(l = this);
 }
 
+// How a Bar run ended; a typedef gives the generated type its name.
+type Outcome = enum { I(string), S, B({ i: int }) };
+
 proc Bar(Start): string {
 	func Start(a: int, b: string): string = "impl.go:Repeat", "../impls.rs:repeat";
 	func Loop(s: string): int = "impl.go:Grow", "../impls.rs:grow";
@@ -23,20 +29,20 @@ proc Bar(Start): string {
 	func Branch1(i: int): string;
 	func Branch2Begin(i: int): string = "impl.go:Describe", "../impls.rs:describe";
 	func Branch2End(i: int) = "impl.go:Log", "../impls.rs:log";
-	func End(r: enum { I(string), S, B({i: int}) }): string = "impl.go:Finish", "../impls.rs:finish";
+	func End(r: Outcome): string = "impl.go:Finish", "../impls.rs:finish";
 
 	Start -> Loop(s = this);
 	Loop switch {
-		("this < 10") -> Loop(s = Start),
-		("else") -> ForEach(i = this)
+		(this < 10) -> Loop(s = Start),
+		else -> ForEach(i = this)
 	};
 	ForEach switch {
-		("this == 0") -> Branch1(i = this),
-		("else") -> Branch2Begin(i = this)
+		(this == 0) -> Branch1(i = this),
+		else -> Branch2Begin(i = this)
 	};
 	Branch2Begin -> Foo.Call(s = this);
 	Foo.Call -> Branch2End(i = this);
-	Branch2End -> End(r = S(this));
+	Branch2End -> End(r = S());
 	Branch1 -> End(r = I(this));
 }
 
@@ -62,4 +68,27 @@ proc Calc(Build): int {
 	Eval -> Eval(e = Build, scale = 2) as Twice;
 	// 5 + 10 + 100
 	Twice -> Total(xs = [Eval, Twice, 100]);
+}
+
+// Pattern switches match structure: variants, struct fields (all of them,
+// `_` for the ones that don't matter) and bindings. Conditions on values go
+// in a switch nested under a pattern arm, which sees its bindings. The
+// arms cover every Expr, so no else is needed.
+proc Classify(Look): string {
+	func Look(e: Expr): Expr = "impl.go:Look", "../impls.rs:look";
+	func Small(i: int): bool = "impl.go:Small", "../impls.rs:small";
+	func Say(s: string): string = "impl.go:Say", "../impls.rs:say";
+
+	Look switch {
+		Lit(n) -> switch {
+			(Small(i = n) && n % 2 == 0) -> Say(s = "small even"),
+			else -> Say(s = "literal")
+		},
+		Neg(Lit(_)) -> Say(s = "negated literal"),
+		// Recursion through the graph: another instance of this proc.
+		Neg(e) -> Classify(e = e) as Inner,
+		Add({ l = Lit(_), r = Lit(_) }) -> Say(s = "sum of literals"),
+		Add(_) -> Say(s = "something else")
+	};
+	Inner -> Say(s = "minus " + Inner);
 }

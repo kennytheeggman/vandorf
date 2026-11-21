@@ -36,11 +36,11 @@ pub fn log(i: i64) -> Result<(), String> {
     Ok(())
 }
 
-pub fn finish(r: types::BarEndR) -> Result<String, String> {
+pub fn finish(r: types::Outcome) -> Result<String, String> {
     let tag = match r {
-        types::BarEndR::I(_) => "I",
-        types::BarEndR::S => "S",
-        types::BarEndR::B(_) => "B",
+        types::Outcome::I(_) => "I",
+        types::Outcome::S => "S",
+        types::Outcome::B(_) => "B",
     };
     Ok(format!("end:{tag}"))
 }
@@ -81,4 +81,17 @@ pub fn eval(e: types::Expr, scale: i64) -> Result<i64, String> {
 
 pub fn total(xs: Vec<i64>) -> Result<i64, String> {
     Ok(xs.iter().sum())
+}
+
+pub fn look(e: types::Expr) -> Result<types::Expr, String> {
+    Ok(e)
+}
+
+/// Whether |i| < 100.
+pub fn small(i: i64) -> Result<bool, String> {
+    Ok(i.abs() < 100)
+}
+
+pub fn say(s: String) -> Result<String, String> {
+    Ok(s)
 }

@@ -50,7 +50,7 @@ func Log(ctx context.Context, i int) error {
 	return nil
 }
 
-func Finish(ctx context.Context, r types.BarEndR) (string, error) {
+func Finish(ctx context.Context, r types.Outcome) (string, error) {
 	return "end:" + r.Tag, nil
 }
 
@@ -84,3 +84,10 @@ func Eval(ctx context.Context, e types.Expr, scale int) (int, error) {
 func Total(ctx context.Context, xs []int) (int, error) {
 	return Sum(ctx, xs)
 }
+
+func Look(ctx context.Context, e types.Expr) (types.Expr, error) { return e, nil }
+
+// Small reports whether |i| < 100.
+func Small(ctx context.Context, i int) (bool, error) { return i > -100 && i < 100, nil }
+
+func Say(ctx context.Context, s string) (string, error) { return s, nil }

@@ -10,16 +10,27 @@
 //! variant   := IDENT ('(' type ')')?
 //! field     := IDENT ':' type
 //! edge      := path '->' target
-//!            | path 'switch' '{' ('(' STRING ')' '->' target),* '}'
+//!            | path 'switch' '{' arm,* '}'
 //!            | path 'collect' 'each' '(' IDENT ')' '->' target
 //!            | path 'for' 'each' '(' path ')' '->' target
 //! target    := path '(' (arg (',' arg)*)? ')' ('as' IDENT)?
-//! arg       := NAME '=' value
-//! value     := INT | FLOAT | STRING | 'true' | 'false'
-//!            | IDENT '(' value? ')'               enum variant
+//! arm       := (pat | '(' expr ')' | 'else') '->' (target | 'switch' '{' arm,* '}')
+//! pat       := alt ('|' alt)*
+//! alt       := '_' | IDENT                          wildcard, binding
+//!            | IDENT '(' pat? ')'                   enum variant
+//!            | '{' (NAME '=' pat),* '}'             struct, every field
+//! arg       := NAME '=' expr
+//! expr      := and ('||' and)*
+//! and       := cmp ('&&' cmp)*
+//! cmp       := sum (('==' | '!=' | '<' | '<=' | '>' | '>=') sum)?
+//! sum       := term (('+' | '-') term)*
+//! term      := unary (('*' | '/' | '%') unary)*
+//! unary     := ('!' | '-') unary | atom
+//! atom      := INT | FLOAT | STRING | 'true' | 'false'
+//!            | path '(' ((NAME '=')? expr),* ')'   enum variant or func call
 //!            | '{' (arg (',' arg)*)? '}'          struct
-//!            | '[' (value (',' value)*)? ']'      array
-//!            | path
+//!            | '[' (expr (',' expr)*)? ']'        array
+//!            | path | '(' expr ')'
 //! path      := IDENT ('.' NAME)*
 //! ```
 //!
@@ -38,7 +49,7 @@ type Extra<'a> = extra::Err<ParseError<'a>>;
 
 const KEYWORDS: &[&str] = &[
     "interface", "func", "proc", "enum", "switch", "collect", "for", "each", "as", "type",
-    "true", "false",
+    "true", "false", "else",
 ];
 
 pub fn parse(src: &str) -> Result<File, Vec<ParseError<'_>>> {
@@ -195,9 +206,7 @@ fn func<'a>() -> impl Parser<'a, &'a str, Func, Extra<'a>> + Clone {
 }
 
 fn number<'a>() -> impl Parser<'a, &'a str, ValueKind, Extra<'a>> + Clone {
-    just('-')
-        .or_not()
-        .then(text::int(10))
+    text::int(10)
         .then(just('.').then(text::digits(10)).or_not())
         .to_slice()
         .try_map(|s: &str, span| {
@@ -212,45 +221,112 @@ fn number<'a>() -> impl Parser<'a, &'a str, ValueKind, Extra<'a>> + Clone {
         .labelled("number")
 }
 
+/// `=`, but not the start of `==`.
+fn assign<'a>() -> impl Parser<'a, &'a str, (), Extra<'a>> + Clone {
+    just('=').and_is(just("==").not()).ignored().then_ignore(ws())
+}
+
+/// An operator token that isn't the start of a longer one.
+fn op<'a>(s: &'static str, not_before: &'static [&'static str]) -> impl Parser<'a, &'a str, (), Extra<'a>> + Clone {
+    let longer = choice(not_before.iter().map(|t| just(*t).ignored().boxed()).collect::<Vec<_>>());
+    just(s).and_is(longer.not()).ignored().then_ignore(ws())
+}
+
+type Expr<'a> = chumsky::Boxed<'a, 'a, &'a str, Value, Extra<'a>>;
+
+/// One left-associative precedence level.
+fn level<'a>(operand: Expr<'a>, ops: Vec<(&'static str, &'static [&'static str], BinOp)>) -> Expr<'a> {
+    let ops = choice(ops.into_iter().map(|(s, nb, o)| op(s, nb).to(o).boxed()).collect::<Vec<_>>());
+    operand
+        .clone()
+        .foldl_with(ops.then(operand).repeated(), |l, (o, r), e| Value {
+            kind: ValueKind::Binary(o, Box::new(l), Box::new(r)),
+            span: e.span(),
+        })
+        .boxed()
+}
+
 fn value<'a>() -> impl Parser<'a, &'a str, Value, Extra<'a>> + Clone {
-    recursive(|value| {
+    recursive(|expr| {
         let arg = name()
-            .then_ignore(sym("="))
-            .then(value.clone())
+            .then_ignore(assign())
+            .then(expr.clone())
             .map(|(name, value)| Arg { name, value });
-        let variant = ident()
-            .then(value.clone().or_not().delimited_by(sym("("), sym(")")))
-            .map(|(tag, payload): (Ident, Option<Value>)| ValueKind::Variant { tag, payload: payload.map(Box::new) });
+        let apply_arg = name()
+            .then_ignore(assign())
+            .then(expr.clone())
+            .map(|(n, value)| ApplyArg { name: Some(n), value })
+            .or(expr.clone().map(|value| ApplyArg { name: None, value }));
+        let apply = path()
+            .then(apply_arg.separated_by(sym(",")).allow_trailing().collect().delimited_by(sym("("), sym(")")))
+            .map(|(name, args)| ValueKind::Apply { name, args });
         let struct_ = arg
             .separated_by(sym(","))
             .allow_trailing()
             .collect()
             .delimited_by(sym("{"), sym("}"))
             .map(ValueKind::Struct);
-        let array = value
+        let array = expr
+            .clone()
             .separated_by(sym(","))
             .allow_trailing()
             .collect()
             .delimited_by(sym("["), sym("]"))
             .map(ValueKind::Array);
-        choice((
+        let atom = choice((
             number(),
             string().map(|(s, _)| ValueKind::Str(s)),
             kw("true").to(ValueKind::Bool(true)),
             kw("false").to(ValueKind::Bool(false)),
             struct_,
             array,
-            variant,
+            apply,
             path().map(ValueKind::Ref),
         ))
         .map_with(|kind, e| Value { kind, span: e.span() })
-        .labelled("value")
+        .or(expr.clone().delimited_by(sym("("), sym(")")))
+        .labelled("expression");
+
+        let unary = recursive(|unary| {
+            choice((op("!", &["!="]).to(UnOp::Not), op("-", &["->"]).to(UnOp::Neg)))
+                .then(unary)
+                .map_with(|(o, v): (UnOp, Value), e| {
+                    // `-3` is a literal, so it can be passed as a float too.
+                    let kind = match (o, v.kind) {
+                        (UnOp::Neg, ValueKind::Int(i)) => ValueKind::Int(-i),
+                        (UnOp::Neg, ValueKind::Float(f)) => ValueKind::Float(-f),
+                        (o, kind) => ValueKind::Unary(o, Box::new(Value { kind, span: v.span })),
+                    };
+                    Value { kind, span: e.span() }
+                })
+                .or(atom)
+        });
+        let term = level(unary.boxed(), vec![("*", &[], BinOp::Mul), ("/", &["//"], BinOp::Div), ("%", &[], BinOp::Rem)]);
+        let sum = level(term, vec![("+", &[], BinOp::Add), ("-", &["->"], BinOp::Sub)]);
+        let cmp_op = choice((
+            op("==", &[]).to(BinOp::Eq),
+            op("!=", &[]).to(BinOp::Ne),
+            op("<=", &[]).to(BinOp::Le),
+            op(">=", &[]).to(BinOp::Ge),
+            op("<", &[]).to(BinOp::Lt),
+            op(">", &[]).to(BinOp::Gt),
+        ));
+        let cmp = sum
+            .clone()
+            .then(cmp_op.then(sum).or_not())
+            .map_with(|(l, r), e| match r {
+                Some((o, r)) => Value { kind: ValueKind::Binary(o, Box::new(l), Box::new(r)), span: e.span() },
+                None => l,
+            })
+            .boxed();
+        let and = level(cmp, vec![("&&", &[], BinOp::And)]);
+        level(and, vec![("||", &[], BinOp::Or)])
     })
 }
 
 fn target<'a>() -> impl Parser<'a, &'a str, Target, Extra<'a>> + Clone {
     let arg = name()
-        .then_ignore(sym("="))
+        .then_ignore(assign())
         .then(value())
         .map(|(name, value)| Arg { name, value });
     path()
@@ -259,22 +335,58 @@ fn target<'a>() -> impl Parser<'a, &'a str, Target, Extra<'a>> + Clone {
         .map(|((node, args), alias)| Target { node, args, alias })
 }
 
-fn edge<'a>() -> impl Parser<'a, &'a str, Edge, Extra<'a>> + Clone {
-    let arrow = || sym("->");
-    let call = arrow().ignore_then(target()).map(EdgeKind::Call);
-    let arm = string()
-        .delimited_by(sym("("), sym(")"))
-        .then_ignore(arrow())
-        .then(target())
-        .map(|((cond, cond_span), target)| Arm { cond, cond_span, target });
-    let match_ = kw("switch").ignore_then(
-        arm.separated_by(sym(","))
+fn pattern<'a>() -> impl Parser<'a, &'a str, Pat, Extra<'a>> + Clone {
+    recursive(|pat| {
+        let variant = ident()
+            .then(pat.clone().or_not().delimited_by(sym("("), sym(")")))
+            .map(|(tag, payload): (Ident, Option<Pat>)| PatKind::Variant { tag, payload: payload.map(Box::new) });
+        let struct_ = name()
+            .then_ignore(assign())
+            .then(pat.clone())
+            .separated_by(sym(","))
+            .allow_trailing()
+            .collect()
+            .delimited_by(sym("{"), sym("}"))
+            .map(PatKind::Struct);
+        let bind = ident().map(|i| if i.name == "_" { PatKind::Wild } else { PatKind::Bind(i) });
+        let alt = choice((variant, struct_, bind)).map_with(|kind, e| Pat { kind, span: e.span() });
+        alt.separated_by(op("|", &["||"]))
+            .at_least(1)
+            .collect::<Vec<_>>()
+            .map_with(|mut alts, e| {
+                if alts.len() == 1 { alts.pop().unwrap() } else { Pat { kind: PatKind::Or(alts), span: e.span() } }
+            })
+            .labelled("pattern")
+    })
+}
+
+/// Switch arms; an arm's body is a call or a nested switch.
+fn arms<'a>() -> impl Parser<'a, &'a str, Vec<Arm>, Extra<'a>> + Clone {
+    recursive(|arms| {
+        let head = choice((
+            kw("else").to(Head::Else),
+            just('(').rewind().ignore_then(value()).map(Head::Cond),
+            pattern().map(Head::Pat),
+        ));
+        let body = kw("switch")
+            .ignore_then(arms.delimited_by(sym("{"), sym("}")))
+            .map_with(|a, e| Body::Switch(a, e.span()))
+            .or(target().map(Body::Call));
+        head.map_with(|h, e| (h, e.slice().trim().to_string(), e.span()))
+            .then_ignore(sym("->"))
+            .then(body)
+            .map(|((head, label, span), body)| Arm { head, label, span, body })
+            .separated_by(sym(","))
             .allow_trailing()
             .at_least(1)
             .collect()
-            .delimited_by(sym("{"), sym("}"))
-            .map(EdgeKind::Match),
-    );
+    })
+}
+
+fn edge<'a>() -> impl Parser<'a, &'a str, Edge, Extra<'a>> + Clone {
+    let arrow = || sym("->");
+    let call = arrow().ignore_then(target()).map(EdgeKind::Call);
+    let match_ = kw("switch").ignore_then(arms().delimited_by(sym("{"), sym("}")).map(EdgeKind::Match));
     let collect = kw("collect")
         .ignore_then(kw("each"))
         .ignore_then(ident().delimited_by(sym("("), sym(")")))
@@ -434,8 +546,108 @@ mod tests {
         assert!(kinds[0].starts_with("Int(-3)") && kinds[1].starts_with("Float(1.5)"), "{kinds:?}");
         assert!(kinds[2].contains(r#"Str("a\"b")"#) && kinds[3] == "Bool(true)", "{kinds:?}");
         assert!(matches!(&t.args[4].value.kind, ValueKind::Array(v) if v.len() == 2));
-        assert!(matches!(&t.args[5].value.kind, ValueKind::Variant { payload: None, .. }));
-        assert!(matches!(&t.args[6].value.kind, ValueKind::Variant { payload: Some(p), .. } if matches!(p.kind, ValueKind::Struct(_))));
+        assert!(matches!(&t.args[5].value.kind, ValueKind::Apply { args, .. } if args.is_empty()));
+        assert!(matches!(&t.args[6].value.kind, ValueKind::Apply { args, .. } if matches!(args[0].value.kind, ValueKind::Struct(_))));
         assert!(matches!(&t.args[7].value.kind, ValueKind::Ref(p) if p.to_string() == "A.x.type"));
+    }
+
+    /// Renders an expression with explicit parentheses, to check precedence.
+    fn show(v: &Value) -> String {
+        match &v.kind {
+            ValueKind::Ref(p) => p.to_string(),
+            ValueKind::Int(i) => i.to_string(),
+            ValueKind::Float(f) => f.to_string(),
+            ValueKind::Str(s) => format!("{s:?}"),
+            ValueKind::Bool(b) => b.to_string(),
+            ValueKind::Apply { name, args } => {
+                let a: Vec<String> = args.iter().map(|a| match &a.name {
+                    Some(n) => format!("{} = {}", n.name, show(&a.value)),
+                    None => show(&a.value),
+                }).collect();
+                format!("{name}({})", a.join(", "))
+            }
+            ValueKind::Struct(_) => "{..}".into(),
+            ValueKind::Array(_) => "[..]".into(),
+            ValueKind::Unary(o, e) => format!("({}{})", if *o == UnOp::Not { "!" } else { "-" }, show(e)),
+            ValueKind::Binary(o, l, r) => format!("({} {} {})", show(l), o.symbol(), show(r)),
+        }
+    }
+
+    fn show_pat(p: &Pat) -> String {
+        match &p.kind {
+            PatKind::Wild => "_".into(),
+            PatKind::Bind(i) => i.name.clone(),
+            PatKind::Variant { tag, payload } => format!("{}({})", tag.name, payload.as_deref().map(show_pat).unwrap_or_default()),
+            PatKind::Struct(fs) => {
+                let fs: Vec<String> = fs.iter().map(|(n, p)| format!("{} = {}", n.name, show_pat(p))).collect();
+                format!("{{ {} }}", fs.join(", "))
+            }
+            PatKind::Or(alts) => alts.iter().map(show_pat).collect::<Vec<_>>().join(" | "),
+        }
+    }
+
+    fn show_arms(arms: &[Arm]) -> Vec<String> {
+        arms.iter().map(|a| {
+            let head = match &a.head {
+                Head::Else => "else".to_string(),
+                Head::Cond(c) => show(c),
+                Head::Pat(p) => show_pat(p),
+            };
+            match &a.body {
+                Body::Call(t) => format!("{head} -> {}", t.node),
+                Body::Switch(inner, _) => format!("{head} -> switch [{}]", show_arms(inner).join("; ")),
+            }
+        }).collect()
+    }
+
+    fn arms(src: &str) -> Vec<String> {
+        let f = parse(src).unwrap_or_else(|e| panic!("{e:?}"));
+        let Node::Proc(p) = &f.nodes[0] else { panic!() };
+        let EdgeKind::Match(arms) = &p.edges[0].kind else { panic!() };
+        show_arms(arms)
+    }
+
+    #[test]
+    fn parses_expressions_with_precedence() {
+        let got = arms(r#"proc P(A): int { A switch {
+            (a || b && !c == d) -> X(),
+            (1 + 2 * -x % 3 - y >= F(n = this.l, m = 2) + 1) -> X(),
+            ((p - 1) * 2 < 3) -> X(),
+            else -> X()
+        }; }"#);
+        assert_eq!(got, vec![
+            "(a || (b && ((!c) == d))) -> X",
+            "(((1 + ((2 * (-x)) % 3)) - y) >= (F(n = this.l, m = 2) + 1)) -> X",
+            "(((p - 1) * 2) < 3) -> X",
+            "else -> X",
+        ]);
+    }
+
+    #[test]
+    fn parses_patterns_and_nested_switches() {
+        let got = arms(r#"proc P(A): int { A switch {
+            Lit(n) -> switch { (n > 0) -> X(), else -> Y() },
+            Neg(Lit(_)) | Add({ l = _, r = Neg(e) }) -> X(),
+            Unit() -> X(),
+            other -> Y()
+        }; }"#);
+        assert_eq!(got, vec![
+            "Lit(n) -> switch [(n > 0) -> X; else -> Y]",
+            "Neg(Lit(_)) | Add({ l = _, r = Neg(e) }) -> X",
+            "Unit() -> X",
+            "other -> Y",
+        ]);
+    }
+
+    #[test]
+    fn slash_is_not_a_comment() {
+        let got = arms("proc P(A): int { A switch { (x / 2 > 0) -> X(), // comment\n else -> X() }; }");
+        assert_eq!(got[0], "((x / 2) > 0) -> X");
+    }
+
+    #[test]
+    fn minus_is_not_an_arrow() {
+        let got = arms("proc P(A): int { A switch { (x-1 > 0) -> X(i = this-1), else -> X() }; }");
+        assert_eq!(got[0], "((x - 1) > 0) -> X");
     }
 }

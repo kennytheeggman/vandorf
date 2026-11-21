@@ -45,7 +45,7 @@
 
 use super::types::{Shape, TyRef, TypeTable};
 use super::{Artifact, ImplUse, Output, Writer, dir_of, exported, gname, join_path, quote};
-use crate::sema::{Call, Edge, Expr, NodeId, NodeKind, Program, Ref, RegionId, Root};
+use crate::sema::{Arm, BinOp, Body, Call, Edge, Expr, NodeId, NodeKind, Pat, PatKind, Program, Ref, RegionId, Root, Test, UnOp};
 use crate::types::{Prim, Type};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
@@ -95,6 +95,8 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<Output, String> {
         coercions: HashMap::new(),
         helpers: vec![],
         stubs: BTreeSet::new(),
+        failed: None,
+        temps: 0,
     };
     g.check_names()?;
 
@@ -172,6 +174,9 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<Output, String> {
     let imports = vec![("context".to_string(), None), ("sync".to_string(), None)];
     files.insert("runtime_vandorf.go".into(), file(&body, imports));
 
+    if let Some(e) = g.failed.take() {
+        return Err(e);
+    }
     let impls = prog
         .nodes
         .iter()
@@ -276,6 +281,10 @@ struct Gen<'a> {
     coercions: HashMap<(String, String), String>,
     helpers: Vec<String>,
     stubs: BTreeSet<NodeId>,
+    /// Counter for temporaries holding call results in expressions.
+    temps: usize,
+    /// The first error found while writing an expression.
+    failed: Option<String>,
 }
 
 impl Gen<'_> {
@@ -504,6 +513,7 @@ impl Gen<'_> {
         let mut s = match r.root {
             Root::This => "this".to_string(),
             Root::Node(n) => format!("env.out{}", gname(self.prog, n)),
+            Root::Bind => bind_var(r.bind.as_deref().unwrap()),
         };
         // Go selects through pointers implicitly; only a boxed last field
         // needs dereferencing.
@@ -517,8 +527,10 @@ impl Gen<'_> {
         if boxed { format!("(*{s})") } else { s }
     }
 
-    /// `e` as a Go expression of type `want`.
-    fn value(&mut self, e: &Expr, want: &Type) -> String {
+    /// `e` as a Go expression of type `want`. Calls in `e` can fail, so
+    /// they're evaluated by statements written to `w` first, which return
+    /// from the enclosing function on error.
+    fn value(&mut self, w: &mut Writer, e: &Expr, want: &Type) -> String {
         let prog = self.prog;
         let defs = &prog.types;
         let boxed = |g: &Self, part: &str, v: String| match g.table.index(want) {
@@ -527,40 +539,97 @@ impl Gen<'_> {
         };
         match e {
             Expr::Ref(r) => self.coerce(&self.reference(r), &r.ty, want),
-            Expr::Int(i) => i.to_string(),
-            Expr::Float(f) => format!("{f:?}"),
-            Expr::Str(s) => quote(s),
-            Expr::Bool(b) => b.to_string(),
+            Expr::Call(c) => {
+                let v = self.own(w, e);
+                self.coerce(&v, prog.ret(c.target), want)
+            }
             Expr::Array(es) => {
                 let Type::Array(elem) = want.unfold(defs) else { unreachable!() };
-                let items: Vec<String> = es.iter().map(|e| self.value(e, elem)).collect();
+                let items: Vec<String> = es.iter().map(|e| self.value(w, e, elem)).collect();
                 format!("{}{{{}}}", self.go_type(want), items.join(", "))
             }
             Expr::Struct(fs) => {
-                let items: Vec<String> = fs
-                    .iter()
-                    .map(|(n, e)| {
-                        let v = self.value(e, want.field(n, defs).unwrap());
-                        format!("{}: {}", exported(n), boxed(self, n, v))
-                    })
-                    .collect();
+                let mut items = vec![];
+                for (n, e) in fs {
+                    let v = self.value(w, e, want.field(n, defs).unwrap());
+                    items.push(format!("{}: {}", exported(n), boxed(self, n, v)));
+                }
                 format!("{}{{{}}}", self.go_type(want), items.join(", "))
             }
             Expr::Variant { tag, payload } => {
                 let mut s = format!("{}{{Tag: {}", self.go_type(want), quote(tag));
                 if let Some(p) = payload {
-                    let v = self.value(p, want.variant(tag, defs).unwrap());
+                    let v = self.value(w, p, want.variant(tag, defs).unwrap());
                     write!(s, ", {}: {}", exported(tag), boxed(self, tag, v)).unwrap();
                 }
                 s + "}"
             }
+            // Primitives, whose Go types match whenever sema accepted them.
+            _ => self.own(w, e),
         }
     }
 
-    fn input(&mut self, c: &Call) -> String {
+    /// An expression that has its own type (not a struct, array or variant
+    /// literal), at that type.
+    fn own(&mut self, w: &mut Writer, e: &Expr) -> String {
+        let prog = self.prog;
+        match e {
+            Expr::Ref(r) => self.reference(r),
+            Expr::Int(i) => i.to_string(),
+            Expr::Float(f) => format!("{f:?}"),
+            Expr::Str(s) => quote(s),
+            Expr::Bool(b) => b.to_string(),
+            Expr::Unary(op, x) => {
+                let x = self.own(w, x);
+                format!("({}{x})", if *op == UnOp::Not { "!" } else { "-" })
+            }
+            Expr::Binary { op: op @ (BinOp::And | BinOp::Or), l, r, .. } if r.has_call() => {
+                // Keep short-circuiting: the right side's calls only run if needed.
+                let l = self.own(w, l);
+                let t = self.temp();
+                w.line(&format!("{t} := {l}"));
+                w.line(&if *op == BinOp::And { format!("if {t} {{") } else { format!("if !{t} {{") });
+                let r = self.own(w, r);
+                w.line(&format!("{t} = {r}"));
+                w.line("}");
+                t
+            }
+            Expr::Binary { op, l, r, .. } => {
+                let (l, r) = (self.own(w, l), self.own(w, r));
+                format!("({l} {} {r})", op.symbol())
+            }
+            Expr::Call(c) => {
+                let callee = self.callee(c.target).unwrap_or_else(|e| {
+                    // Reported by generate() once the expression is written.
+                    self.failed.get_or_insert(e);
+                    "unresolved".into()
+                });
+                let mut call = format!("{callee}(ctx");
+                for a in &c.args {
+                    let v = self.value(w, &a.value, &a.param);
+                    write!(call, ", {v}").unwrap();
+                }
+                call.push(')');
+                let t = self.temp();
+                w.line(&format!("{t}, err := {call}"));
+                w.line("if err != nil {");
+                w.line(&format!("return zero, fmt.Errorf({}, err)", quote(&format!("{}: %w", prog.node(c.target).qual_name()))));
+                w.line("}");
+                t
+            }
+            Expr::Struct(_) | Expr::Array(_) | Expr::Variant { .. } => unreachable!("literal without a type"),
+        }
+    }
+
+    fn temp(&mut self) -> String {
+        self.temps += 1;
+        format!("v{}", self.temps)
+    }
+
+    fn input(&mut self, w: &mut Writer, c: &Call) -> String {
         let mut parts = vec![];
         for a in &c.args {
-            let v = self.value(&a.value, &a.param);
+            let v = self.value(w, &a.value, &a.param);
             parts.push(format!("{}: {v}", exported(&a.name)));
         }
         format!("{}{{{}}}", self.in_type(c.target), parts.join(", "))
@@ -628,7 +697,7 @@ impl Gen<'_> {
             w.line(&format!("var zero {sink}"));
             w.line("this := elem");
             w.line("_ = this");
-            let input = self.input(call);
+            let input = self.input(w, call);
             w.line(&format!("env.in{} = {input}", gname(prog, region.entry)));
             w.line(&format!("pc := {}", pc_name(prog, pid, region.entry)));
             self.emit_loop(w, pid, r)?;
@@ -692,29 +761,7 @@ impl Gen<'_> {
         match edge {
             Edge::Call(c) => self.transition(w, pid, c),
             Edge::Collect(_) => w.line("return this, nil"),
-            Edge::Match(arms) => {
-                let is_enum = matches!(ret.unfold(&prog.types), Type::Enum(_));
-                w.line(if is_enum { "switch this.Tag {" } else { "switch {" });
-                for (cond, c) in arms {
-                    if cond == "else" {
-                        w.line("default:");
-                    } else if is_enum {
-                        if ret.variant(cond, &prog.types).is_none() {
-                            return Err(format!("{qual}: match arm {cond:?} is not a variant of {ret}"));
-                        }
-                        w.line(&format!("case {}:", quote(cond)));
-                    } else {
-                        // No expression grammar yet: the arm is a Go boolean
-                        // expression over `this`.
-                        w.line(&format!("case {cond}:"));
-                    }
-                    self.transition(w, pid, c);
-                }
-                w.line("}");
-                if !arms.iter().any(|(c, _)| c == "else") {
-                    w.line(&format!("return zero, fmt.Errorf({}, this)", quote(&format!("{qual}: no match arm for %v"))));
-                }
-            }
+            Edge::Match(arms) => self.emit_switch(w, pid, n, arms, true),
             Edge::ForEach { dim, .. } => {
                 let r = proc.graph.opens[&n];
                 let region = &proc.graph.regions[r];
@@ -742,12 +789,98 @@ impl Gen<'_> {
         Ok(())
     }
 
+    /// Arms in order; a transition ends with `continue`, so the first arm
+    /// that matches is taken. Sema checked that one always does.
+    fn emit_switch(&mut self, w: &mut Writer, pid: NodeId, n: NodeId, arms: &[Arm], top: bool) {
+        let qual = self.prog.node(n).qual_name();
+        let mut always = false;
+        for a in arms {
+            match &a.test {
+                Test::Else => {
+                    always = true;
+                    self.emit_body(w, pid, n, &a.body);
+                }
+                Test::Cond(c) => {
+                    w.line("{");
+                    let c = self.own(w, c);
+                    w.line(&format!("if {c} {{"));
+                    self.emit_body(w, pid, n, &a.body);
+                    w.line("}");
+                    w.line("}");
+                }
+                Test::Pat(p) => {
+                    let (mut tests, mut binds) = (vec![], vec![]);
+                    self.pat(p, "this", &mut tests, &mut binds);
+                    always = tests.is_empty();
+                    w.line(&if always { "{".to_string() } else { format!("if {} {{", tests.join(" && ")) });
+                    for (b, v) in binds {
+                        w.line(&format!("{} := {v}", bind_var(&b)));
+                        w.line(&format!("_ = {}", bind_var(&b)));
+                    }
+                    self.emit_body(w, pid, n, &a.body);
+                    w.line("}");
+                }
+            }
+        }
+        if top && !always {
+            w.line(&format!("return zero, fmt.Errorf({}, this)", quote(&format!("{qual}: no match arm for %v"))));
+        }
+    }
+
+    fn emit_body(&mut self, w: &mut Writer, pid: NodeId, n: NodeId, body: &Body) {
+        match body {
+            Body::Call(c) => self.transition(w, pid, c),
+            Body::Switch(arms) => self.emit_switch(w, pid, n, arms, false),
+        }
+    }
+
+    /// The tests matching `p` against the Go value `x` (in an order that
+    /// checks a tag before reading its payload) and the bindings' values.
+    fn pat(&self, p: &Pat, x: &str, tests: &mut Vec<String>, binds: &mut Vec<(String, String)>) {
+        let boxed = |part: &str| self.table.index(&p.ty).is_some_and(|i| self.table.is_boxed(i, part));
+        let part = |name: &str| {
+            let v = format!("{x}.{}", exported(name));
+            if boxed(name) { format!("(*{v})") } else { v }
+        };
+        match &p.kind {
+            PatKind::Wild => {}
+            PatKind::Bind(b) => binds.push((b.clone(), x.to_string())),
+            PatKind::Variant { tag, payload } => {
+                tests.push(format!("{x}.Tag == {}", quote(tag)));
+                if let Some(q) = payload {
+                    self.pat(q, &part(tag), tests, binds);
+                }
+            }
+            PatKind::Struct(fs) => {
+                for (f, q) in fs {
+                    self.pat(q, &part(f), tests, binds);
+                }
+            }
+            PatKind::Or(alts) => {
+                let alts: Vec<String> = alts
+                    .iter()
+                    .map(|a| {
+                        let mut t = vec![];
+                        self.pat(a, x, &mut t, &mut vec![]);
+                        if t.is_empty() { "true".to_string() } else { format!("({})", t.join(" && ")) }
+                    })
+                    .collect();
+                tests.push(format!("({})", alts.join(" || ")));
+            }
+        }
+    }
+
     fn transition(&mut self, w: &mut Writer, pid: NodeId, c: &Call) {
-        let input = self.input(c);
+        let input = self.input(w, c);
         w.line(&format!("env.in{} = {input}", gname(self.prog, c.target)));
         w.line(&format!("pc = {}", pc_name(self.prog, pid, c.target)));
         w.line("continue");
     }
+}
+
+/// The Go variable of a switch-arm binding.
+fn bind_var(name: &str) -> String {
+    format!("b_{name}")
 }
 
 fn pc_name(prog: &Program, pid: NodeId, n: NodeId) -> String {

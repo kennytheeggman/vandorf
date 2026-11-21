@@ -155,11 +155,34 @@ fn edge_targets(g: &Graph, src: NodeId) -> Vec<(EdgeType, NodeId, Option<String>
         }
         SEdge::Match(arms) => arms
             .iter()
-            .map(|(cond, c)| (EdgeType::Match, c.target, Some(cond.clone())))
+            .flat_map(|a| a.leaves())
+            .map(|(path, c)| {
+                // A nested switch's arms are flattened into one edge per call.
+                let label: Vec<String> = path.iter().map(|l| arm_label(l)).collect();
+                (EdgeType::Match, c.target, Some(label.join(" → ")))
+            })
             .collect(),
         SEdge::ForEach { call, .. } => vec![(EdgeType::ForEachExpand, call.target, None)],
         SEdge::Collect(c) => vec![(EdgeType::ForEachCollect, c.target, None)],
     }
+}
+
+/// An arm's head as written, without the parentheses around a condition.
+fn arm_label(s: &str) -> String {
+    let Some(inner) = s.strip_prefix('(').and_then(|s| s.strip_suffix(')')) else { return s.to_string() };
+    // Only if those two parentheses match each other: not `(a) || (b)`.
+    let mut depth = 0i32;
+    for c in inner.chars() {
+        depth += match c {
+            '(' => 1,
+            ')' => -1,
+            _ => 0,
+        };
+        if depth < 0 {
+            return s.to_string();
+        }
+    }
+    inner.trim().to_string()
 }
 
 fn layout(prog: &Program, pid: NodeId) -> Grid {

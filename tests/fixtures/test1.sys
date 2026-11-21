@@ -21,15 +21,15 @@ proc Bar(Start): string {
 
 	Start -> Loop(s = this);
 	Loop switch {
-		("this < 10") -> Loop(s = Start),
-		("else") -> ForEach(i = this)
+		(this < 10) -> Loop(s = Start),
+		else -> ForEach(i = this)
 	};
-	ForEach switch { 
-		("this == 0") -> Branch1(i = this),
-		("else") -> Branch2Begin(i = this)
+	ForEach switch {
+		(this == 0) -> Branch1(i = this),
+		else -> Branch2Begin(i = this)
 	};
 	Branch2Begin -> Foo.Call(s = this);
 	Foo.Call -> Branch2End(i = this);
-	Branch2End -> End(r = S(this));
+	Branch2End -> End(r = S());
 	Branch1 -> End(r = I(this));
 }

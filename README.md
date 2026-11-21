@@ -48,7 +48,45 @@ proc Calc(Build): int {
 
 Field, parameter and argument names may be keywords (`{ type: string }`).
 
+### Switches and expressions
 
+```
+Look switch {
+	Lit(n) -> switch {
+		(Small(i = n) && n % 2 == 0) -> Say(s = "small even"),
+		else -> Say(s = "literal")
+	},
+	Neg(Lit(_)) -> Say(s = "negated literal"),
+	Neg(e) -> Classify(e = e) as Inner,
+	Add({ l = Lit(_), r = Lit(_) }) -> Say(s = "sum of literals"),
+	Add(_) -> Say(s = "something else")
+};
+```
+
+A switch's arms are tried in order, and the first that matches is taken.
+They're either all patterns or all conditions; `else` may come last.
+
+- **Patterns** match structure, in the shape of the literal that builds
+  the value: `Tag(p)` (or `Tag()` for a variant without payload),
+  `{ f = p, g = p }` listing every field, `_`, a binding `x`, and `p | q`
+  (which can't bind yet). A pattern switch needs an `else` unless its arms
+  cover every value; missing cases are reported as patterns
+  (`doesn't cover Add({ l = Neg(_), r = _ })`), and arms that can't match
+  are errors.
+- **Conditions** are `(expr)` arms and need an `else`. A pattern arm can lead
+  to a nested `switch { (cond) -> .., else -> .. }` that sees its bindings;
+  nothing falls through to the outer switch.
+- **Expressions** are used for conditions and arguments alike:
+  `|| && ! == != < <= > >= + - * / %`, literals, and calls of funcs:
+  `F(param = value)`. A call in an expression runs the func's
+  implementation directly (it isn't a node). Operands of a binary operator
+  have the same primitive type (an int literal also passes as a float);
+  `+` concatenates strings. `&&` and `||` short-circuit, calls included.
+
+The diagram draws one edge per call a switch can end in, labelled with the
+arm heads on the way (`Lit(n) → else`).
+
+## Workbench
 
 `vandorf serve [--addr 127.0.0.1:8080] [--dir .]` serves an editor with live
 compile, the visualizer (in an iframe, or standalone at `/viz`), the generated
@@ -60,7 +98,7 @@ Each backend emits two artifacts:
 
 - **types**: a named type for every struct/enum shape (`codegen::types::TypeTable`:
   structurally equal types share one name, taken from where the shape first
-  appears, e.g. `ForEachStartOut`, `BarEndR`). Depends on nothing.
+  appears, e.g. `ForEachStartOut`, `MainStartOut`). Depends on nothing.
 - **code**: one state machine per proc. Depends on the types and the impls.
 
 | | types | code |

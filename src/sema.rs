@@ -6,6 +6,7 @@
 //! the code generator work from this.
 
 use crate::ast::{self, Span};
+pub use crate::ast::{BinOp, UnOp};
 use crate::types::{Prim, Type, TypeDef, TypeId};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -119,16 +120,87 @@ pub struct Region {
 #[derive(Debug, Clone)]
 pub enum Edge {
     Call(Call),
-    Match(Vec<(String, Call)>),
+    /// Arms in source order; the first that matches is taken. Sema checks
+    /// that some arm always matches.
+    Match(Vec<Arm>),
     ForEach { dim: Ref, call: Call },
     Collect(Call),
+}
+
+#[derive(Debug, Clone)]
+pub struct Arm {
+    pub test: Test,
+    /// The arm's head as written.
+    pub label: String,
+    pub body: Body,
+}
+
+#[derive(Debug, Clone)]
+pub enum Test {
+    Pat(Pat),
+    Cond(Expr),
+    Else,
+}
+
+#[derive(Debug, Clone)]
+pub enum Body {
+    Call(Call),
+    /// A switch of conditions, with the arm's bindings in scope.
+    Switch(Vec<Arm>),
+}
+
+/// A checked pattern; `ty` is the type of the value it matches.
+#[derive(Debug, Clone)]
+pub struct Pat {
+    pub kind: PatKind,
+    pub ty: Type,
+}
+
+#[derive(Debug, Clone)]
+pub enum PatKind {
+    Wild,
+    Bind(String),
+    /// `payload` is `None` for variants that carry void.
+    Variant { tag: String, payload: Option<Box<Pat>> },
+    /// Every field, in the type's order.
+    Struct(Vec<(String, Pat)>),
+    Or(Vec<Pat>),
+}
+
+impl Arm {
+    /// The calls this arm can end in, with the arm heads leading to each.
+    pub fn leaves(&self) -> Vec<(Vec<&str>, &Call)> {
+        match &self.body {
+            Body::Call(c) => vec![(vec![self.label.as_str()], c)],
+            Body::Switch(arms) => arms
+                .iter()
+                .flat_map(|a| a.leaves())
+                .map(|(mut path, c)| {
+                    path.insert(0, self.label.as_str());
+                    (path, c)
+                })
+                .collect(),
+        }
+    }
+
+    /// Conditions in this arm and the switches nested in it.
+    pub fn conds(&self) -> Vec<&Expr> {
+        let mut out = vec![];
+        if let Test::Cond(e) = &self.test {
+            out.push(e);
+        }
+        if let Body::Switch(arms) = &self.body {
+            out.extend(arms.iter().flat_map(|a| a.conds()));
+        }
+        out
+    }
 }
 
 impl Edge {
     pub fn calls(&self) -> Vec<&Call> {
         match self {
             Edge::Call(c) | Edge::Collect(c) | Edge::ForEach { call: c, .. } => vec![c],
-            Edge::Match(arms) => arms.iter().map(|(_, c)| c).collect(),
+            Edge::Match(arms) => arms.iter().flat_map(|a| a.leaves()).map(|(_, c)| c).collect(),
         }
     }
 }
@@ -163,6 +235,13 @@ pub enum Expr {
     /// All of the struct's fields, in the type's order.
     Struct(Vec<(String, Expr)>),
     Array(Vec<Expr>),
+    /// `!e` on a bool, `-e` on an int or float.
+    Unary(UnOp, Box<Expr>),
+    /// `operand` is the type of both operands; the result is bool for
+    /// comparisons and logic, `operand` otherwise.
+    Binary { op: BinOp, l: Box<Expr>, r: Box<Expr>, operand: Prim },
+    /// A func's implementation, called directly rather than as a node.
+    Call(Call),
 }
 
 impl Expr {
@@ -174,6 +253,25 @@ impl Expr {
             Expr::Variant { payload, .. } => payload.iter().for_each(|p| p.refs(out)),
             Expr::Struct(fs) => fs.iter().for_each(|(_, e)| e.refs(out)),
             Expr::Array(es) => es.iter().for_each(|e| e.refs(out)),
+            Expr::Unary(_, e) => e.refs(out),
+            Expr::Binary { l, r, .. } => {
+                l.refs(out);
+                r.refs(out);
+            }
+            Expr::Call(c) => c.args.iter().for_each(|a| a.value.refs(out)),
+        }
+    }
+
+    /// Whether evaluating this calls an implementation (which can fail).
+    pub fn has_call(&self) -> bool {
+        match self {
+            Expr::Call(_) => true,
+            Expr::Ref(_) | Expr::Int(_) | Expr::Float(_) | Expr::Str(_) | Expr::Bool(_) => false,
+            Expr::Variant { payload, .. } => payload.as_ref().is_some_and(|p| p.has_call()),
+            Expr::Struct(fs) => fs.iter().any(|(_, e)| e.has_call()),
+            Expr::Array(es) => es.iter().any(|e| e.has_call()),
+            Expr::Unary(_, e) => e.has_call(),
+            Expr::Binary { l, r, .. } => l.has_call() || r.has_call(),
         }
     }
 }
@@ -181,8 +279,10 @@ impl Expr {
 #[derive(Debug, Clone)]
 pub struct Ref {
     pub root: Root,
-    /// Type of the root (`this`, or the node's output).
+    /// Type of the root (`this`, the node's output, or the binding).
     pub root_ty: Type,
+    /// The binding's name, for [`Root::Bind`].
+    pub bind: Option<String>,
     pub fields: Vec<String>,
     pub ty: Type,
     pub span: Span,
@@ -193,6 +293,9 @@ pub enum Root {
     This,
     /// The output of a node that already ran.
     Node(NodeId),
+    /// A variant payload bound by a switch arm (`Lit(n) -> ..`); the name
+    /// is [`Ref::bind`].
+    Bind,
 }
 
 impl Program {
@@ -284,9 +387,21 @@ struct Cx<'a> {
 
 /// The targets of an edge.
 fn targets(k: &ast::EdgeKind) -> Vec<&ast::Target> {
+    fn arm_targets<'t>(arms: &'t [ast::Arm], out: &mut Vec<&'t ast::Target>) {
+        for a in arms {
+            match &a.body {
+                ast::Body::Call(t) => out.push(t),
+                ast::Body::Switch(inner, _) => arm_targets(inner, out),
+            }
+        }
+    }
     match k {
         ast::EdgeKind::Call(t) | ast::EdgeKind::Collect { target: t, .. } | ast::EdgeKind::ForEach { target: t, .. } => vec![t],
-        ast::EdgeKind::Match(arms) => arms.iter().map(|a| &a.target).collect(),
+        ast::EdgeKind::Match(arms) => {
+            let mut out = vec![];
+            arm_targets(arms, &mut out);
+            out
+        }
     }
 }
 
@@ -584,12 +699,15 @@ impl<'a> Cx<'a> {
         Ok(n)
     }
 
-    fn reference(&self, pid: NodeId, path: &ast::Path, this: &Type) -> Result<Ref, Error> {
-        let (root, mut ty, rest) = if path.segs[0].name == "this" {
-            (Root::This, this.clone(), &path.segs[1..])
+    fn reference(&self, pid: NodeId, path: &ast::Path, sc: &Scope) -> Result<Ref, Error> {
+        let first = &path.segs[0].name;
+        let (root, mut ty, rest, bind) = if first == "this" {
+            (Root::This, sc.this.clone(), &path.segs[1..], None)
+        } else if let Some((_, t)) = sc.binds.iter().find(|(n, _)| n == first) {
+            (Root::Bind, t.clone(), &path.segs[1..], Some(first.clone()))
         } else {
             let (n, rest) = self.resolve(pid, path)?;
-            (Root::Node(n), self.prog.ret(n).clone(), rest)
+            (Root::Node(n), self.prog.ret(n).clone(), rest, None)
         };
         let root_ty = ty.clone();
         let mut fields = vec![];
@@ -600,43 +718,30 @@ impl<'a> Cx<'a> {
             };
             fields.push(f.name.clone());
         }
-        Ok(Ref { root, root_ty, fields, ty, span: path.span })
+        Ok(Ref { root, root_ty, bind, fields, ty, span: path.span })
     }
 
-    /// Checks `v` against the type it's passed as.
-    fn value(&self, pid: NodeId, v: &ast::Value, want: &Type, this: &Type) -> Result<Expr, Error> {
+    /// Checks `v` against the type it's passed as. Literals of structs,
+    /// arrays and variants take their type from `want`; anything else
+    /// computes its own type, which `want` must accept.
+    fn check(&self, pid: NodeId, v: &ast::Value, want: &Type, sc: &Scope) -> Result<Expr, Error> {
         use ast::ValueKind as V;
         let defs = &self.prog.types;
         let shape = want.unfold(defs);
         let mismatch = |found: &str| err(v.span, format!("expected {want}, found {found}"));
         Ok(match &v.kind {
-            V::Ref(p) => {
-                let r = self.reference(pid, p, this)?;
-                if !want.accepts(&r.ty, defs) {
-                    return err(p.span, format!("{p} has type {}, but {want} is expected", r.ty));
+            V::Int(i) if matches!(shape, Type::Prim(Prim::Float)) => Expr::Float(*i as f64),
+            V::Int(_) | V::Float(_) | V::Str(_) | V::Bool(_) => {
+                let (e, t) = self.synth(pid, v, sc)?;
+                if !want.accepts(&t, defs) {
+                    let article = if matches!(v.kind, V::Int(_)) { "an" } else { "a" };
+                    return mismatch(&format!("{article} {t} literal"));
                 }
-                Expr::Ref(r)
+                e
             }
-            V::Int(i) => match shape {
-                Type::Prim(Prim::Int) => Expr::Int(*i),
-                Type::Prim(Prim::Float) => Expr::Float(*i as f64),
-                _ => return mismatch("an int literal"),
-            },
-            V::Float(f) => match shape {
-                Type::Prim(Prim::Float) => Expr::Float(*f),
-                _ => return mismatch("a float literal"),
-            },
-            V::Str(s) => match shape {
-                Type::Prim(Prim::String) => Expr::Str(s.clone()),
-                _ => return mismatch("a string literal"),
-            },
-            V::Bool(b) => match shape {
-                Type::Prim(Prim::Bool) => Expr::Bool(*b),
-                _ => return mismatch("a bool literal"),
-            },
             V::Array(items) => {
                 let Type::Array(elem) = shape else { return mismatch("an array literal") };
-                Expr::Array(items.iter().map(|i| self.value(pid, i, elem, this)).collect::<Result<_, _>>()?)
+                Expr::Array(items.iter().map(|i| self.check(pid, i, elem, sc)).collect::<Result<_, _>>()?)
             }
             V::Struct(args) => {
                 let Type::Struct(fs) = shape else { return mismatch("a struct literal") };
@@ -645,7 +750,7 @@ impl<'a> Cx<'a> {
                     let Some((_, ft)) = fs.iter().find(|(n, _)| *n == a.name.name) else {
                         return err(a.name.span, format!("{want} has no field {}", a.name.name));
                     };
-                    let e = self.value(pid, &a.value, ft, this)?;
+                    let e = self.check(pid, &a.value, ft, sc)?;
                     if given.insert(&a.name.name, e).is_some() {
                         return err(a.name.span, format!("field {} given twice", a.name.name));
                     }
@@ -659,22 +764,148 @@ impl<'a> Cx<'a> {
                 }
                 Expr::Struct(out)
             }
-            V::Variant { tag, payload } => {
-                let Type::Enum(_) = shape else { return mismatch(&format!("variant {}", tag.name)) };
-                let Some(vty) = want.variant(&tag.name, defs) else {
-                    return err(tag.span, format!("{want} has no variant {}", tag.name));
-                };
-                let payload = match payload {
-                    None if vty.is_void() => None,
-                    None => return err(v.span, format!("variant {} carries {vty}; write {}(value)", tag.name, tag.name)),
-                    // `S(this)` with a void `this` is allowed, and carries nothing.
-                    Some(p) => {
-                        let e = self.value(pid, p, vty, this)?;
+            // `Tag(..)` where an enum with that variant is expected.
+            V::Apply { name, args } if name.segs.len() == 1 && want.variant(&name.segs[0].name, defs).is_some() => {
+                let tag = &name.segs[0];
+                let vty = want.variant(&tag.name, defs).unwrap();
+                if let Some(a) = args.iter().find_map(|a| a.name.as_ref()) {
+                    return err(a.span, format!("variant {} takes its payload without a name: {}(value)", tag.name, tag.name));
+                }
+                let payload = match args.as_slice() {
+                    [] if vty.is_void() => None,
+                    [] => return err(v.span, format!("variant {} carries {vty}; write {}(value)", tag.name, tag.name)),
+                    [p] => {
+                        let e = self.check(pid, &p.value, vty, sc)?;
+                        // `S(this)` with a void `this` is allowed, and carries nothing.
                         (!vty.is_void()).then(|| Box::new(e))
                     }
+                    _ => return err(v.span, format!("variant {} takes one payload", tag.name)),
                 };
                 Expr::Variant { tag: tag.name.clone(), payload }
             }
+            V::Apply { name, .. } if name.segs.len() == 1 && matches!(shape, Type::Enum(_)) && self.resolve(pid, name).is_err() => {
+                return err(name.span, format!("{want} has no variant {}", name.segs[0].name));
+            }
+            _ => {
+                let (e, t) = self.synth(pid, v, sc)?;
+                if !want.accepts(&t, defs) {
+                    let what = match &v.kind {
+                        V::Ref(p) => p.to_string(),
+                        _ => "this expression".into(),
+                    };
+                    return err(v.span, format!("{what} has type {t}, but {want} is expected"));
+                }
+                e
+            }
+        })
+    }
+
+    /// An expression's own type, for those that have one.
+    fn synth(&self, pid: NodeId, v: &ast::Value, sc: &Scope) -> Result<(Expr, Type), Error> {
+        use ast::ValueKind as V;
+        let defs = &self.prog.types;
+        let prim = |p| Type::Prim(p);
+        Ok(match &v.kind {
+            V::Ref(p) => {
+                let r = self.reference(pid, p, sc)?;
+                let t = r.ty.clone();
+                (Expr::Ref(r), t)
+            }
+            V::Int(i) => (Expr::Int(*i), prim(Prim::Int)),
+            V::Float(f) => (Expr::Float(*f), prim(Prim::Float)),
+            V::Str(s) => (Expr::Str(s.clone()), prim(Prim::String)),
+            V::Bool(b) => (Expr::Bool(*b), prim(Prim::Bool)),
+            V::Struct(_) | V::Array(_) => {
+                return err(v.span, "the type of this literal isn't known here; it can only be passed where a type is expected");
+            }
+            V::Apply { name, args } => {
+                let target = match self.resolve_node(pid, name) {
+                    Ok(n) => n,
+                    Err(_) if name.segs.len() == 1 => {
+                        return err(name.span, format!("{name} is neither a func nor a variant of the expected type"));
+                    }
+                    Err(e) => return Err(e),
+                };
+                if !matches!(self.prog.nodes[target].kind, NodeKind::Func(_)) {
+                    return err(name.span, format!("{name} is not a func; only funcs can be called in expressions"));
+                }
+                if self.prog.ret(target).is_void() {
+                    return err(name.span, format!("{name} returns nothing, so it can't be used as a value"));
+                }
+                let mut named = vec![];
+                for a in args {
+                    match &a.name {
+                        Some(n) => named.push((n, &a.value)),
+                        None => return err(a.value.span, format!("arguments of {name} need names: {name}(param = value)")),
+                    }
+                }
+                let call = self.args(pid, target, &named, name.span, sc)?;
+                (Expr::Call(call), self.prog.ret(target).clone())
+            }
+            V::Unary(op, e) => match op {
+                UnOp::Not => (Expr::Unary(*op, Box::new(self.check(pid, e, &prim(Prim::Bool), sc)?)), prim(Prim::Bool)),
+                UnOp::Neg => {
+                    let (x, t) = self.synth(pid, e, sc)?;
+                    match t.unfold(defs) {
+                        Type::Prim(p @ (Prim::Int | Prim::Float)) => (Expr::Unary(*op, Box::new(x)), prim(*p)),
+                        _ => return err(e.span, format!("- needs an int or float, found {t}")),
+                    }
+                }
+            },
+            V::Binary(op @ (BinOp::And | BinOp::Or), l, r) => {
+                let b = prim(Prim::Bool);
+                let (l, r) = (self.check(pid, l, &b, sc)?, self.check(pid, r, &b, sc)?);
+                (Expr::Binary { op: *op, l: Box::new(l), r: Box::new(r), operand: Prim::Bool }, b)
+            }
+            V::Binary(op, lv, rv) => {
+                let (mut l, lt) = self.synth(pid, lv, sc)?;
+                let (mut r, rt) = self.synth(pid, rv, sc)?;
+                let as_prim = |t: &Type| match t.unfold(defs) {
+                    Type::Prim(p) => Some(*p),
+                    _ => None,
+                };
+                let (mut lp, mut rp) = (as_prim(&lt), as_prim(&rt));
+                // An int literal next to a float is a float.
+                if let (Expr::Int(i), Some(Prim::Int), Some(Prim::Float)) = (&l, lp, rp) {
+                    (l, lp) = (Expr::Float(*i as f64), Some(Prim::Float));
+                }
+                if let (Expr::Int(i), Some(Prim::Float), Some(Prim::Int)) = (&r, lp, rp) {
+                    (r, rp) = (Expr::Float(*i as f64), Some(Prim::Float));
+                }
+                use Prim::{Bool, Float, Int, String as Str};
+                let ok: &[Prim] = match op {
+                    BinOp::Add => &[Int, Float, Str],
+                    BinOp::Sub | BinOp::Mul | BinOp::Div => &[Int, Float],
+                    BinOp::Rem => &[Int],
+                    BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => &[Int, Float, Str],
+                    BinOp::Eq | BinOp::Ne => &[Int, Float, Str, Bool],
+                    BinOp::And | BinOp::Or => unreachable!(),
+                };
+                let operand = match (lp, rp) {
+                    (Some(a), Some(b)) if a == b && ok.contains(&a) => a,
+                    _ => {
+                        let allowed: Vec<String> = ok.iter().map(|p| prim(*p).to_string()).collect();
+                        return err(v.span, format!(
+                            "{} needs two operands of the same type ({}), found {lt} and {rt}",
+                            op.symbol(), allowed.join(", "),
+                        ));
+                    }
+                };
+                let cmp = matches!(op, BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge);
+                let t = if cmp { prim(Prim::Bool) } else { prim(operand) };
+                (Expr::Binary { op: *op, l: Box::new(l), r: Box::new(r), operand }, t)
+            }
+        })
+    }
+
+    /// A bool condition or guard.
+    fn cond(&self, pid: NodeId, v: &ast::Value, sc: &Scope) -> Result<Expr, Error> {
+        if let ast::ValueKind::Str(s) = &v.kind {
+            return err(v.span, format!("conditions are expressions now: write ({s}), without quotes"));
+        }
+        self.check(pid, v, &Type::Prim(Prim::Bool), sc).map_err(|mut e| {
+            e.msg = format!("condition: {}", e.msg);
+            e
         })
     }
 
@@ -686,31 +917,184 @@ impl<'a> Cx<'a> {
         }
     }
 
-    fn call(&self, pid: NodeId, t: &ast::Target, this: &Type) -> Result<Call, Error> {
+    fn call(&self, pid: NodeId, t: &ast::Target, sc: &Scope) -> Result<Call, Error> {
         let target = self.target(pid, t)?;
+        let named: Vec<(&ast::Ident, &ast::Value)> = t.args.iter().map(|a| (&a.name, &a.value)).collect();
+        self.args(pid, target, &named, t.node.span, sc)
+    }
+
+    /// Checks named arguments against `target`'s parameters.
+    fn args(&self, pid: NodeId, target: NodeId, given: &[(&ast::Ident, &ast::Value)], span: Span, sc: &Scope) -> Result<Call, Error> {
         let tname = self.prog.nodes[target].qual_name();
         let params = self.prog.params(target);
-        let mut given: HashMap<&str, (&ast::Arg, Expr)> = HashMap::new();
-        for a in &t.args {
-            let Some((_, pty)) = params.iter().find(|(n, _)| *n == a.name.name) else {
-                return err(a.name.span, format!("{tname} has no parameter {}", a.name.name));
+        let mut seen: HashMap<&str, Expr> = HashMap::new();
+        for (name, value) in given {
+            let Some((_, pty)) = params.iter().find(|(n, _)| *n == name.name) else {
+                return err(name.span, format!("{tname} has no parameter {}", name.name));
             };
-            let value = self.value(pid, &a.value, pty, this).map_err(|mut e| {
-                e.msg = format!("argument {} of {tname}: {}", a.name.name, e.msg);
+            let e = self.check(pid, value, pty, sc).map_err(|mut e| {
+                e.msg = format!("argument {} of {tname}: {}", name.name, e.msg);
                 e
             })?;
-            if given.insert(&a.name.name, (a, value)).is_some() {
-                return err(a.name.span, format!("argument {} given twice", a.name.name));
+            if seen.insert(&name.name, e).is_some() {
+                return err(name.span, format!("argument {} given twice", name.name));
             }
         }
         let mut args = vec![];
         for (name, pty) in params {
-            match given.remove(name.as_str()) {
-                Some((_, value)) => args.push(CallArg { name: name.clone(), param: pty.clone(), value }),
-                None => return err(t.node.span, format!("call to {tname} is missing argument {name}")),
+            match seen.remove(name.as_str()) {
+                Some(value) => args.push(CallArg { name: name.clone(), param: pty.clone(), value }),
+                None => return err(span, format!("call to {tname} is missing argument {name}")),
             }
         }
-        Ok(Call { target, args, span: t.node.span })
+        Ok(Call { target, args, span })
+    }
+
+    /// A switch: arms in order, the first that matches taken. Its arms are
+    /// all patterns or all conditions; either way `else` may come last. A
+    /// pattern arm may lead to a nested switch of conditions, which sees
+    /// the arm's bindings. Some arm always matches: a switch of conditions
+    /// ends in `else`, and a pattern switch has an `else` or covers every
+    /// value.
+    /// `sc.this` is the value matched: the source's output.
+    fn switch(&self, pid: NodeId, src: &ast::Path, arms: &[ast::Arm], span: Span, sc: &Scope, nested: bool) -> Result<Vec<Arm>, Error> {
+        let ret = sc.this;
+        let defs = &self.prog.types;
+        let patterns = arms.iter().find(|a| matches!(a.head, ast::Head::Pat(_)));
+        let conds = arms.iter().find(|a| matches!(a.head, ast::Head::Cond(_)));
+        if let Some(p) = patterns {
+            if nested {
+                return err(p.span, "a nested switch has nothing new to match, so its arms are conditions: (expr) -> ..");
+            }
+            if let Some(c) = conds {
+                return err(c.span, format!(
+                    "this switch matches patterns (like {}), so its arms can't be conditions; put conditions in a switch under a pattern arm: Pat -> switch {{ (cond) -> .., else -> .. }}",
+                    p.label,
+                ));
+            }
+        }
+        let mut out: Vec<Arm> = vec![];
+        for (i, a) in arms.iter().enumerate() {
+            if matches!(a.head, ast::Head::Else) && i + 1 < arms.len() {
+                return err(arms[i + 1].span, "this arm comes after else, so it's never taken");
+            }
+            let mut sc = Scope { this: sc.this, binds: sc.binds.clone() };
+            let test = match &a.head {
+                ast::Head::Else => Test::Else,
+                ast::Head::Cond(c) => Test::Cond(self.cond(pid, c, &sc)?),
+                ast::Head::Pat(p) => {
+                    let mut binds = vec![];
+                    let pat = self.pat(pid, p, ret, &mut binds)?;
+                    sc.binds.extend(binds);
+                    Test::Pat(pat)
+                }
+            };
+            let body = match &a.body {
+                ast::Body::Call(t) => Body::Call(self.call(pid, t, &sc)?),
+                ast::Body::Switch(inner, ispan) => Body::Switch(self.switch(pid, src, inner, *ispan, &sc, true)?),
+            };
+            out.push(Arm { test, label: a.label.clone(), body });
+        }
+        let has_else = matches!(out.last().map(|a| &a.test), Some(Test::Else));
+        if patterns.is_none() {
+            if !has_else {
+                return err(span, format!("this switch on {src} needs an else arm, taken when no condition holds"));
+            }
+            return Ok(out);
+        }
+        let pats: Vec<&Pat> = out.iter().filter_map(|a| match &a.test {
+            Test::Pat(p) => Some(p),
+            _ => None,
+        }).collect();
+        if let Some(i) = crate::exhaust::unreachable(&pats, ret, defs) {
+            return err(arms[i].span, "this arm is never taken: the arms above already match everything it does");
+        }
+        match crate::exhaust::missing(&pats, ret, defs) {
+            Some(w) if !has_else => err(span, format!("switch on {src} doesn't cover {w}; add an arm for it, or an else")),
+            None if has_else => err(arms.last().unwrap().span, "else is never taken: the arms above cover every case"),
+            _ => Ok(out),
+        }
+    }
+
+    /// Checks pattern `p` against the type of the value it matches,
+    /// collecting its bindings.
+    fn pat(&self, pid: NodeId, p: &ast::Pat, want: &Type, binds: &mut Vec<(String, Type)>) -> Result<Pat, Error> {
+        use ast::PatKind as K;
+        let defs = &self.prog.types;
+        let kind = match &p.kind {
+            K::Wild => PatKind::Wild,
+            K::Bind(b) => {
+                if let Some(v) = want.variant(&b.name, defs) {
+                    let fix = if v.is_void() { format!("{}()", b.name) } else { format!("{}(_)", b.name) };
+                    return err(b.span, format!("{} is a variant of {want}; write {fix} to match it", b.name));
+                }
+                self.check_binding(pid, b)?;
+                if binds.iter().any(|(n, _)| *n == b.name) {
+                    return err(b.span, format!("{} is bound twice in this pattern", b.name));
+                }
+                binds.push((b.name.clone(), want.clone()));
+                PatKind::Bind(b.name.clone())
+            }
+            K::Variant { tag, payload } => {
+                if !matches!(want.unfold(defs), Type::Enum(_)) {
+                    return err(tag.span, format!("this matches a {want}, which isn't an enum, so {}(..) can't match it", tag.name));
+                }
+                let Some(vty) = want.variant(&tag.name, defs) else {
+                    return err(tag.span, format!("{want} has no variant {}", tag.name));
+                };
+                let payload = match payload {
+                    None if vty.is_void() => None,
+                    None => return err(p.span, format!("{} carries {vty}; write {}(_) to ignore it", tag.name, tag.name)),
+                    Some(q) if vty.is_void() => return err(q.span, format!("{} carries nothing; write {}()", tag.name, tag.name)),
+                    Some(q) => Some(Box::new(self.pat(pid, q, vty, binds)?)),
+                };
+                PatKind::Variant { tag: tag.name.clone(), payload }
+            }
+            K::Struct(fields) => {
+                let Type::Struct(fs) = want.unfold(defs) else {
+                    return err(p.span, format!("this matches a {want}, which isn't a struct"));
+                };
+                let mut given: HashMap<&str, Pat> = HashMap::new();
+                for (n, q) in fields {
+                    let Some((_, ft)) = fs.iter().find(|(f, _)| *f == n.name) else {
+                        return err(n.span, format!("{want} has no field {}", n.name));
+                    };
+                    let q = self.pat(pid, q, ft, binds)?;
+                    if given.insert(&n.name, q).is_some() {
+                        return err(n.span, format!("field {} given twice", n.name));
+                    }
+                }
+                let mut out = vec![];
+                for (n, _) in fs {
+                    match given.remove(n.as_str()) {
+                        Some(q) => out.push((n.clone(), q)),
+                        None => return err(p.span, format!("struct pattern is missing field {n} of {want}; write {n} = _ to ignore it")),
+                    }
+                }
+                PatKind::Struct(out)
+            }
+            K::Or(alts) => {
+                let mut out = vec![];
+                for a in alts {
+                    let mut inner = vec![];
+                    out.push(self.pat(pid, a, want, &mut inner)?);
+                    if let Some((n, _)) = inner.first() {
+                        return err(a.span, format!("or-patterns can't bind names yet ({n})"));
+                    }
+                }
+                PatKind::Or(out)
+            }
+        };
+        Ok(Pat { kind, ty: want.clone() })
+    }
+
+    /// Bindings can't hide nodes or `this`.
+    fn check_binding(&self, pid: NodeId, b: &ast::Ident) -> Result<(), Error> {
+        let path = ast::Path { segs: vec![b.clone()], span: b.span };
+        if b.name == "this" || self.resolve(pid, &path).is_ok() {
+            return err(b.span, format!("binding {} hides a node or this; pick another name", b.name));
+        }
+        Ok(())
     }
 
     fn build_graph(&mut self, pid: NodeId, p: &ast::Proc) -> Result<(), Error> {
@@ -719,21 +1103,17 @@ impl<'a> Cx<'a> {
             let src = self.resolve_node(pid, &e.source)?;
             let ret = self.prog.ret(src).clone();
             let edge = match &e.kind {
-                ast::EdgeKind::Call(t) => Edge::Call(self.call(pid, t, &ret)?),
-                ast::EdgeKind::Match(arms) => Edge::Match(
-                    arms.iter()
-                        .map(|a| Ok((a.cond.clone(), self.call(pid, &a.target, &ret)?)))
-                        .collect::<Result<_, Error>>()?,
-                ),
+                ast::EdgeKind::Call(t) => Edge::Call(self.call(pid, t, &Scope::this(&ret))?),
+                ast::EdgeKind::Match(arms) => Edge::Match(self.switch(pid, &e.source, arms, e.span, &Scope::this(&ret), false)?),
                 ast::EdgeKind::Collect { target, .. } => {
-                    Edge::Collect(self.call(pid, target, &Type::Array(Box::new(ret)))?)
+                    Edge::Collect(self.call(pid, target, &Scope::this(&Type::Array(Box::new(ret))))?)
                 }
                 ast::EdgeKind::ForEach { dim, target } => {
-                    let dim = self.reference(pid, dim, &ret)?;
+                    let dim = self.reference(pid, dim, &Scope::this(&ret))?;
                     let Type::Array(elem) = dim.ty.unfold(&self.prog.types) else {
                         return err(dim.span, format!("for each needs an array, found {}", dim.ty));
                     };
-                    let call = self.call(pid, target, elem)?;
+                    let call = self.call(pid, target, &Scope::this(elem))?;
                     Edge::ForEach { dim, call }
                 }
             };
@@ -776,7 +1156,7 @@ impl<'a> Cx<'a> {
             };
             match &edge {
                 Edge::Call(c) => work.push(c.target),
-                Edge::Match(arms) => work.extend(arms.iter().map(|(_, c)| c.target)),
+                Edge::Match(arms) => work.extend(arms.iter().flat_map(|a| a.leaves()).map(|(_, c)| c.target)),
                 Edge::Collect(c) => {
                     if r == 0 {
                         return err(c.span, format!("{} collects outside of any for each", name(n)));
@@ -815,7 +1195,7 @@ impl<'a> Cx<'a> {
             set
         };
         let check = |scope: RegionId, r: &Ref| -> Result<(), Error> {
-            let Root::Node(n) = r.root else { return Ok(()) };
+            let Root::Node(n) = r.root else { return Ok(()) }; // this and bindings are always in scope
             match g.region_of.get(&n) {
                 Some(nr) if ancestors(scope).contains(nr) => Ok(()),
                 Some(_) => err(r.span, format!("{} runs inside a for each region, so its output is not visible here", self.prog.nodes[n].qual_name())),
@@ -832,14 +1212,19 @@ impl<'a> Cx<'a> {
                 Edge::Collect(_) => g.regions[r].parent.unwrap(),
                 _ => r,
             };
+            let mut refs = vec![];
             for c in edge.calls() {
                 for a in &c.args {
-                    let mut refs = vec![];
                     a.value.refs(&mut refs);
-                    for r in refs {
-                        check(scope, r)?;
-                    }
                 }
+            }
+            if let Edge::Match(arms) = edge {
+                for e in arms.iter().flat_map(|a| a.conds()) {
+                    e.refs(&mut refs);
+                }
+            }
+            for r in refs {
+                check(scope, r)?;
             }
         }
         let want = &self.prog.proc(pid).ret;
@@ -852,6 +1237,19 @@ impl<'a> Cx<'a> {
             }
         }
         Ok(())
+    }
+}
+
+/// What names other than nodes mean in an expression.
+struct Scope<'t> {
+    this: &'t Type,
+    /// Switch-arm bindings.
+    binds: Vec<(String, Type)>,
+}
+
+impl Scope<'_> {
+    fn this(this: &Type) -> Scope<'_> {
+        Scope { this, binds: vec![] }
     }
 }
 

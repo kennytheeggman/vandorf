@@ -127,7 +127,7 @@ if (window.CodeMirror && CodeMirror.defineSimpleMode){
   CodeMirror.defineSimpleMode('vandorf', { start: [
     { regex: /\/\/.*/, token: 'comment' },
     { regex: /"(?:[^\\"]|\\.)*"/, token: 'string' },
-    { regex: /\b(?:interface|func|proc|enum|switch|collect|for|each|as|type)\b/, token: 'keyword' },
+    { regex: /\b(?:interface|func|proc|enum|switch|collect|for|each|as|type|else)\b/, token: 'keyword' },
     { regex: /\b(?:true|false)\b|-?\b\d+(?:\.\d+)?\b/, token: 'number' },
     { regex: /\b(?:int|float|bool|string|void)\b/, token: 'type' },
     { regex: /\bthis\b/, token: 'keyword' },

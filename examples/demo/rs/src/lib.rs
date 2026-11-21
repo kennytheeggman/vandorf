@@ -30,4 +30,24 @@ mod tests {
         // typedefs, an alias and literals: 5 + 10 + 100
         assert_eq!(app::run_calc(3).unwrap(), 115);
     }
+
+    #[test]
+    fn classify() {
+        use app::types::{Expr, ExprAdd};
+        let lit = |i| Expr::Lit(i);
+        let neg = |e| Expr::Neg(Box::new(e));
+        let add = |l, r| Expr::Add(Box::new(ExprAdd { l: Box::new(l), r: Box::new(r) }));
+        for (e, want) in [
+            (lit(4), "small even"),
+            (lit(3), "literal"),
+            (lit(400), "literal"),
+            (neg(lit(1)), "negated literal"),
+            (neg(neg(lit(1))), "minus negated literal"),
+            (neg(neg(neg(lit(1)))), "minus minus negated literal"),
+            (add(lit(1), lit(2)), "sum of literals"),
+            (add(lit(1), neg(lit(2))), "something else"),
+        ] {
+            assert_eq!(app::run_classify(e.clone()).unwrap(), want, "{e:?}");
+        }
+    }
 }

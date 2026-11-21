@@ -7,6 +7,7 @@
 pub mod ast;
 pub mod codegen;
 pub mod document;
+mod exhaust;
 pub mod parser;
 pub mod sema;
 pub mod types;
