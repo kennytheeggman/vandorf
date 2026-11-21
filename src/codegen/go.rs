@@ -45,7 +45,7 @@
 
 use super::types::{Shape, TyRef, TypeTable};
 use super::{Artifact, ImplUse, Output, Writer, dir_of, exported, gname, join_path, quote};
-use crate::sema::{Arm, BinOp, Body, Call, Edge, Expr, NodeId, NodeKind, Pat, PatKind, Program, Ref, RegionId, Root, Test, UnOp};
+use crate::sema::{Arm, BinOp, Body, Call, Edge, Expr, NodeId, NodeKind, Pat, PatKind, Program, Query, Ref, RegionId, Root, Test, UnOp};
 use crate::types::{Prim, Type};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
@@ -97,6 +97,7 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<Output, String> {
         stubs: BTreeSet::new(),
         failed: None,
         temps: 0,
+        proc_name: String::new(),
     };
     g.check_names()?;
 
@@ -171,7 +172,7 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<Output, String> {
         body.push('\n');
         body.push_str(h);
     }
-    let imports = vec![("context".to_string(), None), ("sync".to_string(), None)];
+    let imports = ["cmp", "context", "fmt", "slices", "sync"].iter().map(|i| (i.to_string(), None)).collect();
     files.insert("runtime_vandorf.go".into(), file(&body, imports));
 
     if let Some(e) = g.failed.take() {
@@ -283,6 +284,8 @@ struct Gen<'a> {
     stubs: BTreeSet<NodeId>,
     /// Counter for temporaries holding call results in expressions.
     temps: usize,
+    /// The proc being written, for error messages.
+    proc_name: String,
     /// The first error found while writing an expression.
     failed: Option<String>,
 }
@@ -433,6 +436,7 @@ impl Gen<'_> {
             }
             .into(),
             TyRef::Array(e) => format!("[]{}", self.render(e, qual)),
+            TyRef::Map(k, v) => format!("map[{}]{}", self.render(k, qual), self.render(v, qual)),
             TyRef::Named(i) => format!("{qual}{}", self.table.types[*i].name),
         }
     }
@@ -481,6 +485,13 @@ impl Gen<'_> {
                 w.line("for i := range v {");
                 let e = self.coerce("v[i]", f, t);
                 w.line(&format!("r[i] = {e}"));
+                w.line("}");
+            }
+            (Type::Map(_, f), Type::Map(_, t)) => {
+                w.line(&format!("r = make({dst}, len(v))"));
+                w.line("for k, x := range v {");
+                let e = self.coerce("x", f, t);
+                w.line(&format!("r[k] = {e}"));
                 w.line("}");
             }
             (Type::Struct(_), Type::Struct(tfs)) => {
@@ -548,6 +559,38 @@ impl Gen<'_> {
                 let items: Vec<String> = es.iter().map(|e| self.value(w, e, elem)).collect();
                 format!("{}{{{}}}", self.go_type(want), items.join(", "))
             }
+            Expr::Map(kvs) => {
+                let Type::Map(kt, vt) = want.unfold(defs) else { unreachable!() };
+                let mut items = vec![];
+                for (k, v) in kvs {
+                    let k = self.value(w, k, kt);
+                    let v = self.value(w, v, vt);
+                    items.push(format!("{k}: {v}"));
+                }
+                format!("{}{{{}}}", self.go_type(want), items.join(", "))
+            }
+            Expr::Index { ty, .. } => {
+                let v = self.own(w, e);
+                let vt = match ty.unfold(defs) {
+                    Type::Map(_, v) | Type::Array(v) => v,
+                    _ => unreachable!(),
+                };
+                self.coerce(&v, vt, want)
+            }
+            Expr::Field { ty, name, .. } => {
+                let v = self.own(w, e);
+                self.coerce(&v, ty.field(name, defs).unwrap(), want)
+            }
+            Expr::Merge { ty, .. } | Expr::Remove { ty, .. } => {
+                let v = self.own(w, e);
+                self.coerce(&v, ty, want)
+            }
+            Expr::Query { ty, q: q @ (Query::Keys | Query::Values), .. } => {
+                let v = self.own(w, e);
+                let Type::Map(k, v_) = ty.unfold(defs) else { unreachable!() };
+                let item = if *q == Query::Keys { k } else { v_ };
+                self.coerce(&v, &Type::Array(item.clone()), want)
+            }
             Expr::Struct(fs) => {
                 let mut items = vec![];
                 for (n, e) in fs {
@@ -583,7 +626,7 @@ impl Gen<'_> {
                 let x = self.own(w, x);
                 format!("({}{x})", if *op == UnOp::Not { "!" } else { "-" })
             }
-            Expr::Binary { op: op @ (BinOp::And | BinOp::Or), l, r, .. } if r.has_call() => {
+            Expr::Binary { op: op @ (BinOp::And | BinOp::Or), l, r, .. } if r.can_fail() => {
                 // Keep short-circuiting: the right side's calls only run if needed.
                 let l = self.own(w, l);
                 let t = self.temp();
@@ -617,7 +660,45 @@ impl Gen<'_> {
                 w.line("}");
                 t
             }
-            Expr::Struct(_) | Expr::Array(_) | Expr::Variant { .. } => unreachable!("literal without a type"),
+            Expr::Index { e, key, ty } => {
+                let (x, k) = (self.own(w, e), self.own(w, key));
+                let get = if matches!(ty.unfold(&prog.types), Type::Map(..)) { "mapGet" } else { "sliceGet" };
+                let t = self.temp();
+                w.line(&format!("{t}, err := {get}({x}, {k})"));
+                w.line("if err != nil {");
+                w.line(&format!("return zero, fmt.Errorf({}, err)", quote(&format!("{}: %w", self.proc_name))));
+                w.line("}");
+                t
+            }
+            Expr::Field { e, ty, name } => {
+                let x = self.own(w, e);
+                let v = format!("({x}).{}", exported(name));
+                if self.table.index(ty).is_some_and(|i| self.table.is_boxed(i, name)) { format!("(*{v})") } else { v }
+            }
+            Expr::In { key, map } => {
+                let (k, m) = (self.own(w, key), self.own(w, map));
+                format!("mapHas({m}, {k})")
+            }
+            Expr::Query { e, q, .. } => {
+                let x = self.own(w, e);
+                match q {
+                    Query::Len => format!("len({x})"),
+                    Query::Keys => format!("mapKeys({x})"),
+                    Query::Values => format!("mapValues({x})"),
+                }
+            }
+            Expr::Merge { l, r, ty } => {
+                let l = self.own(w, l);
+                let r = self.value(w, r, ty);
+                format!("mapMerge({l}, {r})")
+            }
+            Expr::Remove { m, keys, ty } => {
+                let Type::Map(k, _) = ty.unfold(&prog.types) else { unreachable!() };
+                let m = self.own(w, m);
+                let ks = self.value(w, keys, &Type::Array(k.clone()));
+                format!("mapRemove({m}, {ks})")
+            }
+            Expr::Struct(_) | Expr::Array(_) | Expr::Variant { .. } | Expr::Map(_) => unreachable!("literal without a type"),
         }
     }
 
@@ -649,6 +730,7 @@ impl Gen<'_> {
 
     fn emit_proc(&mut self, w: &mut Writer, pid: NodeId) -> Result<(), String> {
         let prog = self.prog;
+        self.proc_name = prog.node(pid).qual_name();
         let proc = prog.proc(pid);
         let g = &proc.graph;
         let name = gname(prog, pid);
@@ -767,9 +849,9 @@ impl Gen<'_> {
                 let region = &proc.graph.regions[r];
                 let sink = region.sink.unwrap();
                 let out = self.go_type(prog.ret(sink));
+                let dim = self.own(w, dim);
                 w.line(&format!(
-                    "results, err := fanOut(ctx, {}, func(ctx context.Context, elem {}) ({out}, error) {{",
-                    self.reference(dim),
+                    "results, err := fanOut(ctx, {dim}, func(ctx context.Context, elem {}) ({out}, error) {{",
                     self.go_type(&region.elem),
                 ));
                 w.line("env := *env");
@@ -941,7 +1023,74 @@ fn header(pkg: &str, imports: &[(String, Option<String>)]) -> Writer {
     w
 }
 
-const RUNTIME: &str = r#"// ptrTo boxes a value, for fields that would otherwise make a type contain
+const RUNTIME: &str = r#"// mapGet looks up k, failing if it's missing.
+func mapGet[K comparable, V any](m map[K]V, k K) (V, error) {
+	v, ok := m[k]
+	if !ok {
+		return v, fmt.Errorf("key %v not found", k)
+	}
+	return v, nil
+}
+
+// sliceGet indexes xs, failing if i is out of range.
+func sliceGet[E any](xs []E, i int) (E, error) {
+	if i < 0 || i >= len(xs) {
+		var zero E
+		return zero, fmt.Errorf("index %d out of range [0, %d)", i, len(xs))
+	}
+	return xs[i], nil
+}
+
+func mapHas[K comparable, V any](m map[K]V, k K) bool {
+	_, ok := m[k]
+	return ok
+}
+
+// mapKeys returns m's keys in order.
+func mapKeys[K cmp.Ordered, V any](m map[K]V) []K {
+	ks := make([]K, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	slices.Sort(ks)
+	return ks
+}
+
+// mapValues returns m's values in key order.
+func mapValues[K cmp.Ordered, V any](m map[K]V) []V {
+	vs := make([]V, 0, len(m))
+	for _, k := range mapKeys(m) {
+		vs = append(vs, m[k])
+	}
+	return vs
+}
+
+// mapMerge returns a new map with a's entries and b's, b winning. Maps
+// are values in vandorf, so the arguments are never changed.
+func mapMerge[K comparable, V any](a, b map[K]V) map[K]V {
+	r := make(map[K]V, len(a)+len(b))
+	for k, v := range a {
+		r[k] = v
+	}
+	for k, v := range b {
+		r[k] = v
+	}
+	return r
+}
+
+// mapRemove returns a new map without the keys ks.
+func mapRemove[K comparable, V any](m map[K]V, ks []K) map[K]V {
+	r := make(map[K]V, len(m))
+	for k, v := range m {
+		r[k] = v
+	}
+	for _, k := range ks {
+		delete(r, k)
+	}
+	return r
+}
+
+// ptrTo boxes a value, for fields that would otherwise make a type contain
 // itself.
 func ptrTo[T any](v T) *T {
 	return &v

@@ -39,7 +39,7 @@
 
 use super::types::{Shape, TyRef, TypeTable};
 use super::{Artifact, ImplUse, Output, Writer, gname, join_path, quote, snake};
-use crate::sema::{Arm, BinOp, Body, Call, Edge, Expr, NodeId, NodeKind, Pat, PatKind, Program, Ref, RegionId, Root, Test, UnOp};
+use crate::sema::{Arm, BinOp, Body, Call, Edge, Expr, NodeId, NodeKind, Pat, PatKind, Program, Query, Ref, RegionId, Root, Test, UnOp};
 use crate::types::{Prim, Type};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
@@ -71,6 +71,7 @@ pub fn generate(prog: &Program, opts: &RustOptions) -> Result<Output, String> {
         helpers: vec![],
         stubs: BTreeSet::new(),
         failed: None,
+        proc_name: String::new(),
     };
     g.check_names()?;
 
@@ -242,6 +243,8 @@ struct Gen<'a> {
     stubs: BTreeSet<NodeId>,
     /// The first error found while writing an expression.
     failed: Option<String>,
+    /// The proc being written, for error messages.
+    proc_name: String,
 }
 
 fn in_type(prog: &Program, n: NodeId) -> String {
@@ -360,6 +363,7 @@ impl Gen<'_> {
             }
             .into(),
             TyRef::Array(e) => format!("Vec<{}>", self.render(e, qual)),
+            TyRef::Map(k, v) => format!("std::collections::BTreeMap<{}, {}>", self.render(k, qual), self.render(v, qual)),
             TyRef::Named(i) => format!("{qual}{}", self.table.types[*i].name),
         }
     }
@@ -395,6 +399,10 @@ impl Gen<'_> {
             (Type::Array(f), Type::Array(t)) => {
                 let e = self.coerce("x", f, t);
                 w.line(&format!("v.into_iter().map(|x| {e}).collect()"));
+            }
+            (Type::Map(_, f), Type::Map(_, t)) => {
+                let e = self.coerce("x", f, t);
+                w.line(&format!("v.into_iter().map(|(k, x)| (k, {e})).collect()"));
             }
             (Type::Struct(_), Type::Struct(tfs)) => {
                 w.line(&format!("{dst} {{"));
@@ -475,6 +483,36 @@ impl Gen<'_> {
                     .collect();
                 format!("{} {{ {} }}", self.rust_type(want), items.join(", "))
             }
+            Expr::Map(kvs) => {
+                let Type::Map(kt, vt) = want.unfold(defs) else { unreachable!() };
+                if kvs.is_empty() {
+                    return "std::collections::BTreeMap::new()".into();
+                }
+                let items: Vec<String> = kvs.iter().map(|(k, v)| format!("({}, {})", self.value(k, kt), self.value(v, vt))).collect();
+                format!("std::collections::BTreeMap::from([{}])", items.join(", "))
+            }
+            Expr::Index { ty, .. } => {
+                let v = self.own(e);
+                let vt = match ty.unfold(defs) {
+                    Type::Map(_, v) | Type::Array(v) => v,
+                    _ => unreachable!(),
+                };
+                self.coerce(&v, vt, want)
+            }
+            Expr::Field { ty, name, .. } => {
+                let v = self.own(e);
+                self.coerce(&v, ty.field(name, defs).unwrap(), want)
+            }
+            Expr::Merge { ty, .. } | Expr::Remove { ty, .. } => {
+                let v = self.own(e);
+                self.coerce(&v, ty, want)
+            }
+            Expr::Query { ty, q: q @ (Query::Keys | Query::Values), .. } => {
+                let v = self.own(e);
+                let Type::Map(k, v_) = ty.unfold(defs) else { unreachable!() };
+                let item = if *q == Query::Keys { k } else { v_ };
+                self.coerce(&v, &Type::Array(item.clone()), want)
+            }
             Expr::Variant { tag, payload } => {
                 let path = format!("{}::{}", self.rust_type(want), rust_ident(tag));
                 match payload {
@@ -518,7 +556,33 @@ impl Gen<'_> {
                     quote(&prog.node(c.target).qual_name()),
                 )
             }
-            Expr::Struct(_) | Expr::Array(_) | Expr::Variant { .. } => unreachable!("literal without a type"),
+            Expr::Index { e, key, ty } => {
+                let get = if matches!(ty.unfold(&prog.types), Type::Map(..)) { "map_get" } else { "slice_get" };
+                format!("{get}(&{}, &{}).map_err(|e| wrap({}, e))?", self.own(e), self.own(key), quote(&self.proc_name))
+            }
+            Expr::Field { e, ty, name } => {
+                let v = format!("({}).{}", self.own(e), rust_ident(name));
+                if self.is_boxed(ty, name) { format!("(*{v})") } else { v }
+            }
+            Expr::In { key, map } => format!("({}).contains_key(&{})", self.own(map), self.own(key)),
+            Expr::Query { e, q, .. } => {
+                let x = self.own(e);
+                match q {
+                    Query::Len => format!("(({x}).len() as i64)"),
+                    Query::Keys => format!("({x}).keys().cloned().collect::<Vec<_>>()"),
+                    Query::Values => format!("({x}).values().cloned().collect::<Vec<_>>()"),
+                }
+            }
+            Expr::Merge { l, r, ty } => {
+                let (l, r) = (self.own(l), self.value(r, ty));
+                format!("{{ let mut m = {l}; m.extend({r}); m }}")
+            }
+            Expr::Remove { m, keys, ty } => {
+                let Type::Map(k, _) = ty.unfold(&prog.types) else { unreachable!() };
+                let (m, ks) = (self.own(m), self.value(keys, &Type::Array(k.clone())));
+                format!("{{ let mut m = {m}; for k in {ks} {{ m.remove(&k); }} m }}")
+            }
+            Expr::Struct(_) | Expr::Array(_) | Expr::Variant { .. } | Expr::Map(_) => unreachable!("literal without a type"),
         }
     }
 
@@ -535,6 +599,7 @@ impl Gen<'_> {
 
     fn emit_proc(&mut self, w: &mut Writer, pid: NodeId) -> Result<(), String> {
         let prog = self.prog;
+        self.proc_name = prog.node(pid).qual_name();
         let proc = prog.proc(pid);
         let g = &proc.graph;
         let name = gname(prog, pid);
@@ -644,7 +709,7 @@ impl Gen<'_> {
             Some(Edge::ForEach { dim, .. }) => {
                 let r = proc.graph.opens[&n];
                 let sink = proc.graph.regions[r].sink.unwrap();
-                w.line(&format!("let dim = {};", self.reference(dim)));
+                w.line(&format!("let dim = {};", self.own(dim)));
                 w.line(&format!("let results = fan_out(dim, |elem| {}(env.clone(), elem))?;", region_fn(prog, pid, r)));
                 w.line("let this = results;");
                 let Some(Edge::Collect(c)) = proc.graph.edges.get(&sink) else { unreachable!() };
@@ -856,6 +921,19 @@ fn wrap(node: &'static str, source: Error) -> Error {
 
 fn get<'a, T>(slot: &'a Option<T>, node: &str) -> Result<&'a T, Error> {
     slot.as_ref().ok_or_else(|| format!("{node} has not run").into())
+}
+
+/// Looks up `k`, failing if it's missing.
+fn map_get<K: Ord + std::fmt::Debug, V: Clone>(m: &std::collections::BTreeMap<K, V>, k: &K) -> Result<V, Error> {
+    m.get(k).cloned().ok_or_else(|| format!("key {k:?} not found").into())
+}
+
+/// Indexes `xs`, failing if `i` is out of range.
+fn slice_get<E: Clone>(xs: &[E], i: &i64) -> Result<E, Error> {
+    usize::try_from(*i)
+        .ok()
+        .and_then(|i| xs.get(i).cloned())
+        .ok_or_else(|| format!("index {i} out of range [0, {})", xs.len()).into())
 }
 
 /// Runs `f` over `xs` on scoped threads; results keep input order.

@@ -91,3 +91,24 @@ func Look(ctx context.Context, e types.Expr) (types.Expr, error) { return e, nil
 func Small(ctx context.Context, i int) (bool, error) { return i > -100 && i < 100, nil }
 
 func Say(ctx context.Context, s string) (string, error) { return s, nil }
+
+// Declare gives each name its index as a slot.
+func Declare(ctx context.Context, names []string, query string) (types.ResolveDeclareOut, error) {
+	scope := types.Scope{}
+	for i, n := range names {
+		scope[n] = types.ScopeValue{Slot: i, Kind: "var"}
+	}
+	return types.ResolveDeclareOut{Scope: scope, Query: query}, nil
+}
+
+func Adjust(ctx context.Context, scope types.Scope, query string) (types.ResolveDeclareOut, error) {
+	return types.ResolveDeclareOut{Scope: scope, Query: query}, nil
+}
+
+func Found(ctx context.Context, name string, slot int, kind string, total int) (string, error) {
+	return fmt.Sprintf("%s: slot %d (%s) of %d", name, slot, kind, total), nil
+}
+
+func Missing(ctx context.Context, name string, known []string) (string, error) {
+	return fmt.Sprintf("%s: not declared; known: %s", name, strings.Join(known, ", ")), nil
+}

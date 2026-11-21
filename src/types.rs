@@ -36,6 +36,8 @@ pub type TypeId = usize;
 pub enum Type {
     Prim(Prim),
     Array(Box<Type>),
+    /// `map[K]V`; keys are ints or strings.
+    Map(Box<Type>, Box<Type>),
     Struct(Vec<(String, Type)>),
     Enum(Vec<(String, Type)>),
     /// A reference to a typedef, by index into the program's typedefs. The
@@ -104,6 +106,10 @@ impl Type {
         match self {
             Type::Prim(_) => {}
             Type::Array(t) => t.named(out),
+            Type::Map(k, v) => {
+                k.named(out);
+                v.named(out);
+            }
             Type::Struct(fs) | Type::Enum(fs) => fs.iter().for_each(|(_, t)| t.named(out)),
             Type::Named(id, _) => out.push(*id),
         }
@@ -124,6 +130,7 @@ fn accepts(a: &Type, b: &Type, defs: &[TypeDef], assumed: &mut Vec<(TypeId, Type
     match (a.unfold(defs), b.unfold(defs)) {
         (Type::Prim(a), Type::Prim(b)) => a == b,
         (Type::Array(a), Type::Array(b)) => accepts(a, b, defs, assumed),
+        (Type::Map(ak, av), Type::Map(bk, bv)) => accepts(ak, bk, defs, assumed) && accepts(av, bv, defs, assumed),
         (Type::Struct(a), Type::Struct(b)) => {
             a.len() == b.len()
                 && a.iter().all(|(n, t)| lookup(b, n).is_some_and(|u| accepts(t, u, defs, assumed)))
@@ -153,6 +160,7 @@ impl fmt::Display for Type {
         match self {
             Type::Prim(p) => write!(f, "{}", format!("{p:?}").to_lowercase()),
             Type::Array(t) => write!(f, "[]{t}"),
+            Type::Map(k, v) => write!(f, "map[{k}]{v}"),
             Type::Struct(fs) => {
                 write!(f, "{{ ")?;
                 list(f, fs, false)?;

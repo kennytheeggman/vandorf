@@ -32,6 +32,7 @@ use std::collections::{HashMap, HashSet};
 pub enum TyRef {
     Prim(Prim),
     Array(Box<TyRef>),
+    Map(Box<TyRef>, Box<TyRef>),
     Named(usize),
 }
 
@@ -149,6 +150,7 @@ impl TypeTable {
         match ty {
             Type::Prim(p) => TyRef::Prim(*p),
             Type::Array(e) => TyRef::Array(Box::new(self.get(e))),
+            Type::Map(k, v) => TyRef::Map(Box::new(self.get(k)), Box::new(self.get(v))),
             Type::Named(id, _) if !self.defs[*id].recursive => self.get(&self.defs[*id].ty),
             Type::Struct(_) | Type::Enum(_) | Type::Named(..) => {
                 let key = key(ty, &self.defs);
@@ -162,6 +164,10 @@ impl TypeTable {
         match ty {
             Type::Prim(p) => TyRef::Prim(*p),
             Type::Array(e) => TyRef::Array(Box::new(self.register(e, &format!("{hint}Item"), origin))),
+            Type::Map(k, v) => TyRef::Map(
+                Box::new(self.register(k, &format!("{hint}Key"), origin)),
+                Box::new(self.register(v, &format!("{hint}Value"), origin)),
+            ),
             Type::Named(id, n) => {
                 let d = &self.defs[*id];
                 let (def, recursive, name) = (d.ty.clone(), d.recursive, exported(n));
@@ -234,6 +240,7 @@ fn key(ty: &Type, defs: &[TypeDef]) -> String {
     match ty {
         Type::Prim(p) => format!("{p:?}"),
         Type::Array(e) => format!("[]{}", key(e, defs)),
+        Type::Map(k, v) => format!("map[{}]{}", key(k, defs), key(v, defs)),
         Type::Named(id, _) if defs[*id].recursive => format!("#{id}"),
         Type::Named(id, _) => key(&defs[*id].ty, defs),
         Type::Struct(fs) | Type::Enum(fs) => {

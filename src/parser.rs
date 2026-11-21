@@ -6,13 +6,13 @@
 //! interface := 'interface' IDENT '{' (func ';')* '}'
 //! func      := 'func' IDENT '(' (field (',' field)*)? ')' (':' type)? ('=' STRING (',' STRING)*)?
 //! proc      := 'proc' IDENT '(' IDENT ')' ':' type '{' ((func | proc | edge) ';')* '}'
-//! type      := '[' ']' type | 'enum' '{' variant,* '}' | '{' field,* '}' | IDENT
+//! type      := '[' ']' type | 'map' '[' type ']' type | 'enum' '{' variant,* '}' | '{' field,* '}' | IDENT
 //! variant   := IDENT ('(' type ')')?
 //! field     := IDENT ':' type
 //! edge      := path '->' target
 //!            | path 'switch' '{' arm,* '}'
 //!            | path 'collect' 'each' '(' IDENT ')' '->' target
-//!            | path 'for' 'each' '(' path ')' '->' target
+//!            | path 'for' 'each' '(' expr ')' '->' target
 //! target    := path '(' (arg (',' arg)*)? ')' ('as' IDENT)?
 //! arm       := (pat | '(' expr ')' | 'else') '->' (target | 'switch' '{' arm,* '}')
 //! pat       := alt ('|' alt)*
@@ -22,14 +22,16 @@
 //! arg       := NAME '=' expr
 //! expr      := and ('||' and)*
 //! and       := cmp ('&&' cmp)*
-//! cmp       := sum (('==' | '!=' | '<' | '<=' | '>' | '>=') sum)?
+//! cmp       := sum (('==' | '!=' | '<' | '<=' | '>' | '>=' | 'in') sum)?
 //! sum       := term (('+' | '-') term)*
 //! term      := unary (('*' | '/' | '%') unary)*
-//! unary     := ('!' | '-') unary | atom
+//! unary     := ('!' | '-') unary | postfix
+//! postfix   := atom ('[' expr ']' | '.' NAME)*         lookup, field
 //! atom      := INT | FLOAT | STRING | 'true' | 'false'
 //!            | path '(' ((NAME '=')? expr),* ')'   enum variant or func call
 //!            | '{' (arg (',' arg)*)? '}'          struct
 //!            | '[' (expr (',' expr)*)? ']'        array
+//!            | '[' ':' ']' | '[' (expr ':' expr),* ']'   map
 //!            | path | '(' expr ')'
 //! path      := IDENT ('.' NAME)*
 //! ```
@@ -49,7 +51,7 @@ type Extra<'a> = extra::Err<ParseError<'a>>;
 
 const KEYWORDS: &[&str] = &[
     "interface", "func", "proc", "enum", "switch", "collect", "for", "each", "as", "type",
-    "true", "false", "else",
+    "true", "false", "else", "map", "in",
 ];
 
 pub fn parse(src: &str) -> Result<File, Vec<ParseError<'_>>> {
@@ -157,9 +159,14 @@ fn type_expr<'a>() -> impl Parser<'a, &'a str, TypeExpr, Extra<'a>> + Clone {
             .delimited_by(sym("{"), sym("}"))
             .map(TypeExprKind::Struct);
 
+        let map = kw("map")
+            .ignore_then(ty.clone().delimited_by(sym("["), sym("]")))
+            .then(ty.clone())
+            .map(|(k, v)| TypeExprKind::Map(Box::new(k), Box::new(v)));
+
         let named = ident().map(TypeExprKind::Named);
 
-        choice((array, enum_, struct_, named))
+        choice((array, map, enum_, struct_, named))
             .map_with(|kind, e| TypeExpr { kind, span: e.span() })
             .labelled("type")
     })
@@ -266,6 +273,20 @@ fn value<'a>() -> impl Parser<'a, &'a str, Value, Extra<'a>> + Clone {
             .collect()
             .delimited_by(sym("{"), sym("}"))
             .map(ValueKind::Struct);
+        let map = sym("[")
+            .then(sym(":"))
+            .then(sym("]"))
+            .to(ValueKind::Map(vec![]))
+            .or(expr
+                .clone()
+                .then_ignore(sym(":"))
+                .then(expr.clone())
+                .separated_by(sym(","))
+                .allow_trailing()
+                .at_least(1)
+                .collect()
+                .delimited_by(sym("["), sym("]"))
+                .map(ValueKind::Map));
         let array = expr
             .clone()
             .separated_by(sym(","))
@@ -279,6 +300,7 @@ fn value<'a>() -> impl Parser<'a, &'a str, Value, Extra<'a>> + Clone {
             kw("true").to(ValueKind::Bool(true)),
             kw("false").to(ValueKind::Bool(false)),
             struct_,
+            map,
             array,
             apply,
             path().map(ValueKind::Ref),
@@ -286,6 +308,24 @@ fn value<'a>() -> impl Parser<'a, &'a str, Value, Extra<'a>> + Clone {
         .map_with(|kind, e| Value { kind, span: e.span() })
         .or(expr.clone().delimited_by(sym("("), sym(")")))
         .labelled("expression");
+        enum Post {
+            Index(Value),
+            Field(Ident),
+        }
+        let postfix = atom.foldl_with(
+            choice((
+                expr.clone().delimited_by(sym("["), sym("]")).map(Post::Index),
+                sym(".").ignore_then(name()).map(Post::Field),
+            ))
+            .repeated(),
+            |v, p, e| {
+                let kind = match p {
+                    Post::Index(k) => ValueKind::Index(Box::new(v), Box::new(k)),
+                    Post::Field(f) => ValueKind::Field(Box::new(v), f),
+                };
+                Value { kind, span: e.span() }
+            },
+        );
 
         let unary = recursive(|unary| {
             choice((op("!", &["!="]).to(UnOp::Not), op("-", &["->"]).to(UnOp::Neg)))
@@ -299,24 +339,30 @@ fn value<'a>() -> impl Parser<'a, &'a str, Value, Extra<'a>> + Clone {
                     };
                     Value { kind, span: e.span() }
                 })
-                .or(atom)
+                .or(postfix)
         });
         let term = level(unary.boxed(), vec![("*", &[], BinOp::Mul), ("/", &["//"], BinOp::Div), ("%", &[], BinOp::Rem)]);
         let sum = level(term, vec![("+", &[], BinOp::Add), ("-", &["->"], BinOp::Sub)]);
+        // `None` is `in`.
         let cmp_op = choice((
-            op("==", &[]).to(BinOp::Eq),
-            op("!=", &[]).to(BinOp::Ne),
-            op("<=", &[]).to(BinOp::Le),
-            op(">=", &[]).to(BinOp::Ge),
-            op("<", &[]).to(BinOp::Lt),
-            op(">", &[]).to(BinOp::Gt),
+            op("==", &[]).to(Some(BinOp::Eq)),
+            op("!=", &[]).to(Some(BinOp::Ne)),
+            op("<=", &[]).to(Some(BinOp::Le)),
+            op(">=", &[]).to(Some(BinOp::Ge)),
+            op("<", &[]).to(Some(BinOp::Lt)),
+            op(">", &[]).to(Some(BinOp::Gt)),
+            kw("in").to(None),
         ));
         let cmp = sum
             .clone()
             .then(cmp_op.then(sum).or_not())
-            .map_with(|(l, r), e| match r {
-                Some((o, r)) => Value { kind: ValueKind::Binary(o, Box::new(l), Box::new(r)), span: e.span() },
-                None => l,
+            .map_with(|(l, r), e| {
+                let kind = match r {
+                    Some((Some(o), r)) => ValueKind::Binary(o, Box::new(l), Box::new(r)),
+                    Some((None, r)) => ValueKind::In(Box::new(l), Box::new(r)),
+                    None => return l,
+                };
+                Value { kind, span: e.span() }
             })
             .boxed();
         let and = level(cmp, vec![("&&", &[], BinOp::And)]);
@@ -395,7 +441,7 @@ fn edge<'a>() -> impl Parser<'a, &'a str, Edge, Extra<'a>> + Clone {
         .map(|(dim, target)| EdgeKind::Collect { dim, target });
     let foreach = kw("for")
         .ignore_then(kw("each"))
-        .ignore_then(path().delimited_by(sym("("), sym(")")))
+        .ignore_then(value().delimited_by(sym("("), sym(")")))
         .then_ignore(arrow())
         .then(target())
         .map(|(dim, target)| EdgeKind::ForEach { dim, target });
@@ -570,6 +616,13 @@ mod tests {
             ValueKind::Array(_) => "[..]".into(),
             ValueKind::Unary(o, e) => format!("({}{})", if *o == UnOp::Not { "!" } else { "-" }, show(e)),
             ValueKind::Binary(o, l, r) => format!("({} {} {})", show(l), o.symbol(), show(r)),
+            ValueKind::Map(kvs) => {
+                let kvs: Vec<String> = kvs.iter().map(|(k, v)| format!("{}: {}", show(k), show(v))).collect();
+                if kvs.is_empty() { "[:]".into() } else { format!("[{}]", kvs.join(", ")) }
+            }
+            ValueKind::Index(m, k) => format!("{}[{}]", show(m), show(k)),
+            ValueKind::Field(v, f) => format!("{}.{}", show(v), f.name),
+            ValueKind::In(k, m) => format!("({} in {})", show(k), show(m)),
         }
     }
 
@@ -637,6 +690,16 @@ mod tests {
             "Unit() -> X",
             "other -> Y",
         ]);
+    }
+
+    #[test]
+    fn parses_maps() {
+        let got = arms(r#"proc P(A): int { A switch {
+            (k in this.m && this.m[k].x + 1 > [:].len) -> X(m = this.m + ["a": 1, k: F(i = 2)] - [k]),
+            else -> X()
+        }; }"#);
+        assert_eq!(got[0], r#"((k in this.m) && ((this.m[k].x + 1) > [:].len)) -> X"#);
+        assert!(parse("proc P(A): int { func A(m: map[string][]int): map[int]{ x: int }; }").is_ok());
     }
 
     #[test]

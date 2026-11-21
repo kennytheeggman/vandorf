@@ -123,7 +123,8 @@ pub enum Edge {
     /// Arms in source order; the first that matches is taken. Sema checks
     /// that some arm always matches.
     Match(Vec<Arm>),
-    ForEach { dim: Ref, call: Call },
+    /// `dim` is an array of `elem`s.
+    ForEach { dim: Expr, elem: Type, call: Call },
     Collect(Call),
 }
 
@@ -242,6 +243,30 @@ pub enum Expr {
     Binary { op: BinOp, l: Box<Expr>, r: Box<Expr>, operand: Prim },
     /// A func's implementation, called directly rather than as a node.
     Call(Call),
+    /// `[k: v]`, at the expected map type.
+    Map(Vec<(Expr, Expr)>),
+    /// `m[k]` or `xs[i]`, failing if it isn't there; `ty` is `e`'s map or
+    /// array type.
+    Index { e: Box<Expr>, key: Box<Expr>, ty: Type },
+    /// A field of a struct value that isn't a [`Ref`] (`m[k].x`); `ty` is
+    /// the struct's type.
+    Field { e: Box<Expr>, ty: Type, name: String },
+    /// `k in m`
+    In { key: Box<Expr>, map: Box<Expr> },
+    /// `.len` of a map, array or string, `.keys` or `.values` of a map (in
+    /// key order); `ty` is `e`'s type.
+    Query { e: Box<Expr>, ty: Type, q: Query },
+    /// `m + n`: a new map with both, `n` winning; `ty` is the map type.
+    Merge { l: Box<Expr>, r: Box<Expr>, ty: Type },
+    /// `m - keys`: a new map without those keys; `ty` is the map type.
+    Remove { m: Box<Expr>, keys: Box<Expr>, ty: Type },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Query {
+    Len,
+    Keys,
+    Values,
 }
 
 impl Expr {
@@ -259,19 +284,32 @@ impl Expr {
                 r.refs(out);
             }
             Expr::Call(c) => c.args.iter().for_each(|a| a.value.refs(out)),
+            Expr::Map(kvs) => kvs.iter().for_each(|(k, v)| {
+                k.refs(out);
+                v.refs(out);
+            }),
+            Expr::Field { e, .. } | Expr::Query { e, .. } => e.refs(out),
+            Expr::Index { e: a, key: b, .. } | Expr::In { key: a, map: b } | Expr::Merge { l: a, r: b, .. } | Expr::Remove { m: a, keys: b, .. } => {
+                a.refs(out);
+                b.refs(out);
+            }
         }
     }
 
-    /// Whether evaluating this calls an implementation (which can fail).
-    pub fn has_call(&self) -> bool {
+    /// Whether evaluating this can fail: it calls an implementation, or
+    /// looks up a key that may be missing.
+    pub fn can_fail(&self) -> bool {
         match self {
-            Expr::Call(_) => true,
+            Expr::Call(_) | Expr::Index { .. } => true,
             Expr::Ref(_) | Expr::Int(_) | Expr::Float(_) | Expr::Str(_) | Expr::Bool(_) => false,
-            Expr::Variant { payload, .. } => payload.as_ref().is_some_and(|p| p.has_call()),
-            Expr::Struct(fs) => fs.iter().any(|(_, e)| e.has_call()),
-            Expr::Array(es) => es.iter().any(|e| e.has_call()),
-            Expr::Unary(_, e) => e.has_call(),
-            Expr::Binary { l, r, .. } => l.has_call() || r.has_call(),
+            Expr::Variant { payload, .. } => payload.as_ref().is_some_and(|p| p.can_fail()),
+            Expr::Struct(fs) => fs.iter().any(|(_, e)| e.can_fail()),
+            Expr::Array(es) => es.iter().any(|e| e.can_fail()),
+            Expr::Map(kvs) => kvs.iter().any(|(k, v)| k.can_fail() || v.can_fail()),
+            Expr::Unary(_, e) | Expr::Field { e, .. } | Expr::Query { e, .. } => e.can_fail(),
+            Expr::Binary { l: a, r: b, .. } | Expr::In { key: a, map: b } | Expr::Merge { l: a, r: b, .. } | Expr::Remove { m: a, keys: b, .. } => {
+                a.can_fail() || b.can_fail()
+            }
         }
     }
 }
@@ -642,6 +680,15 @@ impl<'a> Cx<'a> {
                 }
             },
             K::Array(t) => Type::Array(Box::new(self.ty(t)?)),
+            K::Map(k, v) => {
+                let (kt, vt) = (self.ty(k), self.ty(v));
+                let kt = kt?;
+                if !matches!(kt.unfold(&self.prog.types), Type::Prim(Prim::Int | Prim::String)) {
+                    self.errors.push(Error { msg: format!("map keys are ints or strings, not {kt}"), span: k.span });
+                    return None;
+                }
+                Type::Map(Box::new(kt), Box::new(vt?))
+            }
             K::Struct(fs) => Type::Struct(self.fields(fs)?),
             K::Enum(vs) => {
                 let mut out: Vec<(String, Type)> = vec![];
@@ -699,7 +746,37 @@ impl<'a> Cx<'a> {
         Ok(n)
     }
 
-    fn reference(&self, pid: NodeId, path: &ast::Path, sc: &Scope) -> Result<Ref, Error> {
+    /// A path's value: struct fields as a [`Ref`], then any pseudo-fields
+    /// (`.len`, `.keys`, `.values`).
+    fn path_value(&self, pid: NodeId, path: &ast::Path, sc: &Scope) -> Result<(Expr, Type), Error> {
+        let (r, rest) = self.reference_upto(pid, path, sc)?;
+        let mut t = r.ty.clone();
+        let mut e = Expr::Ref(r);
+        for f in rest {
+            (e, t) = self.select(e, &t, f)?;
+        }
+        Ok((e, t))
+    }
+
+    /// `e.name` where `e` has type `t`: a struct field or a pseudo-field.
+    fn select(&self, e: Expr, t: &Type, name: &ast::Ident) -> Result<(Expr, Type), Error> {
+        let defs = &self.prog.types;
+        let query = |q| Expr::Query { e: Box::new(e.clone()), ty: t.clone(), q };
+        Ok(match (t.unfold(defs), name.name.as_str()) {
+            (Type::Struct(_), f) if t.field(f, defs).is_some() => {
+                let ft = t.field(f, defs).unwrap().clone();
+                (Expr::Field { e: Box::new(e), ty: t.clone(), name: f.to_string() }, ft)
+            }
+            (Type::Map(..) | Type::Array(_) | Type::Prim(Prim::String), "len") => (query(Query::Len), Type::Prim(Prim::Int)),
+            (Type::Map(k, _), "keys") => (query(Query::Keys), Type::Array(k.clone())),
+            (Type::Map(_, v), "values") => (query(Query::Values), Type::Array(v.clone())),
+            _ => return err(name.span, format!("{t} has no field {}", name.name)),
+        })
+    }
+
+    /// The root and struct fields of a path, stopping at the first segment
+    /// that isn't a struct field. The rest are returned.
+    fn reference_upto<'p>(&self, pid: NodeId, path: &'p ast::Path, sc: &Scope) -> Result<(Ref, &'p [ast::Ident]), Error> {
         let first = &path.segs[0].name;
         let (root, mut ty, rest, bind) = if first == "this" {
             (Root::This, sc.this.clone(), &path.segs[1..], None)
@@ -711,14 +788,19 @@ impl<'a> Cx<'a> {
         };
         let root_ty = ty.clone();
         let mut fields = vec![];
-        for f in rest {
+        let mut i = 0;
+        while let Some(f) = rest.get(i) {
+            if !matches!(ty.unfold(&self.prog.types), Type::Struct(_)) {
+                break;
+            }
             ty = match ty.field(&f.name, &self.prog.types) {
                 Some(t) => t.clone(),
                 None => return err(f.span, format!("{ty} has no field {}", f.name)),
             };
             fields.push(f.name.clone());
+            i += 1;
         }
-        Ok(Ref { root, root_ty, bind, fields, ty, span: path.span })
+        Ok((Ref { root, root_ty, bind, fields, ty, span: path.span }, &rest[i..]))
     }
 
     /// Checks `v` against the type it's passed as. Literals of structs,
@@ -742,6 +824,26 @@ impl<'a> Cx<'a> {
             V::Array(items) => {
                 let Type::Array(elem) = shape else { return mismatch("an array literal") };
                 Expr::Array(items.iter().map(|i| self.check(pid, i, elem, sc)).collect::<Result<_, _>>()?)
+            }
+            V::Map(kvs) => {
+                let Type::Map(kt, vt) = shape else { return mismatch("a map literal") };
+                let mut out = vec![];
+                let mut seen: Vec<String> = vec![];
+                for (k, v) in kvs {
+                    let k = self.check(pid, k, kt, sc)?;
+                    if let Some(lit) = match &k {
+                        Expr::Int(i) => Some(i.to_string()),
+                        Expr::Str(s) => Some(format!("{s:?}")),
+                        _ => None,
+                    } {
+                        if seen.contains(&lit) {
+                            return err(v.span, format!("key {lit} given twice"));
+                        }
+                        seen.push(lit);
+                    }
+                    out.push((k, self.check(pid, v, vt, sc)?));
+                }
+                Expr::Map(out)
             }
             V::Struct(args) => {
                 let Type::Struct(fs) = shape else { return mismatch("a struct literal") };
@@ -806,10 +908,30 @@ impl<'a> Cx<'a> {
         let defs = &self.prog.types;
         let prim = |p| Type::Prim(p);
         Ok(match &v.kind {
-            V::Ref(p) => {
-                let r = self.reference(pid, p, sc)?;
-                let t = r.ty.clone();
-                (Expr::Ref(r), t)
+            V::Ref(p) => self.path_value(pid, p, sc)?,
+            V::Field(e, name) => {
+                let (x, t) = self.synth(pid, e, sc)?;
+                self.select(x, &t, name)?
+            }
+            V::Index(m, k) => {
+                let (x, t) = self.synth(pid, m, sc)?;
+                let (key, vt) = match t.unfold(defs) {
+                    Type::Map(kt, vt) => (self.check(pid, k, kt, sc)?, (**vt).clone()),
+                    Type::Array(et) => (self.check(pid, k, &prim(Prim::Int), sc)?, (**et).clone()),
+                    _ => return err(m.span, format!("only maps and arrays can be indexed, not {t}")),
+                };
+                (Expr::Index { e: Box::new(x), key: Box::new(key), ty: t }, vt)
+            }
+            V::In(k, m) => {
+                let (x, t) = self.synth(pid, m, sc)?;
+                let Type::Map(kt, _) = t.unfold(defs) else {
+                    return err(m.span, format!("in needs a map on the right, found {t}"));
+                };
+                let key = self.check(pid, k, kt, sc)?;
+                (Expr::In { key: Box::new(key), map: Box::new(x) }, prim(Prim::Bool))
+            }
+            V::Map(_) => {
+                return err(v.span, "the type of this literal isn't known here; it can only be passed where a type is expected");
             }
             V::Int(i) => (Expr::Int(*i), prim(Prim::Int)),
             V::Float(f) => (Expr::Float(*f), prim(Prim::Float)),
@@ -856,6 +978,17 @@ impl<'a> Cx<'a> {
                 let b = prim(Prim::Bool);
                 let (l, r) = (self.check(pid, l, &b, sc)?, self.check(pid, r, &b, sc)?);
                 (Expr::Binary { op: *op, l: Box::new(l), r: Box::new(r), operand: Prim::Bool }, b)
+            }
+            V::Binary(op @ (BinOp::Add | BinOp::Sub), lv, rv) if matches!(self.synth(pid, lv, sc)?.1.unfold(defs), Type::Map(..)) => {
+                let (l, lt) = self.synth(pid, lv, sc)?;
+                let Type::Map(kt, _) = lt.unfold(defs) else { unreachable!() };
+                if *op == BinOp::Add {
+                    let r = self.check(pid, rv, &lt, sc)?;
+                    (Expr::Merge { l: Box::new(l), r: Box::new(r), ty: lt.clone() }, lt)
+                } else {
+                    let keys = self.check(pid, rv, &Type::Array(kt.clone()), sc)?;
+                    (Expr::Remove { m: Box::new(l), keys: Box::new(keys), ty: lt.clone() }, lt)
+                }
             }
             V::Binary(op, lv, rv) => {
                 let (mut l, lt) = self.synth(pid, lv, sc)?;
@@ -1109,12 +1242,12 @@ impl<'a> Cx<'a> {
                     Edge::Collect(self.call(pid, target, &Scope::this(&Type::Array(Box::new(ret))))?)
                 }
                 ast::EdgeKind::ForEach { dim, target } => {
-                    let dim = self.reference(pid, dim, &Scope::this(&ret))?;
-                    let Type::Array(elem) = dim.ty.unfold(&self.prog.types) else {
-                        return err(dim.span, format!("for each needs an array, found {}", dim.ty));
+                    let (d, t) = self.synth(pid, dim, &Scope::this(&ret))?;
+                    let Type::Array(elem) = t.unfold(&self.prog.types) else {
+                        return err(dim.span, format!("for each needs an array, found {t}"));
                     };
                     let call = self.call(pid, target, &Scope::this(elem))?;
-                    Edge::ForEach { dim, call }
+                    Edge::ForEach { dim: d, elem: (**elem).clone(), call }
                 }
             };
             if g.edges.insert(src, edge).is_some() {
@@ -1166,9 +1299,8 @@ impl<'a> Cx<'a> {
                     }
                     g.regions[r].sink = Some(n);
                 }
-                Edge::ForEach { dim, call } => {
-                    let Type::Array(elem) = dim.ty.unfold(&self.prog.types) else { unreachable!() };
-                    let child = new_region(g, Some(r), call.target, (**elem).clone());
+                Edge::ForEach { elem, call, .. } => {
+                    let child = new_region(g, Some(r), call.target, elem.clone());
                     g.opens.insert(n, child);
                     self.fill(g, child, p)?;
                     let Some(sink) = g.regions[child].sink else {
@@ -1206,7 +1338,11 @@ impl<'a> Cx<'a> {
             let Some(&r) = g.region_of.get(&src) else { continue };
             let scope = match edge {
                 Edge::ForEach { dim, .. } => {
-                    check(r, dim)?;
+                    let mut refs = vec![];
+                    dim.refs(&mut refs);
+                    for d in refs {
+                        check(r, d)?;
+                    }
                     g.opens[&src]
                 }
                 Edge::Collect(_) => g.regions[r].parent.unwrap(),

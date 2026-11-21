@@ -329,6 +329,40 @@ fn expression_errors() {
 }
 
 #[test]
+fn map_errors() {
+    let m = |arg: &str| format!(
+        "proc P(S): int {{ func S(): {{ m: map[string]int, xs: []int, s: string }}; func T(i: int): int; \
+         func U(m: map[string]int): int; func K(ks: []string): int; S -> {arg}; }}"
+    );
+    let e = compile_err("proc P(S): int { func S(): map[float]int; }");
+    assert!(e.contains("map keys are ints or strings, not float"), "{e}");
+    let e = compile_err(&m("T(i = this.m[1])"));
+    assert!(e.contains("argument i of P.T: expected string, found an int literal"), "{e}");
+    let e = compile_err(&m("T(i = this.s[0])"));
+    assert!(e.contains("only maps and arrays can be indexed, not string"), "{e}");
+    let e = compile_err(&m(r#"U(m = this.m + ["a": "b"])"#));
+    assert!(e.contains("expected int, found a string literal"), "{e}");
+    let e = compile_err(&m(r#"U(m = ["a": 1, "a": 2])"#));
+    assert!(e.contains(r#"key "a" given twice"#), "{e}");
+    let e = compile_err(&m("U(m = this.m - this.xs)"));
+    assert!(e.contains("this.xs has type []int, but []string is expected"), "{e}");
+    let e = compile_err(&m("T(i = this.m.size)"));
+    assert!(e.contains("map[string]int has no field size"), "{e}");
+    let e = compile_err(&m("K(ks = this.xs.keys)"));
+    assert!(e.contains("[]int has no field keys"), "{e}");
+    let e = compile_err(&m("T(i = [:].len)"));
+    assert!(e.contains("the type of this literal isn't known here"), "{e}");
+    let e = compile_err("proc P(S): int { func S(): { m: map[string]int }; func T(b: bool): int; S -> T(b = 1 in this.m); }");
+    assert!(e.contains("expected string, found an int literal"), "{e}");
+    // Lookups, queries, merges and removals, and for each over keys.
+    compile(&m(r#"U(m = this.m + ["n": this.m["x"] + this.xs[0] + this.s.len + this.m.values.len] - this.m.keys - ["y"])"#));
+    compile(
+        "proc P(S): int { func S(): map[string]{ x: int }; func T(k: string, x: int): int; func C(l: []int): int; \
+         S for each (this.keys) -> T(k = this, x = S[this].x); T collect each (T) -> C(l = this); }",
+    );
+}
+
+#[test]
 fn parse_errors_are_rendered() {
     let e = compile_err("proc P(A): int { func A(: int; }");
     assert!(e.contains("Error"), "{e}");

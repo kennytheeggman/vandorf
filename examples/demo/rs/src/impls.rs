@@ -95,3 +95,25 @@ pub fn small(i: i64) -> Result<bool, String> {
 pub fn say(s: String) -> Result<String, String> {
     Ok(s)
 }
+
+/// Gives each name its index as a slot.
+pub fn declare(names: Vec<String>, query: String) -> Result<types::ResolveDeclareOut, String> {
+    let scope = names
+        .into_iter()
+        .enumerate()
+        .map(|(i, n)| (n, types::ScopeValue { slot: i as i64, kind: "var".into() }))
+        .collect();
+    Ok(types::ResolveDeclareOut { scope, query })
+}
+
+pub fn adjust(scope: types::Scope, query: String) -> Result<types::ResolveDeclareOut, String> {
+    Ok(types::ResolveDeclareOut { scope, query })
+}
+
+pub fn found(name: String, slot: i64, kind: String, total: i64) -> Result<String, String> {
+    Ok(format!("{name}: slot {slot} ({kind}) of {total}"))
+}
+
+pub fn missing(name: String, known: Vec<String>) -> Result<String, String> {
+    Ok(format!("{name}: not declared; known: {}", known.join(", ")))
+}

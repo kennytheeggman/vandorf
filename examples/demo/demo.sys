@@ -92,3 +92,30 @@ proc Classify(Look): string {
 	};
 	Inner -> Say(s = "minus " + Inner);
 }
+
+// Maps: a scope of declared names, as a sema pass would keep one. Maps are
+// values: `+` and `-` make new ones. A missing key fails the proc, so
+// lookups are guarded with `in`.
+type Scope = map[string]{ slot: int, kind: string };
+
+proc Resolve(Declare): string {
+	func Declare(names: []string, query: string): { scope: Scope, query: string } = "impl.go:Declare", "../impls.rs:declare";
+	func Adjust(scope: Scope, query: string): { scope: Scope, query: string } = "impl.go:Adjust", "../impls.rs:adjust";
+	func Found(name: string, slot: int, kind: string, total: int): string = "impl.go:Found", "../impls.rs:found";
+	func Missing(name: string, known: []string): string = "impl.go:Missing", "../impls.rs:missing";
+
+	// Add a builtin after the declared names, and drop `tmp`.
+	Declare -> Adjust(
+		scope = this.scope + ["len": { slot = this.scope.len, kind = "builtin" }] - ["tmp"],
+		query = this.query
+	);
+	Adjust switch {
+		(this.query in this.scope) -> Found(
+			name = this.query,
+			slot = this.scope[this.query].slot,
+			kind = this.scope[this.query].kind,
+			total = this.scope.len
+		),
+		else -> Missing(name = this.query, known = this.scope.keys)
+	};
+}

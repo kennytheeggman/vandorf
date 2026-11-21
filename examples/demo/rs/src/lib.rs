@@ -50,4 +50,16 @@ mod tests {
             assert_eq!(app::run_classify(e.clone()).unwrap(), want, "{e:?}");
         }
     }
+
+    #[test]
+    fn resolve() {
+        let names: Vec<String> = ["a", "b", "tmp"].map(String::from).into();
+        for (q, want) in [
+            ("b", "b: slot 1 (var) of 3"),
+            ("len", "len: slot 3 (builtin) of 3"),
+            ("tmp", "tmp: not declared; known: a, b, len"),
+        ] {
+            assert_eq!(app::run_resolve(names.clone(), q.into()).unwrap(), want);
+        }
+    }
 }

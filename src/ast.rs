@@ -96,6 +96,8 @@ pub struct TypeExpr {
 pub enum TypeExprKind {
     Named(Ident),
     Array(Box<TypeExpr>),
+    /// `map[K]V`
+    Map(Box<TypeExpr>, Box<TypeExpr>),
     Struct(Vec<Field>),
     Enum(Vec<Variant>),
 }
@@ -123,7 +125,7 @@ pub enum EdgeKind {
     /// `A collect each (dim) -> B(..)`
     Collect { dim: Ident, target: Target },
     /// `A for each (path) -> B(..)`
-    ForEach { dim: Path, target: Target },
+    ForEach { dim: Value, target: Target },
 }
 
 #[derive(Debug, Clone)]
@@ -212,8 +214,17 @@ pub enum ValueKind {
     Struct(Vec<Arg>),
     /// `[value, value]`
     Array(Vec<Value>),
+    /// `[key: value, key: value]`, or `[:]`
+    Map(Vec<(Value, Value)>),
     Unary(UnOp, Box<Value>),
     Binary(BinOp, Box<Value>, Box<Value>),
+    /// `value[key]`: a map lookup or array index, failing the proc if the
+    /// key isn't there.
+    Index(Box<Value>, Box<Value>),
+    /// `value.name` after something other than a path (`m[k].x`).
+    Field(Box<Value>, Ident),
+    /// `key in map`
+    In(Box<Value>, Box<Value>),
 }
 
 #[derive(Debug, Clone)]

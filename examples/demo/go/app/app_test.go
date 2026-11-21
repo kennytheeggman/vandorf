@@ -74,3 +74,17 @@ func TestClassify(t *testing.T) {
 		}
 	}
 }
+
+func TestResolve(t *testing.T) {
+	names := []string{"a", "b", "tmp"}
+	for q, want := range map[string]string{
+		"b":   "b: slot 1 (var) of 3",
+		"len": "len: slot 3 (builtin) of 3",
+		"tmp": "tmp: not declared; known: a, b, len",
+	} {
+		got, err := RunResolve(context.Background(), names, q)
+		if err != nil || got != want {
+			t.Errorf("RunResolve(%q) = %q, %v; want %q", q, got, err, want)
+		}
+	}
+}

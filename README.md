@@ -83,6 +83,31 @@ They're either all patterns or all conditions; `else` may come last.
   have the same primitive type (an int literal also passes as a float);
   `+` concatenates strings. `&&` and `||` short-circuit, calls included.
 
+### Maps
+
+```
+type Scope = map[string]{ slot: int, kind: string };
+...
+Declare -> Adjust(scope = this.scope + ["len": { slot = this.scope.len, kind = "builtin" }] - ["tmp"], ..);
+Adjust switch {
+	(this.query in this.scope) -> Found(slot = this.scope[this.query].slot, ..),
+	else -> Missing(known = this.scope.keys, ..)
+};
+```
+
+- `map[K]V`, with `int` or `string` keys. Maps are values: passing one on
+  never lets anyone else change it.
+- Literals `["a": 1, "b": 2]` and `[:]`, where a map type is expected.
+- `m[k]` looks a key up and `xs[i]` indexes an array; both fail the proc if
+  it isn't there, so check first with `k in m` (or `.len`).
+- `m + n` is a new map with both (`n` wins); `m - keys` one without `keys`
+  (an array, e.g. `["tmp"]`).
+- `.len` of maps, arrays and strings; `.keys` and `.values` of maps, in key
+  order, so `for each (this.m.keys)` visits keys in the same order in both
+  backends. A `for each` takes any array expression.
+- Go: `map[K]V`; Rust: `BTreeMap<K, V>`. Implementations must not change a
+  map they're given (Go maps are references).
+
 The diagram draws one edge per call a switch can end in, labelled with the
 arm heads on the way (`Lit(n) → else`).
 
