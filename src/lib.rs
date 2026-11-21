@@ -12,41 +12,81 @@ pub mod parser;
 pub mod sema;
 pub mod types;
 
-use ariadne::{Color, Config, IndexType, Label, Report, ReportKind, Source};
+pub mod project;
+
+use ariadne::{Color, Config, IndexType, Label, Report, ReportKind};
 use std::ops::Range;
 
-/// An error at a byte range of the source.
+/// A source file: its path (for messages and relative impl paths) and text.
+#[derive(Debug, Clone)]
+pub struct Source {
+    pub path: String,
+    pub text: String,
+}
+
+/// An error at a byte range of one of the sources.
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
     pub msg: String,
+    /// Index into the sources.
+    pub file: ast::FileId,
     pub span: Range<usize>,
 }
 
-/// Parses and checks `src`.
-pub fn check(src: &str) -> Result<sema::Program, Vec<Diagnostic>> {
-    let file = parser::parse(src).map_err(|errs| {
-        errs.iter().map(|e| Diagnostic { msg: e.to_string(), span: e.span().into_range() }).collect::<Vec<_>>()
-    })?;
-    sema::analyze(&file).map_err(|errs| {
-        errs.into_iter().map(|e| Diagnostic { msg: e.msg, span: e.span.into_range() }).collect()
+/// Parses and checks several files as one program: they share one
+/// namespace, so any file can name any other's declarations.
+pub fn check_files(files: &[Source]) -> Result<sema::Program, Vec<Diagnostic>> {
+    let mut all = ast::File::default();
+    let mut diags = vec![];
+    for (id, f) in files.iter().enumerate() {
+        match parser::parse(&f.text, id) {
+            Ok(file) => {
+                all.types.extend(file.types);
+                all.interfaces.extend(file.interfaces);
+                all.nodes.extend(file.nodes);
+            }
+            Err(errs) => diags.extend(errs.iter().map(|e| Diagnostic {
+                msg: e.to_string(),
+                file: e.span().context,
+                span: e.span().into_range(),
+            })),
+        }
+    }
+    if !diags.is_empty() {
+        return Err(diags);
+    }
+    sema::analyze(&all).map_err(|errs| {
+        errs.into_iter().map(|e| Diagnostic { msg: e.msg, file: e.span.context, span: e.span.into_range() }).collect()
     })
+}
+
+/// Parses and checks one file.
+pub fn check(src: &str) -> Result<sema::Program, Vec<Diagnostic>> {
+    check_files(&[Source { path: "<input>".into(), text: src.into() }])
 }
 
 /// Parses and checks `src`, rendering any diagnostics for a terminal.
 pub fn compile(name: &str, src: &str) -> Result<sema::Program, String> {
-    check(src).map_err(|d| render(name, src, &d, true))
+    compile_files(&[Source { path: name.into(), text: src.into() }])
 }
 
-pub fn render(name: &str, src: &str, diags: &[Diagnostic], color: bool) -> String {
+/// Like [`check_files`], rendering any diagnostics for a terminal.
+pub fn compile_files(files: &[Source]) -> Result<sema::Program, String> {
+    check_files(files).map_err(|d| render(files, &d, true))
+}
+
+pub fn render(files: &[Source], diags: &[Diagnostic], color: bool) -> String {
     let config = Config::default().with_color(color).with_index_type(IndexType::Byte);
+    let mut cache = ariadne::sources(files.iter().map(|f| (f.path.clone(), f.text.clone())));
     let mut out = Vec::new();
     for d in diags {
-        Report::build(ReportKind::Error, (name, d.span.clone()))
+        let name = files[d.file].path.clone();
+        Report::build(ReportKind::Error, (name.clone(), d.span.clone()))
             .with_config(config)
             .with_message(&d.msg)
             .with_label(Label::new((name, d.span.clone())).with_message(&d.msg).with_color(Color::Red))
             .finish()
-            .write((name, Source::from(src)), &mut out)
+            .write(&mut cache, &mut out)
             .unwrap();
     }
     String::from_utf8_lossy(&out).into_owned()

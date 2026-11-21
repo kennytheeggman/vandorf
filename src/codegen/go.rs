@@ -44,7 +44,7 @@
 //! printing its result.
 
 use super::types::{Shape, TyRef, TypeTable};
-use super::{Artifact, ImplUse, Output, Writer, dir_of, exported, gname, join_path, quote};
+use super::{Artifact, ImplUse, MainSpec, Output, Writer, dir_of, exported, gname, join_path, quote};
 use crate::sema::{Arm, BinOp, Body, Call, Edge, Expr, NodeId, NodeKind, Pat, PatKind, Program, Query, Ref, RegionId, Root, Test, UnOp};
 use crate::types::{Prim, Type};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -60,16 +60,13 @@ pub struct GoOptions {
     /// Directory of the types package, relative to the code package's
     /// directory. Empty or `.` puts the types in the code package.
     pub types_dir: String,
-    /// Also generate `main/main_vandorf.go`, running proc `Main`.
-    pub main: bool,
+    /// Executables to generate, each a `package main` in its own directory.
+    pub mains: Vec<MainSpec>,
 }
-
-/// Directory of the main package, relative to the code package's directory.
-pub const MAIN_DIR: &str = "main";
 
 impl GoOptions {
     pub fn new(package: impl Into<String>, import_base: Option<String>) -> GoOptions {
-        GoOptions { package: package.into(), import_base, types_dir: "types".into(), main: false }
+        GoOptions { package: package.into(), import_base, types_dir: "types".into(), mains: vec![] }
     }
 }
 
@@ -192,18 +189,18 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<Output, String> {
             NodeKind::Proc(_) | NodeKind::Alias(_) => None,
         })
         .collect();
-    let main = if opts.main { Some(main_artifact(prog, opts)?) } else { None };
-    Ok(Output { types, code: Artifact { dir: String::new(), files }, main, impls })
+    let mains = opts.mains.iter().map(|m| main_artifact(prog, opts, m)).collect::<Result<_, _>>()?;
+    Ok(Output { types, code: Artifact { dir: String::new(), files }, mains, impls })
 }
 
-fn main_artifact(prog: &Program, opts: &GoOptions) -> Result<Artifact, String> {
-    let (pid, params) = super::main_proc(prog)?;
+fn main_artifact(prog: &Program, opts: &GoOptions, m: &MainSpec) -> Result<Artifact, String> {
+    let (pid, params) = super::main_proc(prog, m)?;
     let import = opts
         .import_base
         .as_deref()
         .ok_or("the main package needs the code package's import path: pass --module or run inside a Go module")?;
     let alias = if opts.package == "main" { "procs".to_string() } else { opts.package.clone() };
-    let usage = super::main_usage(MAIN_DIR, &params);
+    let usage = super::main_usage(&m.name, &params);
 
     let mut imports = vec![("context".to_string(), None), ("fmt".to_string(), None), ("os".to_string(), None)];
     if params.iter().any(|(_, p)| *p != Prim::String) {
@@ -214,7 +211,7 @@ fn main_artifact(prog: &Program, opts: &GoOptions) -> Result<Artifact, String> {
     // The doc comment has to sit right above `package`, which header() wrote.
     w.out = w.out.replacen(
         "package main",
-        &format!("// Command {MAIN_DIR} runs proc {}, taking its parameters as arguments.\n//\n//\t{usage}\npackage main", super::MAIN_PROC),
+        &format!("// Command {} runs proc {}, taking its parameters as arguments.\n//\n//\t{usage}\npackage main", m.name, m.entry),
         1,
     );
     w.line(&format!("const usage = {}", quote(&usage)));
@@ -263,7 +260,7 @@ fn main_artifact(prog: &Program, opts: &GoOptions) -> Result<Artifact, String> {
         _ => w.line("fmt.Printf(\"%+v\\n\", result)"),
     }
     w.line("}");
-    Ok(Artifact { dir: MAIN_DIR.into(), files: BTreeMap::from([("main_vandorf.go".to_string(), w.out)]) })
+    Ok(Artifact { dir: m.path.trim_matches('/').into(), files: BTreeMap::from([("main_vandorf.go".to_string(), w.out)]) })
 }
 
 fn g_tq(pkg: &str) -> String {

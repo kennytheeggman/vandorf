@@ -373,6 +373,18 @@ impl Program {
         }
     }
 
+    /// Sets every implementation reference's [`ast::ImplRef::file`] to
+    /// `f(reference)`: backends resolve it against their output directory.
+    pub fn rebase_impls(&mut self, f: impl Fn(&ast::ImplRef) -> String) {
+        for n in &mut self.nodes {
+            if let NodeKind::Func(func) = &mut n.kind {
+                for i in &mut func.imps {
+                    i.file = f(i);
+                }
+            }
+        }
+    }
+
     /// All procs, nested ones included, parents before children.
     pub fn all_procs(&self) -> Vec<NodeId> {
         let mut out = vec![];

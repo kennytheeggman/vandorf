@@ -3,15 +3,18 @@
 Proof-of-concept Rust rewrite of the vandorf compiler.
 
 ```
-cargo run -- check examples/demo/demo.sys
-cargo run -- doc   examples/demo/demo.sys -o doc.json           # visualizer document
-cargo run -- go    examples/demo/demo.sys -o examples/demo/go/app --main
-cargo run -- rust  examples/demo/demo.sys -o examples/demo/rs/src/app --main
-cargo run -- serve                                              # workbench on :8080
+cd examples/demo
+cargo run -- check                   # the project in vandorf.toml
+cargo run -- build                   # both backends and both bins (or: build calc)
+cargo run -- doc -o doc.json         # visualizer document
+cargo run -- serve                   # workbench on :8080
 
-(cd examples/demo/go && go test ./... && go run ./app/main 1 ab)   # end:S
-(cd examples/demo/rs && cargo test && cargo run -- 1 ab)          # end:S
+(cd go && go test ./... && go run ./cmd/demo 1 ab && go run ./cmd/calc 3)        # end:S, 115
+(cd rs && cargo test && cargo run --bin demo -- 1 ab && cargo run --bin calc -- 3)  # end:S, 115
 ```
+
+Single files work too: `vandorf check f.sys`, `vandorf go f.sys -o dir`,
+`vandorf rust f.sys -o dir` (see `vandorf --help`).
 
 Pipeline: `parser` (chumsky, source → `ast`) → `sema` (name resolution,
 `this` typing, for-each regions) → `document` (grid layout, same JSON as the Go
@@ -111,6 +114,35 @@ Adjust switch {
 The diagram draws one edge per call a switch can end in, labelled with the
 arm heads on the way (`Lit(n) → else`).
 
+## Projects
+
+A `vandorf.toml` (found in the current directory or a parent) names the
+source directories and what to build; all its `.sys` files share one
+namespace, so any file can use any other's types, interfaces and procs.
+
+```toml
+[project]
+name = "demo"
+sources = ["sys"]          # directories searched for .sys files; default ["."]
+
+[go]                       # optional: the Go library
+out = "go/app"             # code package; types in out/types
+# package, module (import path of out; default from go.mod), types_dir
+
+[rust]                     # optional: the Rust library
+out = "rs/src/app"         # a module under the crate's src/
+# module_dir (out relative to src/; default from Cargo.toml)
+
+[bin.demo]                 # an executable per backend, running a proc
+entry = "Main"             # default "Main"
+# go = "go/cmd/demo"       # Go main package; default <go.out>/../cmd/<name>
+# rust = "bin/demo.rs"     # under the crate's src/; default bin/<name>.rs
+```
+
+`vandorf build` generates the libraries and every bin; `vandorf build calc`
+the libraries and that bin. Errors name the file they're in. The workbench
+compiles a project file together with the rest of its project.
+
 ## Workbench
 
 `vandorf serve [--addr 127.0.0.1:8080] [--dir .]` serves an editor with live
@@ -141,10 +173,11 @@ A func names its implementation per backend; each backend uses the reference
 with its file extension:
 
 ```
-func Start(i: int): { l: []int, s: string } = "impl.go:Range", "../impls.rs:range";
+func Start(i: int): { l: []int, s: string } = "../go/app/impl.go:Range", "../rs/src/impls.rs:range";
 ```
 
-Paths are relative to the generated code's directory (`-o`).
+Paths are relative to the `.sys` file naming them; each backend resolves them
+against its output directory.
 
 - **Go**: same directory → called directly; elsewhere → imported (path from
   `go.mod`, or `--module`).
@@ -159,18 +192,19 @@ Funcs without a reference for a backend call a generated stub that returns an
 error. `vandorf go`/`rust` warn when a referenced file or function is missing,
 printing the expected signature.
 
-## Main
+## Bins
 
-`--main` also writes an executable that runs the top-level proc `Main`
-(an error if there is none). `Main`'s parameters must be `int`, `float`,
-`bool` or `string`; they are taken from the command line in declared order,
-and the result is printed (`usage: main <a: int> <b: string>`).
+A bin (`[bin.<name>]`, or `--main`/`--entry Proc` on the single-file
+commands) runs a top-level proc, `Main` by default (an error if there is
+none). Its parameters must be `int`, `float`, `bool` or `string`; they are
+taken from the command line in declared order, and the result is printed
+(`usage: demo <a: int> <b: string>`).
 
-- **Go**: `<dir>/main/main_vandorf.go`, a `package main` importing the code
-  package.
-- **Rust**: `src/main.rs`, calling `<crate>::<module>::run_main`, so the crate
-  needs a `lib.rs` that declares the module.
+- **Go**: a `package main` importing the code package (`<go.out>/../cmd/<name>`;
+  `<dir>/main` for `--main`).
+- **Rust**: a file under the crate's `src/` (`bin/<name>.rs`; `main.rs` for
+  `--main`) calling `<crate>::<module>::run_<entry>`, so the crate needs a
+  `lib.rs` that declares the module.
 
 Neither backend overwrites a file it didn't generate, so an existing
-hand-written `src/main.rs` is left alone (the command fails instead). The
-workbench shows the main whenever the program has a `Main`.
+hand-written `src/main.rs` is left alone (the command fails instead).

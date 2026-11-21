@@ -7,8 +7,9 @@
 //! - **code** ("codegen"): one state machine per proc, calling the
 //!   implementations. It depends on the types artifact and the implementations.
 //!
-//! On request, a third artifact, **main**, is an executable entry point that
-//! runs the top-level proc `Main` with its parameters from the command line.
+//! On request, more artifacts, **mains**: executables that each run a
+//! top-level proc (the entry, `Main` by default) with its parameters from the
+//! command line. See [`MainSpec`].
 
 pub mod go;
 pub mod rust;
@@ -22,8 +23,8 @@ use std::collections::BTreeMap;
 pub struct Output {
     pub types: Artifact,
     pub code: Artifact,
-    /// The executable entry point, when requested.
-    pub main: Option<Artifact>,
+    /// One per requested [`MainSpec`].
+    pub mains: Vec<Artifact>,
     /// Every implementation the code calls, for the caller to verify.
     pub impls: Vec<ImplUse>,
 }
@@ -46,30 +47,45 @@ pub struct ImplUse {
     pub signature: String,
 }
 
-/// Name of the proc the main artifact runs.
+/// The default entry proc.
 pub const MAIN_PROC: &str = "Main";
 
-/// Whether the program has a top-level proc `Main`.
-pub fn has_main(prog: &Program) -> bool {
-    main_proc(prog).is_ok()
+/// An executable to generate.
+#[derive(Debug, Clone)]
+pub struct MainSpec {
+    /// The executable's name, for usage messages.
+    pub name: String,
+    /// The top-level proc it runs.
+    pub entry: String,
+    /// Where it goes. Go: the main package's directory, relative to the
+    /// output directory. Rust: the file, relative to the crate's `src/`
+    /// (`main.rs`, `bin/<name>.rs`).
+    pub path: String,
 }
 
-/// The top-level proc `Main` and its parameters, which must be primitives
-/// (they are parsed from command-line arguments).
-pub(crate) fn main_proc(prog: &Program) -> Result<(NodeId, Vec<(String, Prim)>), String> {
-    let pid = prog
-        .top_procs
-        .iter()
-        .copied()
-        .find(|&p| prog.node(p).name() == MAIN_PROC && matches!(prog.node(p).kind, NodeKind::Proc(_)))
-        .ok_or_else(|| format!("generating a main needs a top-level proc {MAIN_PROC}, and there is none"))?;
+/// Whether the program has a top-level proc named `name`.
+pub fn has_proc(prog: &Program, name: &str) -> bool {
+    find_proc(prog, name).is_some()
+}
+
+fn find_proc(prog: &Program, name: &str) -> Option<NodeId> {
+    prog.top_procs.iter().copied().find(|&p| prog.node(p).name() == name && matches!(prog.node(p).kind, NodeKind::Proc(_)))
+}
+
+/// A main's entry proc and its parameters, which must be primitives (they
+/// are parsed from command-line arguments).
+pub(crate) fn main_proc(prog: &Program, m: &MainSpec) -> Result<(NodeId, Vec<(String, Prim)>), String> {
+    let entry = &m.entry;
+    let pid = find_proc(prog, entry)
+        .ok_or_else(|| format!("{} runs proc {entry}, but there is no top-level proc {entry}", m.name))?;
     let params = prog
         .params(pid)
         .iter()
         .map(|(name, t)| match t.unfold(&prog.types) {
             Type::Prim(p) if *p != Prim::Void => Ok((name.clone(), *p)),
             t => Err(format!(
-                "{MAIN_PROC}'s parameter {name} has type {t}; main reads its parameters from the command line, so they must be int, float, bool or string"
+                "{entry}'s parameter {name} has type {t}; {} reads its parameters from the command line, so they must be int, float, bool or string",
+                m.name,
             )),
         })
         .collect::<Result<_, _>>()?;

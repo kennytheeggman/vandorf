@@ -5,7 +5,11 @@
 
 use chumsky::span::SimpleSpan;
 
-pub type Span = SimpleSpan<usize>;
+/// Index of a source file in the files being compiled together.
+pub type FileId = usize;
+
+/// A byte range in one source file.
+pub type Span = SimpleSpan<usize, FileId>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ident {
@@ -66,6 +70,10 @@ pub struct Func {
 /// A `file:function` reference to the code that implements a leaf func.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImplRef {
+    /// The file as written, relative to the `.sys` file naming it.
+    pub written: String,
+    /// The file as the backend sees it: relative to its output directory
+    /// once [`crate::sema::Program::rebase_impls`] has run, `written` until then.
     pub file: String,
     pub function: String,
     pub span: Span,

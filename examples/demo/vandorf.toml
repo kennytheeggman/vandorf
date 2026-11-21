@@ -1,0 +1,17 @@
+# The demo project: `vandorf build` here generates both backends and both
+# bins. Impl paths in sys/*.sys are relative to sys/.
+[project]
+name = "demo"
+sources = ["sys"]
+
+[go]
+out = "go/app"               # types in go/app/types
+
+[rust]
+out = "rs/src/app"
+
+[bin.demo]                   # go/cmd/demo, rs/src/bin/demo.rs
+entry = "Main"
+
+[bin.calc]                   # calc <base: int>
+entry = "Calc"

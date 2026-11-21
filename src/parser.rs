@@ -40,13 +40,17 @@
 //! IDENT excludes keywords.
 //!
 //! The `= "file:function", ...` suffix on a func names the code that implements
-//! it, one reference per target language (picked by file extension).
+//! it, one reference per target language (picked by file extension). The file
+//! is relative to the `.sys` file.
 //! `//` starts a line comment.
 
 use crate::ast::*;
 use chumsky::prelude::*;
 
-pub type ParseError<'a> = Rich<'a, char>;
+/// Source text whose spans carry the file they're in.
+type In<'a> = chumsky::input::WithContext<Span, &'a str>;
+
+pub type ParseError<'a> = Rich<'a, char, Span>;
 type Extra<'a> = extra::Err<ParseError<'a>>;
 
 const KEYWORDS: &[&str] = &[
@@ -54,12 +58,13 @@ const KEYWORDS: &[&str] = &[
     "true", "false", "else", "map", "in",
 ];
 
-pub fn parse(src: &str) -> Result<File, Vec<ParseError<'_>>> {
-    file().parse(src).into_result()
+/// Parses one source file; its spans carry `id`.
+pub fn parse(src: &str, id: FileId) -> Result<File, Vec<ParseError<'_>>> {
+    file().parse(src.with_context(id)).into_result()
 }
 
 /// Whitespace and `//` comments.
-fn ws<'a>() -> impl Parser<'a, &'a str, (), Extra<'a>> + Clone {
+fn ws<'a>() -> impl Parser<'a, In<'a>, (), Extra<'a>> + Clone {
     let comment = just("//").then(any().and_is(just('\n').not()).repeated()).ignored();
     any()
         .filter(|c: &char| c.is_whitespace())
@@ -69,15 +74,15 @@ fn ws<'a>() -> impl Parser<'a, &'a str, (), Extra<'a>> + Clone {
 }
 
 /// A punctuation token followed by trailing whitespace.
-fn sym<'a>(s: &'static str) -> impl Parser<'a, &'a str, (), Extra<'a>> + Clone {
+fn sym<'a>(s: &'static str) -> impl Parser<'a, In<'a>, (), Extra<'a>> + Clone {
     just(s).ignored().then_ignore(ws())
 }
 
-fn kw<'a>(s: &'static str) -> impl Parser<'a, &'a str, (), Extra<'a>> + Clone {
+fn kw<'a>(s: &'static str) -> impl Parser<'a, In<'a>, (), Extra<'a>> + Clone {
     text::ascii::keyword(s).ignored().then_ignore(ws())
 }
 
-fn ident<'a>() -> impl Parser<'a, &'a str, Ident, Extra<'a>> + Clone {
+fn ident<'a>() -> impl Parser<'a, In<'a>, Ident, Extra<'a>> + Clone {
     text::ascii::ident()
         .try_map(|s: &str, span| {
             if KEYWORDS.contains(&s) {
@@ -91,14 +96,14 @@ fn ident<'a>() -> impl Parser<'a, &'a str, Ident, Extra<'a>> + Clone {
 }
 
 /// Any identifier, keywords included: field, parameter and argument names.
-fn name<'a>() -> impl Parser<'a, &'a str, Ident, Extra<'a>> + Clone {
+fn name<'a>() -> impl Parser<'a, In<'a>, Ident, Extra<'a>> + Clone {
     text::ascii::ident()
         .map_with(|s: &str, e| Ident { name: s.to_string(), span: e.span() })
         .then_ignore(ws())
         .labelled("name")
 }
 
-fn path<'a>() -> impl Parser<'a, &'a str, Path, Extra<'a>> + Clone {
+fn path<'a>() -> impl Parser<'a, In<'a>, Path, Extra<'a>> + Clone {
     ident()
         .then(sym(".").ignore_then(name()).repeated().collect::<Vec<_>>())
         .map_with(|(first, rest), e| {
@@ -109,7 +114,7 @@ fn path<'a>() -> impl Parser<'a, &'a str, Path, Extra<'a>> + Clone {
         .labelled("path")
 }
 
-fn string<'a>() -> impl Parser<'a, &'a str, (String, Span), Extra<'a>> + Clone {
+fn string<'a>() -> impl Parser<'a, In<'a>, (String, Span), Extra<'a>> + Clone {
     let escape = just('\\').ignore_then(choice((
         just('\\'),
         just('"'),
@@ -126,7 +131,7 @@ fn string<'a>() -> impl Parser<'a, &'a str, (String, Span), Extra<'a>> + Clone {
         .labelled("string")
 }
 
-fn type_expr<'a>() -> impl Parser<'a, &'a str, TypeExpr, Extra<'a>> + Clone {
+fn type_expr<'a>() -> impl Parser<'a, In<'a>, TypeExpr, Extra<'a>> + Clone {
     recursive(|ty| {
         let field = name()
             .then_ignore(sym(":"))
@@ -172,14 +177,14 @@ fn type_expr<'a>() -> impl Parser<'a, &'a str, TypeExpr, Extra<'a>> + Clone {
     })
 }
 
-fn field<'a>() -> impl Parser<'a, &'a str, Field, Extra<'a>> + Clone {
+fn field<'a>() -> impl Parser<'a, In<'a>, Field, Extra<'a>> + Clone {
     name()
         .then_ignore(sym(":"))
         .then(type_expr())
         .map(|(name, ty)| Field { name, ty })
 }
 
-fn impl_ref<'a>() -> impl Parser<'a, &'a str, ImplRef, Extra<'a>> + Clone {
+fn impl_ref<'a>() -> impl Parser<'a, In<'a>, ImplRef, Extra<'a>> + Clone {
     string().try_map(|(s, span), _| {
         let bad = || Rich::custom(span, format!("expected \"file:function\", found \"{s}\""));
         let (file, function) = s.rsplit_once(':').ok_or_else(bad)?;
@@ -190,11 +195,11 @@ fn impl_ref<'a>() -> impl Parser<'a, &'a str, ImplRef, Extra<'a>> + Clone {
         if file.is_empty() || function.is_empty() || !is_ident {
             return Err(bad());
         }
-        Ok(ImplRef { file: file.to_string(), function: function.to_string(), span })
+        Ok(ImplRef { written: file.to_string(), file: file.to_string(), function: function.to_string(), span })
     })
 }
 
-fn func<'a>() -> impl Parser<'a, &'a str, Func, Extra<'a>> + Clone {
+fn func<'a>() -> impl Parser<'a, In<'a>, Func, Extra<'a>> + Clone {
     kw("func")
         .ignore_then(ident())
         .then(
@@ -212,7 +217,7 @@ fn func<'a>() -> impl Parser<'a, &'a str, Func, Extra<'a>> + Clone {
         .map(|(((name, params), ret), imps)| Func { name, params, ret, imps: imps.unwrap_or_default() })
 }
 
-fn number<'a>() -> impl Parser<'a, &'a str, ValueKind, Extra<'a>> + Clone {
+fn number<'a>() -> impl Parser<'a, In<'a>, ValueKind, Extra<'a>> + Clone {
     text::int(10)
         .then(just('.').then(text::digits(10)).or_not())
         .to_slice()
@@ -229,17 +234,17 @@ fn number<'a>() -> impl Parser<'a, &'a str, ValueKind, Extra<'a>> + Clone {
 }
 
 /// `=`, but not the start of `==`.
-fn assign<'a>() -> impl Parser<'a, &'a str, (), Extra<'a>> + Clone {
+fn assign<'a>() -> impl Parser<'a, In<'a>, (), Extra<'a>> + Clone {
     just('=').and_is(just("==").not()).ignored().then_ignore(ws())
 }
 
 /// An operator token that isn't the start of a longer one.
-fn op<'a>(s: &'static str, not_before: &'static [&'static str]) -> impl Parser<'a, &'a str, (), Extra<'a>> + Clone {
+fn op<'a>(s: &'static str, not_before: &'static [&'static str]) -> impl Parser<'a, In<'a>, (), Extra<'a>> + Clone {
     let longer = choice(not_before.iter().map(|t| just(*t).ignored().boxed()).collect::<Vec<_>>());
     just(s).and_is(longer.not()).ignored().then_ignore(ws())
 }
 
-type Expr<'a> = chumsky::Boxed<'a, 'a, &'a str, Value, Extra<'a>>;
+type Expr<'a> = chumsky::Boxed<'a, 'a, In<'a>, Value, Extra<'a>>;
 
 /// One left-associative precedence level.
 fn level<'a>(operand: Expr<'a>, ops: Vec<(&'static str, &'static [&'static str], BinOp)>) -> Expr<'a> {
@@ -253,7 +258,7 @@ fn level<'a>(operand: Expr<'a>, ops: Vec<(&'static str, &'static [&'static str],
         .boxed()
 }
 
-fn value<'a>() -> impl Parser<'a, &'a str, Value, Extra<'a>> + Clone {
+fn value<'a>() -> impl Parser<'a, In<'a>, Value, Extra<'a>> + Clone {
     recursive(|expr| {
         let arg = name()
             .then_ignore(assign())
@@ -370,7 +375,7 @@ fn value<'a>() -> impl Parser<'a, &'a str, Value, Extra<'a>> + Clone {
     })
 }
 
-fn target<'a>() -> impl Parser<'a, &'a str, Target, Extra<'a>> + Clone {
+fn target<'a>() -> impl Parser<'a, In<'a>, Target, Extra<'a>> + Clone {
     let arg = name()
         .then_ignore(assign())
         .then(value())
@@ -381,7 +386,7 @@ fn target<'a>() -> impl Parser<'a, &'a str, Target, Extra<'a>> + Clone {
         .map(|((node, args), alias)| Target { node, args, alias })
 }
 
-fn pattern<'a>() -> impl Parser<'a, &'a str, Pat, Extra<'a>> + Clone {
+fn pattern<'a>() -> impl Parser<'a, In<'a>, Pat, Extra<'a>> + Clone {
     recursive(|pat| {
         let variant = ident()
             .then(pat.clone().or_not().delimited_by(sym("("), sym(")")))
@@ -407,7 +412,7 @@ fn pattern<'a>() -> impl Parser<'a, &'a str, Pat, Extra<'a>> + Clone {
 }
 
 /// Switch arms; an arm's body is a call or a nested switch.
-fn arms<'a>() -> impl Parser<'a, &'a str, Vec<Arm>, Extra<'a>> + Clone {
+fn arms<'a>() -> impl Parser<'a, In<'a>, Vec<Arm>, Extra<'a>> + Clone {
     recursive(|arms| {
         let head = choice((
             kw("else").to(Head::Else),
@@ -429,7 +434,7 @@ fn arms<'a>() -> impl Parser<'a, &'a str, Vec<Arm>, Extra<'a>> + Clone {
     })
 }
 
-fn edge<'a>() -> impl Parser<'a, &'a str, Edge, Extra<'a>> + Clone {
+fn edge<'a>() -> impl Parser<'a, In<'a>, Edge, Extra<'a>> + Clone {
     let arrow = || sym("->");
     let call = arrow().ignore_then(target()).map(EdgeKind::Call);
     let match_ = kw("switch").ignore_then(arms().delimited_by(sym("{"), sym("}")).map(EdgeKind::Match));
@@ -451,7 +456,7 @@ fn edge<'a>() -> impl Parser<'a, &'a str, Edge, Extra<'a>> + Clone {
         .map_with(|(source, kind), e| Edge { source, kind, span: e.span() })
 }
 
-fn node<'a>() -> impl Parser<'a, &'a str, Node, Extra<'a>> + Clone {
+fn node<'a>() -> impl Parser<'a, In<'a>, Node, Extra<'a>> + Clone {
     recursive(|node| {
         enum Item {
             Node(Node),
@@ -483,7 +488,7 @@ fn node<'a>() -> impl Parser<'a, &'a str, Node, Extra<'a>> + Clone {
     })
 }
 
-fn file<'a>() -> impl Parser<'a, &'a str, File, Extra<'a>> {
+fn file<'a>() -> impl Parser<'a, In<'a>, File, Extra<'a>> {
     enum Item {
         Type(TypeDecl),
         Interface(Interface),
@@ -531,9 +536,13 @@ fn file<'a>() -> impl Parser<'a, &'a str, File, Extra<'a>> {
 mod tests {
     use super::*;
 
+    fn parse0(src: &str) -> Result<File, Vec<ParseError<'_>>> {
+        parse(src, 0)
+    }
+
     #[test]
     fn parses_impl_ref() {
-        let f = parse(r#"func A(x: int): int = "impl/a.go:DoA", "a.rs:do_a";"#).unwrap();
+        let f = parse0(r#"func A(x: int): int = "impl/a.go:DoA", "a.rs:do_a";"#).unwrap();
         let Node::Func(func) = &f.nodes[0] else { panic!() };
         let got: Vec<_> = func.imps.iter().map(|i| (i.file.as_str(), i.function.as_str())).collect();
         assert_eq!(got, vec![("impl/a.go", "DoA"), ("a.rs", "do_a")]);
@@ -541,13 +550,13 @@ mod tests {
 
     #[test]
     fn rejects_bad_impl_ref() {
-        assert!(parse(r#"func A(x: int) = "nocolon";"#).is_err());
-        assert!(parse(r#"func A(x: int) = "a.go:1x";"#).is_err());
+        assert!(parse0(r#"func A(x: int) = "nocolon";"#).is_err());
+        assert!(parse0(r#"func A(x: int) = "a.go:1x";"#).is_err());
     }
 
     #[test]
     fn keywords_are_not_idents() {
-        assert!(parse("func for(x: int);").is_err());
+        assert!(parse0("func for(x: int);").is_err());
     }
 
     #[test]
@@ -561,7 +570,7 @@ mod tests {
                 B collect each (B) -> C(l = this);
             }
         "#;
-        let f = parse(src).unwrap();
+        let f = parse0(src).unwrap();
         let Node::Proc(p) = &f.nodes[0] else { panic!() };
         assert_eq!(p.nodes.len(), 3);
         assert!(matches!(p.edges[0].kind, EdgeKind::ForEach { .. }));
@@ -570,9 +579,9 @@ mod tests {
 
     #[test]
     fn parses_typedefs_and_keyword_fields() {
-        let f = parse("type T = enum { Leaf(int), Node({ type: string, kids: []T }) };").unwrap();
+        let f = parse0("type T = enum { Leaf(int), Node({ type: string, kids: []T }) };").unwrap();
         assert_eq!(f.types[0].name.name, "T");
-        assert!(parse("type for = int;").is_err());
+        assert!(parse0("type for = int;").is_err());
     }
 
     #[test]
@@ -584,7 +593,7 @@ mod tests {
                 A -> B(i = -3, f = 1.5, s = "a\"b", t = true, l = [1, 2,], e = S(), v = T({ x = this, type = [] }), r = A.x.type) as B2;
             }
         "#;
-        let f = parse(src).unwrap();
+        let f = parse0(src).unwrap();
         let Node::Proc(p) = &f.nodes[0] else { panic!() };
         let EdgeKind::Call(t) = &p.edges[0].kind else { panic!() };
         assert_eq!(t.alias.as_ref().unwrap().name, "B2");
@@ -654,7 +663,7 @@ mod tests {
     }
 
     fn arms(src: &str) -> Vec<String> {
-        let f = parse(src).unwrap_or_else(|e| panic!("{e:?}"));
+        let f = parse0(src).unwrap_or_else(|e| panic!("{e:?}"));
         let Node::Proc(p) = &f.nodes[0] else { panic!() };
         let EdgeKind::Match(arms) = &p.edges[0].kind else { panic!() };
         show_arms(arms)
@@ -699,7 +708,7 @@ mod tests {
             else -> X()
         }; }"#);
         assert_eq!(got[0], r#"((k in this.m) && ((this.m[k].x + 1) > [:].len)) -> X"#);
-        assert!(parse("proc P(A): int { func A(m: map[string][]int): map[int]{ x: int }; }").is_ok());
+        assert!(parse0("proc P(A): int { func A(m: map[string][]int): map[int]{ x: int }; }").is_ok());
     }
 
     #[test]

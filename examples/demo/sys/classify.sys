@@ -1,0 +1,22 @@
+// Pattern switches match structure: variants, struct fields (all of them,
+// `_` for the ones that don't matter) and bindings. Conditions on values go
+// in a switch nested under a pattern arm, which sees its bindings. The
+// arms cover every Expr, so no else is needed.
+proc Classify(Look): string {
+	func Look(e: Expr): Expr = "../go/app/impl.go:Look", "../rs/src/impls.rs:look";
+	func Small(i: int): bool = "../go/app/impl.go:Small", "../rs/src/impls.rs:small";
+	func Say(s: string): string = "../go/app/impl.go:Say", "../rs/src/impls.rs:say";
+
+	Look switch {
+		Lit(n) -> switch {
+			(Small(i = n) && n % 2 == 0) -> Say(s = "small even"),
+			else -> Say(s = "literal")
+		},
+		Neg(Lit(_)) -> Say(s = "negated literal"),
+		// Recursion through the graph: another instance of this proc.
+		Neg(e) -> Classify(e = e) as Inner,
+		Add({ l = Lit(_), r = Lit(_) }) -> Say(s = "sum of literals"),
+		Add(_) -> Say(s = "something else")
+	};
+	Inner -> Say(s = "minus " + Inner);
+}

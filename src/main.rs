@@ -4,19 +4,27 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use vandorf::codegen::go::GoOptions;
 use vandorf::codegen::rust::RustOptions;
-use vandorf::codegen::{self, Output};
+use vandorf::codegen::{self, MainSpec, Output};
+use vandorf::project::{self, Project};
+use vandorf::sema::Program;
+use vandorf::Source;
 
 const USAGE: &str = "\
 usage:
-  vandorf check <file.sys>
-  vandorf doc   <file.sys> [-o out.json]
-  vandorf go    <file.sys> -o <dir> [--package name] [--module import/path/of/dir] [--types-dir types] [--main]
-  vandorf rust  <file.sys> -o <dir> [--module-dir path/under/src] [--main]
+  vandorf build [<bin>] [--manifest vandorf.toml]     # libraries, and every bin or just <bin>
+  vandorf check [<file.sys> | --manifest vandorf.toml]
+  vandorf doc   [<file.sys> | --manifest vandorf.toml] [-o out.json]
+  vandorf go    <file.sys> -o <dir> [--package name] [--module import/path/of/dir] [--types-dir types] [--main] [--entry Proc]
+  vandorf rust  <file.sys> -o <dir> [--module-dir path/under/src] [--main] [--entry Proc]
   vandorf serve [--addr 127.0.0.1:8080] [--dir .]   # editor + visualizer workbench
 
+Without a file, check and doc use the project: the nearest vandorf.toml in the
+current directory or its parents (see the README for its fields). A project's
+.sys files share one namespace.
+
 Each backend writes two artifacts: the types (typegen) and the procs (codegen).
-Impl paths in `= \"file:function\"` are relative to <dir>; each backend uses the
-reference with its extension (.go / .rs).
+Impl paths in `= \"file:function\"` are relative to the .sys file naming them;
+each backend uses the reference with its extension (.go / .rs).
 
 go:   <dir> is the code package; types go to <dir>/<types-dir> as their own
       package (`.` keeps them in the code package). Import paths come from the
@@ -25,10 +33,11 @@ rust: <dir> is a module (<dir>/mod.rs, types.rs, procs.rs). Its place in the
       crate comes from the enclosing Cargo.toml, or --module-dir (relative to
       src/).
 
---main also writes an executable that runs proc Main (which must exist),
-taking Main's parameters as command-line arguments: <dir>/main/main_vandorf.go
-for Go, src/main.rs for Rust (which calls the procs through the crate's lib.rs,
-so the module must be reachable from there).";
+--main also writes an executable that runs proc Main (or --entry's proc, which
+must exist), taking its parameters as command-line arguments:
+<dir>/main/main_vandorf.go for Go, src/main.rs for Rust (which calls the procs
+through the crate's lib.rs, so the module must be reachable from there). In a
+project, [bin.<name>] tables configure executables instead.";
 
 fn main() -> ExitCode {
     match run(std::env::args().skip(1).collect()) {
@@ -43,36 +52,70 @@ fn main() -> ExitCode {
 #[derive(Default)]
 struct Args {
     cmd: String,
-    input: PathBuf,
+    input: Option<PathBuf>,
+    manifest: Option<PathBuf>,
     out: Option<PathBuf>,
     package: Option<String>,
     module: Option<String>,
     types_dir: Option<String>,
     module_dir: Option<String>,
     main: bool,
+    entry: Option<String>,
 }
 
 fn parse_args(argv: Vec<String>) -> Result<Args, String> {
     let mut it = argv.into_iter();
     let mut args = Args { cmd: it.next().ok_or(USAGE)?, ..Default::default() };
-    let mut input = None;
     while let Some(a) = it.next() {
         let mut val = || it.next().ok_or_else(|| format!("{a} needs a value\n\n{USAGE}"));
         match a.as_str() {
             "-o" | "--out" => args.out = Some(PathBuf::from(val()?)),
+            "--manifest" => args.manifest = Some(PathBuf::from(val()?)),
             "--package" => args.package = Some(val()?),
             "--module" => args.module = Some(val()?),
             "--types-dir" => args.types_dir = Some(val()?),
             "--module-dir" => args.module_dir = Some(val()?),
             "--main" => args.main = true,
+            "--entry" => args.entry = Some(val()?),
             "-h" | "--help" => return Err(USAGE.into()),
             s if s.starts_with('-') => return Err(format!("unknown flag {s}\n\n{USAGE}")),
-            _ if input.is_none() => input = Some(PathBuf::from(&a)),
+            _ if args.input.is_none() => args.input = Some(PathBuf::from(&a)),
             _ => return Err(format!("unexpected argument {a}\n\n{USAGE}")),
         }
     }
-    args.input = input.ok_or(USAGE)?;
     Ok(args)
+}
+
+/// What a command compiles: one file, or a project.
+struct Unit {
+    files: Vec<Source>,
+    /// Absolute directory of each file, for impl paths.
+    dirs: Vec<PathBuf>,
+    project: Option<Project>,
+}
+
+impl Unit {
+    fn file(path: &Path) -> Result<Unit, String> {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+        let dir = project::normalize(&project::absolute(path.parent().unwrap_or(Path::new("."))));
+        Ok(Unit { files: vec![Source { path: path.display().to_string(), text }], dirs: vec![dir], project: None })
+    }
+
+    fn project(manifest: Option<&Path>) -> Result<Unit, String> {
+        let manifest = match manifest {
+            Some(m) => m.to_path_buf(),
+            None => {
+                let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+                project::find(&cwd).ok_or_else(|| format!("no {} in {} or its parents\n\n{USAGE}", project::MANIFEST, cwd.display()))?
+            }
+        };
+        let p = project::load(&manifest)?;
+        Ok(Unit { files: p.files.clone(), dirs: p.dirs(), project: Some(p) })
+    }
+
+    fn compile(&self) -> Result<Program, String> {
+        vandorf::compile_files(&self.files)
+    }
 }
 
 fn run(argv: Vec<String>) -> Result<(), String> {
@@ -80,13 +123,17 @@ fn run(argv: Vec<String>) -> Result<(), String> {
         return serve_cmd(&argv[1..]);
     }
     let args = parse_args(argv)?;
-    let src = std::fs::read_to_string(&args.input)
-        .map_err(|e| format!("cannot read {}: {e}", args.input.display()))?;
-    let prog = vandorf::compile(&args.input.display().to_string(), &src)?;
+    let unit = match (&args.input, args.cmd.as_str()) {
+        (_, "build") => Unit::project(args.manifest.as_deref())?,
+        (Some(f), _) => Unit::file(f)?,
+        (None, "check" | "doc") => Unit::project(args.manifest.as_deref())?,
+        (None, _) => return Err(USAGE.into()),
+    };
+    let mut prog = unit.compile()?;
 
     match args.cmd.as_str() {
         "check" => {
-            eprintln!("ok: {} procs", prog.all_procs().len());
+            eprintln!("ok: {} files, {} procs", unit.files.len(), prog.all_procs().len());
             Ok(())
         }
         "doc" => {
@@ -99,51 +146,126 @@ fn run(argv: Vec<String>) -> Result<(), String> {
                 }
             }
         }
+        "build" => {
+            let p = unit.project.as_ref().unwrap();
+            let m = &p.manifest;
+            if m.go.is_none() && m.rust.is_none() {
+                return Err(format!("{}: configure [go] and/or [rust] to build", project::MANIFEST));
+            }
+            let bins: Vec<(&String, &project::Bin)> = match &args.input {
+                None => m.bin.iter().collect(),
+                Some(name) => {
+                    let name = name.display().to_string();
+                    match m.bin.get_key_value(&name) {
+                        Some(b) => vec![b],
+                        None => {
+                            let known: Vec<&str> = m.bin.keys().map(String::as_str).collect();
+                            return Err(format!("{}: no [bin.{name}]; bins: {}", project::MANIFEST, if known.is_empty() { "none".into() } else { known.join(", ") }));
+                        }
+                    }
+                }
+            };
+            if let Some(g) = &m.go {
+                let out = p.root.join(&g.out);
+                go(&mut prog, &unit.dirs, &out, g.package.clone(), g.module.clone(), g.types_dir.clone(), go_mains(p, g, &bins))?;
+            }
+            if let Some(r) = &m.rust {
+                rust(&mut prog, &unit.dirs, &p.root.join(&r.out), r.module_dir.clone(), rust_mains(&bins))?;
+            }
+            Ok(())
+        }
         "go" => {
             let out = out_dir(&args)?;
-            let mut opts = GoOptions::new(
-                args.package.clone().unwrap_or_else(|| default_package(&out)),
-                args.module.clone().or_else(|| go_import_path(&out)),
-            );
-            if let Some(d) = &args.types_dir {
-                opts.types_dir = d.clone();
-            }
-            opts.main = args.main;
-            let output = codegen::go::generate(&prog, &opts)?;
-            let written = write_output(&out, &output)?;
-            // Generated code is already indented; gofmt only aligns it.
-            format_with("gofmt", &["-w"], &written);
-            check_impls(&out, &output, "func");
-            Ok(())
+            let mains = single_main(&args, "main");
+            go(&mut prog, &unit.dirs, &out, args.package.clone(), args.module.clone(), args.types_dir.clone(), mains)
         }
         "rust" => {
             let out = out_dir(&args)?;
-            let opts = RustOptions {
-                module_dir: args.module_dir.clone().or_else(|| rust_module_dir(&out)),
-                main: args.main,
-                crate_name: rust_lib_name(&out),
-            };
-            let output = codegen::rust::generate(&prog, &opts)?;
-            let written = write_output(&out, &output)?;
-            format_with("rustfmt", &["--edition", "2024"], &written);
-            check_impls(&out, &output, "fn");
-            Ok(())
+            let mains = single_main(&args, "main.rs");
+            rust(&mut prog, &unit.dirs, &out, args.module_dir.clone(), mains)
         }
         other => Err(format!("unknown command {other}\n\n{USAGE}")),
     }
 }
 
+fn go(
+    prog: &mut Program,
+    dirs: &[PathBuf],
+    out: &Path,
+    package: Option<String>,
+    module: Option<String>,
+    types_dir: Option<String>,
+    mains: Vec<MainSpec>,
+) -> Result<(), String> {
+    std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
+    project::rebase_impls(prog, dirs, out);
+    let mut opts = GoOptions::new(package.unwrap_or_else(|| default_package(out)), module.or_else(|| go_import_path(out)));
+    if let Some(d) = types_dir {
+        opts.types_dir = d;
+    }
+    opts.mains = mains;
+    let output = codegen::go::generate(prog, &opts)?;
+    let written = write_output(out, &output)?;
+    // Generated code is already indented; gofmt only aligns it.
+    format_with("gofmt", &["-w"], &written);
+    check_impls(out, &output, "func");
+    Ok(())
+}
+
+/// The Go mains of `bins`: each a package in its `go` directory, by default
+/// `<go.out>/../cmd/<name>`, given relative to `go.out`.
+fn go_mains(p: &Project, g: &project::GoTarget, bins: &[(&String, &project::Bin)]) -> Vec<MainSpec> {
+    let out = project::normalize(&p.root.join(&g.out));
+    bins.iter()
+        .map(|(name, b)| {
+            let dir = b.go.clone().unwrap_or_else(|| format!("{}/../cmd/{name}", g.out));
+            let path = project::slash(&project::relative(&project::normalize(&p.root.join(dir)), &out));
+            MainSpec { name: name.to_string(), entry: b.entry.clone(), path }
+        })
+        .collect()
+}
+
+/// The Rust mains of `bins`: each a file under the crate's `src/`, by
+/// default `bin/<name>.rs` (a Cargo bin target).
+fn rust_mains(bins: &[(&String, &project::Bin)]) -> Vec<MainSpec> {
+    bins.iter()
+        .map(|(name, b)| MainSpec {
+            name: name.to_string(),
+            entry: b.entry.clone(),
+            path: b.rust.clone().unwrap_or_else(|| format!("bin/{name}.rs")),
+        })
+        .collect()
+}
+
+/// `--main` / `--entry` on the single-file commands.
+fn single_main(args: &Args, path: &str) -> Vec<MainSpec> {
+    if !args.main && args.entry.is_none() {
+        return vec![];
+    }
+    let entry = args.entry.clone().unwrap_or_else(|| codegen::MAIN_PROC.into());
+    vec![MainSpec { name: "main".into(), entry, path: path.into() }]
+}
+
+fn rust(prog: &mut Program, dirs: &[PathBuf], out: &Path, module_dir: Option<String>, mains: Vec<MainSpec>) -> Result<(), String> {
+    std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
+    project::rebase_impls(prog, dirs, out);
+    let opts = RustOptions { module_dir: module_dir.or_else(|| rust_module_dir(out)), mains, crate_name: rust_lib_name(out) };
+    let output = codegen::rust::generate(prog, &opts)?;
+    let written = write_output(out, &output)?;
+    format_with("rustfmt", &["--edition", "2024"], &written);
+    check_impls(out, &output, "fn");
+    Ok(())
+}
+
 fn out_dir(args: &Args) -> Result<PathBuf, String> {
-    let out = args.out.clone().ok_or_else(|| format!("{} needs -o <dir>\n\n{USAGE}", args.cmd))?;
-    std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
-    Ok(out)
+    args.out.clone().ok_or_else(|| format!("{} needs -o <dir>\n\n{USAGE}", args.cmd))
 }
 
 /// Writes the artifacts, returning the paths written. Refuses to overwrite
 /// files vandorf didn't generate (say, a hand-written `src/main.rs`).
 fn write_output(out: &Path, output: &Output) -> Result<Vec<PathBuf>, String> {
     let mut arts = vec![("types", &output.types), ("code", &output.code)];
-    arts.extend(output.main.as_ref().map(|m| ("main", m)));
+    arts.extend(output.mains.iter().map(|m| ("main", m)));
     for (_, art) in &arts {
         for name in art.files.keys() {
             let p = out.join(&art.dir).join(name);

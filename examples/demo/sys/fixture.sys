@@ -1,0 +1,42 @@
+// tests/fixtures/test1.sys from the Go implementation, with implementations.
+
+interface Foo {
+	// Implemented outside the generated package/module.
+	func Call(s: string): int = "../go/effects/foo.go:Call", "../rs/src/effects.rs:call";
+}
+
+proc ForEach(Start): int {
+	func Start(i: int): { l: []int, s: string } = "../go/app/impl.go:Range", "../rs/src/impls.rs:range";
+	func Process(i: int, l: []int): int = "../go/app/impl.go:Square", "../rs/src/impls.rs:square";
+	func Collect(l: []int): int = "../go/app/impl.go:Sum", "../rs/src/impls.rs:sum";
+
+	Start for each (Start.l) -> Process(i = this, l = Start.l);
+	Process collect each (Process) -> Collect(l = this);
+}
+
+// How a Bar run ended; a typedef gives the generated type its name.
+type Outcome = enum { I(string), S, B({ i: int }) };
+
+proc Bar(Start): string {
+	func Start(a: int, b: string): string = "../go/app/impl.go:Repeat", "../rs/src/impls.rs:repeat";
+	func Loop(s: string): int = "../go/app/impl.go:Grow", "../rs/src/impls.rs:grow";
+	// No implementation: calls a generated stub that returns an error.
+	func Branch1(i: int): string;
+	func Branch2Begin(i: int): string = "../go/app/impl.go:Describe", "../rs/src/impls.rs:describe";
+	func Branch2End(i: int) = "../go/app/impl.go:Log", "../rs/src/impls.rs:log";
+	func End(r: Outcome): string = "../go/app/impl.go:Finish", "../rs/src/impls.rs:finish";
+
+	Start -> Loop(s = this);
+	Loop switch {
+		(this < 10) -> Loop(s = Start),
+		else -> ForEach(i = this)
+	};
+	ForEach switch {
+		(this == 0) -> Branch1(i = this),
+		else -> Branch2Begin(i = this)
+	};
+	Branch2Begin -> Foo.Call(s = this);
+	Foo.Call -> Branch2End(i = this);
+	Branch2End -> End(r = S());
+	Branch1 -> End(r = I(this));
+}

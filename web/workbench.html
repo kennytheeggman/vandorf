@@ -185,7 +185,7 @@ function compile(){
   var my = ++seq;
   setStatus('Compiling…');
   fetch('/api/compile', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source: editor.get(), name: $('file').value || '<editor>' }) })
+    body: JSON.stringify({ source: editor.get(), path: $('file').value || undefined, name: $('file').value || '<editor>' }) })
     .then(function(r){ return r.json(); })
     .then(function(res){ if (my === seq) show(res); })
     .catch(function(e){ if (my === seq) setStatus('Network error: ' + e, 'bad'); });
@@ -198,11 +198,13 @@ function show(res){
     var list = res.diagnostics || [];
     setStatus(list.length ? list.length + ' error' + (list.length === 1 ? '' : 's') : 'error', 'bad');
     d.innerHTML = list.map(function(x, i){
-      return '<div class="d" data-i="' + i + '"><b>' + (x.from.line + 1) + ':' + (x.from.ch + 1) + '</b>' + esc(x.msg) + '</div>';
+      // Errors in other files of the project are listed, not marked.
+      var where = (x.here ? '' : x.file + ' ') + (x.from.line + 1) + ':' + (x.from.ch + 1);
+      return '<div class="d" data-i="' + i + '"><b>' + esc(where) + '</b>' + esc(x.msg) + '</div>';
     }).join('') + (res.error ? '<pre>' + esc(res.error) + '</pre>' : '');
     d.classList.add('on');
-    list.forEach(function(x){ editor.mark(x.from, x.to); });
-    d.onclick = function(e){ var el = e.target.closest('.d'); if (el) editor.jump(list[+el.dataset.i].from); };
+    list.forEach(function(x){ if (x.here) editor.mark(x.from, x.to); });
+    d.onclick = function(e){ var el = e.target.closest('.d'); if (el && list[+el.dataset.i].here) editor.jump(list[+el.dataset.i].from); };
     return;
   }
   d.classList.remove('on'); d.innerHTML = '';

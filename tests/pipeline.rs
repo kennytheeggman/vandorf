@@ -362,6 +362,68 @@ fn map_errors() {
     );
 }
 
+fn src(path: &str, text: &str) -> vandorf::Source {
+    vandorf::Source { path: path.into(), text: text.into() }
+}
+
+#[test]
+fn files_share_one_namespace() {
+    // Types, interfaces and procs in one file are usable from another, in any order.
+    let files = [
+        src("a.sys", "proc A(S): int { func S(t: T): int; S -> B(i = this); }"),
+        src("b.sys", "type T = { x: int };\nproc B(Q): int { func Q(i: int): int; }"),
+    ];
+    let prog = vandorf::check_files(&files).unwrap_or_else(|d| panic!("{}", vandorf::render(&files, &d, false)));
+    assert_eq!(prog.top_procs.len(), 2);
+
+    let files = [src("a.sys", "proc A(S): int { func S(): int; }"), src("b.sys", "\n\nproc A(S): int { func S(): int; }")];
+    let d = vandorf::check_files(&files).unwrap_err();
+    assert_eq!((d[0].file, d[0].msg.as_str()), (1, "duplicate name A"));
+    let shown = vandorf::render(&files, &d, false);
+    assert!(shown.contains("b.sys:3:6"), "{shown}");
+
+    // Parse errors name their file too.
+    let files = [src("ok.sys", "proc A(S): int { func S(): int; }"), src("bad.sys", "proc {")];
+    let d = vandorf::check_files(&files).unwrap_err();
+    assert_eq!(d[0].file, 1);
+}
+
+#[test]
+fn projects_load_and_rebase_impl_paths() {
+    let dir = std::env::temp_dir().join(format!("vandorf-project-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("sys/sub")).unwrap();
+    std::fs::create_dir_all(dir.join(".hidden")).unwrap();
+    std::fs::write(
+        dir.join("vandorf.toml"),
+        "[project]\nname = \"t\"\nsources = [\"sys\"]\n[go]\nout = \"go/app\"\n[bin.tool]\nentry = \"A\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("sys/a.sys"), r#"proc A(S): int { func S(): int = "impl.go:S"; S -> B(); }"#).unwrap();
+    std::fs::write(dir.join("sys/sub/b.sys"), r#"proc B(Q): int { func Q(): int = "../../go/q.go:Q"; }"#).unwrap();
+    std::fs::write(dir.join(".hidden/c.sys"), "not even vandorf").unwrap();
+
+    let found = vandorf::project::find(&dir.join("sys/sub")).unwrap();
+    let p = vandorf::project::load(&found).unwrap();
+    let paths: Vec<&str> = p.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, vec!["sys/a.sys", "sys/sub/b.sys"]);
+    assert_eq!(p.manifest.bin["tool"].entry, "A");
+
+    let mut prog = vandorf::check_files(&p.files).unwrap();
+    vandorf::project::rebase_impls(&mut prog, &p.dirs(), &p.root.join("go/app"));
+    let mut files: Vec<String> = prog
+        .nodes
+        .iter()
+        .filter_map(|n| match &n.kind {
+            vandorf::sema::NodeKind::Func(f) => f.imps.first().map(|i| i.file.clone()),
+            _ => None,
+        })
+        .collect();
+    files.sort();
+    assert_eq!(files, vec!["../../sys/impl.go", "../q.go"]);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn parse_errors_are_rendered() {
     let e = compile_err("proc P(A): int { func A(: int; }");
@@ -369,7 +431,7 @@ fn parse_errors_are_rendered() {
 }
 
 mod codegen {
-    use vandorf::codegen::{go, rust};
+    use vandorf::codegen::{MainSpec, go, rust};
 
     const SRC: &str = r#"
         proc P(A): int {
@@ -421,42 +483,51 @@ mod codegen {
         }
     "#;
 
-    #[test]
-    fn go_main_runs_proc_main() {
-        let prog = vandorf::compile("t.sys", MAIN).unwrap();
-        let mut opts = go::GoOptions::new("app", Some("example.com/m/app".into()));
-        opts.main = true;
-        let main = go::generate(&prog, &opts).unwrap().main.unwrap();
-        assert_eq!(main.dir, "main");
-        let src = &main.files["main_vandorf.go"];
-        assert!(src.contains("package main") && src.contains("app \"example.com/m/app\""), "{src}");
-        assert!(src.contains("strconv.Atoi(os.Args[1])") && src.contains("strconv.ParseBool(os.Args[2])"), "{src}");
-        assert!(src.contains("app.RunMain(context.Background(), argN, argVerbose, argName)"), "{src}");
-        // Off by default.
-        assert!(go::generate(&prog, &go::GoOptions::new("app", Some("x".into()))).unwrap().main.is_none());
+    fn spec(name: &str, entry: &str, path: &str) -> MainSpec {
+        MainSpec { name: name.into(), entry: entry.into(), path: path.into() }
     }
 
     #[test]
-    fn rust_main_runs_proc_main() {
+    fn go_main_runs_entry_proc() {
         let prog = vandorf::compile("t.sys", MAIN).unwrap();
-        let opts = rust::RustOptions { module_dir: Some("out/app".into()), main: true, crate_name: Some("demo".into()) };
-        let main = rust::generate(&prog, &opts).unwrap().main.unwrap();
-        assert_eq!(main.dir, "../..");
-        let src = &main.files["main.rs"];
-        assert!(src.contains("demo::out::app::run_main(arg_n, arg_verbose, arg_name)"), "{src}");
-        assert!(src.contains("args[1].parse::<bool>()"), "{src}");
+        let mut opts = go::GoOptions::new("app", Some("example.com/m/app".into()));
+        opts.mains = vec![spec("main", "Main", "main"), spec("tool", "Main", "../cmd/tool")];
+        let mains = go::generate(&prog, &opts).unwrap().mains;
+        assert_eq!(mains.iter().map(|m| m.dir.as_str()).collect::<Vec<_>>(), vec!["main", "../cmd/tool"]);
+        let src = &mains[0].files["main_vandorf.go"];
+        assert!(src.contains("package main") && src.contains("app \"example.com/m/app\""), "{src}");
+        assert!(src.contains("strconv.Atoi(os.Args[1])") && src.contains("strconv.ParseBool(os.Args[2])"), "{src}");
+        assert!(src.contains("app.RunMain(context.Background(), argN, argVerbose, argName)"), "{src}");
+        assert!(mains[1].files["main_vandorf.go"].contains("usage: tool <n: int>"));
+        // None by default.
+        assert!(go::generate(&prog, &go::GoOptions::new("app", Some("x".into()))).unwrap().mains.is_empty());
+    }
+
+    #[test]
+    fn rust_main_runs_entry_proc() {
+        let prog = vandorf::compile("t.sys", "proc Tool(A): string { func A(n: int): string; }").unwrap();
+        let opts = rust::RustOptions {
+            module_dir: Some("out/app".into()),
+            mains: vec![spec("main", "Tool", "main.rs"), spec("tool", "Tool", "bin/tool.rs")],
+            crate_name: Some("demo".into()),
+        };
+        let mains = rust::generate(&prog, &opts).unwrap().mains;
+        assert_eq!(mains[0].dir, "../..");
+        assert_eq!((mains[1].dir.as_str(), mains[1].files.keys().next().unwrap().as_str()), ("../../bin", "tool.rs"));
+        let src = &mains[0].files["main.rs"];
+        assert!(src.contains("demo::out::app::run_tool(arg_n)"), "{src}");
         // Needs the crate name.
         let opts = rust::RustOptions { crate_name: None, ..opts };
         assert!(rust::generate(&prog, &opts).unwrap_err().contains("lib.rs"));
     }
 
     #[test]
-    fn main_requires_proc_main_with_primitive_params() {
+    fn main_requires_entry_proc_with_primitive_params() {
         let mut opts = go::GoOptions::new("app", Some("x".into()));
-        opts.main = true;
+        opts.mains = vec![spec("calc", "Calc", "main")];
         let no_main = vandorf::compile("t.sys", SRC).unwrap();
-        assert!(go::generate(&no_main, &opts).unwrap_err().contains("proc Main"));
-        let arr = vandorf::compile("t.sys", "proc Main(A): int { func A(l: []int): int; }").unwrap();
+        assert!(go::generate(&no_main, &opts).unwrap_err().contains("calc runs proc Calc, but there is no top-level proc Calc"));
+        let arr = vandorf::compile("t.sys", "proc Calc(A): int { func A(l: []int): int; }").unwrap();
         assert!(go::generate(&arr, &opts).unwrap_err().contains("parameter l"));
     }
 }
