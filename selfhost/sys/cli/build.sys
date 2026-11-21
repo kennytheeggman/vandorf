@@ -1,0 +1,133 @@
+// The commands (src/main.rs in the reference): check, doc and build, on
+// the project around the working directory.
+
+type Checked = { project: Project, prog: Program };
+type OutFile = { path: string, text: string, kind: string };
+
+// Errors as `path:at..end: msg` lines.
+func RenderErrors(errors: []Diag, paths: []string): string = "../../rs/src/cli_leaf.rs:render_errors";
+
+// The project around the working directory, parsed and checked.
+proc CheckProject(At): Res<Checked> {
+	func At(n: int): int = "../../rs/src/sema_leaf.rs:same";
+	At -> Fs.Cwd(n = 0);
+	Fs.Cwd -> FindUp(s = { dir = this, marker = "vandorf.toml" });
+	FindUp switch {
+		(this == "") -> id(Err({ msg = "no vandorf.toml in " + Fs.Cwd + " or its parents", span = { at = 0, end = 0, file = 0 } })),
+		else -> LoadProject(path = JoinP(a = this, b = "vandorf.toml"))
+	};
+	LoadProject switch {
+		Ok(p) -> ParseAll(s = { srcs = p.srcs, i = 0, file = { types = [], interfaces = [], nodes = [] } }),
+		Err(e) -> id(Err(e))
+	};
+	ParseAll -> Analyze(s = { srcs = UnwrapP(r = LoadProject).srcs, file = this });
+	Analyze switch {
+		(this.errors.len > 0) -> id(Err({ msg = RenderErrors(errors = this.errors, paths = UnwrapP(r = LoadProject).paths), span = { at = 0, end = 0, file = 0 } })),
+		else -> id(Ok({ project = UnwrapP(r = LoadProject), prog = this.prog }))
+	};
+}
+
+func UnwrapP(r: Res<Project>): Project = "../../rs/src/cli_leaf.rs:unwrap_p";
+
+// Each file parsed (its spans carrying its index), then merged.
+proc ParseAll(At): File {
+	func At(s: { srcs: []string, i: int, file: File }): { srcs: []string, i: int, file: File } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.srcs.len) -> id(this.file),
+		else -> ParseFile(src = this.srcs[this.i], file = this.i)
+	};
+	ParseFile -> At(s = { srcs = At.srcs, i = At.i + 1, file = { types = At.file.types + this.types, interfaces = At.file.interfaces + this.interfaces, nodes = At.file.nodes + this.nodes } });
+}
+
+// Rust for the project: [rust]'s module, and the bins (all, or `only`).
+proc Build(At): string {
+	func At(s: { c: Checked, only: string }): { c: Checked, only: string } = "../../rs/src/sema_leaf.rs:same";
+	func R(r: MaybeRust): MaybeRust = "../../rs/src/sema_leaf.rs:same";
+	func Dirs(root: string, paths: []string): []string = "../../rs/src/cli_leaf.rs:dirs";
+	At -> R(r = this.c.project.manifest.rust);
+	R switch {
+		Some(r) -> FindUp(s = { dir = JoinP(a = At.c.project.root, b = r.out), marker = "Cargo.toml" }) as Crate,
+		else -> Fail(msg = "vandorf.toml: configure [rust] to build (vcc builds Rust only so far)") as NoRust
+	};
+	Crate -> CrateName(dir = this);
+	CrateName -> RustGenerate(s = { prog = Rebased(c = At.c), module_dir = ModuleDir(target = UnwrapR(r = R), out = OutDir(c = At.c), croot = Crate) });
+	RustGenerate switch {
+		{ types = _, procs = _, modrs = _, err = Some(e) } -> Fail(msg = e) as GenFailed,
+		else -> Mains(s = { prog = Rebased(c = At.c), bins = At.c.project.manifest.bins, names = BinNames(bins = At.c.project.manifest.bins, only = At.only), module_dir = ModuleDir(target = UnwrapR(r = R), out = OutDir(c = At.c), croot = Crate), krate = CrateName, out = OutDir(c = At.c), i = 0, acc = [
+			{ path = JoinP(a = OutDir(c = At.c), b = "types.rs"), text = this.types, kind = "types" },
+			{ path = JoinP(a = OutDir(c = At.c), b = "mod.rs"), text = this.modrs, kind = "code" },
+			{ path = JoinP(a = OutDir(c = At.c), b = "procs.rs"), text = this.procs, kind = "code" }
+		] })
+	};
+	Mains -> Guard(s = { files = this, i = 0 });
+	Guard -> WriteAll(s = { files = Mains, i = 0 });
+	WriteAll -> Tools.Rustfmt(files = OutPaths(files = Mains));
+	Tools.Rustfmt -> id("built " + At.c.project.manifest.name);
+}
+
+func Fail(msg: string): string = "../../rs/src/leaf.rs:fail";
+func UnwrapR(r: MaybeRust): RustTarget = "../../rs/src/cli_leaf.rs:unwrap_r";
+func OutDir(c: Checked): string = "../../rs/src/cli_leaf.rs:out_dir";
+func OutPaths(files: []OutFile): []string = "../../rs/src/cli_leaf.rs:out_paths";
+// The program with implementation paths relative to [rust]'s out.
+func Rebased(c: Checked): Program = "../../rs/src/cli_leaf.rs:rebased";
+// [rust]'s module_dir, or out relative to the crate's src/.
+func ModuleDir(target: RustTarget, out: string, croot: string): MaybeStr = "../../rs/src/cli_leaf.rs:module_dir";
+func BinNames(bins: map[string]Bin, only: string): []string = "../../rs/src/cli_leaf.rs:bin_names";
+
+// The library crate's name, from the Cargo.toml in dir ("" if none).
+proc CrateName(At): string {
+	func At(dir: string): string = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this == "") -> id(""),
+		else -> Fs.Read(path = JoinP(a = this, b = "Cargo.toml"))
+	};
+	Fs.Read -> Fs.IsFile(path = JoinP(a = At, b = "src/lib.rs"));
+	Fs.IsFile -> id(CargoLibName(toml = Fs.Read, has_lib_rs = this));
+}
+
+proc Mains(At): []OutFile {
+	func At(s: { prog: Program, bins: map[string]Bin, names: []string, module_dir: MaybeStr, krate: string, out: string, i: int, acc: []OutFile }): { prog: Program, bins: map[string]Bin, names: []string, module_dir: MaybeStr, krate: string, out: string, i: int, acc: []OutFile } = "../../rs/src/sema_leaf.rs:same";
+	func RustMain(prog: Program, t: Table, name: string, entry: string, path: string, module_dir: MaybeStr, krate: string): { dir: string, file: string, text: string, err: MaybeStr } = "../../rs/src/gen_leaf.rs:rust_main";
+	func BinPath(b: Bin, name: string): string = "../../rs/src/cli_leaf.rs:bin_path";
+	func FailFiles(msg: string): []OutFile = "../../rs/src/cli_leaf.rs:fail_files";
+	At switch {
+		(this.i == this.names.len) -> id(this.acc),
+		else -> BuildTable(prog = this.prog)
+	};
+	BuildTable -> RustMain(prog = At.prog, t = this, name = At.names[At.i], entry = At.bins[At.names[At.i]].entry, path = BinPath(b = At.bins[At.names[At.i]], name = At.names[At.i]), module_dir = At.module_dir, krate = At.krate);
+	RustMain switch {
+		{ dir = _, file = _, text = _, err = Some(e) } -> FailFiles(msg = e),
+		else -> At(s = { prog = At.prog, bins = At.bins, names = At.names, module_dir = At.module_dir, krate = At.krate, out = At.out, i = At.i + 1, acc = At.acc + [{ path = JoinP(a = JoinP(a = At.out, b = this.dir), b = this.file), text = this.text, kind = "main" }] })
+	};
+}
+
+// Refuses to overwrite a file vandorf didn't generate (say, a hand-written
+// src/main.rs).
+proc Guard(At): bool {
+	func At(s: { files: []OutFile, i: int }): { files: []OutFile, i: int } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.files.len) -> id(true),
+		else -> Fs.IsFile(path = this.files[this.i].path)
+	};
+	Fs.IsFile switch {
+		(this) -> Fs.Read(path = At.files[At.i].path),
+		else -> At(s = { files = At.files, i = At.i + 1 })
+	};
+	Fs.Read switch {
+		(StartsWith(text = this, prefix = "// Code generated by vandorf.")) -> At(s = { files = At.files, i = At.i + 1 }),
+		else -> Refuse(msg = At.files[At.i].path + " exists and was not generated by vandorf; not overwriting it")
+	};
+	func Refuse(msg: string): bool = "../../rs/src/cli_leaf.rs:refuse";
+}
+
+proc WriteAll(At): bool {
+	func At(s: { files: []OutFile, i: int }): { files: []OutFile, i: int } = "../../rs/src/sema_leaf.rs:same";
+	func Pad(s: string, n: int): string = "../../rs/src/cli_leaf.rs:pad";
+	At switch {
+		(this.i == this.files.len) -> id(true),
+		else -> Fs.Write(path = this.files[this.i].path, text = this.files[this.i].text)
+	};
+	Fs.Write -> Console.Err(line = "wrote " + Pad(s = At.files[At.i].kind, n = 5) + " " + At.files[At.i].path);
+	Console.Err -> At(s = { files = At.files, i = At.i + 1 });
+}

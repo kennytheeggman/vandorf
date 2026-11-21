@@ -1,8 +1,12 @@
 # vcc: the vandorf compiler, written in vandorf.
 #
-# Control flow is .sys; leaves are pure Rust funcs (rs/src/leaf.rs); I/O
-# goes through interfaces (rs/src/io.rs). Build with `vandorf build` here,
-# then `cd rs && cargo run --bin vcc -- <file.sys>`.
+# Control flow is .sys; leaves are pure Rust funcs (rs/src/*_leaf.rs); I/O
+# goes through interfaces (rs/src/io.rs). vcc builds itself:
+#
+#   vandorf build                       # or, once built:
+#   (cd rs && cargo build --release)
+#   rs/target/release/vcc build         # regenerates the same rs/src/vcc
+#   rs/target/release/vcc check | doc
 [project]
 name = "vcc"
 sources = ["sys"]

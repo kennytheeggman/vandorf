@@ -370,6 +370,7 @@ name = "vcc"
 version = "0.0.0"
 dependencies = [
  "serde_json",
+ "toml",
  "vandorf",
 ]
 

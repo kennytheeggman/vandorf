@@ -1,15 +1,32 @@
-// vcc <path>: parses a .sys file and summarizes it.
+// vcc: the vandorf compiler, in vandorf.
+//
+//   vcc check          checks the project around the working directory
+//   vcc doc            prints its visualizer document
+//   vcc build [bin]    generates its Rust (and every bin, or just bin)
 proc Vcc(Args): string {
 	func Args(argv: []string): []string = "../rs/src/leaf.rs:same_strs";
-	func Summary(f: File): string = "../rs/src/leaf.rs:summary";
-
 	Args switch {
-		(this.len == 1) -> Fs.Read(path = this[0]),
-		else -> Usage(msg = "usage: vcc <path>")
+		(this.len == 1 && this[0] == "check") -> CheckProject(n = 0) as ForCheck,
+		(this.len == 1 && this[0] == "doc") -> CheckProject(n = 0) as ForDoc,
+		(this.len >= 1 && this.len <= 2 && this[0] == "build") -> CheckProject(n = 0) as ForBuild,
+		else -> Usage(msg = "usage: vcc check | vcc doc | vcc build [bin]")
 	};
-	Fs.Read -> Parse(src = this);
-	Parse -> Summary(f = this);
+	ForCheck switch {
+		Ok(c) -> id("ok: " + Itoa(i = c.project.paths.len) + " files, " + Itoa(i = Procs(nodes = c.prog.nodes).len) + " procs"),
+		Err(e) -> Usage(msg = e.msg)
+	};
+	ForDoc switch {
+		Ok(c) -> Document(prog = c.prog),
+		Err(e) -> Usage(msg = e.msg)
+	};
+	ForBuild switch {
+		Ok(c) -> switch {
+			(Args.len == 2) -> Build(s = { c = c, only = Args[1] }),
+			else -> Build(s = { c = c, only = "" })
+		},
+		Err(e) -> Usage(msg = e.msg)
+	};
 }
 
-// Fails with `msg`.
+// Fails with msg.
 func Usage(msg: string): string = "../rs/src/leaf.rs:fail";
