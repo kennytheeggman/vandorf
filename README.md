@@ -5,12 +5,12 @@ Proof-of-concept Rust rewrite of the vandorf compiler.
 ```
 cargo run -- check examples/demo/demo.sys
 cargo run -- doc   examples/demo/demo.sys -o doc.json           # visualizer document
-cargo run -- go    examples/demo/demo.sys -o examples/demo/go/app
-cargo run -- rust  examples/demo/demo.sys -o examples/demo/rs/src/app
+cargo run -- go    examples/demo/demo.sys -o examples/demo/go/app --main
+cargo run -- rust  examples/demo/demo.sys -o examples/demo/rs/src/app --main
 cargo run -- serve                                              # workbench on :8080
 
-(cd examples/demo/go && go test ./...)
-(cd examples/demo/rs && cargo test)
+(cd examples/demo/go && go test ./... && go run ./app/main 1 ab)   # end:S
+(cd examples/demo/rs && cargo test && cargo run -- 1 ab)          # end:S
 ```
 
 Pipeline: `parser` (chumsky, source → `ast`) → `sema` (name resolution,
@@ -64,3 +64,19 @@ Paths are relative to the generated code's directory (`-o`).
 Funcs without a reference for a backend call a generated stub that returns an
 error. `vandorf go`/`rust` warn when a referenced file or function is missing,
 printing the expected signature.
+
+## Main
+
+`--main` also writes an executable that runs the top-level proc `Main`
+(an error if there is none). `Main`'s parameters must be `int`, `float`,
+`bool` or `string`; they are taken from the command line in declared order,
+and the result is printed (`usage: main <a: int> <b: string>`).
+
+- **Go**: `<dir>/main/main_vandorf.go`, a `package main` importing the code
+  package.
+- **Rust**: `src/main.rs`, calling `<crate>::<module>::run_main`, so the crate
+  needs a `lib.rs` that declares the module.
+
+Neither backend overwrites a file it didn't generate, so an existing
+hand-written `src/main.rs` is left alone (the command fails instead). The
+workbench shows the main whenever the program has a `Main`.

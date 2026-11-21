@@ -39,3 +39,10 @@ proc Bar(Start): string {
 	Branch2End -> End(r = S(this));
 	Branch1 -> End(r = I(this));
 }
+
+// Entry point for `vandorf go/rust --main`: `main <a: int> <b: string>`.
+proc Main(Start): string {
+	func Start(a: int, b: string): { a: int, b: string } = "impl.go:Args", "../impls.rs:args";
+
+	Start -> Bar(a = this.a, b = this.b);
+}

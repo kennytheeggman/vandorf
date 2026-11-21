@@ -55,3 +55,8 @@ pub fn reset() {
 pub fn logged() -> Vec<i64> {
     LOGGED.lock().unwrap().clone()
 }
+
+/// Passes Main's command-line arguments on to Bar.
+pub fn args(a: i64, b: String) -> Result<types::MainStartOut, String> {
+    Ok(types::MainStartOut { a, b })
+}

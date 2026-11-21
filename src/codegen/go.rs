@@ -36,6 +36,12 @@
 //! directory is in the same package and is called directly; a file elsewhere
 //! is imported (`<import base>/<dir>`). Funcs without a `.go` reference call a
 //! generated stub that returns an error.
+//!
+//! # Main
+//!
+//! With [`GoOptions::main`], a `package main` in `<code dir>/main` runs proc
+//! `Main`, parsing its parameters from `os.Args` in declared order and
+//! printing its result.
 
 use super::types::{Shape, TyRef, TypeTable};
 use super::{Artifact, ImplUse, Output, Writer, dir_of, exported, gname, join_path, quote};
@@ -54,11 +60,16 @@ pub struct GoOptions {
     /// Directory of the types package, relative to the code package's
     /// directory. Empty or `.` puts the types in the code package.
     pub types_dir: String,
+    /// Also generate `main/main_vandorf.go`, running proc `Main`.
+    pub main: bool,
 }
+
+/// Directory of the main package, relative to the code package's directory.
+pub const MAIN_DIR: &str = "main";
 
 impl GoOptions {
     pub fn new(package: impl Into<String>, import_base: Option<String>) -> GoOptions {
-        GoOptions { package: package.into(), import_base, types_dir: "types".into() }
+        GoOptions { package: package.into(), import_base, types_dir: "types".into(), main: false }
     }
 }
 
@@ -175,7 +186,78 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<Output, String> {
             NodeKind::Proc(_) => None,
         })
         .collect();
-    Ok(Output { types, code: Artifact { dir: String::new(), files }, impls })
+    let main = if opts.main { Some(main_artifact(prog, opts)?) } else { None };
+    Ok(Output { types, code: Artifact { dir: String::new(), files }, main, impls })
+}
+
+fn main_artifact(prog: &Program, opts: &GoOptions) -> Result<Artifact, String> {
+    let (pid, params) = super::main_proc(prog)?;
+    let import = opts
+        .import_base
+        .as_deref()
+        .ok_or("the main package needs the code package's import path: pass --module or run inside a Go module")?;
+    let alias = if opts.package == "main" { "procs".to_string() } else { opts.package.clone() };
+    let usage = super::main_usage(MAIN_DIR, &params);
+
+    let mut imports = vec![("context".to_string(), None), ("fmt".to_string(), None), ("os".to_string(), None)];
+    if params.iter().any(|(_, p)| *p != Prim::String) {
+        imports.push(("strconv".into(), None));
+    }
+    imports.push((import.to_string(), Some(alias.clone())));
+    let mut w = header("main", &imports);
+    // The doc comment has to sit right above `package`, which header() wrote.
+    w.out = w.out.replacen(
+        "package main",
+        &format!("// Command {MAIN_DIR} runs proc {}, taking its parameters as arguments.\n//\n//\t{usage}\npackage main", super::MAIN_PROC),
+        1,
+    );
+    w.line(&format!("const usage = {}", quote(&usage)));
+    w.line("");
+    w.line("func main() {");
+    w.line(&format!("if len(os.Args) != {} {{", params.len() + 1));
+    w.line("fmt.Fprintln(os.Stderr, usage)");
+    w.line("os.Exit(2)");
+    w.line("}");
+    let mut args = vec!["context.Background()".to_string()];
+    for (i, (name, p)) in params.iter().enumerate() {
+        let var = format!("arg{}", exported(name));
+        let raw = format!("os.Args[{}]", i + 1);
+        let parse = match p {
+            Prim::String => {
+                w.line(&format!("{var} := {raw}"));
+                args.push(var);
+                continue;
+            }
+            Prim::Int => format!("strconv.Atoi({raw})"),
+            Prim::Float => format!("strconv.ParseFloat({raw}, 64)"),
+            Prim::Bool => format!("strconv.ParseBool({raw})"),
+            Prim::Void => unreachable!(),
+        };
+        w.line(&format!("{var}, err := {parse}"));
+        w.line("if err != nil {");
+        w.line(&format!("fmt.Fprintf(os.Stderr, \"{name}: %v\\n%s\\n\", err, usage)"));
+        w.line("os.Exit(2)");
+        w.line("}");
+        args.push(var);
+    }
+    let call = format!("{alias}.Run{}({})", gname(prog, pid), args.join(", "));
+    let ret = prog.ret(pid);
+    if ret.is_void() {
+        w.line(&format!("if err := {call}; err != nil {{"));
+    } else {
+        w.line(&format!("result, err := {call}"));
+        w.line("if err != nil {");
+    }
+    w.line("fmt.Fprintln(os.Stderr, \"error:\", err)");
+    w.line("os.Exit(1)");
+    w.line("}");
+    match ret {
+        Type::Prim(Prim::Void) => {}
+        Type::Prim(_) => w.line("fmt.Println(result)"),
+        _ => w.line("fmt.Printf(\"%+v\\n\", result)"),
+    }
+    w.line("}");
+    Ok(Artifact { dir: MAIN_DIR.into(), files: BTreeMap::from([("main_vandorf.go".to_string(), w.out)]) })
 }
 
 fn g_tq(pkg: &str) -> String {

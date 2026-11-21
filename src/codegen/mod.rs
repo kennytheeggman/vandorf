@@ -6,18 +6,24 @@
 //!   implementations can import it.
 //! - **code** ("codegen"): one state machine per proc, calling the
 //!   implementations. It depends on the types artifact and the implementations.
+//!
+//! On request, a third artifact, **main**, is an executable entry point that
+//! runs the top-level proc `Main` with its parameters from the command line.
 
 pub mod go;
 pub mod rust;
 pub mod types;
 
-use crate::sema::{NodeId, Program};
+use crate::sema::{NodeId, NodeKind, Program};
+use crate::types::{Prim, Type};
 use std::collections::BTreeMap;
 
 #[derive(Debug)]
 pub struct Output {
     pub types: Artifact,
     pub code: Artifact,
+    /// The executable entry point, when requested.
+    pub main: Option<Artifact>,
     /// Every implementation the code calls, for the caller to verify.
     pub impls: Vec<ImplUse>,
 }
@@ -38,6 +44,45 @@ pub struct ImplUse {
     pub function: String,
     /// The signature the implementation must have.
     pub signature: String,
+}
+
+/// Name of the proc the main artifact runs.
+pub const MAIN_PROC: &str = "Main";
+
+/// Whether the program has a top-level proc `Main`.
+pub fn has_main(prog: &Program) -> bool {
+    main_proc(prog).is_ok()
+}
+
+/// The top-level proc `Main` and its parameters, which must be primitives
+/// (they are parsed from command-line arguments).
+pub(crate) fn main_proc(prog: &Program) -> Result<(NodeId, Vec<(String, Prim)>), String> {
+    let pid = prog
+        .top_procs
+        .iter()
+        .copied()
+        .find(|&p| prog.node(p).name() == MAIN_PROC && matches!(prog.node(p).kind, NodeKind::Proc(_)))
+        .ok_or_else(|| format!("generating a main needs a top-level proc {MAIN_PROC}, and there is none"))?;
+    let params = prog
+        .params(pid)
+        .iter()
+        .map(|(name, t)| match t {
+            Type::Prim(p) if *p != Prim::Void => Ok((name.clone(), *p)),
+            t => Err(format!(
+                "{MAIN_PROC}'s parameter {name} has type {t}; main reads its parameters from the command line, so they must be int, float, bool or string"
+            )),
+        })
+        .collect::<Result<_, _>>()?;
+    Ok((pid, params))
+}
+
+/// `usage: <bin> <a: int> <b: string>`
+pub(crate) fn main_usage(bin: &str, params: &[(String, Prim)]) -> String {
+    let mut s = format!("usage: {bin}");
+    for (n, p) in params {
+        s.push_str(&format!(" <{n}: {}>", Type::Prim(*p)));
+    }
+    s
 }
 
 /// Name of a node in generated code: its qualified name, segments

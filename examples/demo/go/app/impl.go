@@ -53,3 +53,8 @@ func Log(ctx context.Context, i int) error {
 func Finish(ctx context.Context, r types.BarEndR) (string, error) {
 	return "end:" + r.Tag, nil
 }
+
+// Args passes Main's command-line arguments on to Bar.
+func Args(ctx context.Context, a int, b string) (types.MainStartOut, error) {
+	return types.MainStartOut{A: a, B: b}, nil
+}

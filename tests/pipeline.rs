@@ -210,12 +210,57 @@ mod codegen {
     #[test]
     fn rust_impl_paths_become_module_paths() {
         let prog = vandorf::compile("t.sys", SRC).unwrap();
-        let out = rust::generate(&prog, &rust::RustOptions { module_dir: Some("out/app".into()) }).unwrap();
+        let out = rust::generate(&prog, &rust::RustOptions { module_dir: Some("out/app".into()), ..Default::default() }).unwrap();
         let procs = &out.code.files["procs.rs"];
         assert!(procs.contains("crate::out::impls::a::a()"), "{procs}");
         // B has no .rs reference: stubbed.
         assert!(procs.contains("fn unimplemented_p_b("), "{procs}");
         assert!(out.impls[0].signature.contains("crate::out::app::types::PAOut"), "{:?}", out.impls);
-        assert!(rust::generate(&prog, &rust::RustOptions { module_dir: None }).is_err());
+        assert!(rust::generate(&prog, &rust::RustOptions::default()).is_err());
+    }
+
+    const MAIN: &str = r#"
+        proc Main(A): string {
+            func A(n: int, verbose: bool, name: string): string;
+        }
+    "#;
+
+    #[test]
+    fn go_main_runs_proc_main() {
+        let prog = vandorf::compile("t.sys", MAIN).unwrap();
+        let mut opts = go::GoOptions::new("app", Some("example.com/m/app".into()));
+        opts.main = true;
+        let main = go::generate(&prog, &opts).unwrap().main.unwrap();
+        assert_eq!(main.dir, "main");
+        let src = &main.files["main_vandorf.go"];
+        assert!(src.contains("package main") && src.contains("app \"example.com/m/app\""), "{src}");
+        assert!(src.contains("strconv.Atoi(os.Args[1])") && src.contains("strconv.ParseBool(os.Args[2])"), "{src}");
+        assert!(src.contains("app.RunMain(context.Background(), argN, argVerbose, argName)"), "{src}");
+        // Off by default.
+        assert!(go::generate(&prog, &go::GoOptions::new("app", Some("x".into()))).unwrap().main.is_none());
+    }
+
+    #[test]
+    fn rust_main_runs_proc_main() {
+        let prog = vandorf::compile("t.sys", MAIN).unwrap();
+        let opts = rust::RustOptions { module_dir: Some("out/app".into()), main: true, crate_name: Some("demo".into()) };
+        let main = rust::generate(&prog, &opts).unwrap().main.unwrap();
+        assert_eq!(main.dir, "../..");
+        let src = &main.files["main.rs"];
+        assert!(src.contains("demo::out::app::run_main(arg_n, arg_verbose, arg_name)"), "{src}");
+        assert!(src.contains("args[1].parse::<bool>()"), "{src}");
+        // Needs the crate name.
+        let opts = rust::RustOptions { crate_name: None, ..opts };
+        assert!(rust::generate(&prog, &opts).unwrap_err().contains("lib.rs"));
+    }
+
+    #[test]
+    fn main_requires_proc_main_with_primitive_params() {
+        let mut opts = go::GoOptions::new("app", Some("x".into()));
+        opts.main = true;
+        let no_main = vandorf::compile("t.sys", SRC).unwrap();
+        assert!(go::generate(&no_main, &opts).unwrap_err().contains("proc Main"));
+        let arr = vandorf::compile("t.sys", "proc Main(A): int { func A(l: []int): int; }").unwrap();
+        assert!(go::generate(&arr, &opts).unwrap_err().contains("parameter l"));
     }
 }

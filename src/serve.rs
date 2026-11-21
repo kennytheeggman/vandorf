@@ -96,23 +96,31 @@ fn compile(base: &Path, body: &str) -> Result<Value, String> {
 
     let doc = vandorf::document::generate(&prog);
     // Preview only: nothing is written, so the output locations are nominal.
-    let go = output_json(codegen::go::generate(&prog, &GoOptions::new("app", Some("example.com/app".into()))));
-    let rust = output_json(codegen::rust::generate(&prog, &RustOptions { module_dir: Some("app".into()) }));
+    // A main is generated whenever there's a proc Main to run.
+    let main = codegen::has_main(&prog);
+    let mut go_opts = GoOptions::new("app", Some("example.com/app".into()));
+    go_opts.main = main;
+    let go = output_json(codegen::go::generate(&prog, &go_opts));
+    let rust_opts = RustOptions { module_dir: Some("app".into()), main, crate_name: Some("my_crate".into()) };
+    let rust = output_json(codegen::rust::generate(&prog, &rust_opts));
     Ok(json!({ "ok": true, "name": name, "grids": doc.grids.len(), "document": doc, "go": go, "rust": rust }))
 }
 
 fn output_json(r: Result<Output, String>) -> Value {
     match r {
-        Ok(out) => json!({
+        Ok(out) => {
+            let artifacts: Vec<Value> = [("types", Some(out.types)), ("code", Some(out.code)), ("main", out.main)]
+                .into_iter()
+                .filter_map(|(kind, a)| a.map(|a| json!({ "kind": kind, "dir": a.dir, "files": a.files })))
+                .collect();
+            json!({
             "ok": true,
-            "artifacts": [
-                { "kind": "types", "dir": out.types.dir, "files": out.types.files },
-                { "kind": "code", "dir": out.code.dir, "files": out.code.files },
-            ],
+            "artifacts": artifacts,
             "impls": out.impls.iter().map(|i| json!({
                 "node": i.node, "file": i.file, "function": i.function, "signature": i.signature,
             })).collect::<Vec<_>>(),
-        }),
+            })
+        }
         Err(e) => json!({ "ok": false, "error": e }),
     }
 }
