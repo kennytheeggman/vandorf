@@ -1,0 +1,359 @@
+// Switches: arms, patterns, and whether a pattern switch covers every value
+// (src/sema.rs: switch, pat; src/exhaust.rs in the reference).
+
+type PatOut = { p: SPat, binds: []Member };
+
+func HeadIndex(arms: []Arm, kind: string): int = "../../rs/src/sema_leaf.rs:head_index";
+// The source text of a span, trimmed: an arm's head as written.
+func Slice(src: string, span: Span): string = "../../rs/src/sema_leaf.rs:slice";
+
+// The arms of a switch on `src`, whose output is sc.this. Arms are all
+// patterns or all conditions, `else` coming last; a pattern arm may lead to
+// a nested switch of conditions, which sees its bindings.
+proc Switch(At): Res<[]SArm> {
+	func At(s: { env: Env, sc: Scope, src: Path, arms: []Arm, span: Span, nested: bool }): { env: Env, sc: Scope, src: Path, arms: []Arm, span: Span, nested: bool } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(HeadIndex(arms = this.arms, kind = "pat") >= 0 && this.nested) -> id(Err({ msg = "a nested switch has nothing new to match, so its arms are conditions: (expr) -> ..", span = this.arms[HeadIndex(arms = this.arms, kind = "pat")].span })),
+		(HeadIndex(arms = this.arms, kind = "pat") >= 0 && HeadIndex(arms = this.arms, kind = "cond") >= 0) -> id(Err({ msg = "this switch matches patterns (like " + Slice(src = this.env.src, span = this.arms[HeadIndex(arms = this.arms, kind = "pat")].span) + "), so its arms can't be conditions; put conditions in a switch under a pattern arm: Pat -> switch { (cond) -> .., else -> .. }", span = this.arms[HeadIndex(arms = this.arms, kind = "cond")].span })),
+		else -> Arms(s = { env = this.env, sc = this.sc, src = this.src, arms = this.arms, i = 0, acc = [] })
+	};
+	Arms switch {
+		Ok(arms) -> switch {
+			(HeadIndex(arms = At.arms, kind = "pat") < 0 && !EndsInElse(arms = arms)) -> id(Err({ msg = "this switch on " + ShowPath(p = At.src) + " needs an else arm, taken when no condition holds", span = At.span })),
+			(HeadIndex(arms = At.arms, kind = "pat") < 0) -> id(Ok(arms)),
+			else -> Unreachable(s = { env = At.env, pats = PatsOf(arms = arms), ty = At.sc.this, i = 0, rows = [] })
+		},
+		Err(e) -> id(Err(e))
+	};
+	Unreachable switch {
+		(this >= 0) -> id(Err({ msg = "this arm is never taken: the arms above already match everything it does", span = At.arms[this].span })),
+		else -> Missing(s = { types = At.env.types, rows = RowsOf(pats = PatsOf(arms = UnwrapArms(r = Arms))), tys = [At.sc.this] })
+	};
+	Missing switch {
+		Some(ws) -> switch {
+			(EndsInElse(arms = UnwrapArms(r = Arms))) -> id(Arms),
+			else -> Render(s = { types = At.env.types, w = ws[0], t = At.sc.this }) as Shown
+		},
+		else -> switch {
+			(EndsInElse(arms = UnwrapArms(r = Arms))) -> id(Err({ msg = "else is never taken: the arms above cover every case", span = At.arms[At.arms.len - 1].span })),
+			else -> id(Arms)
+		}
+	};
+	Shown -> id(Err({ msg = "switch on " + ShowPath(p = At.src) + " doesn't cover " + this + "; add an arm for it, or an else", span = At.span }));
+}
+
+func EndsInElse(arms: []SArm): bool = "../../rs/src/sema_leaf.rs:ends_in_else";
+func PatsOf(arms: []SArm): []SPat = "../../rs/src/sema_leaf.rs:pats_of";
+func UnwrapArms(r: Res<[]SArm>): []SArm = "../../rs/src/sema_leaf.rs:unwrap_arms";
+
+proc Arms(At): Res<[]SArm> {
+	func At(s: { env: Env, sc: Scope, src: Path, arms: []Arm, i: int, acc: []SArm }): { env: Env, sc: Scope, src: Path, arms: []Arm, i: int, acc: []SArm } = "../../rs/src/sema_leaf.rs:same";
+	func H(h: Head): Head = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.arms.len) -> id(Ok(this.acc)),
+		else -> H(h = this.arms[this.i].head)
+	};
+	H switch {
+		Else() -> switch {
+			(At.i + 1 < At.arms.len) -> id(Err({ msg = "this arm comes after else, so it's never taken", span = At.arms[At.i + 1].span })),
+			else -> ArmBody(s = { env = At.env, sc = At.sc, src = At.src, arm = At.arms[At.i], test = Else() })
+		},
+		Cond(c) -> Cond(s = { env = At.env, sc = At.sc, v = c }) as C,
+		Pat(p) -> CheckPat(s = { env = At.env, p = p, want = At.sc.this, binds = [] }) as P
+	};
+	C switch {
+		Ok(c) -> ArmBody(s = { env = At.env, sc = At.sc, src = At.src, arm = At.arms[At.i], test = Cond(c) }),
+		Err(e) -> id(Err(e))
+	};
+	P switch {
+		Ok(p) -> ArmBody(s = { env = At.env, sc = { this = At.sc.this, binds = At.sc.binds + p.binds }, src = At.src, arm = At.arms[At.i], test = Pat(p.p) }),
+		Err(e) -> id(Err(e))
+	};
+	ArmBody switch {
+		Ok(a) -> At(s = { env = At.env, sc = At.sc, src = At.src, arms = At.arms, i = At.i + 1, acc = At.acc + [a] }),
+		Err(e) -> id(Err(e))
+	};
+}
+
+proc ArmBody(At): Res<SArm> {
+	func At(s: { env: Env, sc: Scope, src: Path, arm: Arm, test: Test }): { env: Env, sc: Scope, src: Path, arm: Arm, test: Test } = "../../rs/src/sema_leaf.rs:same";
+	func B(b: Body): Body = "../../rs/src/sema_leaf.rs:same";
+	At -> B(b = this.arm.body);
+	B switch {
+		Call(t) -> CallOf(s = { env = At.env, sc = At.sc, t = t }),
+		Switch(sw) -> Switch(s = { env = At.env, sc = At.sc, src = At.src, arms = sw.arms, span = sw.span, nested = true })
+	};
+	CallOf switch {
+		Ok(c) -> id(Ok({ test = At.test, label = Slice(src = At.env.src, span = At.arm.span), body = Call(c) })),
+		Err(e) -> id(Err(e))
+	};
+	Switch switch {
+		Ok(arms) -> id(Ok({ test = At.test, label = Slice(src = At.env.src, span = At.arm.span), body = Switch(arms) })),
+		Err(e) -> id(Err(e))
+	};
+}
+
+// ---- Patterns ----
+
+// Pattern p, checked against the type of the value it matches; its
+// bindings are added to `binds`.
+proc CheckPat(At): Res<PatOut> {
+	func At(s: { env: Env, p: Pat, want: Type, binds: []Member }): { env: Env, p: Pat, want: Type, binds: []Member } = "../../rs/src/sema_leaf.rs:same";
+	func K(k: PatKind): PatKind = "../../rs/src/sema_leaf.rs:same";
+	func Q(p: OptPat): OptPat = "../../rs/src/sema_leaf.rs:same";
+	At -> Unfold(s = { t = this.want, defs = this.env.types }) as Shape;
+	Shape -> K(k = At.p.kind);
+	K switch {
+		Wild() -> id(Ok({ p = { kind = Wild(), ty = At.want }, binds = At.binds })),
+		Bind(b) -> switch {
+			(IsEnum(t = Shape) && HasMember(ms = MembersOf(t = Shape), name = b.name)) -> ShowType(t = At.want) as IsVariant,
+			(b.name == "this") -> id(Err({ msg = "binding " + b.name + " hides a node or this; pick another name", span = b.span })),
+			else -> Resolve(s = { nodes = At.env.nodes, globals = At.env.globals, pid = At.env.pid, path = { segs = [b], span = b.span } }) as Hides
+		},
+		Variant(v) -> switch {
+			(!IsEnum(t = Shape)) -> ShowType(t = At.want) as NotEnum,
+			(!HasMember(ms = MembersOf(t = Shape), name = v.tag.name)) -> ShowType(t = At.want) as NoVariant,
+			else -> Q(p = v.payload)
+		},
+		Struct(fields) -> switch {
+			(IsStruct(t = Shape)) -> PatFields(s = { env = At.env, want = At.want, fs = MembersOf(t = Shape), fields = fields, i = 0, given = [:], binds = At.binds, span = At.p.span }),
+			else -> ShowType(t = At.want) as NotStruct
+		},
+		Or(alts) -> PatAlts(s = { env = At.env, want = At.want, alts = alts, i = 0, acc = [], binds = At.binds })
+	};
+	IsVariant -> id(Err({ msg = BindName(k = K).name + " is a variant of " + this + "; write " + BindName(k = K).name + VariantFix(t = UnwrapT(t = Member(ms = MembersOf(t = Shape), name = BindName(k = K).name))) + " to match it", span = BindName(k = K).span }));
+	Hides switch {
+		Ok(_) -> id(Err({ msg = "binding " + BindName(k = K).name + " hides a node or this; pick another name", span = BindName(k = K).span })),
+		Err(_) -> switch {
+			(HasMember(ms = At.binds, name = BindName(k = K).name)) -> id(Err({ msg = BindName(k = K).name + " is bound twice in this pattern", span = BindName(k = K).span })),
+			else -> id(Ok({ p = { kind = Bind(BindName(k = K).name), ty = At.want }, binds = At.binds + [{ name = BindName(k = K).name, ty = At.want }] }))
+		}
+	};
+	NotEnum -> id(Err({ msg = "this matches a " + this + ", which isn't an enum, so " + VariantTag(k = K).name + "(..) can't match it", span = VariantTag(k = K).span }));
+	NoVariant -> id(Err({ msg = this + " has no variant " + VariantTag(k = K).name, span = VariantTag(k = K).span }));
+	NotStruct -> id(Err({ msg = "this matches a " + this + ", which isn't a struct", span = At.p.span }));
+	Q switch {
+		Some(q) -> switch {
+			(IsVoid(t = UnwrapT(t = Member(ms = MembersOf(t = Shape), name = VariantTag(k = K).name)))) -> id(Err({ msg = VariantTag(k = K).name + " carries nothing; write " + VariantTag(k = K).name + "()", span = q.span })),
+			else -> CheckPat(s = { env = At.env, p = q, want = UnwrapT(t = Member(ms = MembersOf(t = Shape), name = VariantTag(k = K).name)), binds = At.binds }) as Payload
+		},
+		else -> switch {
+			(IsVoid(t = UnwrapT(t = Member(ms = MembersOf(t = Shape), name = VariantTag(k = K).name)))) -> id(Ok({ p = { kind = Variant({ tag = VariantTag(k = K).name, payload = None() }), ty = At.want }, binds = At.binds })),
+			else -> ShowType(t = UnwrapT(t = Member(ms = MembersOf(t = Shape), name = VariantTag(k = K).name))) as Carries
+		}
+	};
+	Carries -> id(Err({ msg = VariantTag(k = K).name + " carries " + this + "; write " + VariantTag(k = K).name + "(_) to ignore it", span = At.p.span }));
+	Payload switch {
+		Ok(x) -> id(Ok({ p = { kind = Variant({ tag = VariantTag(k = K).name, payload = Some(x.p) }), ty = At.want }, binds = x.binds })),
+		Err(e) -> id(Err(e))
+	};
+}
+
+func BindName(k: PatKind): Ident = "../../rs/src/sema_leaf.rs:bind_name";
+func VariantTag(k: PatKind): Ident = "../../rs/src/sema_leaf.rs:variant_tag";
+// How to match a variant: `()` for one without payload, `(_)` otherwise.
+func VariantFix(t: Type): string = "../../rs/src/sema_leaf.rs:variant_fix";
+
+proc PatFields(At): Res<PatOut> {
+	func At(s: { env: Env, want: Type, fs: []Member, fields: []PatField, i: int, given: map[string]SPat, binds: []Member, span: Span }): { env: Env, want: Type, fs: []Member, fields: []PatField, i: int, given: map[string]SPat, binds: []Member, span: Span } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.fields.len) -> FillPatFields(s = { want = this.want, fs = this.fs, given = this.given, binds = this.binds, span = this.span, i = 0, acc = [] }),
+		else -> Member(ms = this.fs, name = this.fields[this.i].name.name)
+	};
+	Member switch {
+		Some(ft) -> CheckPat(s = { env = At.env, p = At.fields[At.i].pat, want = ft, binds = At.binds }),
+		else -> ShowType(t = At.want)
+	};
+	ShowType -> id(Err({ msg = this + " has no field " + At.fields[At.i].name.name, span = At.fields[At.i].name.span }));
+	CheckPat switch {
+		Ok(x) -> switch {
+			(At.fields[At.i].name.name in At.given) -> id(Err({ msg = "field " + At.fields[At.i].name.name + " given twice", span = At.fields[At.i].name.span })),
+			else -> At(s = { env = At.env, want = At.want, fs = At.fs, fields = At.fields, i = At.i + 1, given = At.given + [At.fields[At.i].name.name: x.p], binds = x.binds, span = At.span })
+		},
+		Err(e) -> id(Err(e))
+	};
+}
+
+proc FillPatFields(At): Res<PatOut> {
+	func At(s: { want: Type, fs: []Member, given: map[string]SPat, binds: []Member, span: Span, i: int, acc: []PatMember }): { want: Type, fs: []Member, given: map[string]SPat, binds: []Member, span: Span, i: int, acc: []PatMember } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.fs.len) -> id(Ok({ p = { kind = Struct(this.acc), ty = this.want }, binds = this.binds })),
+		(this.fs[this.i].name in this.given) -> At(s = { want = this.want, fs = this.fs, given = this.given, binds = this.binds, span = this.span, i = this.i + 1, acc = this.acc + [{ name = this.fs[this.i].name, pat = this.given[this.fs[this.i].name] }] }),
+		else -> ShowType(t = this.want)
+	};
+	ShowType -> id(Err({ msg = "struct pattern is missing field " + At.fs[At.i].name + " of " + this + "; write " + At.fs[At.i].name + " = _ to ignore it", span = At.span }));
+}
+
+proc PatAlts(At): Res<PatOut> {
+	func At(s: { env: Env, want: Type, alts: []Pat, i: int, acc: []SPat, binds: []Member }): { env: Env, want: Type, alts: []Pat, i: int, acc: []SPat, binds: []Member } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.alts.len) -> id(Ok({ p = { kind = Or(this.acc), ty = this.want }, binds = this.binds })),
+		else -> CheckPat(s = { env = this.env, p = this.alts[this.i], want = this.want, binds = [] })
+	};
+	CheckPat switch {
+		Ok(x) -> switch {
+			(x.binds.len > 0) -> id(Err({ msg = "or-patterns can't bind names yet (" + x.binds[0].name + ")", span = At.alts[At.i].span })),
+			else -> At(s = { env = At.env, want = At.want, alts = At.alts, i = At.i + 1, acc = At.acc + [x.p], binds = At.binds })
+		},
+		Err(e) -> id(Err(e))
+	};
+}
+
+// ---- Exhaustiveness ----
+//
+// The pattern-matrix algorithm (Maranget, "Warnings for pattern matching"):
+// a pattern is useful after some rows if a value matches it but no row, and
+// a switch is exhaustive if a wildcard isn't useful after all its arms.
+// Enums have one constructor per variant, structs a single one ("{}"), and
+// other types none that patterns can name.
+
+// A pattern with bindings erased.
+type P = enum { Wild, Ctor({ c: string, args: []P }), Or([]P) };
+// A value no row matches, for messages.
+type W = enum { Wild, Ctor({ c: string, args: []W }) };
+type MaybeW = enum { None, Some([]W) };
+type Ctor = { c: string, args: []Type };
+
+func RowsOf(pats: []SPat): [][]P = "../../rs/src/sema_leaf.rs:rows_of";
+// Rows matching constructor c with `arity` arguments, the first column
+// replaced by its arguments.
+func Specialize(rows: [][]P, c: string, arity: int): [][]P = "../../rs/src/sema_leaf.rs:specialize";
+// Rows whose first column is a wildcard, without it.
+func Default(rows: [][]P): [][]P = "../../rs/src/sema_leaf.rs:default_rows";
+// The constructors the first column names.
+func Used(rows: [][]P): []string = "../../rs/src/sema_leaf.rs:used";
+// The constructors of an unfolded type and their argument types; none for
+// types patterns can't take apart.
+func Ctors(t: Type): []Ctor = "../../rs/src/sema_leaf.rs:ctors";
+func AllUsed(cs: []Ctor, used: []string): bool = "../../rs/src/sema_leaf.rs:all_used";
+func Wilds(n: int): []P = "../../rs/src/sema_leaf.rs:wilds";
+func RestP(ps: []P): []P = "../../rs/src/sema_leaf.rs:rest_p";
+func RestT(ts: []Type): []Type = "../../rs/src/sema_leaf.rs:rest";
+
+// The first arm that can never match because the arms above cover it, or -1.
+proc Unreachable(At): int {
+	func At(s: { env: Env, pats: []SPat, ty: Type, i: int, rows: [][]P }): { env: Env, pats: []SPat, ty: Type, i: int, rows: [][]P } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.pats.len) -> id(-1),
+		else -> Useful(s = { types = this.env.types, rows = this.rows, q = RowsOf(pats = [this.pats[this.i]])[0], tys = [this.ty] })
+	};
+	Useful switch {
+		(this) -> At(s = { env = At.env, pats = At.pats, ty = At.ty, i = At.i + 1, rows = At.rows + RowsOf(pats = [At.pats[At.i]]) }),
+		else -> id(At.i)
+	};
+}
+
+type UsefulIn = { types: []TypeDef, rows: [][]P, q: []P, tys: []Type };
+
+// Is there a value matching q but no row?
+proc Useful(At): bool {
+	func At(s: UsefulIn): UsefulIn = "../../rs/src/sema_leaf.rs:same";
+	func First(p: P): P = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.q.len == 0) -> id(this.rows.len == 0),
+		else -> First(p = this.q[0])
+	};
+	First switch {
+		Or(alts) -> AnyUseful(s = { types = At.types, rows = At.rows, alts = alts, rest = RestP(ps = At.q), tys = At.tys, i = 0 }),
+		Ctor(c) -> Unfold(s = { t = At.tys[0], defs = At.types }) as CShape,
+		Wild() -> Unfold(s = { t = At.tys[0], defs = At.types }) as WShape
+	};
+	CShape -> Useful(s = { types = At.types, rows = Specialize(rows = At.rows, c = CtorOf(p = First).c, arity = CtorOf(p = First).args.len), q = CtorOf(p = First).args + RestP(ps = At.q), tys = CtorArgs(cs = Ctors(t = this), c = CtorOf(p = First).c) + RestT(ts = At.tys) }) as Spec;
+	WShape switch {
+		(Ctors(t = this).len > 0 && AllUsed(cs = Ctors(t = this), used = Used(rows = At.rows))) -> AnyCtorUseful(s = { types = At.types, rows = At.rows, cs = Ctors(t = this), rest = RestP(ps = At.q), tys = At.tys, i = 0 }),
+		else -> Useful(s = { types = At.types, rows = Default(rows = At.rows), q = RestP(ps = At.q), tys = RestT(ts = At.tys) }) as Def
+	};
+}
+
+func CtorOf(p: P): { c: string, args: []P } = "../../rs/src/sema_leaf.rs:ctor_of";
+func CtorArgs(cs: []Ctor, c: string): []Type = "../../rs/src/sema_leaf.rs:ctor_args";
+
+proc AnyUseful(At): bool {
+	func At(s: { types: []TypeDef, rows: [][]P, alts: []P, rest: []P, tys: []Type, i: int }): { types: []TypeDef, rows: [][]P, alts: []P, rest: []P, tys: []Type, i: int } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.alts.len) -> id(false),
+		else -> Useful(s = { types = this.types, rows = this.rows, q = [this.alts[this.i]] + this.rest, tys = this.tys })
+	};
+	Useful switch {
+		(this) -> id(true),
+		else -> At(s = { types = At.types, rows = At.rows, alts = At.alts, rest = At.rest, tys = At.tys, i = At.i + 1 })
+	};
+}
+
+proc AnyCtorUseful(At): bool {
+	func At(s: { types: []TypeDef, rows: [][]P, cs: []Ctor, rest: []P, tys: []Type, i: int }): { types: []TypeDef, rows: [][]P, cs: []Ctor, rest: []P, tys: []Type, i: int } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.cs.len) -> id(false),
+		else -> Useful(s = { types = this.types, rows = Specialize(rows = this.rows, c = this.cs[this.i].c, arity = this.cs[this.i].args.len), q = Wilds(n = this.cs[this.i].args.len) + this.rest, tys = this.cs[this.i].args + RestT(ts = this.tys) })
+	};
+	Useful switch {
+		(this) -> id(true),
+		else -> At(s = { types = At.types, rows = At.rows, cs = At.cs, rest = At.rest, tys = At.tys, i = At.i + 1 })
+	};
+}
+
+type MissingIn = { types: []TypeDef, rows: [][]P, tys: []Type };
+
+// Values (one per column) that no row matches, if any.
+proc Missing(At): MaybeW {
+	func At(s: MissingIn): MissingIn = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.tys.len == 0 && this.rows.len == 0) -> id(Some([])),
+		(this.tys.len == 0) -> id(None()),
+		else -> Unfold(s = { t = this.tys[0], defs = this.types })
+	};
+	Unfold switch {
+		(Ctors(t = this).len > 0 && AllUsed(cs = Ctors(t = this), used = Used(rows = At.rows))) -> FirstMissing(s = { types = At.types, rows = At.rows, cs = Ctors(t = this), tys = At.tys, i = 0 }),
+		else -> Missing(s = { types = At.types, rows = Default(rows = At.rows), tys = RestT(ts = At.tys) }) as Rest
+	};
+	// Some constructor no row names, or any value of a type without
+	// constructors.
+	Rest switch {
+		Some(ws) -> id(Some([UnnamedCtor(cs = Ctors(t = Unfold), used = Used(rows = At.rows))] + ws)),
+		else -> id(None())
+	};
+}
+
+func UnnamedCtor(cs: []Ctor, used: []string): W = "../../rs/src/sema_leaf.rs:unnamed_ctor";
+
+proc FirstMissing(At): MaybeW {
+	func At(s: { types: []TypeDef, rows: [][]P, cs: []Ctor, tys: []Type, i: int }): { types: []TypeDef, rows: [][]P, cs: []Ctor, tys: []Type, i: int } = "../../rs/src/sema_leaf.rs:same";
+	func Regroup(c: string, n: int, ws: []W): []W = "../../rs/src/sema_leaf.rs:regroup";
+	At switch {
+		(this.i == this.cs.len) -> id(None()),
+		else -> Missing(s = { types = this.types, rows = Specialize(rows = this.rows, c = this.cs[this.i].c, arity = this.cs[this.i].args.len), tys = this.cs[this.i].args + RestT(ts = this.tys) })
+	};
+	Missing switch {
+		Some(ws) -> id(Some(Regroup(c = At.cs[At.i].c, n = At.cs[At.i].args.len, ws = ws))),
+		else -> At(s = { types = At.types, rows = At.rows, cs = At.cs, tys = At.tys, i = At.i + 1 })
+	};
+}
+
+// A missing value as a pattern: `_`, `{ a = _, b = Lit(_) }`, `Neg(_)`.
+proc Render(At): string {
+	func At(s: { types: []TypeDef, w: W, t: Type }): { types: []TypeDef, w: W, t: Type } = "../../rs/src/sema_leaf.rs:same";
+	func V(w: W): W = "../../rs/src/sema_leaf.rs:same";
+	At -> Unfold(s = { t = this.t, defs = this.types });
+	Unfold -> V(w = At.w);
+	V switch {
+		Wild() -> id("_"),
+		Ctor(c) -> switch {
+			(IsStruct(t = Unfold)) -> RenderFields(s = { types = At.types, fs = MembersOf(t = Unfold), args = c.args, i = 0, acc = "" }),
+			(c.args.len == 0) -> id(c.c + "()"),
+			else -> Render(s = { types = At.types, w = c.args[0], t = UnwrapT(t = Member(ms = MembersOf(t = Unfold), name = c.c)) }) as Payload
+		}
+	};
+	RenderFields -> id("{ " + this + " }");
+	Payload -> id(CtorName(w = V) + "(" + this + ")");
+}
+
+func CtorName(w: W): string = "../../rs/src/sema_leaf.rs:ctor_name";
+
+proc RenderFields(At): string {
+	func At(s: { types: []TypeDef, fs: []Member, args: []W, i: int, acc: string }): { types: []TypeDef, fs: []Member, args: []W, i: int, acc: string } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.fs.len || this.i == this.args.len) -> id(this.acc),
+		else -> Render(s = { types = this.types, w = this.args[this.i], t = this.fs[this.i].ty })
+	};
+	Render -> At(s = { types = At.types, fs = At.fs, args = At.args, i = At.i + 1, acc = At.acc + Sep(i = At.i) + At.fs[At.i].name + " = " + this });
+}

@@ -304,3 +304,329 @@ fn declares_projects_like_the_reference() {
         assert!(a == b, "{dir}: first difference at {:?}", a.iter().zip(&b).find(|(x, y)| x != y));
     }
 }
+
+// ---- Graphs ----
+
+use vandorf::sema as rs;
+
+fn r_expr(e: &rs::Expr) -> String {
+    use rs::Expr as E;
+    match e {
+        E::Ref(r) => r_ref(r),
+        E::Int(i) => format!("{i}"),
+        E::Float(f) => format!("{f:?}"),
+        E::Str(s) => format!("{s:?}"),
+        E::Bool(b) => format!("{b}"),
+        E::Variant { tag, payload } => format!("{tag}({})", payload.as_ref().map(|p| r_expr(p)).unwrap_or_default()),
+        E::Struct(fs) => format!("{{{}}}", fs.iter().map(|(n, e)| format!("{n}={}", r_expr(e))).collect::<Vec<_>>().join(",")),
+        E::Array(es) => format!("[{}]", es.iter().map(r_expr).collect::<Vec<_>>().join(",")),
+        E::Unary(op, e) => format!("({}{})", if *op == vandorf::ast::UnOp::Not { "!" } else { "-" }, r_expr(e)),
+        E::Binary { op, l, r, operand } => format!("({} {} {} :{})", r_expr(l), op.symbol(), r_expr(r), rs_prim(operand)),
+        E::Call(c) => r_call(c),
+        E::Map(kvs) => format!("[{}]", kvs.iter().map(|(k, v)| format!("{}:{}", r_expr(k), r_expr(v))).collect::<Vec<_>>().join(",")),
+        E::Index { e, key, ty } => format!("{}[{}]@{ty}", r_expr(e), r_expr(key)),
+        E::Field { e, ty, name } => format!("{}.{name}@{ty}", r_expr(e)),
+        E::In { key, map } => format!("({} in {})", r_expr(key), r_expr(map)),
+        E::Query { e, ty, q } => format!("{}.{}@{ty}", r_expr(e), format!("{q:?}").to_lowercase()),
+        E::Merge { l, r, ty } => format!("({} ++ {})@{ty}", r_expr(l), r_expr(r)),
+        E::Remove { m, keys, ty } => format!("({} -- {})@{ty}", r_expr(m), r_expr(keys)),
+    }
+}
+
+fn rs_prim(p: &r::Prim) -> String {
+    format!("{p:?}").to_lowercase()
+}
+
+fn r_ref(r: &rs::Ref) -> String {
+    let root = match r.root {
+        rs::Root::This => "this".to_string(),
+        rs::Root::Node(n) => format!("#{n}"),
+        rs::Root::Bind => format!("${}", r.bind.as_deref().unwrap()),
+    };
+    format!("{root}{}:{}@{}..{}", r.fields.iter().map(|f| format!(".{f}")).collect::<String>(), r.ty, r.span.start, r.span.end)
+}
+
+fn r_call(c: &rs::Call) -> String {
+    let args: Vec<String> = c.args.iter().map(|a| format!("{}:{}={}", a.name, a.param, r_expr(&a.value))).collect();
+    format!("call #{}({}) @{}..{}", c.target, args.join(", "), c.span.start, c.span.end)
+}
+
+fn r_pat(p: &rs::Pat) -> String {
+    use rs::PatKind as K;
+    let k = match &p.kind {
+        K::Wild => "_".into(),
+        K::Bind(b) => format!("${b}"),
+        K::Variant { tag, payload } => format!("{tag}({})", payload.as_ref().map(|q| r_pat(q)).unwrap_or_default()),
+        K::Struct(fs) => format!("{{{}}}", fs.iter().map(|(n, q)| format!("{n}={}", r_pat(q))).collect::<Vec<_>>().join(",")),
+        K::Or(alts) => alts.iter().map(r_pat).collect::<Vec<_>>().join("|"),
+    };
+    format!("{k}:{}", p.ty)
+}
+
+fn r_arms(arms: &[rs::Arm]) -> String {
+    arms.iter()
+        .map(|a| {
+            let test = match &a.test {
+                rs::Test::Pat(p) => r_pat(p),
+                rs::Test::Cond(e) => format!("({})", r_expr(e)),
+                rs::Test::Else => "else".into(),
+            };
+            let body = match &a.body {
+                rs::Body::Call(c) => r_call(c),
+                rs::Body::Switch(inner) => format!("switch {{ {} }}", r_arms(inner)),
+            };
+            format!("[{}] {test} -> {body}", a.label)
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+fn r_graph(prog: &rs::Program) -> Vec<String> {
+    let mut out = vec![];
+    for (id, n) in prog.nodes.iter().enumerate() {
+        let rs::NodeKind::Proc(p) = &n.kind else { continue };
+        let g = &p.graph;
+        let mut edges: Vec<_> = g.edges.iter().collect();
+        edges.sort_by_key(|(k, _)| **k);
+        for (src, e) in edges {
+            out.push(format!("#{id} edge #{src}: {}", match e {
+                rs::Edge::Call(c) => r_call(c),
+                rs::Edge::Match(arms) => format!("switch {}", r_arms(arms)),
+                rs::Edge::ForEach { dim, elem, call } => format!("for each {} :{elem} -> {}", r_expr(dim), r_call(call)),
+                rs::Edge::Collect(c) => format!("collect -> {}", r_call(c)),
+            }));
+        }
+        for (i, r) in g.regions.iter().enumerate() {
+            out.push(format!("#{id} region {i}: parent={} entry={} elem={} nodes={:?} sink={}", r.parent.map_or(-1, |x| x as i64), r.entry, r.elem, r.nodes, r.sink.map_or(-1, |x| x as i64)));
+        }
+        let ro: std::collections::BTreeMap<_, _> = g.region_of.iter().collect();
+        let op: std::collections::BTreeMap<_, _> = g.opens.iter().collect();
+        out.push(format!("#{id} region_of={ro:?} opens={op:?}"));
+    }
+    out
+}
+
+fn v_expr(e: &v::Expr) -> String {
+    use v::Expr as E;
+    match e {
+        E::Ref(r) => v_ref(r),
+        E::Int(i) => format!("{i}"),
+        E::Float(f) => format!("{f:?}"),
+        E::Str(s) => format!("{:?}", &**s),
+        E::Bool(b) => format!("{b}"),
+        E::Variant(x) => format!("{}({})", x.tag, match &*x.payload {
+            v::MaybeExpr::Some(p) => v_expr(p),
+            v::MaybeExpr::None => String::new(),
+        }),
+        E::Struct(fs) => format!("{{{}}}", fs.iter().map(|f| format!("{}={}", f.name, v_expr(&f.e))).collect::<Vec<_>>().join(",")),
+        E::Array(es) => format!("[{}]", es.iter().map(v_expr).collect::<Vec<_>>().join(",")),
+        E::Unary(u) => format!("({}{})", u.op, v_expr(&u.e)),
+        E::Binary(b) => format!("({} {} {} :{})", v_expr(&b.l), b.op, v_expr(&b.r), b.operand),
+        E::Call(c) => v_call(c),
+        E::Map(kvs) => format!("[{}]", kvs.iter().map(|kv| format!("{}:{}", v_expr(&kv.key), v_expr(&kv.value))).collect::<Vec<_>>().join(",")),
+        E::Index(x) => format!("{}[{}]@{}", v_expr(&x.e), v_expr(&x.key), show(&x.ty)),
+        E::Field(x) => format!("{}.{}@{}", v_expr(&x.e), x.name, show(&x.ty)),
+        E::In(x) => format!("({} in {})", v_expr(&x.key), v_expr(&x.map)),
+        E::Query(x) => format!("{}.{}@{}", v_expr(&x.e), x.q, show(&x.ty)),
+        E::Merge(x) => format!("({} ++ {})@{}", v_expr(&x.l), v_expr(&x.r), show(&x.ty)),
+        E::Remove(x) => format!("({} -- {})@{}", v_expr(&x.m), v_expr(&x.keys), show(&x.ty)),
+    }
+}
+
+fn v_ref(r: &v::Ref) -> String {
+    let root = match &r.root {
+        v::Root::This => "this".to_string(),
+        v::Root::Node(n) => format!("#{n}"),
+        v::Root::Bind => format!("${}", r.bind),
+    };
+    format!("{root}{}:{}@{}..{}", r.fields.iter().map(|f| format!(".{f}")).collect::<String>(), show(&r.ty), r.span.at, r.span.end)
+}
+
+fn v_call(c: &v::Call) -> String {
+    let args: Vec<String> = c.args.iter().map(|a| format!("{}:{}={}", a.name, show(&a.param), v_expr(&a.value))).collect();
+    format!("call #{}({}) @{}..{}", c.target, args.join(", "), c.span.at, c.span.end)
+}
+
+fn v_pat(p: &v::SPat) -> String {
+    use v::SPatKind as K;
+    let k = match &*p.kind {
+        K::Wild => "_".into(),
+        K::Bind(b) => format!("${b}"),
+        K::Variant(x) => format!("{}({})", x.tag, match &*x.payload {
+            v::MaybePat::Some(q) => v_pat(q),
+            v::MaybePat::None => String::new(),
+        }),
+        K::Struct(fs) => format!("{{{}}}", fs.iter().map(|f| format!("{}={}", f.name, v_pat(&f.pat))).collect::<Vec<_>>().join(",")),
+        K::Or(alts) => alts.iter().map(v_pat).collect::<Vec<_>>().join("|"),
+    };
+    format!("{k}:{}", show(&p.ty))
+}
+
+fn v_arms(arms: &[v::SArm]) -> String {
+    arms.iter()
+        .map(|a| {
+            let test = match &a.test {
+                v::Test::Pat(p) => v_pat(p),
+                v::Test::Cond(e) => format!("({})", v_expr(e)),
+                v::Test::Else => "else".into(),
+            };
+            let body = match &a.body {
+                v::SBody::Call(c) => v_call(c),
+                v::SBody::Switch(inner) => format!("switch {{ {} }}", v_arms(inner)),
+            };
+            format!("[{}] {test} -> {body}", a.label)
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+fn v_graph(prog: &v::Program) -> Vec<String> {
+    let mut out = vec![];
+    for (id, n) in prog.nodes.iter().enumerate() {
+        let v::NodeKind::Proc(p) = &n.kind else { continue };
+        let g = &p.graph;
+        for (src, e) in g.edges.iter() {
+            out.push(format!("#{id} edge #{src}: {}", match e {
+                v::SEdge::Call(c) => v_call(c),
+                v::SEdge::Match(arms) => format!("switch {}", v_arms(arms)),
+                v::SEdge::ForEach(f) => format!("for each {} :{} -> {}", v_expr(&f.dim), show(&f.elem), v_call(&f.call)),
+                v::SEdge::Collect(c) => format!("collect -> {}", v_call(c)),
+            }));
+        }
+        for (i, r) in g.regions.iter().enumerate() {
+            let nodes: Vec<usize> = r.nodes.iter().map(|&x| x as usize).collect();
+            out.push(format!("#{id} region {i}: parent={} entry={} elem={} nodes={nodes:?} sink={}", r.parent, r.entry, show(&r.elem), r.sink));
+        }
+        let ro: std::collections::BTreeMap<usize, usize> = g.region_of.iter().map(|(k, v)| (*k as usize, *v as usize)).collect();
+        let op: std::collections::BTreeMap<usize, usize> = g.opens.iter().map(|(k, v)| (*k as usize, *v as usize)).collect();
+        out.push(format!("#{id} region_of={:?} opens={:?}", ro.iter().collect::<std::collections::BTreeMap<_, _>>(), op.iter().collect::<std::collections::BTreeMap<_, _>>()));
+    }
+    out
+}
+
+/// A span's end with trailing whitespace and `//` comments trimmed: the
+/// reference's spans take in what follows a token.
+fn trim_end(src: &str, at: usize, end: usize) -> usize {
+    let mut end = end.min(src.len());
+    loop {
+        let text = &src[at.min(end)..end];
+        let trimmed = text.trim_end();
+        let cut = match trimmed.rfind('\n') {
+            Some(nl) if trimmed[nl..].trim_start().starts_with("//") => nl,
+            None if trimmed.trim_start().starts_with("//") && !trimmed.is_empty() => 0,
+            _ => trimmed.len(),
+        };
+        let new = at.min(end) + cut;
+        if new == end {
+            return end;
+        }
+        end = new;
+    }
+}
+
+/// Every `@a..b` in a dump, its end trimmed.
+fn trim_spans(src: &str, line: &str) -> String {
+    let mut out = String::new();
+    let mut rest = line;
+    while let Some(i) = rest.find('@') {
+        out.push_str(&rest[..=i]);
+        rest = &rest[i + 1..];
+        let digits = |s: &str| s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+        let n = digits(rest);
+        if n > 0 && rest[n..].starts_with("..") {
+            let m = digits(&rest[n + 2..]);
+            let (a, b): (usize, usize) = (rest[..n].parse().unwrap(), rest[n + 2..n + 2 + m].parse().unwrap());
+            out.push_str(&format!("{a}..{}", trim_end(src, a, b)));
+            rest = &rest[n + 2 + m..];
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// All of vcc's sema on one source, against the reference's.
+fn check_analysis(src: &str) {
+    let Ok(file) = vandorf::parser::parse(src, 0) else { return };
+    let vfile = vcc::vcc::run_parse(src.into()).unwrap_or_else(|e| panic!("{src}: {e}"));
+    let a = vcc::vcc::run_analyze(v::AnalyzeAtS { src: src.into(), file: vfile }).unwrap_or_else(|e| panic!("{src}: {e}"));
+    let errors: Vec<(String, usize, usize)> = a.errors.iter().map(|e| (e.msg.to_string(), e.span.at as usize, trim_end(src, e.span.at as usize, e.span.end as usize))).collect();
+    match vandorf::sema::analyze(&file) {
+        Ok(prog) => {
+            assert!(errors.is_empty(), "{src}\nvcc reports {errors:?}");
+            let trim = |xs: Vec<String>| -> Vec<String> { xs.iter().map(|l| trim_spans(src, l)).collect() };
+            let (x, y) = (trim(r_graph(&prog)), trim(v_graph(&a.prog)));
+            if x != y {
+                let first = x.iter().zip(&y).find(|(p, q)| p != q);
+                panic!("{src}\nfirst difference:\n  reference: {:?}\n  vcc:       {:?}\n({} vs {} lines)", first.map(|f| f.0), first.map(|f| f.1), x.len(), y.len());
+            }
+        }
+        Err(es) => {
+            let want: Vec<(String, usize, usize)> = es.iter().map(|e| (e.msg.clone(), e.span.start, trim_end(src, e.span.start, e.span.end))).collect();
+            assert_eq!(errors, want, "{src}");
+        }
+    }
+}
+
+/// The sources compiled in tests/pipeline.rs: string literals passed to
+/// compile(..) and compile_err(..), and the SRC/MAIN constants.
+fn pipeline_sources() -> Vec<String> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let text = std::fs::read_to_string(root.join("tests/pipeline.rs")).unwrap();
+    let mut out = vec![];
+    let b = text.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if text[i..].starts_with("r#\"") {
+            let end = text[i + 3..].find("\"#").unwrap() + i + 3;
+            out.push(text[i + 3..end].to_string());
+            i = end + 2;
+        } else if b[i] == b'"' {
+            let mut s = String::new();
+            let mut j = i + 1;
+            while b[j] != b'"' {
+                if b[j] == b'\\' {
+                    j += 1;
+                    s.push(match b[j] { b'n' => '\n', b't' => '\t', c => c as char });
+                } else {
+                    s.push(b[j] as char);
+                }
+                j += 1;
+            }
+            out.push(s);
+            i = j + 1;
+        } else {
+            i += 1;
+        }
+    }
+    // Only those that look like programs.
+    out.retain(|s| s.contains("proc ") || s.contains("type ") || s.contains("func "));
+    out
+}
+
+#[test]
+fn analyzes_pipeline_programs_like_the_reference() {
+    let srcs = pipeline_sources();
+    assert!(srcs.len() > 50, "{}", srcs.len());
+    let (mut ok, mut errs, mut skipped) = (0, 0, 0);
+    for s in &srcs {
+        match vandorf::parser::parse(s, 0) {
+            Err(_) => skipped += 1,
+            Ok(f) => if vandorf::sema::analyze(&f).is_ok() { ok += 1 } else { errs += 1 },
+        }
+        check_analysis(s);
+    }
+    eprintln!("pipeline programs: {ok} valid, {errs} with errors, {skipped} not parsed");
+    assert!(ok > 20 && errs > 30, "{ok} {errs}");
+    for src in TYPEDEF_CASES {
+        check_analysis(&format!("{src} proc P(X): int {{ func X(): int; }}"));
+    }
+    for src in DECL_CASES {
+        check_analysis(src);
+    }
+}
+
+#[test]
+fn analyzes_test1_like_the_reference() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    check_analysis(&std::fs::read_to_string(root.join("tests/fixtures/test1.sys")).unwrap());
+}
