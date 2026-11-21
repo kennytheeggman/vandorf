@@ -30,7 +30,7 @@ pub fn fail(msg: Str) -> Result<Str, String> {
 // ---- Tokens ----
 
 /// Multi-character symbols, longest first.
-const SYMS: &[&str] = &["->", "==", "!=", "<=", ">=", "&&", "||"];
+const SYMS: &[&str] = &["->", "==", "!=", "<=", ">=", "&&", "||", ".."];
 
 fn tok(kind: &str, text: &str, at: usize, end: usize, file: i64) -> Tok {
     Tok { kind: kind.into(), text: text.into(), at: at as i64, end: end as i64, file }

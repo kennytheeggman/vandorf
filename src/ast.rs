@@ -228,6 +228,8 @@ pub enum ValueKind {
     Apply { name: Path, args: Vec<ApplyArg> },
     /// `{ a = value, b = value }`
     Struct(Vec<Arg>),
+    /// `{ ..base, field = value }`: a struct like base, with those fields.
+    Update { base: Box<Value>, args: Vec<Arg> },
     /// `[value, value]`
     Array(Vec<Value>),
     /// `[key: value, key: value]`, or `[:]`

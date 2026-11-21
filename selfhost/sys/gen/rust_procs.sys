@@ -273,7 +273,8 @@ proc ROwn(At): Emit {
 		Binary(b) -> ROwn(s = { g = At.g, e = b.l }) as BL,
 		Call(c) -> RCallee(s = { g = At.g, n = c.target }) as Callee,
 		Index(x) -> ROwn(s = { g = At.g, e = x.e }) as IE,
-		Field(f) -> ROwn(s = { g = At.g, e = f.e }) as FE,
+		// The struct may be a literal (`{ ..x, f = v }.g`): render it at its type.
+		Field(f) -> RValue(s = { g = At.g, e = f.e, want = f.ty }) as FE,
 		In(x) -> ROwn(s = { g = At.g, e = x.map }) as InMap,
 		Query(q) -> ROwn(s = { g = At.g, e = q.e }) as QE,
 		Merge(m) -> RValue(s = { g = At.g, e = m.l, want = m.ty }) as ML,

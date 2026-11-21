@@ -335,6 +335,14 @@ fn r_value(o: &mut Out, v: &r::Value) {
                 r_value(o, &a.value);
             }
         }
+        K::Update { base, args } => {
+            o.open("update");
+            r_value(o, base);
+            for a in args {
+                r_ident(o, &a.name);
+                r_value(o, &a.value);
+            }
+        }
         K::Array(es) => {
             o.open("array");
             for e in es {
@@ -670,6 +678,14 @@ fn v_value(o: &mut Out, val: &v::Value) {
                 v_value(o, &a.value);
             }
         }
+        K::Update(u) => {
+            o.open("update");
+            v_value(o, &u.base);
+            for a in u.args.iter() {
+                v_ident(o, &a.name);
+                v_value(o, &a.value);
+            }
+        }
         K::Array(es) => {
             o.open("array");
             for e in es {
@@ -777,6 +793,7 @@ fn parses_tricky_syntax_like_the_reference() {
             other -> id(0)
         }; }"#,
         // Types, impls, interfaces, nested procs, collect and for each.
+        r#"proc P(A): int { func A(): int; A -> B(s = { ..this }, t = { ..A.x, y = 1, z = { ..q } }, u = { ..this, }); }"#,
         r#"type R<T> = { x: T, pos: int };
         type Pair<A, B> = { l: A, r: map[string]R<B> };
         type L = R<Pair<[]int, R<string>>>;

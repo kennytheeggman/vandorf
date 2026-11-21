@@ -59,6 +59,13 @@ proc Calc(Build): int {
   They're checked against the parameter's type (an int literal also passes
   as a float) and can nest references to node outputs.
 
+- **Struct updates**: `{ ..base, f = v }` is a struct like `base` with
+  field `f` set: `Step(s = { ..this, i = this.i + 1 })`. Every field of
+  the expected type is given or read from `base` (it may add fields `base`
+  doesn't have, but not drop any); with no expected type, the update has
+  `base`'s type. `base` must be a path (a node, `this`, a binding, or a
+  field of one), so each field read can be moved separately.
+
 - **`id(value)`** ends a proc with a value, checked against the proc's
   return type: `A switch { (this > 0) -> id({ n = this, tags = [] }), .. }`.
   It's the identity func, built in, so procs don't need an identity leaf per

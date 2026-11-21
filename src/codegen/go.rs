@@ -679,7 +679,8 @@ impl Gen<'_> {
                 t
             }
             Expr::Field { e, ty, name } => {
-                let x = self.own(w, e);
+                // The struct may be a literal (`{ ..x, f = v }.g`).
+                let x = self.value(w, e, ty);
                 let v = format!("({x}).{}", exported(name));
                 if self.table.index(ty).is_some_and(|i| self.table.is_boxed(i, name)) { format!("(*{v})") } else { v }
             }

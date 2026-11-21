@@ -32,6 +32,7 @@
 //! atom      := INT | FLOAT | STRING | 'true' | 'false'
 //!            | path '(' ((NAME '=')? expr),* ')'   enum variant or func call
 //!            | '{' (arg (',' arg)*)? '}'          struct
+//!            | '{' '..' expr (',' arg)* '}'      struct update: base's other fields
 //!            | '[' (expr (',' expr)*)? ']'        array
 //!            | '[' ':' ']' | '[' (expr ':' expr),* ']'   map
 //!            | path | '(' expr ')'
@@ -293,6 +294,11 @@ fn value<'a>() -> impl Parser<'a, In<'a>, Value, Extra<'a>> + Clone {
         let apply = path()
             .then(apply_arg.separated_by(sym(",")).allow_trailing().collect().delimited_by(sym("("), sym(")")))
             .map(|(name, args)| ValueKind::Apply { name, args });
+        let update = sym("..")
+            .ignore_then(expr.clone())
+            .then(sym(",").ignore_then(arg.clone().separated_by(sym(",")).allow_trailing().collect::<Vec<_>>()).or_not())
+            .delimited_by(sym("{"), sym("}"))
+            .map(|(base, args)| ValueKind::Update { base: Box::new(base), args: args.unwrap_or_default() });
         let struct_ = arg
             .separated_by(sym(","))
             .allow_trailing()
@@ -325,6 +331,7 @@ fn value<'a>() -> impl Parser<'a, In<'a>, Value, Extra<'a>> + Clone {
             string().map(|(s, _)| ValueKind::Str(s)),
             kw("true").to(ValueKind::Bool(true)),
             kw("false").to(ValueKind::Bool(false)),
+            update,
             struct_,
             map,
             array,
@@ -650,7 +657,7 @@ mod tests {
                 }).collect();
                 format!("{name}({})", a.join(", "))
             }
-            ValueKind::Struct(_) => "{..}".into(),
+            ValueKind::Struct(_) | ValueKind::Update { .. } => "{..}".into(),
             ValueKind::Array(_) => "[..]".into(),
             ValueKind::Unary(o, e) => format!("({}{})", if *o == UnOp::Not { "!" } else { "-" }, show(e)),
             ValueKind::Binary(o, l, r) => format!("({} {} {})", show(l), o.symbol(), show(r)),

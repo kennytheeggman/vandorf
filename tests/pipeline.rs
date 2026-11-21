@@ -275,6 +275,51 @@ fn generic_typedef_errors() {
 }
 
 #[test]
+fn struct_updates_read_the_base_for_other_fields() {
+    use vandorf::sema::{Edge, Expr, Root};
+    let prog = compile(
+        r#"
+        type S = { a: int, b: string, c: { d: int } };
+        proc P(A): S {
+            func A(): S;
+            func N(s: S): int;
+            A -> N(s = { ..this, a = 1 });
+            N -> id({ ..A, c = { ..A.c, d = { ..A, b = "x" }.a } });
+        }
+        "#,
+    );
+    let p = prog.proc(prog.top_procs[0]);
+    let Some(Edge::Call(c)) = p.graph.edges.get(&p.entry) else { panic!() };
+    let Expr::Struct(fs) = &c.args[0].value else { panic!("{:?}", c.args[0].value) };
+    let names: Vec<&str> = fs.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(names, vec!["a", "b", "c"]);
+    assert!(matches!(&fs[0].1, Expr::Int(1)));
+    // b and c are this.b and this.c.
+    // Adding a field the base doesn't have.
+    compile("type S = { a: int }; proc P(A): { a: int, n: int } { func A(): S; A -> id({ ..this, n = 2 }); }");
+    for (i, f) in [(1, "b"), (2, "c")] {
+        let Expr::Ref(r) = &fs[i].1 else { panic!("{:?}", fs[i].1) };
+        assert!(matches!(r.root, Root::This) && r.fields == vec![f.to_string()], "{r:?}");
+    }
+    for (src, want) in [
+        ("A -> N(s = { ..F(x = 1), a = 1 });", "the base of a struct update must be a path"),
+        ("A -> N(s = { ..this.a, a = 1 });", "this.a has type int, which isn't a struct, so it can't be updated"),
+        ("A -> N(s = { ..this, z = 1 });", "S has no field z"),
+        ("A -> N(s = { ..this, a = 1, a = 2 });", "field a given twice"),
+        ("A -> N(s = { ..this, a = \"x\" });", "argument s of P.N: expected int, found a string literal"),
+        ("A -> M(t = { ..this, a = 1 });", "this has field b, which { a: int } doesn't"),
+        ("A -> M(t = { ..this.a });", "isn't a struct"),
+        ("A -> W(w = { ..this });", "struct update is missing field z of { a: int, b: string, z: int }, which this doesn't have"),
+        ("A -> V(v = { ..this });", "this.a has type int, but string is expected"),
+    ] {
+        let e = compile_err(&format!(
+            "type S = {{ a: int, b: string }}; func F(x: int): S; proc P(A): int {{ func A(): S; func N(s: S): int; func M(t: {{ a: int }}): int; func W(w: {{ a: int, b: string, z: int }}): int; func V(v: {{ a: string, b: string }}): int; {src} }}"
+        ));
+        assert!(e.contains(want), "{src}: {e}");
+    }
+}
+
+#[test]
 fn typedefs_are_structural() {
     // A typedef and its definition written out are interchangeable, both ways.
     compile(

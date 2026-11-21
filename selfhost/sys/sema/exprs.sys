@@ -61,6 +61,7 @@ proc Check(At): Res<Expr> {
 			(IsMap(t = Shape)) -> CheckEntries(s = { c = At, kvs = kvs, kt = KeyOf(t = Shape), vt = MapValue(t = Shape), i = 0, seen = [], acc = [] }),
 			else -> Expected(s = { c = At, found = "a map literal" })
 		},
+		Update(u) -> CheckUpdate(s = { c = At, shape = Shape, base = u.base, args = u.args }),
 		Struct(args) -> switch {
 			(IsStruct(t = Shape)) -> CheckFields(s = { c = At, fs = MembersOf(t = Shape), args = args, i = 0, given = [:] }),
 			else -> Expected(s = { c = At, found = "a struct literal" })
@@ -248,6 +249,8 @@ proc Synth(At): Res<Typed> {
 		Str(s) -> id(Ok({ e = Str(s), t = Prim("string") })),
 		Bool(b) -> id(Ok({ e = Bool(b), t = Prim("bool") })),
 		Apply(a) -> SynthCall(s = { env = At.env, sc = At.sc, name = a.name, args = a.args }),
+		// `{ ..base, .. }` has its base's type.
+		Update(u) -> Synth(s = { env = At.env, sc = At.sc, v = u.base }) as UB,
 		Unary(u) -> switch {
 			(u.op == "!") -> Check(s = { env = At.env, sc = At.sc, v = u.e, want = Prim("bool") }) as Not,
 			else -> Synth(s = { env = At.env, sc = At.sc, v = u.e }) as Neg
@@ -257,6 +260,14 @@ proc Synth(At): Res<Typed> {
 			else -> Synth(s = { env = At.env, sc = At.sc, v = b.l }) as BL
 		},
 		else -> id(Err({ msg = "the type of this literal isn't known here; it can only be passed where a type is expected", span = At.v.span }))
+	};
+	UB switch {
+		Ok(b) -> Check(s = { env = At.env, sc = At.sc, v = At.v, want = b.t }) as UC,
+		Err(e) -> id(Err(e))
+	};
+	UC switch {
+		Ok(e) -> id(Ok({ e = e, t = UnwrapTyped(r = UB).t })),
+		Err(e) -> id(Err(e))
 	};
 	FE switch {
 		Ok(x) -> Select(s = { env = At.env, e = x.e, t = x.t, name = FieldName(k = K) }),
@@ -535,4 +546,74 @@ proc Cond(At): Res<Expr> {
 		Ok(x) -> id(Ok(x)),
 		Err(e) -> id(Err(Prefixed(d = e, prefix = "condition: ")))
 	};
+}
+
+// `{ ..base, f = v }`: the fields given, checked against `want`; the rest
+// read from base, which must be a path.
+proc CheckUpdate(At): Res<Expr> {
+	func At(s: { c: CheckIn, shape: Type, base: Value, args: []Arg }): { c: CheckIn, shape: Type, base: Value, args: []Arg } = "../../rs/src/sema_leaf.rs:same";
+	func E(e: Expr): Expr = "../../rs/src/sema_leaf.rs:same";
+	func What(v: Value): string = "../../rs/src/sema_leaf.rs:what";
+	At -> Synth(s = { env = this.c.env, sc = this.c.sc, v = this.base });
+	Synth switch {
+		Ok(x) -> E(e = x.e),
+		Err(e) -> id(Err(e))
+	};
+	E switch {
+		Ref(r) -> Unfold(s = { t = UnwrapTyped(r = Synth).t, defs = At.c.env.types }) as BShape,
+		else -> id(Err({ msg = "the base of a struct update must be a path (a node, this, a binding, or a field of one)", span = At.base.span }))
+	};
+	BShape switch {
+		(!IsStruct(t = this)) -> ShowType(t = UnwrapTyped(r = Synth).t) as NotStruct,
+		(!IsStruct(t = At.shape)) -> Expected(s = { c = At.c, found = "a struct update" }),
+		// The base may lack fields that are given, but has none the result
+		// doesn't.
+		(Extra(bfs = MembersOf(t = this), fs = MembersOf(t = At.shape)) != "") -> ShowType(t = At.c.want) as HasExtra,
+		else -> UpdateFields(s = { c = At.c, fs = MembersOf(t = At.shape), base = RefOf(e = UnwrapTyped(r = Synth).e), bfs = MembersOf(t = this), what = What(v = At.base), args = At.args, i = 0, given = [:] })
+	};
+	NotStruct -> id(Err({ msg = What(v = At.base) + " has type " + this + ", which isn't a struct, so it can't be updated", span = At.base.span }));
+	HasExtra -> id(Err({ msg = What(v = At.base) + " has field " + Extra(bfs = MembersOf(t = BShape), fs = MembersOf(t = At.shape)) + ", which " + this + " doesn't", span = At.base.span }));
+}
+
+// The first of bfs not among fs, or "".
+func Extra(bfs: []Member, fs: []Member): string = "../../rs/src/sema_leaf.rs:extra_member";
+
+type UpdateIn = { c: CheckIn, fs: []Member, base: Ref, bfs: []Member, what: string, args: []Arg, i: int, given: map[string]Expr };
+
+proc UpdateFields(At): Res<Expr> {
+	func At(s: UpdateIn): UpdateIn = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.args.len) -> FillUpdate(s = { ..this, i = 0, acc = [] }),
+		else -> Member(ms = this.fs, name = this.args[this.i].name.name)
+	};
+	Member switch {
+		Some(ft) -> Check(s = { env = At.c.env, sc = At.c.sc, v = At.args[At.i].value, want = ft }),
+		else -> ShowType(t = At.c.want)
+	};
+	ShowType -> id(Err({ msg = this + " has no field " + At.args[At.i].name.name, span = At.args[At.i].name.span }));
+	Check switch {
+		Ok(x) -> switch {
+			(At.args[At.i].name.name in At.given) -> id(Err({ msg = "field " + At.args[At.i].name.name + " given twice", span = At.args[At.i].name.span })),
+			else -> At(s = { ..At, i = At.i + 1, given = At.given + [At.args[At.i].name.name: x] })
+		},
+		Err(e) -> id(Err(e))
+	};
+}
+
+// The fields in the type's order: given, or read from the base.
+proc FillUpdate(At): Res<Expr> {
+	func At(s: { c: CheckIn, fs: []Member, base: Ref, bfs: []Member, what: string, args: []Arg, i: int, given: map[string]Expr, acc: []ExprMember }): { c: CheckIn, fs: []Member, base: Ref, bfs: []Member, what: string, args: []Arg, i: int, given: map[string]Expr, acc: []ExprMember } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		(this.i == this.fs.len) -> id(Ok(Struct(this.acc))),
+		(this.fs[this.i].name in this.given) -> At(s = { ..this, i = this.i + 1, acc = this.acc + [{ name = this.fs[this.i].name, e = this.given[this.fs[this.i].name] }] }),
+		(!HasMember(ms = this.bfs, name = this.fs[this.i].name)) -> ShowType(t = this.c.want) as Missing,
+		else -> Accepts(s = { a = this.fs[this.i].ty, b = UnwrapT(t = Member(ms = this.bfs, name = this.fs[this.i].name)), defs = this.c.env.types, assumed = [] })
+	};
+	Missing -> id(Err({ msg = "struct update is missing field " + At.fs[At.i].name + " of " + this + ", which " + At.what + " doesn't have", span = At.c.v.span }));
+	Accepts switch {
+		(this) -> At(s = { ..At, i = At.i + 1, acc = At.acc + [{ name = At.fs[At.i].name, e = Ref({ ..At.base, fields = At.base.fields + [At.fs[At.i].name], ty = UnwrapT(t = Member(ms = At.bfs, name = At.fs[At.i].name)) }) }] }),
+		else -> ShowType(t = UnwrapT(t = Member(ms = At.bfs, name = At.fs[At.i].name))) as Got
+	};
+	Got -> ShowType(t = At.fs[At.i].ty) as Want;
+	Want -> id(Err({ msg = At.what + "." + At.fs[At.i].name + " has type " + Got + ", but " + this + " is expected", span = At.base.span }));
 }

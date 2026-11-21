@@ -1089,6 +1089,55 @@ impl<'a> Cx<'a> {
                 }
                 Expr::Map(out)
             }
+            V::Update { base, args } => {
+                let (be, bt) = self.synth(pid, base, sc)?;
+                let what = match &base.kind {
+                    V::Ref(p) => p.to_string(),
+                    _ => "this expression".into(),
+                };
+                let Expr::Ref(r) = &be else {
+                    return err(base.span, "the base of a struct update must be a path (a node, this, a binding, or a field of one)");
+                };
+                let Type::Struct(bfs) = bt.unfold(defs) else {
+                    return err(base.span, format!("{what} has type {bt}, which isn't a struct, so it can't be updated"));
+                };
+                let Type::Struct(fs) = shape else { return mismatch("a struct update") };
+                // The base may lack fields that are given, but has none the
+                // result doesn't.
+                if let Some((n, _)) = bfs.iter().find(|(n, _)| !fs.iter().any(|(f, _)| f == n)) {
+                    return err(base.span, format!("{what} has field {n}, which {want} doesn't"));
+                }
+                let mut given: HashMap<&str, Expr> = HashMap::new();
+                for a in args {
+                    let Some((_, ft)) = fs.iter().find(|(n, _)| *n == a.name.name) else {
+                        return err(a.name.span, format!("{want} has no field {}", a.name.name));
+                    };
+                    let e = self.check(pid, &a.value, ft, sc)?;
+                    if given.insert(&a.name.name, e).is_some() {
+                        return err(a.name.span, format!("field {} given twice", a.name.name));
+                    }
+                }
+                // The other fields are reads of the base's.
+                let mut out = vec![];
+                for (n, ft) in fs {
+                    let e = match given.remove(n.as_str()) {
+                        Some(e) => e,
+                        None => {
+                            let Some((_, ty)) = bfs.iter().find(|(f, _)| f == n) else {
+                                return err(v.span, format!("struct update is missing field {n} of {want}, which {what} doesn't have"));
+                            };
+                            if !ft.accepts(ty, defs) {
+                                return err(base.span, format!("{what}.{n} has type {ty}, but {ft} is expected"));
+                            }
+                            let mut fields = r.fields.clone();
+                            fields.push(n.clone());
+                            Expr::Ref(Ref { fields, ty: ty.clone(), ..r.clone() })
+                        }
+                    };
+                    out.push((n.clone(), e));
+                }
+                Expr::Struct(out)
+            }
             V::Struct(args) => {
                 let Type::Struct(fs) = shape else { return mismatch("a struct literal") };
                 let mut given: HashMap<&str, Expr> = HashMap::new();
@@ -1181,6 +1230,11 @@ impl<'a> Cx<'a> {
             V::Float(f) => (Expr::Float(*f), prim(Prim::Float)),
             V::Str(s) => (Expr::Str(s.clone()), prim(Prim::String)),
             V::Bool(b) => (Expr::Bool(*b), prim(Prim::Bool)),
+            // `{ ..base, .. }` has its base's type.
+            V::Update { base, .. } => {
+                let (_, bt) = self.synth(pid, base, sc)?;
+                (self.check(pid, v, &bt, sc)?, bt)
+            }
             V::Struct(_) | V::Array(_) => {
                 return err(v.span, "the type of this literal isn't known here; it can only be passed where a type is expected");
             }

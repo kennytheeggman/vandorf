@@ -246,6 +246,15 @@ fn check_decls(src: &str) {
 }
 
 const DECL_CASES: &[&str] = &[
+    r#"type S = { a: int, b: string, c: { d: int } };
+       proc P(A): S {
+           func A(): S;
+           func N(s: S): int;
+           func W(w: { a: int, b: string, c: { d: int }, n: int }): int;
+           A -> N(s = { ..this, a = 1 });
+           N -> W(w = { ..A, n = { ..A, b = "x" }.a, c = { ..A.c, d = 2 } });
+           W -> id({ ..A });
+       }"#,
     r#"interface IO { func Read(p: string): string = "io.go:Read", "io.rs:read"; func Read(): int; }
        func Top(x: int): R<int>;
        type R<T> = { x: T };
@@ -622,6 +631,28 @@ fn analyzes_pipeline_programs_like_the_reference() {
     }
     for src in DECL_CASES {
         check_analysis(src);
+    }
+}
+
+#[test]
+fn checks_struct_updates_like_the_reference() {
+    let pre = "type S = { a: int, b: string }; func F(x: int): S; proc P(A): int { func A(): S; func N(s: S): int; func M(t: { a: int }): int; func W(w: { a: int, b: string, z: int }): int; func V(v: { a: string, b: string }): int; ";
+    for src in [
+        "A -> N(s = { ..F(x = 1), a = 1 });",
+        "A -> N(s = { ..this.a, a = 1 });",
+        "A -> N(s = { ..this, z = 1 });",
+        "A -> N(s = { ..this, a = 1, a = 2 });",
+        "A -> N(s = { ..this, a = \"x\" });",
+        "A -> M(t = { ..this, a = 1 });",
+        "A -> M(t = { ..this.a });",
+        "A -> W(w = { ..this });",
+        "A -> W(w = { ..this, z = 3 });",
+        "A -> V(v = { ..this });",
+        "A -> N(s = { ..this });",
+        "A -> M(t = { a = { ..this, b = \"y\" }.a });",
+        "A -> M(t = { a = { ..this, q = 1 }.a });",
+    ] {
+        check_analysis(&format!("{pre}{src} }}"));
     }
 }
 

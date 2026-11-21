@@ -645,7 +645,9 @@ impl Gen<'_> {
                 format!("{get}(&{}, &{}).map_err(|e| wrap({}, e))?", self.own(e), self.own(key), quote(&self.proc_name))
             }
             Expr::Field { e, ty, name } => {
-                let v = format!("({}).{}", self.own(e), rust_ident(name));
+                // The struct may be a literal (`{ ..x, f = v }.g`): render it
+                // at its type.
+                let v = format!("({}).{}", self.value(e, ty), rust_ident(name));
                 if self.is_boxed(ty, name) { format!("(*{v})") } else { v }
             }
             Expr::In { key, map } => format!("({}).contains_key(&{})", self.own(map), self.own(key)),

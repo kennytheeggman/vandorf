@@ -71,6 +71,8 @@ type ValueKind = enum {
 	Bool(bool),
 	Apply({ name: Path, args: []ApplyArg }),
 	Struct([]Arg),
+	// `{ ..base, field = value }`
+	Update({ base: Value, args: []Arg }),
 	Array([]Value),
 	Map([]Entry),
 	Unary({ op: string, e: Value }),

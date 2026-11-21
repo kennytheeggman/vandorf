@@ -1146,3 +1146,7 @@ pub fn set_graph(mut cx: Cx, pid: i64, g: Graph) -> Result<Cx, String> {
 pub fn pack_placed(l: Layout, _target: i64, back: bool) -> Result<RecordPlacedOut, String> {
     Ok(RecordPlacedOut { l, back })
 }
+
+pub fn extra_member(bfs: List<Member>, fs: List<Member>) -> Result<Str, String> {
+    Ok(bfs.iter().find(|b| !fs.iter().any(|f| f.name == b.name)).map_or("".into(), |b| b.name.clone()))
+}

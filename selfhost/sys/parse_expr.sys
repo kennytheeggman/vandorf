@@ -79,7 +79,7 @@ proc PPostRest(AtV): R<Value> {
 	);
 }
 
-// atom := INT | FLOAT | STRING | 'true' | 'false' | '{' arg,* '}' | '[' ... ']'
+// atom := INT | FLOAT | STRING | 'true' | 'false' | '{' arg,* '}' | '{' '..' expr (',' arg)* '}' | '[' ... ']'
 //       | '(' expr ')' | path | path '(' ((NAME '=')? expr),* ')'
 proc PAtom(At): R<Value> {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
@@ -89,12 +89,22 @@ proc PAtom(At): R<Value> {
 		(this.tok.kind == "str") -> id({ x = { kind = Str(this.tok.text), span = SpanOf(t = this.tok) }, pos = this.pos + 1 }),
 		(IsWord(t = this.tok, s = "true")) -> id({ x = { kind = Bool(true), span = SpanOf(t = this.tok) }, pos = this.pos + 1 }),
 		(IsWord(t = this.tok, s = "false")) -> id({ x = { kind = Bool(false), span = SpanOf(t = this.tok) }, pos = this.pos + 1 }),
+		(IsSym(t = this.tok, s = "{") && IsSym(t = this.toks[this.pos + 1], s = "..")) -> PExpr(toks = this.toks, pos = this.pos + 2) as UpdateBase,
 		(IsSym(t = this.tok, s = "{")) -> PArgList(toks = this.toks, pos = this.pos + 1) as StructArgs,
 		(IsSym(t = this.tok, s = "[")) -> PBracket(toks = this.toks, pos = this.pos + 1),
 		(IsSym(t = this.tok, s = "(")) -> PExpr(toks = this.toks, pos = this.pos + 1) as Paren,
 		else -> PPath(toks = this.toks, pos = this.pos)
 	};
 	StructArgs -> Expect(toks = At.toks, pos = this.pos, text = "}", what = ", or }") as StructClose;
+	// `{ ..base }` or `{ ..base, f = v, .. }`
+	UpdateBase -> At(toks = At.toks, pos = this.pos) as AfterBase;
+	AfterBase switch {
+		(IsSym(t = this.tok, s = ",")) -> PArgList(toks = this.toks, pos = this.pos + 1) as UpdateArgs,
+		else -> Expect(toks = this.toks, pos = this.pos, text = "}", what = ", or }") as BareClose
+	};
+	UpdateArgs -> Expect(toks = At.toks, pos = this.pos, text = "}", what = ", or }") as UpdateClose;
+	UpdateClose -> id({ x = { kind = Update({ base = UpdateBase.x, args = UpdateArgs.x }), span = { at = At.tok.at, end = this.prev.end, file = At.tok.file } }, pos = this.pos });
+	BareClose -> id({ x = { kind = Update({ base = UpdateBase.x, args = [] }), span = { at = At.tok.at, end = this.prev.end, file = At.tok.file } }, pos = this.pos });
 	StructClose -> id({ x = { kind = Struct(StructArgs.x), span = { at = At.tok.at, end = this.prev.end, file = At.tok.file } }, pos = this.pos });
 	PBracket -> id(this);
 	Paren -> Expect(toks = At.toks, pos = this.pos, text = ")", what = ")") as ParenClose;
