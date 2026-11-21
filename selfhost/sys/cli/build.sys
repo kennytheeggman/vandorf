@@ -180,14 +180,18 @@ proc ServerSpecs(At): Res<[]ServerSpec> {
 	func FileDir(out: string, module_dir: MaybeStr, path: string): string = "../../rs/src/cli_leaf.rs:file_dir";
 	At switch {
 		(this.i == this.names.len) -> id(Ok(this.acc)),
-		else -> Routes(s = { name = this.names[this.i], routes = this.m.http[this.names[this.i]].routes, keys = this.m.http[this.names[this.i]].routes.keys, j = 0, acc = [] })
+		else -> Routes(s = { name = this.names[this.i], routes = this.m.http[this.names[this.i]].raw, keys = this.m.http[this.names[this.i]].raw.keys, other = this.m.http[this.names[this.i]].routes, j = 0, acc = [] }) as Raws
+	};
+	Raws switch {
+		Ok(_) -> Routes(s = { name = At.names[At.i], routes = At.m.http[At.names[At.i]].routes, keys = At.m.http[At.names[At.i]].routes.keys, other = [:], j = 0, acc = [] }),
+		Err(e) -> id(Err(e))
 	};
 	Routes switch {
 		Ok(routes) -> Statics(s = { name = At.names[At.i], root = At.root, dir = FileDir(out = At.out, module_dir = At.module_dir, path = ServerPath(d = At.m.http[At.names[At.i]], name = At.names[At.i])), statics = At.m.http[At.names[At.i]].statics, keys = At.m.http[At.names[At.i]].statics.keys, j = 0, acc = [] }),
 		Err(e) -> id(Err(e))
 	};
 	Statics switch {
-		Ok(statics) -> At(s = { ..At, i = At.i + 1, acc = At.acc + [{ name = At.names[At.i], addr = At.m.http[At.names[At.i]].addr, routes = UnwrapRoutes(r = Routes), statics = statics, path = ServerPath(d = At.m.http[At.names[At.i]], name = At.names[At.i]) }] }),
+		Ok(statics) -> At(s = { ..At, i = At.i + 1, acc = At.acc + [{ name = At.names[At.i], addr = At.m.http[At.names[At.i]].addr, routes = UnwrapRoutes(r = Routes), raw = UnwrapRoutes(r = Raws), statics = statics, path = ServerPath(d = At.m.http[At.names[At.i]], name = At.names[At.i]) }] }),
 		Err(e) -> id(Err(e))
 	};
 }
@@ -195,12 +199,14 @@ proc ServerSpecs(At): Res<[]ServerSpec> {
 func UnwrapRoutes(r: Res<[]Route>): []Route = "../../rs/src/cli_leaf.rs:unwrap_routes";
 
 proc Routes(At): Res<[]Route> {
-	func At(s: { name: string, routes: map[string]string, keys: []string, j: int, acc: []Route }): { name: string, routes: map[string]string, keys: []string, j: int, acc: []Route } = "../../rs/src/sema_leaf.rs:same";
+	// other: the server's other routes, which these mustn't repeat.
+	func At(s: { name: string, routes: map[string]string, keys: []string, other: map[string]string, j: int, acc: []Route }): { name: string, routes: map[string]string, keys: []string, other: map[string]string, j: int, acc: []Route } = "../../rs/src/sema_leaf.rs:same";
 	// "POST /api/calc" as a method and a path, if it is one.
 	func Split(route: string, proc: string): []Route = "../../rs/src/cli_leaf.rs:split_route";
 	func DebugQ(s: string): string = "../../rs/src/cli_leaf.rs:debug_quote";
 	At switch {
 		(this.j == this.keys.len) -> id(Ok(this.acc)),
+		(this.keys[this.j] in this.other) -> id(Err({ msg = "vandorf.toml: [http." + this.name + "] route " + DebugQ(s = this.keys[this.j]) + " is in both routes and raw", span = { at = 0, end = 0, file = 0 } })),
 		(Split(route = this.keys[this.j], proc = this.routes[this.keys[this.j]]).len == 0) -> id(Err({ msg = "vandorf.toml: [http." + this.name + "] route " + DebugQ(s = this.keys[this.j]) + " should be a method and a path, like \"POST /api/calc\"", span = { at = 0, end = 0, file = 0 } })),
 		else -> At(s = { ..this, j = this.j + 1, acc = this.acc + Split(route = this.keys[this.j], proc = this.routes[this.keys[this.j]]) })
 	};

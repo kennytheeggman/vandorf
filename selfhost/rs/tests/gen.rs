@@ -152,11 +152,13 @@ fn generates_http_like_the_reference() {
         // A server routing to every top-level proc, and one to a missing one.
         let procs: Vec<String> = prog.top_procs.iter().map(|&p| prog.node(p).name().to_string()).collect();
         let routes: Vec<(String, String, String)> = procs.iter().enumerate().map(|(i, p)| (if i % 2 == 0 { "POST" } else { "GET" }.to_string(), format!("/api/{}", p.to_lowercase()), p.clone())).collect();
-        for routes in [routes.clone(), vec![("GET".into(), "/x".into(), "Missing".into())]] {
+        let raw: Vec<(String, String, String)> = procs.iter().take(1).map(|p| ("GET".to_string(), "/raw".to_string(), p.clone())).collect();
+        for (routes, raw) in [(routes.clone(), vec![]), (vec![("GET".into(), "/x".into(), "Missing".into())], vec![]), (vec![], raw)] {
             let srv = rust::ServerSpec {
                 name: "web-api".into(),
                 addr: "127.0.0.1:9".into(),
                 routes: routes.clone(),
+                raw: raw.clone(),
                 statics: vec![("/".into(), "../../web/index.html".into(), "text/html; charset=utf-8".into())],
                 path: "bin/web.rs".into(),
             };
@@ -166,6 +168,7 @@ fn generates_http_like_the_reference() {
                 name: srv.name.as_str().into(),
                 addr: srv.addr.as_str().into(),
                 routes: routes.iter().map(|(m, p, pr)| v::Route { method: m.as_str().into(), path: p.as_str().into(), proc: pr.as_str().into() }).collect(),
+                raw: raw.iter().map(|(m, p, pr)| v::Route { method: m.as_str().into(), path: p.as_str().into(), proc: pr.as_str().into() }).collect(),
                 statics: srv.statics.iter().map(|(u, f, c)| v::StaticFile { url: u.as_str().into(), file: f.as_str().into(), ctype: c.as_str().into() }).collect(),
                 path: srv.path.as_str().into(),
             };

@@ -37,10 +37,9 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
         for (n, v) in h {
             let Some(v) = v.as_table() else { continue };
             let Some(addr) = v.get("addr").and_then(|a| a.as_str()) else { return fail(format!("[http.{n}]: missing field `addr`")) };
-            let Some(routes) = v.get("routes").and_then(|r| r.as_table()) else { return fail(format!("[http.{n}]: missing field `routes`")) };
             let strs = |t: &toml::Table| -> Map<Str, Str> { t.iter().filter_map(|(k, v)| v.as_str().map(|v| (s(k), s(v)))).collect() };
-            let statics = v.get("static").and_then(|x| x.as_table()).map(strs).unwrap_or_default();
-            http.push((s(n), ServerDecl { addr: s(addr), routes: strs(routes), statics, rust: opt(v.get("rust")) }));
+            let table = |k: &str| v.get(k).and_then(|x| x.as_table()).map(strs).unwrap_or_default();
+            http.push((s(n), ServerDecl { addr: s(addr), routes: table("routes"), raw: table("raw"), statics: table("static"), rust: opt(v.get("rust")) }));
         }
     }
     let mut bins = vec![];

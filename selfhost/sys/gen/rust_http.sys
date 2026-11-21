@@ -6,7 +6,8 @@ type Route = { method: string, path: string, proc: string };
 // file: as the server's source file reaches it; ctype: its content type.
 type StaticFile = { url: string, file: string, ctype: string };
 // path: the server's file, relative to the crate's src/.
-type ServerSpec = { name: string, addr: string, routes: []Route, statics: []StaticFile, path: string };
+// routes: JSON in and out; raw: the proc takes the request, returns the response.
+type ServerSpec = { name: string, addr: string, routes: []Route, raw: []Route, statics: []StaticFile, path: string };
 
 func HttpRuntime(n: int): string = "../../rs/src/gen_leaf.rs:http_runtime";
 func ServerIdent(name: string): string = "../../rs/src/gen_leaf.rs:server_ident";
@@ -28,6 +29,11 @@ proc RustHttp(At): { text: string, err: MaybeStr } {
 	] });
 	JsonImpls -> HttpCalls(s = { g = At.g, servers = At.servers, procs = SortStrs(xs = RouteProcs(servers = At.servers)), i = 0, acc = this });
 	HttpCalls switch {
+		{ lines = _, err = Some(e) } -> id({ text = "", err = Some(e) }),
+		else -> RawCalls(s = { g = At.g, servers = At.servers, procs = SortStrs(xs = RawProcs(servers = At.servers)), i = 0, acc = this.lines })
+	};
+	func RawProcs(servers: []ServerSpec): []string = "../../rs/src/gen_leaf.rs:raw_procs";
+	RawCalls switch {
 		{ lines = _, err = Some(e) } -> id({ text = "", err = Some(e) }),
 		else -> Handlers(s = { g = At.g, servers = At.servers, i = 0, acc = this.lines })
 	};
@@ -105,24 +111,58 @@ proc HttpCalls(At): { lines: []Line, err: MaybeStr } {
 	};
 }
 
+// A call per proc a raw route runs: the request as the proc's struct, its
+// result as the response.
+proc RawCalls(At): { lines: []Line, err: MaybeStr } {
+	func At(s: { g: RGen, servers: []ServerSpec, procs: []string, i: int, acc: []Line }): { g: RGen, servers: []ServerSpec, procs: []string, i: int, acc: []Line } = "../../rs/src/sema_leaf.rs:same";
+	func ServerOf(servers: []ServerSpec, proc: string): string = "../../rs/src/gen_leaf.rs:raw_server_of";
+	func ShapeError(prog: Program, pid: int, server: string, name: string): MaybeStr = "../../rs/src/gen_leaf.rs:raw_shape_error";
+	func ParamType(g: RGen, pid: int): string = "../../rs/src/gen_leaf.rs:raw_param_type";
+	At switch {
+		(this.i == this.procs.len) -> id({ lines = this.acc, err = None() }),
+		(FindTop(prog = this.g.prog, name = this.procs[this.i]) < 0) -> id({ lines = [], err = Some("http server " + ServerOf(servers = this.servers, proc = this.procs[this.i]) + " runs proc " + this.procs[this.i] + ", but there is no top-level proc " + this.procs[this.i]) }),
+		(IsSomeS(m = ShapeError(prog = this.g.prog, pid = FindTop(prog = this.g.prog, name = this.procs[this.i]), server = ServerOf(servers = this.servers, proc = this.procs[this.i]), name = this.procs[this.i]))) -> id({ lines = [], err = ShapeError(prog = this.g.prog, pid = FindTop(prog = this.g.prog, name = this.procs[this.i]), server = ServerOf(servers = this.servers, proc = this.procs[this.i]), name = this.procs[this.i]) }),
+		else -> At(s = { ..this, i = this.i + 1, acc = this.acc + [
+			L("/// Runs proc " + this.procs[this.i] + " on the raw request."),
+			L("fn raw_" + SnakeG(n = this.g.prog.nodes[FindTop(prog = this.g.prog, name = this.procs[this.i])]) + "(req: &Request) -> Response {"),
+			L("let r = " + ParamType(g = this.g, pid = FindTop(prog = this.g.prog, name = this.procs[this.i])) + " {"),
+			L("method: types::Str::from(req.method.as_str()),"),
+			L("path: types::Str::from(req.path.as_str()),"),
+			L("query: query_pairs(&req.query).into_iter().map(|(k, v)| (types::Str::from(k.as_str()), types::Str::from(v.as_str()))).collect(),"),
+			L("headers: req.headers.iter().map(|(k, v)| (types::Str::from(k.as_str()), types::Str::from(v.as_str()))).collect(),"),
+			L("body: types::Str::from(req.body.as_str()),"),
+			L("};"),
+			L("match super::run_" + SnakeG(n = this.g.prog.nodes[FindTop(prog = this.g.prog, name = this.procs[this.i])]) + "(r) {"),
+			L("Ok(res) => Response {"),
+			L("status: res.status as u16,"),
+			L("headers: res.headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),"),
+			L("body: res.body.as_bytes().to_vec(),"),
+			L("},"),
+			L("Err(e) => error_response(500, &e.to_string()),"),
+			L("}"), L("}"), L("")
+		] })
+	};
+}
+
 proc Handlers(At): []Line {
 	func At(s: { g: RGen, servers: []ServerSpec, i: int, acc: []Line }): { g: RGen, servers: []ServerSpec, i: int, acc: []Line } = "../../rs/src/sema_leaf.rs:same";
 	At switch {
 		(this.i == this.servers.len) -> id(this.acc),
-		else -> RouteLines(s = { g = this.g, routes = this.servers[this.i].routes, i = 0, acc = [] })
+		else -> RouteLines(s = { g = this.g, routes = this.servers[this.i].routes, call = "json_route(req, call_", close = ")", i = 0, acc = [] }) as Json
 	};
-	RouteLines -> At(s = { ..At, i = At.i + 1, acc = At.acc + [
+	Json -> RouteLines(s = { g = At.g, routes = At.servers[At.i].raw, call = "raw_", close = "(req)", i = 0, acc = this }) as Raw;
+	Raw -> At(s = { ..At, i = At.i + 1, acc = At.acc + [
 		L("/// The routes of http server " + At.servers[At.i].name + "."),
-		L("pub fn handle_" + ServerIdent(name = At.servers[At.i].name) + "(method: &str, path: &str, params: &Value) -> Option<Result<String, (u16, String)>> {"),
-		L("match (method, path) {")
+		L("pub fn handle_" + ServerIdent(name = At.servers[At.i].name) + "(req: &Request) -> Option<Response> {"),
+		L("match (req.method.as_str(), req.path.as_str()) {")
 	] + this + [L("_ => None,"), L("}"), L("}"), L("")] });
 }
 
 proc RouteLines(At): []Line {
-	func At(s: { g: RGen, routes: []Route, i: int, acc: []Line }): { g: RGen, routes: []Route, i: int, acc: []Line } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { g: RGen, routes: []Route, call: string, close: string, i: int, acc: []Line }): { g: RGen, routes: []Route, call: string, close: string, i: int, acc: []Line } = "../../rs/src/sema_leaf.rs:same";
 	At switch {
 		(this.i == this.routes.len) -> id(this.acc),
-		else -> At(s = { ..this, i = this.i + 1, acc = this.acc + [L("(" + Quote(s = this.routes[this.i].method) + ", " + Quote(s = this.routes[this.i].path) + ") => Some(call_" + SnakeG(n = this.g.prog.nodes[FindTop(prog = this.g.prog, name = this.routes[this.i].proc)]) + "(params)),")] })
+		else -> At(s = { ..this, i = this.i + 1, acc = this.acc + [L("(" + Quote(s = this.routes[this.i].method) + ", " + Quote(s = this.routes[this.i].path) + ") => Some(" + this.call + SnakeG(n = this.g.prog.nodes[FindTop(prog = this.g.prog, name = this.routes[this.i].proc)]) + this.close + "),")] })
 	};
 }
 

@@ -1745,11 +1745,65 @@ fn json<T: Json>(x: &T) -> String {
 
 // ---- The server ----
 
+/// A request: header names lowercased, the query string undecoded.
+#[derive(Debug, Clone, Default)]
+pub struct Request {
+    pub method: String,
+    pub path: String,
+    pub query: String,
+    pub headers: Vec<(String, String)>,
+    pub body: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Response {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+}
+
 /// A server's routes: Some(the response) for a route it has.
-pub type Handler = fn(&str, &str, &Value) -> Option<Result<String, (u16, String)>>;
+pub type Handler = fn(&Request) -> Option<Response>;
 
 /// A file served as it is: URL path, content type, contents.
 pub type Static = (&'static str, &'static str, &'static str);
+
+fn json_response(status: u16, body: String) -> Response {
+    Response { status, headers: vec![("Content-Type".into(), "application/json".into())], body: body.into_bytes() }
+}
+
+fn error_response(status: u16, msg: &str) -> Response {
+    json_response(status, json(&types::Map::from_iter([(types::Str::from("error"), types::Str::from(msg))])))
+}
+
+/// The query string's parameters, decoded.
+fn query_pairs(query: &str) -> Vec<(String, String)> {
+    query
+        .split('&')
+        .filter(|kv| !kv.is_empty())
+        .map(|kv| {
+            let (k, v) = kv.split_once('=').unwrap_or((kv, ""));
+            (percent_decode(k), percent_decode(v))
+        })
+        .collect()
+}
+
+/// A JSON route: its parameters from a JSON object body, or the query
+/// string (each value read as JSON if it parses, else as a string).
+fn json_route(req: &Request, call: fn(&Value) -> Result<String, (u16, String)>) -> Response {
+    let params = if req.body.trim().is_empty() {
+        Value::Obj(query_pairs(&req.query).into_iter().map(|(k, v)| (k, Value::parse(&v).unwrap_or(Value::Str(v)))).collect())
+    } else {
+        match Value::parse(&req.body) {
+            Ok(v) => v,
+            Err(e) => return error_response(400, &format!("body: {e}")),
+        }
+    };
+    match call(&params) {
+        Ok(text) => json_response(200, text),
+        Err((status, msg)) => error_response(status, &msg),
+    }
+}
 
 /// Serves until the process is stopped, a thread per connection.
 pub fn serve(addr: &str, handler: Handler, statics: &'static [Static]) {
@@ -1775,62 +1829,50 @@ fn connection(mut stream: std::net::TcpStream, handler: Handler, statics: &[Stat
     reader.read_line(&mut line)?;
     let mut parts = line.split_whitespace();
     let (method, target) = (parts.next().unwrap_or("").to_string(), parts.next().unwrap_or("/").to_string());
+    let mut headers = vec![];
     let mut length = 0;
     loop {
         let mut h = String::new();
         if reader.read_line(&mut h)? == 0 || h.trim().is_empty() {
             break;
         }
-        if let Some((k, v)) = h.split_once(':')
-            && k.trim().eq_ignore_ascii_case("content-length")
-        {
-            length = v.trim().parse().unwrap_or(0);
+        if let Some((k, v)) = h.split_once(':') {
+            let (k, v) = (k.trim().to_ascii_lowercase(), v.trim().to_string());
+            if k == "content-length" {
+                length = v.parse().unwrap_or(0);
+            }
+            headers.push((k, v));
         }
     }
-    let mut body = vec![0; length];
+    let mut body = vec![0; length.min(64 << 20)];
     reader.read_exact(&mut body)?;
     let (path, query) = target.split_once('?').unwrap_or((&target, ""));
-    let (status, ctype, text) = respond(&method, path, query, &String::from_utf8_lossy(&body), handler, statics);
-    let reason = match status {
+    let req = Request { method, path: path.into(), query: query.into(), headers, body: String::from_utf8_lossy(&body).into_owned() };
+    let resp = respond(&req, handler, statics);
+    let reason = match resp.status {
         200 => "OK",
         400 => "Bad Request",
+        403 => "Forbidden",
         404 => "Not Found",
         _ => "Internal Server Error",
     };
-    write!(stream, "HTTP/1.1 {status} {reason}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}", text.len())?;
+    let mut head = format!("HTTP/1.1 {} {reason}\r\n", resp.status);
+    for (k, v) in &resp.headers {
+        head.push_str(&format!("{k}: {v}\r\n"));
+    }
+    head.push_str(&format!("Content-Length: {}\r\nConnection: close\r\n\r\n", resp.body.len()));
+    stream.write_all(head.as_bytes())?;
+    stream.write_all(&resp.body)?;
     stream.flush()
 }
 
-fn respond(method: &str, path: &str, query: &str, body: &str, handler: Handler, statics: &[Static]) -> (u16, String, String) {
-    let error = |status: u16, msg: String| (status, "application/json".to_string(), json(&types::Map::from_iter([(types::Str::from("error"), types::Str::from(msg.as_str()))])));
-    if method == "GET"
-        && let Some((_, ctype, text)) = statics.iter().find(|(p, _, _)| *p == path)
+fn respond(req: &Request, handler: Handler, statics: &[Static]) -> Response {
+    if req.method == "GET"
+        && let Some((_, ctype, text)) = statics.iter().find(|(p, _, _)| *p == req.path)
     {
-        return (200, ctype.to_string(), text.to_string());
+        return Response { status: 200, headers: vec![("Content-Type".into(), ctype.to_string())], body: text.as_bytes().to_vec() };
     }
-    let params = if body.trim().is_empty() {
-        Value::Obj(
-            query
-                .split('&')
-                .filter(|kv| !kv.is_empty())
-                .map(|kv| {
-                    let (k, v) = kv.split_once('=').unwrap_or((kv, ""));
-                    let v = percent_decode(v);
-                    (percent_decode(k), Value::parse(&v).unwrap_or(Value::Str(v)))
-                })
-                .collect(),
-        )
-    } else {
-        match Value::parse(body) {
-            Ok(v) => v,
-            Err(e) => return error(400, format!("body: {e}")),
-        }
-    };
-    match handler(method, path, &params) {
-        None => error(404, format!("no route {method} {path}")),
-        Some(Ok(text)) => (200, "application/json".into(), text),
-        Some(Err((status, msg))) => error(status, msg),
-    }
+    handler(req).unwrap_or_else(|| error_response(404, &format!("no route {} {}", req.method, req.path)))
 }
 
 fn percent_decode(s: &str) -> String {
@@ -1922,6 +1964,43 @@ pub fn replace_crate(path: Str, krate: Str) -> Result<Str, String> {
 
 pub fn route_docs(srv: ServerSpec) -> Result<List<Line>, String> {
     let mut out: Vec<Line> = srv.routes.iter().map(|r| Line::L(format!("//! - `{} {}` runs proc {}", r.method, r.path, r.proc).into())).collect();
+    out.extend(srv.raw.iter().map(|r| Line::L(format!("//! - `{} {}` runs proc {} on the raw request", r.method, r.path, r.proc).into())));
     out.extend(srv.statics.iter().map(|s| Line::L(format!("//! - `GET {}` serves {}", s.url, s.file).into())));
     Ok(out.into())
+}
+
+const RAW_REQUEST: &[(&str, &str)] =
+    &[("method", "string"), ("path", "string"), ("query", "map[string]string"), ("headers", "map[string]string"), ("body", "string")];
+const RAW_RESPONSE: &[(&str, &str)] = &[("status", "int"), ("headers", "map[string]string"), ("body", "string")];
+
+fn show_type(t: &Type) -> String {
+    crate::vcc::run_show_type(t.clone()).map(|s| s.to_string()).unwrap_or_default()
+}
+
+/// Whether proc pid takes a raw request and returns a raw response; or the
+/// error saying what it must.
+pub fn raw_shape_error(prog: Program, pid: i64, server: Str, name: Str) -> Result<MaybeStr, String> {
+    let defs = &prog.types;
+    let shape = |t: &Type, want: &[(&str, &str)]| -> bool {
+        match unfold(t, defs) {
+            Type::Struct(fs) => fs.len() == want.len() && want.iter().all(|(n, w)| fs.iter().any(|f| &*f.name == *n && (show_type(&f.ty) == *w || show_type(unfold(&f.ty, defs)) == *w))),
+            _ => false,
+        }
+    };
+    let params = params_of(&prog.nodes, pid);
+    let ok = params.len() == 1 && shape(&params[0].ty, RAW_REQUEST) && shape(&ret_of(&prog.nodes, pid), RAW_RESPONSE);
+    let show = |fs: &[(&str, &str)]| format!("{{ {} }}", fs.iter().map(|(n, t)| format!("{n}: {t}")).collect::<Vec<_>>().join(", "));
+    Ok(if ok { MaybeStr::None } else { MaybeStr::Some(format!("http server {server}: raw route proc {name} must take one {} and return {}", show(RAW_REQUEST), show(RAW_RESPONSE)).into()) })
+}
+
+pub fn raw_procs(servers: List<ServerSpec>) -> Result<List<Str>, String> {
+    Ok(servers.iter().flat_map(|s| s.raw.iter().map(|r| r.proc.clone()).collect::<Vec<_>>()).collect())
+}
+
+pub fn raw_server_of(servers: List<ServerSpec>, proc: Str) -> Result<Str, String> {
+    Ok(servers.iter().find(|s| s.raw.iter().any(|r| r.proc == proc)).map_or("".into(), |s| s.name.clone()))
+}
+
+pub fn raw_param_type(g: RGen, pid: i64) -> Result<Str, String> {
+    Ok(rtype(&g.table, &params_of(&g.prog.nodes, pid)[0].ty)?.into())
 }

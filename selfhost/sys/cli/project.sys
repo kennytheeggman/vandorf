@@ -3,7 +3,7 @@
 
 type Manifest = { name: string, sources: []string, rust: MaybeRust, has_go: bool, bins: map[string]Bin, http: map[string]ServerDecl };
 // `[http.<name>]`, as written.
-type ServerDecl = { addr: string, routes: map[string]string, statics: map[string]string, rust: MaybeStr };
+type ServerDecl = { addr: string, routes: map[string]string, raw: map[string]string, statics: map[string]string, rust: MaybeStr };
 type RustTarget = { out: string, module_dir: MaybeStr };
 type MaybeRust = enum { None, Some(RustTarget) };
 type Bin = { entry: string, go: MaybeStr, rust: MaybeStr };

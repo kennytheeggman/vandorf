@@ -827,12 +827,17 @@ mod codegen {
             type Shape = enum { Dot, Circle(float) };
             proc Area(A): float { func A(s: Shape, k: { n: int }): float; }
             proc Hi(B): string { func B(name: string): string; }
+            type Req = { method: string, path: string, query: map[string]string, headers: map[string]string, body: string };
+            proc Page(C): { status: int, headers: map[string]string, body: string } {
+                func C(req: Req): { status: int, headers: map[string]string, body: string };
+            }
         "#;
         let prog = vandorf::compile("t.sys", src).unwrap();
         let srv = rust::ServerSpec {
             name: "web-api".into(),
             addr: "127.0.0.1:9".into(),
             routes: vec![("POST".into(), "/area".into(), "Area".into()), ("GET".into(), "/hi".into(), "Hi".into())],
+            raw: vec![("GET".into(), "/".into(), "Page".into())],
             statics: vec![("/".into(), "../../index.html".into(), "text/html".into())],
             path: "bin/web.rs".into(),
         };
@@ -842,13 +847,18 @@ mod codegen {
         assert!(out.code.files["mod.rs"].contains("pub mod http;"));
         assert!(http.contains("impl Json for types::Shape {") && http.contains("impl Json for types::AreaAK {"), "{http}");
         assert!(http.contains("let s: types::Shape = arg(params, \"s\")?;") && http.contains("super::run_area(s, k)"), "{http}");
-        assert!(http.contains("pub fn handle_web_api(") && http.contains("(\"GET\", \"/hi\") => Some(call_hi(params)),"), "{http}");
+        assert!(http.contains("pub fn handle_web_api(req: &Request)") && http.contains("(\"GET\", \"/hi\") => Some(json_route(req, call_hi)),"), "{http}");
+        assert!(http.contains("(\"GET\", \"/\") => Some(raw_page(req)),") && http.contains("let r = types::Req {"), "{http}");
         let bin = &out.mains[0];
         assert_eq!((bin.dir.as_str(), bin.files.keys().next().unwrap().as_str()), ("../bin", "web.rs"));
         let bin = &bin.files["web.rs"];
         assert!(bin.contains("include_str!(\"../../index.html\")") && bin.contains("demo::app::http::serve(\"127.0.0.1:9\", demo::app::http::handle_web_api, STATICS);"), "{bin}");
         // No servers: no http.rs.
         assert!(!rust::generate(&prog, &rust::RustOptions { module_dir: Some("app".into()), ..Default::default() }).unwrap().code.files.contains_key("http.rs"));
+        // A raw route to a proc of the wrong shape.
+        let bad = rust::ServerSpec { raw: vec![("GET".into(), "/".into(), "Hi".into())], ..srv.clone() };
+        let e = rust::generate(&prog, &rust::RustOptions { servers: vec![bad], ..opts.clone() }).unwrap_err();
+        assert!(e.contains("raw route proc Hi must take one { method: string, path: string, query: map[string]string, headers: map[string]string, body: string }"), "{e}");
         // A route to a proc that isn't there.
         let srv = rust::ServerSpec { routes: vec![("GET".into(), "/x".into(), "Nope".into())], ..srv };
         let opts = rust::RustOptions { servers: vec![srv], ..opts };

@@ -18,6 +18,7 @@
 //! [http.api]                 # an HTTP server (Rust only, for now)
 //! addr = "127.0.0.1:8080"
 //! routes = { "POST /api/calc" = "Calc" }   # a route runs a top-level proc
+//! raw = { "GET /" = "Page" }                # its proc takes and returns HTTP
 //! static = { "/" = "web/index.html" }      # files served as they are
 //! rust = "bin/api.rs"        # under the crate's src/; default bin/<name>.rs
 //!
@@ -60,8 +61,14 @@ pub struct Manifest {
 #[serde(deny_unknown_fields)]
 pub struct Server {
     pub addr: String,
-    /// `"POST /api/calc" = "Calc"`
+    /// `"POST /api/calc" = "Calc"`: the proc's parameters and result as JSON.
+    #[serde(default)]
     pub routes: BTreeMap<String, String>,
+    /// `"GET /" = "Page"`: the proc takes the request ({ method, path,
+    /// query, headers, body }) and returns the response ({ status, headers,
+    /// body }).
+    #[serde(default)]
+    pub raw: BTreeMap<String, String>,
     /// `"/" = "web/index.html"`: files served as they are, embedded in
     /// the executable. Paths are relative to the manifest.
     #[serde(default, rename = "static")]

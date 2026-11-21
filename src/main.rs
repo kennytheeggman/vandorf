@@ -277,6 +277,22 @@ fn rust(
 /// An `[http.<name>]` table as the Rust backend takes it: routes split into
 /// method and path, static files as the server's source file reaches them.
 fn server_spec(name: &str, s: &project::Server, root: &Path, out: &Path, module_dir: Option<&str>) -> Result<codegen::rust::ServerSpec, String> {
+    let split = |route: &str| -> Result<(String, String), String> {
+        route
+            .split_once(' ')
+            .map(|(m, p)| (m.trim(), p.trim()))
+            .filter(|(m, p)| !m.is_empty() && m.chars().all(|c| c.is_ascii_uppercase()) && p.starts_with('/'))
+            .map(|(m, p)| (m.to_string(), p.to_string()))
+            .ok_or_else(|| format!("{}: [http.{name}] route {route:?} should be a method and a path, like \"POST /api/calc\"", project::MANIFEST))
+    };
+    let mut raw = vec![];
+    for (route, proc) in &s.raw {
+        if s.routes.contains_key(route) {
+            return Err(format!("{}: [http.{name}] route {route:?} is in both routes and raw", project::MANIFEST));
+        }
+        let (m, p) = split(route)?;
+        raw.push((m, p, proc.clone()));
+    }
     let mut routes = vec![];
     for (route, proc) in &s.routes {
         let Some((method, path)) = route.split_once(' ').map(|(m, p)| (m.trim(), p.trim())).filter(|(m, p)| {
@@ -310,7 +326,7 @@ fn server_spec(name: &str, s: &project::Server, root: &Path, out: &Path, module_
         };
         statics.push((url.clone(), project::slash(&project::relative(&full, &file_dir)), ctype.to_string()));
     }
-    Ok(codegen::rust::ServerSpec { name: name.into(), addr: s.addr.clone(), routes, statics, path })
+    Ok(codegen::rust::ServerSpec { name: name.into(), addr: s.addr.clone(), routes, raw, statics, path })
 }
 
 fn out_dir(args: &Args) -> Result<PathBuf, String> {
