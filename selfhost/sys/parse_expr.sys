@@ -28,7 +28,7 @@ proc PBin(AtL): ValueR {
 	Left -> PBinRest(toks = AtL.cur.toks, pos = this.pos, level = AtL.level, left = this.x);
 }
 
-// (op operand)* after `left`, folding to the left.
+// (op operand)* after `left`, folding to the left: a loop back to AtLV.
 proc PBinRest(AtLV): ValueR {
 	func AtLV(toks: []Tok, pos: int, level: int, left: Value): AtLevelValue = "../rs/src/leaf.rs:at_level_value";
 	AtLV switch {
@@ -37,7 +37,7 @@ proc PBinRest(AtLV): ValueR {
 	};
 	Right switch {
 		(AtLV.level == 2) -> id({ x = Combine(op = AtLV.cur.tok, l = AtLV.left, r = this.x), pos = this.pos }),
-		else -> PBinRest(toks = AtLV.cur.toks, pos = this.pos, level = AtLV.level, left = Combine(op = AtLV.cur.tok, l = AtLV.left, r = this.x)) as More
+		else -> AtLV(toks = AtLV.cur.toks, pos = this.pos, level = AtLV.level, left = Combine(op = AtLV.cur.tok, l = AtLV.left, r = this.x))
 	};
 }
 
@@ -58,6 +58,7 @@ proc PPostfix(At): ValueR {
 	PAtom -> PPostRest(toks = At.toks, pos = this.pos, left = this.x);
 }
 
+// ('[' expr ']' | '.' NAME)* after `left`: a loop back to AtV.
 proc PPostRest(AtV): ValueR {
 	func AtV(toks: []Tok, pos: int, left: Value): AtValue = "../rs/src/leaf.rs:at_value";
 	AtV switch {
@@ -66,16 +67,16 @@ proc PPostRest(AtV): ValueR {
 		else -> id({ x = this.left, pos = this.cur.pos })
 	};
 	Key -> Expect(toks = AtV.cur.toks, pos = this.pos, text = "]", what = "] after the key") as Close;
-	Close -> PPostRest(
+	Close -> AtV(
 		toks = this.toks,
 		pos = this.pos,
 		left = { kind = Index({ e = AtV.left, key = Key.x }), span = { at = AtV.left.span.at, end = this.prev.end } }
-	) as AfterIndex;
-	NeedName -> PPostRest(
+	);
+	NeedName -> AtV(
 		toks = this.toks,
 		pos = this.pos,
 		left = { kind = Field({ e = AtV.left, name = MkIdent(t = this.tok) }), span = { at = AtV.left.span.at, end = this.tok.end } }
-	) as AfterField;
+	);
 }
 
 // atom := INT | FLOAT | STRING | 'true' | 'false' | '{' arg,* '}' | '[' ... ']'
@@ -135,50 +136,59 @@ proc PBracket(At): ValueR {
 }
 
 // (',' expr)* ','?, stopping at a closing bracket.
+type AtValues = { cur: Cur, acc: []Value };
+
 proc PValuesRest(At): ValuesR {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	At switch {
-		(IsSym(t = this.tok, s = ",")) -> At(toks = this.toks, pos = this.pos + 1) as AfterComma,
-		else -> id({ x = [], pos = this.pos })
+	func Loop(toks: []Tok, pos: int, acc: []Value): AtValues = "../rs/src/leaf.rs:at_values";
+	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
+	Loop switch {
+		(IsSym(t = this.cur.tok, s = ",")) -> At(toks = this.cur.toks, pos = this.cur.pos + 1) as AfterComma,
+		else -> id({ x = this.acc, pos = this.cur.pos })
 	};
 	AfterComma switch {
-		(IsClose(t = this.tok)) -> id({ x = [], pos = this.pos }),
+		(IsClose(t = this.tok)) -> id({ x = Loop.acc, pos = this.pos }),
 		else -> PExpr(toks = this.toks, pos = this.pos)
 	};
-	PExpr -> PValuesRest(toks = At.toks, pos = this.pos) as Rest;
-	Rest -> id({ x = [PExpr.x] + this.x, pos = this.pos });
+	PExpr -> Loop(toks = Loop.cur.toks, pos = this.pos, acc = Loop.acc + [this.x]);
 }
 
 // (',' expr ':' expr)* ','?, stopping at a closing bracket.
+type AtEntries = { cur: Cur, acc: []Entry };
+
 proc PEntriesRest(At): EntriesR {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	At switch {
-		(IsSym(t = this.tok, s = ",")) -> At(toks = this.toks, pos = this.pos + 1) as AfterComma,
-		else -> id({ x = [], pos = this.pos })
+	func Loop(toks: []Tok, pos: int, acc: []Entry): AtEntries = "../rs/src/leaf.rs:at_entries";
+	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
+	Loop switch {
+		(IsSym(t = this.cur.tok, s = ",")) -> At(toks = this.cur.toks, pos = this.cur.pos + 1) as AfterComma,
+		else -> id({ x = this.acc, pos = this.cur.pos })
 	};
 	AfterComma switch {
-		(IsClose(t = this.tok)) -> id({ x = [], pos = this.pos }),
+		(IsClose(t = this.tok)) -> id({ x = Loop.acc, pos = this.pos }),
 		else -> PExpr(toks = this.toks, pos = this.pos) as Key
 	};
-	Key -> Expect(toks = At.toks, pos = this.pos, text = ":", what = ": after the key") as Colon;
+	Key -> Expect(toks = Loop.cur.toks, pos = this.pos, text = ":", what = ": after the key") as Colon;
 	Colon -> PExpr(toks = this.toks, pos = this.pos) as Val;
-	Val -> PEntriesRest(toks = At.toks, pos = this.pos) as Rest;
-	Rest -> id({ x = [{ key = Key.x, value = Val.x }] + this.x, pos = this.pos });
+	Val -> Loop(toks = Loop.cur.toks, pos = this.pos, acc = Loop.acc + [{ key = Key.x, value = this.x }]);
 }
 
 // ((NAME '=')? expr),* ','?, stopping at a closing bracket.
+type AtApplyArgs = { cur: Cur, acc: []ApplyArg };
+
 proc PApplyArgs(At): ApplyArgsR {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	At switch {
-		(IsClose(t = this.tok)) -> id({ x = [], pos = this.pos }),
-		else -> PApplyArg(toks = this.toks, pos = this.pos)
+	func Loop(toks: []Tok, pos: int, acc: []ApplyArg): AtApplyArgs = "../rs/src/leaf.rs:at_apply_args";
+	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
+	Loop switch {
+		(IsClose(t = this.cur.tok)) -> id({ x = this.acc, pos = this.cur.pos }),
+		else -> PApplyArg(toks = this.cur.toks, pos = this.cur.pos)
 	};
-	PApplyArg -> At(toks = At.toks, pos = this.pos) as After;
+	PApplyArg -> At(toks = Loop.cur.toks, pos = this.pos) as After;
 	After switch {
-		(IsSym(t = this.tok, s = ",")) -> PApplyArgs(toks = this.toks, pos = this.pos + 1) as Rest,
-		else -> id({ x = [PApplyArg.x], pos = this.pos })
+		(IsSym(t = this.tok, s = ",")) -> Loop(toks = this.toks, pos = this.pos + 1, acc = Loop.acc + [PApplyArg.x]),
+		else -> id({ x = Loop.acc + [PApplyArg.x], pos = this.pos })
 	};
-	Rest -> id({ x = [PApplyArg.x] + this.x, pos = this.pos });
 }
 
 proc PApplyArg(At): { x: ApplyArg, pos: int } {

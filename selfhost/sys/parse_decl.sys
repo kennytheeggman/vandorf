@@ -1,30 +1,29 @@
 // Declarations: files, typedefs, interfaces, funcs, procs and types.
 
 // file := (typedef | interface | func ';' | proc ';'?)* eof
+//
+// A loop: each item is appended to acc and control goes back to At.
+type AtFile = { cur: Cur, acc: File };
+
 proc PItems(At): FileR {
-	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	func At(toks: []Tok, pos: int, acc: File): AtFile = "../rs/src/leaf.rs:at_file";
 	At switch {
-		(this.tok.kind == "eof") -> id({ x = { types = [], interfaces = [], nodes = [] }, pos = this.pos }),
-		(IsWord(t = this.tok, s = "type")) -> PTypeDecl(toks = this.toks, pos = this.pos + 1),
-		(IsWord(t = this.tok, s = "interface")) -> PInterface(toks = this.toks, pos = this.pos + 1),
-		(IsWord(t = this.tok, s = "func")) -> PFunc(toks = this.toks, pos = this.pos + 1),
-		else -> Expect(toks = this.toks, pos = this.pos, text = "proc", what = "type, interface, func or proc") as ProcKw
+		(this.cur.tok.kind == "eof") -> id({ x = this.acc, pos = this.cur.pos }),
+		(IsWord(t = this.cur.tok, s = "type")) -> PTypeDecl(toks = this.cur.toks, pos = this.cur.pos + 1),
+		(IsWord(t = this.cur.tok, s = "interface")) -> PInterface(toks = this.cur.toks, pos = this.cur.pos + 1),
+		(IsWord(t = this.cur.tok, s = "func")) -> PFunc(toks = this.cur.toks, pos = this.cur.pos + 1),
+		else -> Expect(toks = this.cur.toks, pos = this.cur.pos, text = "proc", what = "type, interface, func or proc") as ProcKw
 	};
-	PTypeDecl -> PItems(toks = At.toks, pos = this.pos) as RestT;
-	RestT -> id({ x = { types = [PTypeDecl.x] + this.x.types, interfaces = this.x.interfaces, nodes = this.x.nodes }, pos = this.pos });
-	PInterface -> PItems(toks = At.toks, pos = this.pos) as RestI;
-	RestI -> id({ x = { types = this.x.types, interfaces = [PInterface.x] + this.x.interfaces, nodes = this.x.nodes }, pos = this.pos });
-	PFunc -> Expect(toks = At.toks, pos = this.pos, text = ";", what = "; after the func") as FuncEnd;
-	FuncEnd -> PItems(toks = this.toks, pos = this.pos) as RestF;
-	RestF -> id({ x = { types = this.x.types, interfaces = this.x.interfaces, nodes = [Func(PFunc.x)] + this.x.nodes }, pos = this.pos });
+	PTypeDecl -> At(toks = At.cur.toks, pos = this.pos, acc = { types = At.acc.types + [this.x], interfaces = At.acc.interfaces, nodes = At.acc.nodes });
+	PInterface -> At(toks = At.cur.toks, pos = this.pos, acc = { types = At.acc.types, interfaces = At.acc.interfaces + [this.x], nodes = At.acc.nodes });
+	PFunc -> Expect(toks = At.cur.toks, pos = this.pos, text = ";", what = "; after the func") as FuncEnd;
+	FuncEnd -> At(toks = this.toks, pos = this.pos, acc = { types = At.acc.types, interfaces = At.acc.interfaces, nodes = At.acc.nodes + [Func(PFunc.x)] });
 	ProcKw -> PProc(toks = this.toks, pos = this.pos);
 	// A top-level proc's ';' is optional.
-	PProc -> At(toks = At.toks, pos = this.pos) as AfterProc;
-	AfterProc switch {
-		(IsSym(t = this.tok, s = ";")) -> PItems(toks = this.toks, pos = this.pos + 1) as RestP,
-		else -> PItems(toks = this.toks, pos = this.pos) as RestP
+	PProc switch {
+		(IsSym(t = At.cur.toks[this.pos], s = ";")) -> At(toks = At.cur.toks, pos = this.pos + 1, acc = { types = At.acc.types, interfaces = At.acc.interfaces, nodes = At.acc.nodes + [Proc(PProc.x)] }),
+		else -> At(toks = At.cur.toks, pos = this.pos, acc = { types = At.acc.types, interfaces = At.acc.interfaces, nodes = At.acc.nodes + [Proc(PProc.x)] })
 	};
-	RestP -> id({ x = { types = this.x.types, interfaces = this.x.interfaces, nodes = [Proc(PProc.x)] + this.x.nodes }, pos = this.pos });
 }
 
 // typedef := 'type' IDENT '=' type ';'   (after 'type')
@@ -48,15 +47,18 @@ proc PInterface(At): { x: Interface, pos: int } {
 }
 
 // (func ';')*, stopping at anything else.
+type AtFuncs = { cur: Cur, acc: []Func };
+
 proc PFuncs(At): FuncsR {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	At switch {
-		(IsWord(t = this.tok, s = "func")) -> PFunc(toks = this.toks, pos = this.pos + 1),
-		else -> id({ x = [], pos = this.pos })
+	func Loop(toks: []Tok, pos: int, acc: []Func): AtFuncs = "../rs/src/leaf.rs:at_funcs";
+	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
+	Loop switch {
+		(IsWord(t = this.cur.tok, s = "func")) -> PFunc(toks = this.cur.toks, pos = this.cur.pos + 1),
+		else -> id({ x = this.acc, pos = this.cur.pos })
 	};
-	PFunc -> Expect(toks = At.toks, pos = this.pos, text = ";", what = "; after the func") as Semi;
-	Semi -> PFuncs(toks = this.toks, pos = this.pos) as Rest;
-	Rest -> id({ x = [PFunc.x] + this.x, pos = this.pos });
+	PFunc -> Expect(toks = Loop.cur.toks, pos = this.pos, text = ";", what = "; after the func") as Semi;
+	Semi -> Loop(toks = this.toks, pos = this.pos, acc = Loop.acc + [PFunc.x]);
 }
 
 // func := IDENT '(' (field (',' field)*)? ')' (':' type)? ('=' STRING (',' STRING)*)?
@@ -88,15 +90,18 @@ proc PImpls(At): ImplsR {
 }
 
 // STRING (',' STRING)*
+type AtImpls = { cur: Cur, acc: []ImplRef };
+
 proc PImplList(At): ImplsR {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	At -> NeedStr(toks = this.toks, pos = this.pos, what = "an implementation, \"file:function\"");
+	func Loop(toks: []Tok, pos: int, acc: []ImplRef): AtImpls = "../rs/src/leaf.rs:at_impls";
+	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
+	Loop -> NeedStr(toks = this.cur.toks, pos = this.cur.pos, what = "an implementation, \"file:function\"");
 	NeedStr -> At(toks = this.toks, pos = this.pos) as After;
 	After switch {
-		(IsSym(t = this.tok, s = ",")) -> PImplList(toks = this.toks, pos = this.pos + 1) as Rest,
-		else -> id({ x = [ImplOf(t = NeedStr.tok)], pos = this.pos })
+		(IsSym(t = this.tok, s = ",")) -> Loop(toks = this.toks, pos = this.pos + 1, acc = Loop.acc + [ImplOf(t = NeedStr.tok)]),
+		else -> id({ x = Loop.acc + [ImplOf(t = NeedStr.tok)], pos = this.pos })
 	};
-	Rest -> id({ x = [ImplOf(t = NeedStr.tok)] + this.x, pos = this.pos });
 }
 
 // proc := IDENT '(' IDENT ')' ':' type '{' ((func | proc | edge) ';')* '}'
@@ -119,23 +124,25 @@ proc PProc(At): ProcR {
 }
 
 // ((func | proc | edge) ';')*, stopping at '}'.
+type BodyItems = { nodes: []Node, edges: []Edge };
+type AtBody = { cur: Cur, acc: BodyItems };
+
 proc PBody(At): BodyR {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	At switch {
-		(IsSym(t = this.tok, s = "}")) -> id({ x = { nodes = [], edges = [] }, pos = this.pos }),
-		(IsWord(t = this.tok, s = "func")) -> PFunc(toks = this.toks, pos = this.pos + 1),
-		(IsWord(t = this.tok, s = "proc")) -> PProc(toks = this.toks, pos = this.pos + 1),
-		else -> PEdge(toks = this.toks, pos = this.pos)
+	func Loop(toks: []Tok, pos: int, acc: BodyItems): AtBody = "../rs/src/leaf.rs:at_body";
+	At -> Loop(toks = this.toks, pos = this.pos, acc = { nodes = [], edges = [] });
+	Loop switch {
+		(IsSym(t = this.cur.tok, s = "}")) -> id({ x = this.acc, pos = this.cur.pos }),
+		(IsWord(t = this.cur.tok, s = "func")) -> PFunc(toks = this.cur.toks, pos = this.cur.pos + 1),
+		(IsWord(t = this.cur.tok, s = "proc")) -> PProc(toks = this.cur.toks, pos = this.cur.pos + 1),
+		else -> PEdge(toks = this.cur.toks, pos = this.cur.pos)
 	};
-	PFunc -> Expect(toks = At.toks, pos = this.pos, text = ";", what = "; after the func") as FuncEnd;
-	FuncEnd -> PBody(toks = this.toks, pos = this.pos) as RestF;
-	RestF -> id({ x = { nodes = [Func(PFunc.x)] + this.x.nodes, edges = this.x.edges }, pos = this.pos });
-	PProc -> Expect(toks = At.toks, pos = this.pos, text = ";", what = "; after the proc") as ProcEnd;
-	ProcEnd -> PBody(toks = this.toks, pos = this.pos) as RestP;
-	RestP -> id({ x = { nodes = [Proc(PProc.x)] + this.x.nodes, edges = this.x.edges }, pos = this.pos });
-	PEdge -> Expect(toks = At.toks, pos = this.pos, text = ";", what = "; after the edge") as EdgeEnd;
-	EdgeEnd -> PBody(toks = this.toks, pos = this.pos) as RestE;
-	RestE -> id({ x = { nodes = this.x.nodes, edges = [PEdge.x] + this.x.edges }, pos = this.pos });
+	PFunc -> Expect(toks = Loop.cur.toks, pos = this.pos, text = ";", what = "; after the func") as FuncEnd;
+	FuncEnd -> Loop(toks = this.toks, pos = this.pos, acc = { nodes = Loop.acc.nodes + [Func(PFunc.x)], edges = Loop.acc.edges });
+	PProc -> Expect(toks = Loop.cur.toks, pos = this.pos, text = ";", what = "; after the proc") as ProcEnd;
+	ProcEnd -> Loop(toks = this.toks, pos = this.pos, acc = { nodes = Loop.acc.nodes + [Proc(PProc.x)], edges = Loop.acc.edges });
+	PEdge -> Expect(toks = Loop.cur.toks, pos = this.pos, text = ";", what = "; after the edge") as EdgeEnd;
+	EdgeEnd -> Loop(toks = this.toks, pos = this.pos, acc = { nodes = Loop.acc.nodes, edges = Loop.acc.edges + [PEdge.x] });
 }
 
 // type := '[' ']' type | 'map' '[' type ']' type | 'enum' '{' variant,* '}'
@@ -164,18 +171,21 @@ proc PType(At): TypeR {
 }
 
 // (field (',' field)* ','?)?, stopping at a closing bracket.
+type AtFields = { cur: Cur, acc: []TypeDecl };
+
 proc PFieldList(At): FieldsR {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	At switch {
-		(IsClose(t = this.tok)) -> id({ x = [], pos = this.pos }),
-		else -> PField(toks = this.toks, pos = this.pos)
+	func Loop(toks: []Tok, pos: int, acc: []TypeDecl): AtFields = "../rs/src/leaf.rs:at_fields";
+	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
+	Loop switch {
+		(IsClose(t = this.cur.tok)) -> id({ x = this.acc, pos = this.cur.pos }),
+		else -> PField(toks = this.cur.toks, pos = this.cur.pos)
 	};
-	PField -> At(toks = At.toks, pos = this.pos) as After;
+	PField -> At(toks = Loop.cur.toks, pos = this.pos) as After;
 	After switch {
-		(IsSym(t = this.tok, s = ",")) -> PFieldList(toks = this.toks, pos = this.pos + 1) as Rest,
-		else -> id({ x = [PField.x], pos = this.pos })
+		(IsSym(t = this.tok, s = ",")) -> Loop(toks = this.toks, pos = this.pos + 1, acc = Loop.acc + [PField.x]),
+		else -> id({ x = Loop.acc + [PField.x], pos = this.pos })
 	};
-	Rest -> id({ x = [PField.x] + this.x, pos = this.pos });
 }
 
 // field := NAME ':' type
@@ -189,29 +199,28 @@ proc PField(At): FieldR {
 
 // (variant (',' variant)* ','?)?, stopping at a closing bracket;
 // variant := IDENT ('(' type ')')?
+type AtVariants = { cur: Cur, acc: []Variant };
+
 proc PVariants(At): VariantsR {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	At switch {
-		(IsClose(t = this.tok)) -> id({ x = [], pos = this.pos }),
-		else -> NeedIdent(toks = this.toks, pos = this.pos, what = "a variant")
+	func Loop(toks: []Tok, pos: int, acc: []Variant): AtVariants = "../rs/src/leaf.rs:at_variants";
+	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
+	Loop switch {
+		(IsClose(t = this.cur.tok)) -> id({ x = this.acc, pos = this.cur.pos }),
+		else -> NeedIdent(toks = this.cur.toks, pos = this.cur.pos, what = "a variant")
 	};
 	NeedIdent -> At(toks = this.toks, pos = this.pos) as AfterName;
 	AfterName switch {
 		(IsSym(t = this.tok, s = "(")) -> PType(toks = this.toks, pos = this.pos + 1),
-		else -> At(toks = this.toks, pos = this.pos) as AfterBare
+		(IsSym(t = this.tok, s = ",")) -> Loop(toks = this.toks, pos = this.pos + 1, acc = Loop.acc + [{ name = MkIdent(t = NeedIdent.tok), payload = None() }]),
+		else -> id({ x = Loop.acc + [{ name = MkIdent(t = NeedIdent.tok), payload = None() }], pos = this.pos })
 	};
-	PType -> Expect(toks = At.toks, pos = this.pos, text = ")", what = ") after the payload") as Close;
+	PType -> Expect(toks = Loop.cur.toks, pos = this.pos, text = ")", what = ") after the payload") as Close;
 	Close -> At(toks = this.toks, pos = this.pos) as AfterPayload;
 	AfterPayload switch {
-		(IsSym(t = this.tok, s = ",")) -> PVariants(toks = this.toks, pos = this.pos + 1) as RestP,
-		else -> id({ x = [{ name = MkIdent(t = NeedIdent.tok), payload = Some(PType.x) }], pos = this.pos })
+		(IsSym(t = this.tok, s = ",")) -> Loop(toks = this.toks, pos = this.pos + 1, acc = Loop.acc + [{ name = MkIdent(t = NeedIdent.tok), payload = Some(PType.x) }]),
+		else -> id({ x = Loop.acc + [{ name = MkIdent(t = NeedIdent.tok), payload = Some(PType.x) }], pos = this.pos })
 	};
-	RestP -> id({ x = [{ name = MkIdent(t = NeedIdent.tok), payload = Some(PType.x) }] + this.x, pos = this.pos });
-	AfterBare switch {
-		(IsSym(t = this.tok, s = ",")) -> PVariants(toks = this.toks, pos = this.pos + 1) as RestB,
-		else -> id({ x = [{ name = MkIdent(t = NeedIdent.tok), payload = None() }], pos = this.pos })
-	};
-	RestB -> id({ x = [{ name = MkIdent(t = NeedIdent.tok), payload = None() }] + this.x, pos = this.pos });
 }
 
 // path := IDENT ('.' NAME)*
@@ -223,14 +232,17 @@ proc PPath(At): PathR {
 }
 
 // ('.' NAME)*
+type AtSegs = { cur: Cur, acc: []Ident };
+
 proc PSegs(At): { x: []Ident, pos: int } {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	At switch {
-		(IsSym(t = this.tok, s = ".")) -> NeedName(toks = this.toks, pos = this.pos + 1, what = "a field name"),
-		else -> id({ x = [], pos = this.pos })
+	func Loop(toks: []Tok, pos: int, acc: []Ident): AtSegs = "../rs/src/leaf.rs:at_segs";
+	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
+	Loop switch {
+		(IsSym(t = this.cur.tok, s = ".")) -> NeedName(toks = this.cur.toks, pos = this.cur.pos + 1, what = "a field name"),
+		else -> id({ x = this.acc, pos = this.cur.pos })
 	};
-	NeedName -> PSegs(toks = this.toks, pos = this.pos) as Rest;
-	Rest -> id({ x = [MkIdent(t = NeedName.tok)] + this.x, pos = this.pos });
+	NeedName -> Loop(toks = this.toks, pos = this.pos, acc = Loop.acc + [MkIdent(t = this.tok)]);
 }
 
 // Where a path ends: its last segment, or its first if it has one.

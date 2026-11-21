@@ -58,6 +58,6 @@ type ApplyArgsR = { x: []ApplyArg, pos: int };
 proc Parse(Start): File {
 	func Start(src: string): string = "../rs/src/leaf.rs:same";
 	Start -> Lex(src = this);
-	Lex -> PItems(toks = this, pos = 0);
+	Lex -> PItems(toks = this, pos = 0, acc = { types = [], interfaces = [], nodes = [] });
 	PItems -> id(this.x);
 }

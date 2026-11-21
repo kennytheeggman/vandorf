@@ -74,35 +74,41 @@ proc PAlias(At): { x: OptIdent, pos: int } {
 }
 
 // (NAME '=' expr),* ','?, stopping at a closing bracket.
+type AtArgs = { cur: Cur, acc: []Arg };
+
 proc PArgList(At): ArgsR {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	At switch {
-		(IsClose(t = this.tok)) -> id({ x = [], pos = this.pos }),
-		else -> NeedName(toks = this.toks, pos = this.pos, what = "an argument name")
+	func Loop(toks: []Tok, pos: int, acc: []Arg): AtArgs = "../rs/src/leaf.rs:at_args";
+	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
+	Loop switch {
+		(IsClose(t = this.cur.tok)) -> id({ x = this.acc, pos = this.cur.pos }),
+		else -> NeedName(toks = this.cur.toks, pos = this.cur.pos, what = "an argument name")
 	};
 	NeedName -> Expect(toks = this.toks, pos = this.pos, text = "=", what = "= after the argument's name") as Eq;
 	Eq -> PExpr(toks = this.toks, pos = this.pos) as Val;
-	Val -> At(toks = At.toks, pos = this.pos) as After;
+	Val -> At(toks = Loop.cur.toks, pos = this.pos) as After;
 	After switch {
-		(IsSym(t = this.tok, s = ",")) -> PArgList(toks = this.toks, pos = this.pos + 1) as Rest,
-		else -> id({ x = [{ name = MkIdent(t = NeedName.tok), value = Val.x }], pos = this.pos })
+		(IsSym(t = this.tok, s = ",")) -> Loop(toks = this.toks, pos = this.pos + 1, acc = Loop.acc + [{ name = MkIdent(t = NeedName.tok), value = Val.x }]),
+		else -> id({ x = Loop.acc + [{ name = MkIdent(t = NeedName.tok), value = Val.x }], pos = this.pos })
 	};
-	Rest -> id({ x = [{ name = MkIdent(t = NeedName.tok), value = Val.x }] + this.x, pos = this.pos });
 }
 
 // arm (',' arm)* ','?, stopping at a closing bracket.
+type AtArms = { cur: Cur, acc: []Arm };
+
 proc PArms(At): ArmsR {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	At switch {
-		(IsClose(t = this.tok)) -> id({ x = [], pos = this.pos }),
-		else -> PArm(toks = this.toks, pos = this.pos)
+	func Loop(toks: []Tok, pos: int, acc: []Arm): AtArms = "../rs/src/leaf.rs:at_arms";
+	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
+	Loop switch {
+		(IsClose(t = this.cur.tok)) -> id({ x = this.acc, pos = this.cur.pos }),
+		else -> PArm(toks = this.cur.toks, pos = this.cur.pos)
 	};
-	PArm -> At(toks = At.toks, pos = this.pos) as After;
+	PArm -> At(toks = Loop.cur.toks, pos = this.pos) as After;
 	After switch {
-		(IsSym(t = this.tok, s = ",")) -> PArms(toks = this.toks, pos = this.pos + 1) as Rest,
-		else -> id({ x = [PArm.x], pos = this.pos })
+		(IsSym(t = this.tok, s = ",")) -> Loop(toks = this.toks, pos = this.pos + 1, acc = Loop.acc + [PArm.x]),
+		else -> id({ x = Loop.acc + [PArm.x], pos = this.pos })
 	};
-	Rest -> id({ x = [PArm.x] + this.x, pos = this.pos });
 }
 
 // arm := ('else' | '(' expr ')' ... | pattern) '->' (target | 'switch' '{' arm,* '}')
@@ -146,15 +152,18 @@ proc PPat(At): PatR {
 // One pattern, or an Or of several.
 func OrOf(pats: []Pat): Pat = "../rs/src/leaf.rs:or_of";
 
+type AtPats = { cur: Cur, acc: []Pat };
+
 proc PAlts(At): PatsR {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	At -> PAlt(toks = this.toks, pos = this.pos);
-	PAlt -> At(toks = At.toks, pos = this.pos) as After;
+	func Loop(toks: []Tok, pos: int, acc: []Pat): AtPats = "../rs/src/leaf.rs:at_pats";
+	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
+	Loop -> PAlt(toks = this.cur.toks, pos = this.cur.pos);
+	PAlt -> At(toks = Loop.cur.toks, pos = this.pos) as After;
 	After switch {
-		(IsSym(t = this.tok, s = "|")) -> PAlts(toks = this.toks, pos = this.pos + 1) as Rest,
-		else -> id({ x = [PAlt.x], pos = this.pos })
+		(IsSym(t = this.tok, s = "|")) -> Loop(toks = this.toks, pos = this.pos + 1, acc = Loop.acc + [PAlt.x]),
+		else -> id({ x = Loop.acc + [PAlt.x], pos = this.pos })
 	};
-	Rest -> id({ x = [PAlt.x] + this.x, pos = this.pos });
 }
 
 // alt := '_' | IDENT | IDENT '(' pat? ')' | '{' (NAME '=' pat),* '}'
@@ -187,18 +196,21 @@ proc PAlt(At): PatR {
 }
 
 // (NAME '=' pat),* ','?, stopping at a closing bracket.
+type AtPatFields = { cur: Cur, acc: []PatField };
+
 proc PPatFields(At): PatFieldsR {
 	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
-	At switch {
-		(IsClose(t = this.tok)) -> id({ x = [], pos = this.pos }),
-		else -> NeedName(toks = this.toks, pos = this.pos, what = "a field name")
+	func Loop(toks: []Tok, pos: int, acc: []PatField): AtPatFields = "../rs/src/leaf.rs:at_pat_fields";
+	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
+	Loop switch {
+		(IsClose(t = this.cur.tok)) -> id({ x = this.acc, pos = this.cur.pos }),
+		else -> NeedName(toks = this.cur.toks, pos = this.cur.pos, what = "a field name")
 	};
 	NeedName -> Expect(toks = this.toks, pos = this.pos, text = "=", what = "= after the field name") as Eq;
 	Eq -> PPat(toks = this.toks, pos = this.pos);
-	PPat -> At(toks = At.toks, pos = this.pos) as After;
+	PPat -> At(toks = Loop.cur.toks, pos = this.pos) as After;
 	After switch {
-		(IsSym(t = this.tok, s = ",")) -> PPatFields(toks = this.toks, pos = this.pos + 1) as Rest,
-		else -> id({ x = [{ name = MkIdent(t = NeedName.tok), pat = PPat.x }], pos = this.pos })
+		(IsSym(t = this.tok, s = ",")) -> Loop(toks = this.toks, pos = this.pos + 1, acc = Loop.acc + [{ name = MkIdent(t = NeedName.tok), pat = PPat.x }]),
+		else -> id({ x = Loop.acc + [{ name = MkIdent(t = NeedName.tok), pat = PPat.x }], pos = this.pos })
 	};
-	Rest -> id({ x = [{ name = MkIdent(t = NeedName.tok), pat = PPat.x }] + this.x, pos = this.pos });
 }
