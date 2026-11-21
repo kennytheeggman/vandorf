@@ -698,7 +698,7 @@ fn v_value(o: &mut Out, val: &v::Value) {
 
 fn both(src: &str) -> (String, String) {
     let reference = vandorf::parser::parse(src, 0).unwrap_or_else(|e| panic!("reference parser: {e:?}"));
-    let mine = vcc::vcc::run_parse(src.to_string()).unwrap_or_else(|e| panic!("vcc: {e}"));
+    let mine = vcc::vcc::run_parse(src.into()).unwrap_or_else(|e| panic!("vcc: {e}"));
     let mut a = Out { src, s: String::new() };
     r_file(&mut a, &reference);
     let mut b = Out { src, s: String::new() };
@@ -782,7 +782,7 @@ fn reports_syntax_errors() {
         ("type T = enum { A, B(int };", "expected ) after the payload, found '}'"),
         ("proc P(A): int { A switch { (this) -> X() X() }; }", "expected , or }, found 'X'"),
     ] {
-        let e = vcc::vcc::run_parse(src.to_string()).unwrap_err().to_string();
+        let e = vcc::vcc::run_parse(src.into()).unwrap_err().to_string();
         assert!(e.contains(want), "{src}: {e}");
     }
 }
