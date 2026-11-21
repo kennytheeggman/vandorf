@@ -179,7 +179,7 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
 /// file naming it (`dirs[file id]` is that file's directory).
 pub fn rebase_impls(prog: &mut Program, dirs: &[PathBuf], out: &Path) {
     let out = normalize(&absolute(out));
-    prog.rebase_impls(|imp| slash(&relative(&normalize(&dirs[imp.span.context].join(&imp.written)), &out)));
+    prog.rebase_impls(|imp| slash(&relative(&normalize(&absolute(&dirs[imp.span.context].join(&imp.written))), &out)));
 }
 
 pub fn absolute(p: &Path) -> PathBuf {

@@ -480,6 +480,22 @@ fn projects_load_and_rebase_impl_paths() {
 }
 
 #[test]
+fn rebase_impls_accepts_relative_sys_dirs() {
+    // `vandorf rust f.sys -o rs/src/app`: the .sys file's directory is "".
+    let mut prog = vandorf::check_files(&[src("f.sys", r#"proc A(S): int { func S(): int = "rs/src/impls.rs:s"; }"#)]).unwrap();
+    vandorf::project::rebase_impls(&mut prog, &[std::path::PathBuf::new()], std::path::Path::new("rs/src/app"));
+    let files: Vec<String> = prog
+        .nodes
+        .iter()
+        .filter_map(|n| match &n.kind {
+            vandorf::sema::NodeKind::Func(f) => f.imps.first().map(|i| i.file.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(files, vec!["../impls.rs"]);
+}
+
+#[test]
 fn reads_need_nodes_that_ran() {
     let funcs = "func A(): int; func B(i: int): int; func C(i: int): int; func D(i: int): int; func E(i: int): int;";
     let p = |edges: &str| format!("proc P(A): int {{ {funcs} {edges} }}");
