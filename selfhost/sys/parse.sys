@@ -1,0 +1,63 @@
+// The parser's steps and results. Every parse proc takes (toks, pos), starts
+// with a local `At` (the shared leaf below), and ends with
+// id({ x = <what it parsed>, pos = <the next token> }). Lists are right
+// recursive: an item, then the rest of the list (or nothing). A list proc
+// stops at a closing bracket and leaves it for its caller to expect.
+//
+// Steps that check a token fail with "expected <what>, found <token>"; a
+// switch's else arm usually goes to one, so the error says what would have
+// been accepted.
+
+// The parser's position after a step: the tokens, the index of the next one,
+// that token (or, after Expect and Need*, the token just matched), and the
+// token before it (for spans).
+type Cur = { toks: []Tok, pos: int, tok: Tok, prev: Tok };
+
+// At(toks, pos): the position, unchanged. Each proc declares its own (an
+// entry has to be local), all implemented by this one leaf.
+//   func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+
+// toks[pos] must be the symbol or word `text`.
+func Expect(toks: []Tok, pos: int, text: string, what: string): Cur = "../rs/src/leaf.rs:expect";
+// toks[pos] must be an identifier other than a keyword.
+func NeedIdent(toks: []Tok, pos: int, what: string): Cur = "../rs/src/leaf.rs:need_ident";
+// toks[pos] must be an identifier; keywords allowed (field names).
+func NeedName(toks: []Tok, pos: int, what: string): Cur = "../rs/src/leaf.rs:need_name";
+// toks[pos] must be a string.
+func NeedStr(toks: []Tok, pos: int, what: string): Cur = "../rs/src/leaf.rs:need_str";
+
+func IsSym(t: Tok, s: string): bool = "../rs/src/leaf.rs:is_sym";
+func IsWord(t: Tok, s: string): bool = "../rs/src/leaf.rs:is_word";
+// A closing bracket: where a list stops.
+func IsClose(t: Tok): bool = "../rs/src/leaf.rs:is_close";
+
+type TypeR = { x: TypeExpr, pos: int };
+type FieldR = { x: Field, pos: int };
+type FieldsR = { x: []Field, pos: int };
+type VariantsR = { x: []Variant, pos: int };
+type PathR = { x: Path, pos: int };
+type FileR = { x: File, pos: int };
+type FuncR = { x: Func, pos: int };
+type FuncsR = { x: []Func, pos: int };
+type ImplsR = { x: []ImplRef, pos: int };
+type ProcR = { x: Proc, pos: int };
+type BodyR = { x: { nodes: []Node, edges: []Edge }, pos: int };
+type EdgeR = { x: Edge, pos: int };
+type TargetR = { x: Target, pos: int };
+type ArgsR = { x: []Arg, pos: int };
+type ArmsR = { x: []Arm, pos: int };
+type PatR = { x: Pat, pos: int };
+type PatsR = { x: []Pat, pos: int };
+type PatFieldsR = { x: []PatField, pos: int };
+type ValueR = { x: Value, pos: int };
+type ValuesR = { x: []Value, pos: int };
+type EntriesR = { x: []Entry, pos: int };
+type ApplyArgsR = { x: []ApplyArg, pos: int };
+
+// Parses a whole file.
+proc Parse(Start): File {
+	func Start(src: string): string = "../rs/src/leaf.rs:same";
+	Start -> Lex(src = this);
+	Lex -> PItems(toks = this, pos = 0);
+	PItems -> id(this.x);
+}

@@ -1,0 +1,237 @@
+// Declarations: files, typedefs, interfaces, funcs, procs and types.
+
+// file := (typedef | interface | func ';' | proc ';'?)* eof
+proc PItems(At): FileR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At switch {
+		(this.tok.kind == "eof") -> id({ x = { types = [], interfaces = [], nodes = [] }, pos = this.pos }),
+		(IsWord(t = this.tok, s = "type")) -> PTypeDecl(toks = this.toks, pos = this.pos + 1),
+		(IsWord(t = this.tok, s = "interface")) -> PInterface(toks = this.toks, pos = this.pos + 1),
+		(IsWord(t = this.tok, s = "func")) -> PFunc(toks = this.toks, pos = this.pos + 1),
+		else -> Expect(toks = this.toks, pos = this.pos, text = "proc", what = "type, interface, func or proc") as ProcKw
+	};
+	PTypeDecl -> PItems(toks = At.toks, pos = this.pos) as RestT;
+	RestT -> id({ x = { types = [PTypeDecl.x] + this.x.types, interfaces = this.x.interfaces, nodes = this.x.nodes }, pos = this.pos });
+	PInterface -> PItems(toks = At.toks, pos = this.pos) as RestI;
+	RestI -> id({ x = { types = this.x.types, interfaces = [PInterface.x] + this.x.interfaces, nodes = this.x.nodes }, pos = this.pos });
+	PFunc -> Expect(toks = At.toks, pos = this.pos, text = ";", what = "; after the func") as FuncEnd;
+	FuncEnd -> PItems(toks = this.toks, pos = this.pos) as RestF;
+	RestF -> id({ x = { types = this.x.types, interfaces = this.x.interfaces, nodes = [Func(PFunc.x)] + this.x.nodes }, pos = this.pos });
+	ProcKw -> PProc(toks = this.toks, pos = this.pos);
+	// A top-level proc's ';' is optional.
+	PProc -> At(toks = At.toks, pos = this.pos) as AfterProc;
+	AfterProc switch {
+		(IsSym(t = this.tok, s = ";")) -> PItems(toks = this.toks, pos = this.pos + 1) as RestP,
+		else -> PItems(toks = this.toks, pos = this.pos) as RestP
+	};
+	RestP -> id({ x = { types = this.x.types, interfaces = this.x.interfaces, nodes = [Proc(PProc.x)] + this.x.nodes }, pos = this.pos });
+}
+
+// typedef := 'type' IDENT '=' type ';'   (after 'type')
+proc PTypeDecl(At): { x: TypeDecl, pos: int } {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At -> NeedIdent(toks = this.toks, pos = this.pos, what = "the type's name");
+	NeedIdent -> Expect(toks = this.toks, pos = this.pos, text = "=", what = "= after the type's name") as Eq;
+	Eq -> PType(toks = this.toks, pos = this.pos);
+	PType -> Expect(toks = At.toks, pos = this.pos, text = ";", what = "; after the type") as Semi;
+	Semi -> id({ x = { name = MkIdent(t = NeedIdent.tok), ty = PType.x }, pos = this.pos });
+}
+
+// interface := 'interface' IDENT '{' (func ';')* '}'   (after 'interface')
+proc PInterface(At): { x: Interface, pos: int } {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At -> NeedIdent(toks = this.toks, pos = this.pos, what = "the interface's name");
+	NeedIdent -> Expect(toks = this.toks, pos = this.pos, text = "{", what = "{ after the interface's name") as Open;
+	Open -> PFuncs(toks = this.toks, pos = this.pos);
+	PFuncs -> Expect(toks = At.toks, pos = this.pos, text = "}", what = "func or }") as Close;
+	Close -> id({ x = { name = MkIdent(t = NeedIdent.tok), funcs = PFuncs.x }, pos = this.pos });
+}
+
+// (func ';')*, stopping at anything else.
+proc PFuncs(At): FuncsR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At switch {
+		(IsWord(t = this.tok, s = "func")) -> PFunc(toks = this.toks, pos = this.pos + 1),
+		else -> id({ x = [], pos = this.pos })
+	};
+	PFunc -> Expect(toks = At.toks, pos = this.pos, text = ";", what = "; after the func") as Semi;
+	Semi -> PFuncs(toks = this.toks, pos = this.pos) as Rest;
+	Rest -> id({ x = [PFunc.x] + this.x, pos = this.pos });
+}
+
+// func := IDENT '(' (field (',' field)*)? ')' (':' type)? ('=' STRING (',' STRING)*)?
+// (after 'func')
+proc PFunc(At): FuncR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At -> NeedIdent(toks = this.toks, pos = this.pos, what = "the func's name");
+	NeedIdent -> Expect(toks = this.toks, pos = this.pos, text = "(", what = "( after the func's name") as Open;
+	Open -> PFieldList(toks = this.toks, pos = this.pos);
+	PFieldList -> Expect(toks = At.toks, pos = this.pos, text = ")", what = ", or )") as Close;
+	Close -> At(toks = this.toks, pos = this.pos) as AfterParams;
+	AfterParams switch {
+		(IsSym(t = this.tok, s = ":")) -> PType(toks = this.toks, pos = this.pos + 1),
+		else -> PImpls(toks = this.toks, pos = this.pos) as VoidImpls
+	};
+	PType -> PImpls(toks = At.toks, pos = this.pos) as RetImpls;
+	VoidImpls -> id({ x = { name = MkIdent(t = NeedIdent.tok), params = PFieldList.x, ret = None(), imps = this.x }, pos = this.pos });
+	RetImpls -> id({ x = { name = MkIdent(t = NeedIdent.tok), params = PFieldList.x, ret = Some(PType.x), imps = this.x }, pos = this.pos });
+}
+
+// ('=' STRING (',' STRING)*)?
+proc PImpls(At): ImplsR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At switch {
+		(IsSym(t = this.tok, s = "=")) -> PImplList(toks = this.toks, pos = this.pos + 1),
+		else -> id({ x = [], pos = this.pos })
+	};
+	PImplList -> id(this);
+}
+
+// STRING (',' STRING)*
+proc PImplList(At): ImplsR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At -> NeedStr(toks = this.toks, pos = this.pos, what = "an implementation, \"file:function\"");
+	NeedStr -> At(toks = this.toks, pos = this.pos) as After;
+	After switch {
+		(IsSym(t = this.tok, s = ",")) -> PImplList(toks = this.toks, pos = this.pos + 1) as Rest,
+		else -> id({ x = [ImplOf(t = NeedStr.tok)], pos = this.pos })
+	};
+	Rest -> id({ x = [ImplOf(t = NeedStr.tok)] + this.x, pos = this.pos });
+}
+
+// proc := IDENT '(' IDENT ')' ':' type '{' ((func | proc | edge) ';')* '}'
+// (after 'proc')
+proc PProc(At): ProcR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At -> NeedIdent(toks = this.toks, pos = this.pos, what = "the proc's name") as Name;
+	Name -> Expect(toks = this.toks, pos = this.pos, text = "(", what = "( after the proc's name") as Open;
+	Open -> NeedIdent(toks = this.toks, pos = this.pos, what = "the proc's entry") as Entry;
+	Entry -> Expect(toks = this.toks, pos = this.pos, text = ")", what = ") after the entry") as Close;
+	Close -> Expect(toks = this.toks, pos = this.pos, text = ":", what = ": and the proc's type") as Colon;
+	Colon -> PType(toks = this.toks, pos = this.pos);
+	PType -> Expect(toks = At.toks, pos = this.pos, text = "{", what = "{ to start the proc's body") as BodyOpen;
+	BodyOpen -> PBody(toks = this.toks, pos = this.pos);
+	PBody -> Expect(toks = At.toks, pos = this.pos, text = "}", what = "a func, proc, edge or }") as BodyClose;
+	BodyClose -> id({
+		x = { name = MkIdent(t = Name.tok), entry = MkIdent(t = Entry.tok), ret = PType.x, nodes = PBody.x.nodes, edges = PBody.x.edges },
+		pos = this.pos
+	});
+}
+
+// ((func | proc | edge) ';')*, stopping at '}'.
+proc PBody(At): BodyR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At switch {
+		(IsSym(t = this.tok, s = "}")) -> id({ x = { nodes = [], edges = [] }, pos = this.pos }),
+		(IsWord(t = this.tok, s = "func")) -> PFunc(toks = this.toks, pos = this.pos + 1),
+		(IsWord(t = this.tok, s = "proc")) -> PProc(toks = this.toks, pos = this.pos + 1),
+		else -> PEdge(toks = this.toks, pos = this.pos)
+	};
+	PFunc -> Expect(toks = At.toks, pos = this.pos, text = ";", what = "; after the func") as FuncEnd;
+	FuncEnd -> PBody(toks = this.toks, pos = this.pos) as RestF;
+	RestF -> id({ x = { nodes = [Func(PFunc.x)] + this.x.nodes, edges = this.x.edges }, pos = this.pos });
+	PProc -> Expect(toks = At.toks, pos = this.pos, text = ";", what = "; after the proc") as ProcEnd;
+	ProcEnd -> PBody(toks = this.toks, pos = this.pos) as RestP;
+	RestP -> id({ x = { nodes = [Proc(PProc.x)] + this.x.nodes, edges = this.x.edges }, pos = this.pos });
+	PEdge -> Expect(toks = At.toks, pos = this.pos, text = ";", what = "; after the edge") as EdgeEnd;
+	EdgeEnd -> PBody(toks = this.toks, pos = this.pos) as RestE;
+	RestE -> id({ x = { nodes = this.x.nodes, edges = [PEdge.x] + this.x.edges }, pos = this.pos });
+}
+
+// type := '[' ']' type | 'map' '[' type ']' type | 'enum' '{' variant,* '}'
+//       | '{' field,* '}' | IDENT
+proc PType(At): TypeR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At switch {
+		(IsSym(t = this.tok, s = "[")) -> Expect(toks = this.toks, pos = this.pos + 1, text = "]", what = "] in []T") as ArrClose,
+		(IsWord(t = this.tok, s = "map")) -> Expect(toks = this.toks, pos = this.pos + 1, text = "[", what = "[ after map") as MapOpen,
+		(IsWord(t = this.tok, s = "enum")) -> Expect(toks = this.toks, pos = this.pos + 1, text = "{", what = "{ after enum") as EnumOpen,
+		(IsSym(t = this.tok, s = "{")) -> PFieldList(toks = this.toks, pos = this.pos + 1),
+		else -> NeedIdent(toks = this.toks, pos = this.pos, what = "a type")
+	};
+	ArrClose -> PType(toks = this.toks, pos = this.pos) as Elem;
+	Elem -> id({ x = { kind = Array(this.x), span = { at = At.tok.at, end = this.x.span.end } }, pos = this.pos });
+	MapOpen -> PType(toks = this.toks, pos = this.pos) as Key;
+	Key -> Expect(toks = At.toks, pos = this.pos, text = "]", what = "] after the map's key type") as MapClose;
+	MapClose -> PType(toks = this.toks, pos = this.pos) as Val;
+	Val -> id({ x = { kind = Map({ key = Key.x, value = this.x }), span = { at = At.tok.at, end = this.x.span.end } }, pos = this.pos });
+	EnumOpen -> PVariants(toks = this.toks, pos = this.pos);
+	PVariants -> Expect(toks = At.toks, pos = this.pos, text = "}", what = ", or }") as EnumClose;
+	EnumClose -> id({ x = { kind = Enum(PVariants.x), span = { at = At.tok.at, end = this.prev.end } }, pos = this.pos });
+	PFieldList -> Expect(toks = At.toks, pos = this.pos, text = "}", what = ", or }") as StructClose;
+	StructClose -> id({ x = { kind = Struct(PFieldList.x), span = { at = At.tok.at, end = this.prev.end } }, pos = this.pos });
+	NeedIdent -> id({ x = { kind = Named(MkIdent(t = this.tok)), span = SpanOf(t = this.tok) }, pos = this.pos });
+}
+
+// (field (',' field)* ','?)?, stopping at a closing bracket.
+proc PFieldList(At): FieldsR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At switch {
+		(IsClose(t = this.tok)) -> id({ x = [], pos = this.pos }),
+		else -> PField(toks = this.toks, pos = this.pos)
+	};
+	PField -> At(toks = At.toks, pos = this.pos) as After;
+	After switch {
+		(IsSym(t = this.tok, s = ",")) -> PFieldList(toks = this.toks, pos = this.pos + 1) as Rest,
+		else -> id({ x = [PField.x], pos = this.pos })
+	};
+	Rest -> id({ x = [PField.x] + this.x, pos = this.pos });
+}
+
+// field := NAME ':' type
+proc PField(At): FieldR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At -> NeedName(toks = this.toks, pos = this.pos, what = "a field name");
+	NeedName -> Expect(toks = this.toks, pos = this.pos, text = ":", what = ": after the field name");
+	Expect -> PType(toks = this.toks, pos = this.pos);
+	PType -> id({ x = { name = MkIdent(t = NeedName.tok), ty = this.x }, pos = this.pos });
+}
+
+// (variant (',' variant)* ','?)?, stopping at a closing bracket;
+// variant := IDENT ('(' type ')')?
+proc PVariants(At): VariantsR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At switch {
+		(IsClose(t = this.tok)) -> id({ x = [], pos = this.pos }),
+		else -> NeedIdent(toks = this.toks, pos = this.pos, what = "a variant")
+	};
+	NeedIdent -> At(toks = this.toks, pos = this.pos) as AfterName;
+	AfterName switch {
+		(IsSym(t = this.tok, s = "(")) -> PType(toks = this.toks, pos = this.pos + 1),
+		else -> At(toks = this.toks, pos = this.pos) as AfterBare
+	};
+	PType -> Expect(toks = At.toks, pos = this.pos, text = ")", what = ") after the payload") as Close;
+	Close -> At(toks = this.toks, pos = this.pos) as AfterPayload;
+	AfterPayload switch {
+		(IsSym(t = this.tok, s = ",")) -> PVariants(toks = this.toks, pos = this.pos + 1) as RestP,
+		else -> id({ x = [{ name = MkIdent(t = NeedIdent.tok), payload = Some(PType.x) }], pos = this.pos })
+	};
+	RestP -> id({ x = [{ name = MkIdent(t = NeedIdent.tok), payload = Some(PType.x) }] + this.x, pos = this.pos });
+	AfterBare switch {
+		(IsSym(t = this.tok, s = ",")) -> PVariants(toks = this.toks, pos = this.pos + 1) as RestB,
+		else -> id({ x = [{ name = MkIdent(t = NeedIdent.tok), payload = None() }], pos = this.pos })
+	};
+	RestB -> id({ x = [{ name = MkIdent(t = NeedIdent.tok), payload = None() }] + this.x, pos = this.pos });
+}
+
+// path := IDENT ('.' NAME)*
+proc PPath(At): PathR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At -> NeedIdent(toks = this.toks, pos = this.pos, what = "a name");
+	NeedIdent -> PSegs(toks = this.toks, pos = this.pos);
+	PSegs -> id({ x = { segs = [MkIdent(t = NeedIdent.tok)] + this.x, span = { at = NeedIdent.tok.at, end = PathEnd(t = NeedIdent.tok, segs = this.x) } }, pos = this.pos });
+}
+
+// ('.' NAME)*
+proc PSegs(At): { x: []Ident, pos: int } {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At switch {
+		(IsSym(t = this.tok, s = ".")) -> NeedName(toks = this.toks, pos = this.pos + 1, what = "a field name"),
+		else -> id({ x = [], pos = this.pos })
+	};
+	NeedName -> PSegs(toks = this.toks, pos = this.pos) as Rest;
+	Rest -> id({ x = [MkIdent(t = NeedName.tok)] + this.x, pos = this.pos });
+}
+
+// Where a path ends: its last segment, or its first if it has one.
+func PathEnd(t: Tok, segs: []Ident): int = "../rs/src/leaf.rs:path_end";

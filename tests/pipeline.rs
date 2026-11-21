@@ -400,6 +400,9 @@ fn map_errors() {
     assert!(e.contains("the type of this literal isn't known here"), "{e}");
     let e = compile_err("proc P(S): int { func S(): { m: map[string]int }; func T(b: bool): int; S -> T(b = 1 in this.m); }");
     assert!(e.contains("expected string, found an int literal"), "{e}");
+    // Where an array or map is expected, both sides of + take that type.
+    compile(&m(r#"K(ks = ["a"] + this.m.keys + ["z"])"#));
+    compile(&m(r#"U(m = ["a": 1] + this.m)"#));
     // Array concatenation; the right side takes the left's type.
     compile(&m("K(ks = this.m.keys + [\"z\"] + this.m.keys)"));
     let e = compile_err(&m("K(ks = this.m.keys + [1])"));

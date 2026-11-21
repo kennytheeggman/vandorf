@@ -864,6 +864,11 @@ impl<'a> Cx<'a> {
                 let Type::Array(elem) = shape else { return mismatch("an array literal") };
                 Expr::Array(items.iter().map(|i| self.check(pid, i, elem, sc)).collect::<Result<_, _>>()?)
             }
+            // `[x] + rest`, `["k": v] + m`: both sides take the expected type.
+            V::Binary(BinOp::Add, l, r) if matches!(shape, Type::Array(_) | Type::Map(..)) => {
+                let (l, r) = (self.check(pid, l, want, sc)?, self.check(pid, r, want, sc)?);
+                Expr::Merge { l: Box::new(l), r: Box::new(r), ty: want.clone() }
+            }
             V::Map(kvs) => {
                 let Type::Map(kt, vt) = shape else { return mismatch("a map literal") };
                 let mut out = vec![];

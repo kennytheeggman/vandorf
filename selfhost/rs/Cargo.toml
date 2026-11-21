@@ -6,3 +6,7 @@ publish = false
 
 # Standalone: not part of the vandorf crate's build.
 [workspace]
+
+[dev-dependencies]
+# The reference implementation, to compare against.
+vandorf = { path = "../.." }

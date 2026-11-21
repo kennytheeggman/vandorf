@@ -687,7 +687,7 @@ impl Gen<'_> {
                 }
             }
             Expr::Merge { l, r, ty } => {
-                let l = self.own(w, l);
+                let l = self.value(w, l, ty);
                 let r = self.value(w, r, ty);
                 let f = if matches!(ty.unfold(&prog.types), Type::Array(_)) { "sliceConcat" } else { "mapMerge" };
                 format!("{f}({l}, {r})")

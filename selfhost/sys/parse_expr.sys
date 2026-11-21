@@ -1,0 +1,193 @@
+// Expressions. Precedence, loosest first: || (0), && (1), comparisons and
+// `in` (2, at most one), + - (3), * / % (4), then prefix ! and -, then
+// postfix [key] and .field, then atoms.
+
+type AtLevel = { cur: Cur, level: int };
+type AtLevelValue = { cur: Cur, level: int, left: Value };
+type AtValue = { cur: Cur, left: Value };
+
+// Whether t is an operator of the given level.
+func OpAt(t: Tok, level: int): bool = "../rs/src/leaf.rs:op_at";
+// `l op r`: a Binary, or an In for `in`.
+func Combine(op: Tok, l: Value, r: Value): Value = "../rs/src/leaf.rs:combine";
+// `op e` for ! and -; `-` and a number literal make a negative literal.
+func Prefix(op: Tok, e: Value): Value = "../rs/src/leaf.rs:prefix";
+
+proc PExpr(At): ValueR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At -> PBin(toks = this.toks, pos = this.pos, level = 0);
+}
+
+// The operators of one level, each operand an expression of the next.
+proc PBin(AtL): ValueR {
+	func AtL(toks: []Tok, pos: int, level: int): AtLevel = "../rs/src/leaf.rs:at_level";
+	AtL switch {
+		(this.level == 5) -> PUnary(toks = this.cur.toks, pos = this.cur.pos),
+		else -> PBin(toks = this.cur.toks, pos = this.cur.pos, level = this.level + 1) as Left
+	};
+	Left -> PBinRest(toks = AtL.cur.toks, pos = this.pos, level = AtL.level, left = this.x);
+}
+
+// (op operand)* after `left`, folding to the left.
+proc PBinRest(AtLV): ValueR {
+	func AtLV(toks: []Tok, pos: int, level: int, left: Value): AtLevelValue = "../rs/src/leaf.rs:at_level_value";
+	AtLV switch {
+		(OpAt(t = this.cur.tok, level = this.level)) -> PBin(toks = this.cur.toks, pos = this.cur.pos + 1, level = this.level + 1) as Right,
+		else -> id({ x = this.left, pos = this.cur.pos })
+	};
+	Right switch {
+		(AtLV.level == 2) -> id({ x = Combine(op = AtLV.cur.tok, l = AtLV.left, r = this.x), pos = this.pos }),
+		else -> PBinRest(toks = AtLV.cur.toks, pos = this.pos, level = AtLV.level, left = Combine(op = AtLV.cur.tok, l = AtLV.left, r = this.x)) as More
+	};
+}
+
+// unary := ('!' | '-') unary | postfix
+proc PUnary(At): ValueR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At switch {
+		(IsSym(t = this.tok, s = "!") || IsSym(t = this.tok, s = "-")) -> PUnary(toks = this.toks, pos = this.pos + 1) as Operand,
+		else -> PPostfix(toks = this.toks, pos = this.pos)
+	};
+	Operand -> id({ x = Prefix(op = At.tok, e = this.x), pos = this.pos });
+}
+
+// postfix := atom ('[' expr ']' | '.' NAME)*
+proc PPostfix(At): ValueR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At -> PAtom(toks = this.toks, pos = this.pos);
+	PAtom -> PPostRest(toks = At.toks, pos = this.pos, left = this.x);
+}
+
+proc PPostRest(AtV): ValueR {
+	func AtV(toks: []Tok, pos: int, left: Value): AtValue = "../rs/src/leaf.rs:at_value";
+	AtV switch {
+		(IsSym(t = this.cur.tok, s = "[")) -> PExpr(toks = this.cur.toks, pos = this.cur.pos + 1) as Key,
+		(IsSym(t = this.cur.tok, s = ".")) -> NeedName(toks = this.cur.toks, pos = this.cur.pos + 1, what = "a field name"),
+		else -> id({ x = this.left, pos = this.cur.pos })
+	};
+	Key -> Expect(toks = AtV.cur.toks, pos = this.pos, text = "]", what = "] after the key") as Close;
+	Close -> PPostRest(
+		toks = this.toks,
+		pos = this.pos,
+		left = { kind = Index({ e = AtV.left, key = Key.x }), span = { at = AtV.left.span.at, end = this.prev.end } }
+	) as AfterIndex;
+	NeedName -> PPostRest(
+		toks = this.toks,
+		pos = this.pos,
+		left = { kind = Field({ e = AtV.left, name = MkIdent(t = this.tok) }), span = { at = AtV.left.span.at, end = this.tok.end } }
+	) as AfterField;
+}
+
+// atom := INT | FLOAT | STRING | 'true' | 'false' | '{' arg,* '}' | '[' ... ']'
+//       | '(' expr ')' | path | path '(' ((NAME '=')? expr),* ')'
+proc PAtom(At): ValueR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At switch {
+		(this.tok.kind == "int") -> id({ x = { kind = Int(IntOf(t = this.tok)), span = SpanOf(t = this.tok) }, pos = this.pos + 1 }),
+		(this.tok.kind == "float") -> id({ x = { kind = Float(FloatOf(t = this.tok)), span = SpanOf(t = this.tok) }, pos = this.pos + 1 }),
+		(this.tok.kind == "str") -> id({ x = { kind = Str(this.tok.text), span = SpanOf(t = this.tok) }, pos = this.pos + 1 }),
+		(IsWord(t = this.tok, s = "true")) -> id({ x = { kind = Bool(true), span = SpanOf(t = this.tok) }, pos = this.pos + 1 }),
+		(IsWord(t = this.tok, s = "false")) -> id({ x = { kind = Bool(false), span = SpanOf(t = this.tok) }, pos = this.pos + 1 }),
+		(IsSym(t = this.tok, s = "{")) -> PArgList(toks = this.toks, pos = this.pos + 1) as StructArgs,
+		(IsSym(t = this.tok, s = "[")) -> PBracket(toks = this.toks, pos = this.pos + 1),
+		(IsSym(t = this.tok, s = "(")) -> PExpr(toks = this.toks, pos = this.pos + 1) as Paren,
+		else -> PPath(toks = this.toks, pos = this.pos)
+	};
+	StructArgs -> Expect(toks = At.toks, pos = this.pos, text = "}", what = ", or }") as StructClose;
+	StructClose -> id({ x = { kind = Struct(StructArgs.x), span = { at = At.tok.at, end = this.prev.end } }, pos = this.pos });
+	PBracket -> id(this);
+	Paren -> Expect(toks = At.toks, pos = this.pos, text = ")", what = ")") as ParenClose;
+	ParenClose -> id({ x = Paren.x, pos = this.pos });
+	PPath -> At(toks = At.toks, pos = this.pos) as AfterPath;
+	AfterPath switch {
+		(IsSym(t = this.tok, s = "(")) -> PApplyArgs(toks = this.toks, pos = this.pos + 1),
+		else -> id({ x = { kind = Ref(PPath.x), span = PPath.x.span }, pos = this.pos })
+	};
+	PApplyArgs -> Expect(toks = At.toks, pos = this.pos, text = ")", what = ", or )") as ApplyClose;
+	ApplyClose -> id({
+		x = { kind = Apply({ name = PPath.x, args = PApplyArgs.x }), span = { at = PPath.x.span.at, end = this.prev.end } },
+		pos = this.pos
+	});
+}
+
+// After '[': '[' ':' ']' | '[' (expr ':' expr),+ ','? ']' | '[' expr,* ','? ']'
+proc PBracket(At): ValueR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At switch {
+		(IsSym(t = this.tok, s = ":")) -> Expect(toks = this.toks, pos = this.pos + 1, text = "]", what = "] in [:]") as EmptyMap,
+		(IsSym(t = this.tok, s = "]")) -> id({ x = { kind = Array([]), span = { at = this.prev.at, end = this.tok.end } }, pos = this.pos + 1 }),
+		else -> PExpr(toks = this.toks, pos = this.pos) as First
+	};
+	EmptyMap -> id({ x = { kind = Map([]), span = { at = At.prev.at, end = this.prev.end } }, pos = this.pos });
+	First -> At(toks = At.toks, pos = this.pos) as AfterFirst;
+	AfterFirst switch {
+		(IsSym(t = this.tok, s = ":")) -> PExpr(toks = this.toks, pos = this.pos + 1) as FirstValue,
+		else -> PValuesRest(toks = this.toks, pos = this.pos)
+	};
+	FirstValue -> PEntriesRest(toks = At.toks, pos = this.pos);
+	PEntriesRest -> Expect(toks = At.toks, pos = this.pos, text = "]", what = ", or ]") as MapClose;
+	MapClose -> id({
+		x = { kind = Map([{ key = First.x, value = FirstValue.x }] + PEntriesRest.x), span = { at = At.prev.at, end = this.prev.end } },
+		pos = this.pos
+	});
+	PValuesRest -> Expect(toks = At.toks, pos = this.pos, text = "]", what = ", or ]") as ArrayClose;
+	ArrayClose -> id({ x = { kind = Array([First.x] + PValuesRest.x), span = { at = At.prev.at, end = this.prev.end } }, pos = this.pos });
+}
+
+// (',' expr)* ','?, stopping at a closing bracket.
+proc PValuesRest(At): ValuesR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At switch {
+		(IsSym(t = this.tok, s = ",")) -> At(toks = this.toks, pos = this.pos + 1) as AfterComma,
+		else -> id({ x = [], pos = this.pos })
+	};
+	AfterComma switch {
+		(IsClose(t = this.tok)) -> id({ x = [], pos = this.pos }),
+		else -> PExpr(toks = this.toks, pos = this.pos)
+	};
+	PExpr -> PValuesRest(toks = At.toks, pos = this.pos) as Rest;
+	Rest -> id({ x = [PExpr.x] + this.x, pos = this.pos });
+}
+
+// (',' expr ':' expr)* ','?, stopping at a closing bracket.
+proc PEntriesRest(At): EntriesR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At switch {
+		(IsSym(t = this.tok, s = ",")) -> At(toks = this.toks, pos = this.pos + 1) as AfterComma,
+		else -> id({ x = [], pos = this.pos })
+	};
+	AfterComma switch {
+		(IsClose(t = this.tok)) -> id({ x = [], pos = this.pos }),
+		else -> PExpr(toks = this.toks, pos = this.pos) as Key
+	};
+	Key -> Expect(toks = At.toks, pos = this.pos, text = ":", what = ": after the key") as Colon;
+	Colon -> PExpr(toks = this.toks, pos = this.pos) as Val;
+	Val -> PEntriesRest(toks = At.toks, pos = this.pos) as Rest;
+	Rest -> id({ x = [{ key = Key.x, value = Val.x }] + this.x, pos = this.pos });
+}
+
+// ((NAME '=')? expr),* ','?, stopping at a closing bracket.
+proc PApplyArgs(At): ApplyArgsR {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At switch {
+		(IsClose(t = this.tok)) -> id({ x = [], pos = this.pos }),
+		else -> PApplyArg(toks = this.toks, pos = this.pos)
+	};
+	PApplyArg -> At(toks = At.toks, pos = this.pos) as After;
+	After switch {
+		(IsSym(t = this.tok, s = ",")) -> PApplyArgs(toks = this.toks, pos = this.pos + 1) as Rest,
+		else -> id({ x = [PApplyArg.x], pos = this.pos })
+	};
+	Rest -> id({ x = [PApplyArg.x] + this.x, pos = this.pos });
+}
+
+proc PApplyArg(At): { x: ApplyArg, pos: int } {
+	func At(toks: []Tok, pos: int): Cur = "../rs/src/leaf.rs:at";
+	At switch {
+		(this.tok.kind == "ident" && IsSym(t = this.toks[this.pos + 1], s = "=")) -> Expect(toks = this.toks, pos = this.pos + 1, text = "=", what = "=") as Eq,
+		else -> PExpr(toks = this.toks, pos = this.pos) as Positional
+	};
+	Eq -> PExpr(toks = this.toks, pos = this.pos) as Named;
+	Named -> id({ x = { name = Some(MkIdent(t = At.tok)), value = this.x }, pos = this.pos });
+	Positional -> id({ x = { name = None(), value = this.x }, pos = this.pos });
+}

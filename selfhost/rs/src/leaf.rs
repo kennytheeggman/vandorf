@@ -1,18 +1,26 @@
 //! vcc's leaf funcs. Each is pure: its result depends only on its
-//! arguments, and it does no I/O.
+//! arguments, and it does no I/O. Errors are values too: a leaf fails with a
+//! message, which fails the proc that called it.
 
-use crate::vcc::types::Tok;
+use crate::vcc::types::*;
+
+const KEYWORDS: &[&str] = &[
+    "interface", "func", "proc", "enum", "switch", "collect", "for", "each", "as", "type", "true", "false",
+    "else", "map", "in", "id",
+];
 
 pub fn same(s: String) -> Result<String, String> {
     Ok(s)
 }
 
-pub fn count(n: i64) -> Result<String, String> {
-    Ok(format!("{n} tokens"))
-}
+// ---- Tokens ----
 
 /// Multi-character symbols, longest first.
 const SYMS: &[&str] = &["->", "==", "!=", "<=", ">=", "&&", "||"];
+
+fn tok(kind: &str, text: String, at: usize, end: usize) -> Tok {
+    Tok { kind: kind.into(), text, at: at as i64, end: end as i64 }
+}
 
 /// Splits `src` into tokens, ending with an "eof" token. `//` starts a
 /// comment.
@@ -20,7 +28,6 @@ pub fn lex(src: String) -> Result<Vec<Tok>, String> {
     let b = src.as_bytes();
     let mut toks = vec![];
     let mut i = 0;
-    let tok = |kind: &str, text: String, at: usize, end: usize| Tok { kind: kind.into(), text, at: at as i64, end: end as i64 };
     while i < b.len() {
         let c = b[i];
         let start = i;
@@ -59,8 +66,7 @@ pub fn lex(src: String) -> Result<Vec<Tok>, String> {
                         break;
                     }
                     Some('\\') => {
-                        let esc = src[i + 1..].chars().next();
-                        text.push(match esc {
+                        text.push(match src[i + 1..].chars().next() {
                             Some('\\') => '\\',
                             Some('"') => '"',
                             Some('n') => '\n',
@@ -79,7 +85,7 @@ pub fn lex(src: String) -> Result<Vec<Tok>, String> {
         } else if let Some(s) = SYMS.iter().find(|s| src[i..].starts_with(**s)) {
             i += s.len();
             toks.push(tok("sym", s.to_string(), start, i));
-        } else if "(){}[]<>,;:.=+-*/%!|_".contains(c as char) {
+        } else if "(){}[]<>,;:.=+-*/%!|".contains(c as char) {
             i += 1;
             toks.push(tok("sym", (c as char).to_string(), start, i));
         } else {
@@ -89,4 +95,160 @@ pub fn lex(src: String) -> Result<Vec<Tok>, String> {
     }
     toks.push(tok("eof", String::new(), b.len(), b.len()));
     Ok(toks)
+}
+
+// ---- Parser steps ----
+
+fn get(toks: &[Tok], pos: i64) -> Tok {
+    usize::try_from(pos).ok().and_then(|p| toks.get(p)).or(toks.last()).cloned().unwrap()
+}
+
+pub fn at(toks: Vec<Tok>, pos: i64) -> Result<Cur, String> {
+    let (tok_, prev) = (get(&toks, pos), if pos > 0 { get(&toks, pos - 1) } else { tok("sof", String::new(), 0, 0) });
+    Ok(Cur { toks, pos, tok: tok_, prev })
+}
+
+pub fn at_level(toks: Vec<Tok>, pos: i64, level: i64) -> Result<AtLevel, String> {
+    Ok(AtLevel { cur: at(toks, pos)?, level })
+}
+
+pub fn at_level_value(toks: Vec<Tok>, pos: i64, level: i64, left: Value) -> Result<AtLevelValue, String> {
+    Ok(AtLevelValue { cur: at(toks, pos)?, level, left })
+}
+
+pub fn at_value(toks: Vec<Tok>, pos: i64, left: Value) -> Result<AtValue, String> {
+    Ok(AtValue { cur: at(toks, pos)?, left })
+}
+
+fn shown(t: &Tok) -> String {
+    match t.kind.as_str() {
+        "eof" => "end of input".into(),
+        "str" => format!("{:?}", t.text),
+        _ => format!("'{}'", t.text),
+    }
+}
+
+/// Matches `toks[pos]` and moves past it; the error says what was wanted,
+/// prefixed with the token's byte range ("at:end: ").
+fn matched(toks: Vec<Tok>, pos: i64, ok: impl Fn(&Tok) -> bool, what: &str) -> Result<Cur, String> {
+    let t = get(&toks, pos);
+    if !ok(&t) {
+        return Err(format!("{}:{}: expected {what}, found {}", t.at, t.end, shown(&t)));
+    }
+    Ok(Cur { toks, pos: pos + 1, tok: t.clone(), prev: t })
+}
+
+pub fn expect(toks: Vec<Tok>, pos: i64, text: String, what: String) -> Result<Cur, String> {
+    matched(toks, pos, |t| (t.kind == "sym" || t.kind == "ident") && t.text == text, &what)
+}
+
+pub fn need_ident(toks: Vec<Tok>, pos: i64, what: String) -> Result<Cur, String> {
+    matched(toks, pos, |t| t.kind == "ident" && !KEYWORDS.contains(&t.text.as_str()), &what)
+}
+
+pub fn need_name(toks: Vec<Tok>, pos: i64, what: String) -> Result<Cur, String> {
+    matched(toks, pos, |t| t.kind == "ident", &what)
+}
+
+pub fn need_str(toks: Vec<Tok>, pos: i64, what: String) -> Result<Cur, String> {
+    matched(toks, pos, |t| t.kind == "str", &what)
+}
+
+pub fn is_sym(t: Tok, s: String) -> Result<bool, String> {
+    Ok(t.kind == "sym" && t.text == s)
+}
+
+pub fn is_word(t: Tok, s: String) -> Result<bool, String> {
+    Ok(t.kind == "ident" && t.text == s)
+}
+
+pub fn is_close(t: Tok) -> Result<bool, String> {
+    Ok(t.kind == "sym" && matches!(t.text.as_str(), ")" | "}" | "]"))
+}
+
+// ---- Syntax ----
+
+pub fn span_of(t: Tok) -> Result<Span, String> {
+    Ok(Span { at: t.at, end: t.end })
+}
+
+pub fn mk_ident(t: Tok) -> Result<Ident, String> {
+    Ok(Ident { name: t.text, span: Span { at: t.at, end: t.end } })
+}
+
+pub fn path_end(t: Tok, segs: Vec<Ident>) -> Result<i64, String> {
+    Ok(segs.last().map_or(t.end, |s| s.span.end))
+}
+
+pub fn int_of(t: Tok) -> Result<i64, String> {
+    t.text.parse().map_err(|_| format!("{}:{}: number {} is out of range", t.at, t.end, t.text))
+}
+
+pub fn float_of(t: Tok) -> Result<f64, String> {
+    t.text.parse().map_err(|_| format!("{}:{}: number {} is out of range", t.at, t.end, t.text))
+}
+
+pub fn impl_of(t: Tok) -> Result<ImplRef, String> {
+    let bad = || format!("{}:{}: expected \"file:function\", found {:?}", t.at, t.end, t.text);
+    let (file, function) = t.text.rsplit_once(':').ok_or_else(bad)?;
+    let is_ident = function.chars().enumerate().all(|(i, c)| c == '_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit()));
+    if file.is_empty() || function.is_empty() || !is_ident {
+        return Err(bad());
+    }
+    Ok(ImplRef { file: file.into(), function: function.into(), span: Span { at: t.at, end: t.end } })
+}
+
+pub fn op_at(t: Tok, level: i64) -> Result<bool, String> {
+    let ops: &[&str] = match level {
+        0 => &["||"],
+        1 => &["&&"],
+        2 => &["==", "!=", "<", "<=", ">", ">="],
+        3 => &["+", "-"],
+        4 => &["*", "/", "%"],
+        _ => &[],
+    };
+    Ok((t.kind == "sym" && ops.contains(&t.text.as_str())) || (level == 2 && t.kind == "ident" && t.text == "in"))
+}
+
+pub fn combine(op: Tok, l: Value, r: Value) -> Result<Value, String> {
+    let span = Span { at: l.span.at, end: r.span.end };
+    let kind = if op.text == "in" {
+        ValueKind::In(Box::new(ValueKindIn { key: Box::new(l), map: Box::new(r) }))
+    } else {
+        ValueKind::Binary(Box::new(ValueKindBinary { op: op.text, l: Box::new(l), r: Box::new(r) }))
+    };
+    Ok(Value { kind: Box::new(kind), span })
+}
+
+pub fn prefix(op: Tok, e: Value) -> Result<Value, String> {
+    let span = Span { at: op.at, end: e.span.end };
+    let kind = match (op.text.as_str(), *e.kind) {
+        ("-", ValueKind::Int(i)) => ValueKind::Int(-i),
+        ("-", ValueKind::Float(f)) => ValueKind::Float(-f),
+        (_, kind) => ValueKind::Unary(Box::new(ValueKindUnary {
+            op: op.text.clone(),
+            e: Box::new(Value { kind: Box::new(kind), span: e.span }),
+        })),
+    };
+    Ok(Value { kind: Box::new(kind), span })
+}
+
+pub fn or_of(mut pats: Vec<Pat>) -> Result<Pat, String> {
+    if pats.len() == 1 {
+        return Ok(pats.pop().unwrap());
+    }
+    let span = Span { at: pats[0].span.at, end: pats.last().unwrap().span.end };
+    Ok(Pat { kind: Box::new(PatKind::Or(pats)), span })
+}
+
+pub fn summary(f: File) -> Result<String, String> {
+    let edges: usize = f.nodes.iter().map(count_edges).sum();
+    Ok(format!("{} types, {} interfaces, {} nodes, {edges} edges", f.types.len(), f.interfaces.len(), f.nodes.len()))
+}
+
+fn count_edges(n: &Node) -> usize {
+    match n {
+        Node::Proc(p) => p.edges.len() + p.nodes.iter().map(count_edges).sum::<usize>(),
+        Node::Func(_) => 0,
+    }
 }

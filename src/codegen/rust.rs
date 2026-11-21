@@ -577,7 +577,7 @@ impl Gen<'_> {
                 }
             }
             Expr::Merge { l, r, ty } => {
-                let (l, r) = (self.own(l), self.value(r, ty));
+                let (l, r) = (self.value(l, ty), self.value(r, ty));
                 format!("{{ let mut m = {l}; m.extend({r}); m }}")
             }
             Expr::Remove { m, keys, ty } => {

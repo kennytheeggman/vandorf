@@ -1,9 +1,9 @@
-// vcc <path>: reads and lexes a .sys file.
+// vcc <path>: parses a .sys file and summarizes it.
 proc Vcc(Args): string {
 	func Args(path: string): string = "../rs/src/leaf.rs:same";
-	func Report(n: int): string = "../rs/src/leaf.rs:count";
+	func Summary(f: File): string = "../rs/src/leaf.rs:summary";
 
 	Args -> Fs.Read(path = this);
-	Fs.Read -> Lex(src = this);
-	Lex -> Report(n = this.len);
+	Fs.Read -> Parse(src = this);
+	Parse -> Summary(f = this);
 }
