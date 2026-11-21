@@ -530,25 +530,41 @@ proc RRegions(At): EmitLines {
 
 // ---- The whole backend ----
 
-type RustOut = { types: string, procs: string, modrs: string, err: MaybeStr };
+// http: "" without servers.
+type RustOut = { types: string, procs: string, modrs: string, http: string, err: MaybeStr };
 
 proc RustGenerate(At): RustOut {
-	func At(s: { prog: Program, module_dir: MaybeStr }): { prog: Program, module_dir: MaybeStr } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { prog: Program, module_dir: MaybeStr, servers: []ServerSpec }): { prog: Program, module_dir: MaybeStr, servers: []ServerSpec } = "../../rs/src/sema_leaf.rs:same";
 	func NameClash(prog: Program): MaybeStr = "../../rs/src/gen_leaf.rs:name_clash";
 	func BadModuleDir(d: MaybeStr): MaybeStr = "../../rs/src/gen_leaf.rs:bad_module_dir";
 	func Trimmed(d: MaybeStr): MaybeStr = "../../rs/src/gen_leaf.rs:trim_dir";
 	func Order(nodes: []NodeDecl, top: []int): []int = "../../rs/src/gen_leaf.rs:all_procs_ordered";
 	At -> BuildTable(prog = this.prog);
 	BuildTable switch {
-		(IsSomeS(m = BadModuleDir(d = Trimmed(d = At.module_dir)))) -> id({ types = "", procs = "", modrs = "", err = BadModuleDir(d = Trimmed(d = At.module_dir)) }),
-		(IsSomeS(m = NameClash(prog = At.prog))) -> id({ types = "", procs = "", modrs = "", err = NameClash(prog = At.prog) }),
+		(IsSomeS(m = BadModuleDir(d = Trimmed(d = At.module_dir)))) -> id({ types = "", procs = "", modrs = "", http = "", err = BadModuleDir(d = Trimmed(d = At.module_dir)) }),
+		(IsSomeS(m = NameClash(prog = At.prog))) -> id({ types = "", procs = "", modrs = "", http = "", err = NameClash(prog = At.prog) }),
 		else -> RustTypegen(t = this)
 	};
 	RustTypegen -> RProcs(s = {
 		g = { prog = At.prog, table = BuildTable, module_dir = Trimmed(d = At.module_dir), coercions = [:], helpers = [], stubs = [:], failed = None(), fatal = None(), proc_name = "", moves = NoMoves(n = 0) },
 		procs = Order(nodes = At.prog.nodes, top = At.prog.top), i = 0, acc = []
 	});
-	RProcs -> id({ types = RustTypegen, procs = ProcsFile(g = this.g, body = Lines(lines = this.lines, indent = "    ")), modrs = ModRs(n = 0), err = FirstError(g = this.g) });
+	RProcs switch {
+		(At.servers.len == 0) -> id({ types = RustTypegen, procs = ProcsFile(g = this.g, body = Lines(lines = this.lines, indent = "    ")), modrs = ModRs(n = 0), http = "", err = FirstError(g = this.g) }),
+		else -> RustHttp(s = { g = this.g, servers = At.servers })
+	};
+	// As in the reference: an error that stopped the generator, then one in
+	// http.rs, then one from an expression.
+	RustHttp switch {
+		{ text = _, err = Some(e) } -> switch {
+			(IsSomeS(m = RProcs.g.fatal)) -> id({ types = RustTypegen, procs = "", modrs = "", http = "", err = RProcs.g.fatal }),
+			else -> id({ types = RustTypegen, procs = "", modrs = "", http = "", err = Some(e) })
+		},
+		else -> switch {
+			(IsSomeS(m = FirstError(g = RProcs.g))) -> id({ types = RustTypegen, procs = "", modrs = "", http = "", err = FirstError(g = RProcs.g) }),
+			else -> id({ types = RustTypegen, procs = ProcsFile(g = RProcs.g, body = Lines(lines = RProcs.lines, indent = "    ")), modrs = ModRs(n = 0) + "pub mod http;\n", http = this.text, err = None() })
+		}
+	};
 }
 
 func ModRs(n: int): string = "../../rs/src/gen_leaf.rs:mod_rs";

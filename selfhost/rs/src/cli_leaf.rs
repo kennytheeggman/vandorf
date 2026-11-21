@@ -32,6 +32,17 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
         },
         None => MaybeRust::None,
     };
+    let mut http = vec![];
+    if let Some(h) = t.get("http").and_then(|h| h.as_table()) {
+        for (n, v) in h {
+            let Some(v) = v.as_table() else { continue };
+            let Some(addr) = v.get("addr").and_then(|a| a.as_str()) else { return fail(format!("[http.{n}]: missing field `addr`")) };
+            let Some(routes) = v.get("routes").and_then(|r| r.as_table()) else { return fail(format!("[http.{n}]: missing field `routes`")) };
+            let strs = |t: &toml::Table| -> Map<Str, Str> { t.iter().filter_map(|(k, v)| v.as_str().map(|v| (s(k), s(v)))).collect() };
+            let statics = v.get("static").and_then(|x| x.as_table()).map(strs).unwrap_or_default();
+            http.push((s(n), ServerDecl { addr: s(addr), routes: strs(routes), statics, rust: opt(v.get("rust")) }));
+        }
+    }
     let mut bins = vec![];
     if let Some(b) = t.get("bin").and_then(|b| b.as_table()) {
         for (n, v) in b {
@@ -39,7 +50,7 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
             bins.push((s(n), Bin { entry: v.get("entry").and_then(|e| e.as_str()).map_or(s("Main"), s), go: opt(v.get("go")), rust: opt(v.get("rust")) }));
         }
     }
-    Ok(ResManifest::Ok(Manifest { name: s(name), sources: sources.into(), rust, has_go: t.contains_key("go"), bins: bins.into_iter().collect() }))
+    Ok(ResManifest::Ok(Manifest { name: s(name), sources: sources.into(), rust, has_go: t.contains_key("go"), bins: bins.into_iter().collect(), http: http.into_iter().collect() }))
 }
 
 fn normalize(p: &Path) -> PathBuf {
@@ -256,4 +267,71 @@ pub fn pad(s: Str, n: i64) -> Result<Str, String> {
 
 pub fn fail_files(msg: Str) -> Result<List<OutFile>, String> {
     Err(msg.to_string())
+}
+
+pub fn no_specs(_n: i64) -> Result<ResServerSpecList, String> {
+    Ok(ResServerSpecList::Ok(List::default()))
+}
+
+pub fn unwrap_specs(r: ResServerSpecList) -> Result<List<ServerSpec>, String> {
+    match r {
+        ResServerSpecList::Ok(x) => Ok(x),
+        ResServerSpecList::Err(e) => Err(e.msg.to_string()),
+    }
+}
+
+pub fn unwrap_routes(r: ResRouteList) -> Result<List<Route>, String> {
+    match r {
+        ResRouteList::Ok(x) => Ok(x),
+        ResRouteList::Err(e) => Err(e.msg.to_string()),
+    }
+}
+
+pub fn http_file(out: Str, text: Str) -> Result<List<OutFile>, String> {
+    Ok(if text.is_empty() { List::default() } else { vec![OutFile { path: join(out, "http.rs".into())?, text, kind: "code".into() }].into() })
+}
+
+pub fn server_path(d: ServerDecl, name: Str) -> Result<Str, String> {
+    Ok(match d.rust {
+        MaybeStr::Some(p) => p,
+        MaybeStr::None => format!("bin/{name}.rs").into(),
+    })
+}
+
+pub fn file_dir(out: Str, module_dir: MaybeStr, path: Str) -> Result<Str, String> {
+    let up = match &module_dir {
+        MaybeStr::Some(d) => d.split('/').filter(|x| !x.is_empty()).count(),
+        MaybeStr::None => 0,
+    };
+    let mut src = normalize(Path::new(&*out));
+    for _ in 0..up {
+        src.pop();
+    }
+    let full = normalize(&src.join(&*path));
+    Ok(slash(full.parent().unwrap_or(&src)).into())
+}
+
+pub fn split_route(route: Str, proc: Str) -> Result<List<Route>, String> {
+    let Some((m, p)) = route.split_once(' ').map(|(m, p)| (m.trim(), p.trim())) else { return Ok(List::default()) };
+    if m.is_empty() || !m.chars().all(|c| c.is_ascii_uppercase()) || !p.starts_with('/') {
+        return Ok(List::default());
+    }
+    Ok(vec![Route { method: m.into(), path: p.into(), proc }].into())
+}
+
+pub fn debug_quote(s: Str) -> Result<Str, String> {
+    Ok(format!("{:?}", &*s).into())
+}
+
+pub fn content_type(file: Str) -> Result<Str, String> {
+    let ext = Path::new(&*file).extension().and_then(|e| e.to_str()).unwrap_or("");
+    Ok(match ext {
+        "html" | "htm" => "text/html; charset=utf-8",
+        "js" | "mjs" => "text/javascript; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "json" => "application/json",
+        "svg" => "image/svg+xml",
+        _ => "text/plain; charset=utf-8",
+    }
+    .into())
 }

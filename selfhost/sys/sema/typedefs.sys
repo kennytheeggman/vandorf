@@ -307,7 +307,6 @@ func MapValue(t: Type): Type = "../../rs/src/sema_leaf.rs:map_value";
 // other in any order, then rejects cycles that never reach a structure.
 proc DeclareTypes(At): TyCx {
 	func At(s: { cx: TyCx, decls: []TypeDecl, i: int }): { cx: TyCx, decls: []TypeDecl, i: int } = "../../rs/src/sema_leaf.rs:same";
-	func WithGeneric(cx: TyCx, d: TypeDecl): TyCx = "../../rs/src/sema_leaf.rs:with_generic";
 	At switch {
 		(this.i == this.decls.len) -> CheckGenerics(s = { cx = this.cx, decls = this.decls, i = 0 }),
 		(IsPrim(name = this.decls[this.i].name.name)) -> At(s = { cx = { ..this.cx, errors = this.cx.errors + [{ msg = this.decls[this.i].name.name + " is a built-in type", span = this.decls[this.i].name.span }] }, decls = this.decls, i = this.i + 1 }),
@@ -353,7 +352,6 @@ proc ResolveDecls(At): TyCx {
 // checked per instance.
 proc CheckGeneric(At): TyCx {
 	func At(s: { cx: TyCx, d: TypeDecl }): { cx: TyCx, d: TypeDecl } = "../../rs/src/sema_leaf.rs:same";
-	func WithBroken(cx: TyCx, name: string): TyCx = "../../rs/src/sema_leaf.rs:with_broken";
 	At -> CheckParams(s = { cx = this.cx, ps = this.d.params, i = 0, seen = [] });
 	CheckParams -> CheckBody(s = { cx = this, t = At.d.ty, params = IdentNames(ids = At.d.params), used = [] }) as Body;
 	Body -> Unused(s = { cx = this.cx, ps = At.d.params, used = this.used, i = 0 });

@@ -1,7 +1,9 @@
 // Projects (src/project.rs in the reference): vandorf.toml and the .sys
 // files it covers.
 
-type Manifest = { name: string, sources: []string, rust: MaybeRust, has_go: bool, bins: map[string]Bin };
+type Manifest = { name: string, sources: []string, rust: MaybeRust, has_go: bool, bins: map[string]Bin, http: map[string]ServerDecl };
+// `[http.<name>]`, as written.
+type ServerDecl = { addr: string, routes: map[string]string, statics: map[string]string, rust: MaybeStr };
 type RustTarget = { out: string, module_dir: MaybeStr };
 type MaybeRust = enum { None, Some(RustTarget) };
 type Bin = { entry: string, go: MaybeStr, rust: MaybeStr };
@@ -11,6 +13,8 @@ type Project = { root: string, manifest: Manifest, paths: []string, srcs: []stri
 func ParseManifest(text: string): Res<Manifest> = "../../rs/src/cli_leaf.rs:parse_manifest";
 func JoinP(a: string, b: string): string = "../../rs/src/cli_leaf.rs:join";
 func Parent(p: string): string = "../../rs/src/cli_leaf.rs:parent";
+// target relative to the directory from; both absolute.
+func Relative(target: string, from: string): string = "../../rs/src/cli_leaf.rs:relative";
 func SortDedup(xs: []string): []string = "../../rs/src/cli_leaf.rs:sort_dedup";
 func StartsWith(text: string, prefix: string): bool = "../../rs/src/cli_leaf.rs:starts_with";
 func CargoLibName(toml: string, has_lib_rs: bool): string = "../../rs/src/cli_leaf.rs:cargo_lib_name";

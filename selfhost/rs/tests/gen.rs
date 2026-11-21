@@ -124,7 +124,7 @@ fn generates_rust_procs_like_the_reference() {
     for (name, prog, srcs) in &programs() {
         let srcs: Vec<&str> = srcs.iter().map(|s| s.as_str()).collect();
         let want = rust::generate(prog, &rust::RustOptions { module_dir: Some("app".into()), ..Default::default() });
-        let got = vcc::vcc::run_rust_generate(v::RustGenerateAtS { prog: analyze(&srcs), module_dir: v::MaybeStr::Some("app".into()) }).unwrap();
+        let got = vcc::vcc::run_rust_generate(v::RustGenerateAtS { prog: analyze(&srcs), module_dir: v::MaybeStr::Some("app".into()), servers: Default::default() }).unwrap();
         match (want, &got.err) {
             (Ok(out), v::MaybeStr::None) => {
                 for (file, text) in [("procs.rs", &got.procs), ("mod.rs", &got.modrs), ("types.rs", &got.types)] {
@@ -138,6 +138,56 @@ fn generates_rust_procs_like_the_reference() {
             }
             (Err(e), v::MaybeStr::Some(g)) => assert_eq!(e, g.to_string(), "{name}"),
             (w, g) => panic!("{name}: reference {:?}, vcc {g:?}", w.map(|_| ())),
+        }
+    }
+    assert!(n > 15, "{n}");
+}
+
+#[test]
+fn generates_http_like_the_reference() {
+    use vandorf::codegen::rust;
+    let mut n = 0;
+    for (name, prog, srcs) in &programs() {
+        let srcs: Vec<&str> = srcs.iter().map(|s| s.as_str()).collect();
+        // A server routing to every top-level proc, and one to a missing one.
+        let procs: Vec<String> = prog.top_procs.iter().map(|&p| prog.node(p).name().to_string()).collect();
+        let routes: Vec<(String, String, String)> = procs.iter().enumerate().map(|(i, p)| (if i % 2 == 0 { "POST" } else { "GET" }.to_string(), format!("/api/{}", p.to_lowercase()), p.clone())).collect();
+        for routes in [routes.clone(), vec![("GET".into(), "/x".into(), "Missing".into())]] {
+            let srv = rust::ServerSpec {
+                name: "web-api".into(),
+                addr: "127.0.0.1:9".into(),
+                routes: routes.clone(),
+                statics: vec![("/".into(), "../../web/index.html".into(), "text/html; charset=utf-8".into())],
+                path: "bin/web.rs".into(),
+            };
+            let opts = rust::RustOptions { module_dir: Some("app".into()), crate_name: Some("demo".into()), servers: vec![srv.clone()], ..Default::default() };
+            let want = rust::generate(prog, &opts);
+            let vsrv = v::ServerSpec {
+                name: srv.name.as_str().into(),
+                addr: srv.addr.as_str().into(),
+                routes: routes.iter().map(|(m, p, pr)| v::Route { method: m.as_str().into(), path: p.as_str().into(), proc: pr.as_str().into() }).collect(),
+                statics: srv.statics.iter().map(|(u, f, c)| v::StaticFile { url: u.as_str().into(), file: f.as_str().into(), ctype: c.as_str().into() }).collect(),
+                path: srv.path.as_str().into(),
+            };
+            let got = vcc::vcc::run_rust_generate(v::RustGenerateAtS { prog: analyze(&srcs), module_dir: v::MaybeStr::Some("app".into()), servers: vec![vsrv.clone()].into() }).unwrap();
+            match (want, &got.err) {
+                (Ok(out), v::MaybeStr::None) => {
+                    for (file, text) in [("http.rs", &got.http), ("mod.rs", &got.modrs)] {
+                        let want = &out.code.files[file];
+                        if **want != **text {
+                            let line = want.lines().zip(text.lines()).position(|(a, b)| a != b);
+                            panic!("{name}: {file} differs at line {line:?}:\n  reference: {:?}\n  vcc:       {:?}", line.and_then(|l| want.lines().nth(l)), line.and_then(|l| text.lines().nth(l)));
+                        }
+                    }
+                    let bin = vcc::vcc::run_rust_server(v::RustServerAtS { srv: vsrv, module_dir: v::MaybeStr::Some("app".into()), krate: "demo".into() }).unwrap();
+                    let main = out.mains.last().unwrap();
+                    assert_eq!((main.dir.as_str(), main.files.keys().next().unwrap().as_str()), (&*bin.dir, &*bin.file), "{name}");
+                    assert_eq!(main.files["web.rs"], *bin.text, "{name}");
+                    n += 1;
+                }
+                (Err(e), v::MaybeStr::Some(g)) => assert_eq!(e, g.to_string(), "{name}"),
+                (w, g) => panic!("{name}: reference {:?}, vcc {g:?}", w.map(|_| ())),
+            }
         }
     }
     assert!(n > 15, "{n}");
