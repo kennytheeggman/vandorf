@@ -633,6 +633,37 @@ mod codegen {
         assert!(rust::generate(&prog, &rust::RustOptions::default()).is_err());
     }
 
+    #[test]
+    fn rust_moves_values_at_their_last_read() {
+        let src = r#"
+            type St = { acc: []int, i: int };
+            proc P(S): []int {
+                func S(acc: []int, i: int): St;
+                func T(x: int): int;
+                func K(): int;
+                func L(x: int): int;
+                S -> T(x = this.i);
+                T switch {
+                    (this > 3) -> K(),
+                    else -> S(acc = S.acc + [this], i = S.i + 1)
+                };
+                K -> L(x = S.i);
+                L -> id(S.acc + [this]);
+            }
+        "#;
+        let prog = vandorf::compile("t.sys", src).unwrap();
+        let out = rust::generate(&prog, &rust::RustOptions { module_dir: Some("app".into()), ..Default::default() }).unwrap();
+        let procs = &out.code.files["procs.rs"];
+        // T -> S: S runs again before anything reads its slot, so its fields move.
+        assert!(procs.contains("let slot_p_s = take_slot(&mut env.out_p_s"), "{procs}");
+        assert!(procs.contains("(slot_p_s.acc).concat("), "{procs}");
+        // K -> L: L still reads S, so S's slot is only read.
+        assert!(procs.contains("x: get(&env.out_p_s, \"P.S\")?.i.clone()"), "{procs}");
+        // Nothing reads T's or L's output from the env.
+        assert!(!procs.contains("env.out_p_t = Some(") && !procs.contains("env.out_p_l = Some("), "{procs}");
+        assert!(procs.contains("let input = take_slot(&mut env.in_p_s"), "{procs}");
+    }
+
     const MAIN: &str = r#"
         proc Main(A): string {
             func A(n: int, verbose: bool, name: string): string;

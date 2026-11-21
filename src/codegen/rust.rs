@@ -11,8 +11,14 @@
 //! Vandorf values are immutable, so the expensive ones are shared, and a
 //! clone is O(1): arrays are `types::List<T>` (derefs to `[T]`), maps
 //! `types::Map<K, V>` (derefs to `BTreeMap`), strings `types::Str`
-//! (`Arc<str>`), and fields that make a type contain itself `Arc<T>`. `+` and
-//! `-` build new values. These are defined in `types.rs` itself.
+//! (`Arc<str>`), and fields that make a type contain itself `Arc<T>`. These
+//! are defined in `types.rs` itself. `+` and `-` change a value in place
+//! when nothing else shares it and copy it otherwise, so sharing is never
+//! observable. To keep values unshared, a node's input is moved out of its
+//! slot, and a transition moves each value at its last read, taking a
+//! node's slot when no later state reads it before the node runs again
+//! (see `Moves`). A loop like `acc + [x]` back to the same node appends in
+//! place.
 //! - **code** (`mod.rs`, `procs.rs`): `pub fn run_<proc>(..)` per proc, plus
 //!   private input structs, stubs and helpers.
 //!
@@ -45,9 +51,9 @@
 
 use super::types::{Shape, TyRef, TypeTable};
 use super::{Artifact, ImplUse, MainSpec, Output, Writer, gname, join_path, quote, snake};
-use crate::sema::{Arm, BinOp, Body, Call, Edge, Expr, NodeId, NodeKind, Pat, PatKind, Program, Query, Ref, RegionId, Root, Test, UnOp};
+use crate::sema::{Arm, BinOp, Body, Call, Edge, Expr, Graph, NodeId, NodeKind, Pat, PatKind, Program, Query, Ref, RegionId, Root, Test, UnOp};
 use crate::types::{Prim, Type};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
 
 #[derive(Debug, Clone, Default)]
@@ -78,6 +84,7 @@ pub fn generate(prog: &Program, opts: &RustOptions) -> Result<Output, String> {
         stubs: BTreeSet::new(),
         failed: None,
         proc_name: String::new(),
+        moves: Default::default(),
     };
     g.check_names()?;
 
@@ -254,6 +261,35 @@ struct Gen<'a> {
     failed: Option<String>,
     /// The proc being written, for error messages.
     proc_name: String,
+    /// Which reads in the transition being written move their value.
+    moves: std::cell::RefCell<Moves>,
+}
+
+/// What a read reads from: `this`, a node's slot in the env, or a switch
+/// binding.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Owner {
+    This,
+    Node(NodeId),
+    Bind(String),
+}
+
+/// Last-use moves. A transition's input is written twice: first recording
+/// each read's owner and field path in order, then moving every read that
+/// no later read overlaps (same owner, one path a prefix of the other). A
+/// node's slot is moved from only if no later state reads it before the
+/// node runs again; it is then taken into a local (`slot_<node>`) first,
+/// so its fields can move separately. Values nothing else shares are then
+/// changed in place by `+` and `-`.
+#[derive(Debug, Default)]
+struct Moves {
+    active: bool,
+    recording: bool,
+    seen: Vec<(Owner, Vec<String>)>,
+    moved: HashSet<usize>,
+    /// Nodes whose slot this transition takes.
+    taken: HashSet<NodeId>,
+    next: usize,
 }
 
 fn in_type(prog: &Program, n: NodeId) -> String {
@@ -445,24 +481,52 @@ impl Gen<'_> {
     // ---- Expressions ----
 
     fn reference(&self, r: &Ref) -> String {
-        let mut s = match r.root {
-            Root::This => "this".to_string(),
-            Root::Node(n) => format!(
-                "get(&env.out_{}, {})?",
-                snake(&gname(self.prog, n)),
-                quote(&self.prog.node(n).qual_name()),
-            ),
-            Root::Bind => bind_var(r.bind.as_deref().unwrap()),
+        let owner = match r.root {
+            Root::This => Owner::This,
+            Root::Node(n) => Owner::Node(n),
+            Root::Bind => Owner::Bind(r.bind.clone().unwrap()),
         };
         // Field access sees through boxes; a boxed last field is unboxed.
         let mut ty = &r.root_ty;
         let mut boxed = false;
+        let mut through_box = false;
+        let mut path = String::new();
         for f in &r.fields {
+            through_box |= boxed;
             boxed = self.is_boxed(ty, f);
             ty = ty.field(f, &self.prog.types).unwrap();
-            write!(s, ".{}", rust_ident(f)).unwrap();
+            write!(path, ".{}", rust_ident(f)).unwrap();
         }
-        if boxed { format!("(*{s}).clone()") } else { s + ".clone()" }
+        // A value can't be moved out from behind an `Arc`.
+        let moving = self.should_move(owner, &r.fields) && !through_box;
+        let root = match r.root {
+            Root::This => "this".to_string(),
+            Root::Node(n) if self.moves.borrow().taken.contains(&n) => format!("slot_{}", snake(&gname(self.prog, n))),
+            Root::Node(n) => format!("get(&env.out_{}, {})?", snake(&gname(self.prog, n)), quote(&self.prog.node(n).qual_name())),
+            Root::Bind => bind_var(r.bind.as_deref().unwrap()),
+        };
+        let s = root + &path;
+        match (moving, boxed) {
+            (true, true) => format!("std::sync::Arc::unwrap_or_clone({s})"),
+            (true, false) => s,
+            (false, true) => format!("(*{s}).clone()"),
+            (false, false) => s + ".clone()",
+        }
+    }
+
+    /// Records a read of `owner`, and says whether it moves (see [`Moves`]).
+    fn should_move(&self, owner: Owner, path: &[String]) -> bool {
+        let mut m = self.moves.borrow_mut();
+        if !m.active {
+            return false;
+        }
+        let i = m.next;
+        m.next += 1;
+        if m.recording {
+            m.seen.push((owner, path.to_vec()));
+            return false;
+        }
+        m.moved.contains(&i)
     }
 
     /// `e` as a Rust expression of type `want`. Calls in it use `?`, so it
@@ -699,7 +763,7 @@ impl Gen<'_> {
         let args: Vec<String> = prog.params(n).iter().map(|(p, _)| format!("input.{}", rust_ident(p))).collect();
 
         w.line(&format!("Pc{}::{} => {{", gname(prog, pid), gname(prog, n)));
-        w.line(&format!("let input = get(&env.in_{id}, {})?.clone();", quote(&qual)));
+        w.line(&format!("let input = take_slot(&mut env.in_{id}, {})?;", quote(&qual)));
         if let NodeKind::Id(_) = prog.node(n).kind {
             // id: the value is the output.
             w.line("let this = input.value;");
@@ -709,7 +773,9 @@ impl Gen<'_> {
                 args.join(", "), quote(&qual),
             ));
         }
-        w.line(&format!("env.out_{id} = Some(this.clone());"));
+        if read_nodes(&proc.graph).contains(&n) {
+            w.line(&format!("env.out_{id} = Some(this.clone());"));
+        }
 
         match proc.graph.edges.get(&n) {
             None => {
@@ -834,12 +900,103 @@ impl Gen<'_> {
     }
 
     fn transition(&mut self, w: &mut Writer, pid: NodeId, c: &Call) {
+        let g = &self.prog.proc(pid).graph;
+        // First pass: who is read, in order.
+        *self.moves.borrow_mut() = Moves { active: true, recording: true, ..Default::default() };
+        self.input(c);
+        let seen = std::mem::take(&mut self.moves.borrow_mut().seen);
+        let taken: HashSet<NodeId> = seen
+            .iter()
+            .filter_map(|(o, _)| if let Owner::Node(n) = o { Some(*n) } else { None })
+            .filter(|&n| !live_after(g, c.target, n))
+            .collect();
+        let overlaps = |a: &[String], b: &[String]| a.iter().zip(b).all(|(x, y)| x == y);
+        let moved = (0..seen.len())
+            .filter(|&i| {
+                let (o, p) = &seen[i];
+                let movable = match o {
+                    Owner::Node(n) => taken.contains(n),
+                    Owner::This | Owner::Bind(_) => true,
+                };
+                movable && !seen[i + 1..].iter().any(|(o2, p2)| o2 == o && overlaps(p, p2))
+            })
+            .collect();
+        let mut taken: Vec<NodeId> = taken.into_iter().collect();
+        taken.sort();
+        *self.moves.borrow_mut() = Moves { active: true, moved, taken: taken.iter().copied().collect(), ..Default::default() };
         let input = self.input(c);
+        *self.moves.borrow_mut() = Moves::default();
+        for n in taken {
+            let id = snake(&gname(self.prog, n));
+            w.line(&format!("let slot_{id} = take_slot(&mut env.out_{id}, {})?;", quote(&self.prog.node(n).qual_name())));
+        }
         let target = gname(self.prog, c.target);
         w.line(&format!("env.in_{} = Some({input});", snake(&target)));
         w.line(&format!("pc = Pc{}::{target};", gname(self.prog, pid)));
         w.line("continue;");
     }
+}
+
+/// Nodes whose output some edge of `g` reads.
+fn read_nodes(g: &Graph) -> HashSet<NodeId> {
+    g.edges.keys().flat_map(|&n| edge_reads(g, n)).collect()
+}
+
+/// Nodes whose output the edge from `n` reads (conditions, `for each`
+/// arrays and arguments).
+fn edge_reads(g: &Graph, n: NodeId) -> HashSet<NodeId> {
+    let mut exprs: Vec<&Expr> = vec![];
+    match g.edges.get(&n) {
+        None => {}
+        Some(Edge::Match(arms)) => arms.iter().for_each(|a| exprs.extend(a.conds())),
+        Some(Edge::ForEach { dim, .. }) => exprs.push(dim),
+        Some(_) => {}
+    }
+    if let Some(e) = g.edges.get(&n) {
+        for c in e.calls() {
+            exprs.extend(c.args.iter().map(|a| &a.value));
+        }
+    }
+    let mut refs = vec![];
+    for e in exprs {
+        e.refs(&mut refs);
+    }
+    refs.into_iter().filter_map(|r| if let Root::Node(m) = r.root { Some(m) } else { None }).collect()
+}
+
+/// States that can run after `n` in the same env: its calls' targets, and
+/// for a `for each` both the region (run on copies of the env, so its reads
+/// count) and the `collect` target. A region's sink ends its element.
+fn successors(g: &Graph, n: NodeId) -> Vec<NodeId> {
+    match g.edges.get(&n) {
+        None | Some(Edge::Collect(_)) => vec![],
+        Some(Edge::ForEach { call, .. }) => {
+            let sink = g.regions[g.opens[&n]].sink.unwrap();
+            let mut out = vec![call.target];
+            if let Some(Edge::Collect(c)) = g.edges.get(&sink) {
+                out.push(c.target);
+            }
+            out
+        }
+        Some(e) => e.calls().iter().map(|c| c.target).collect(),
+    }
+}
+
+/// Whether `m`'s slot can still be read once control moves to `target`:
+/// some state reachable from it reads `m` before `m` runs again.
+fn live_after(g: &Graph, target: NodeId, m: NodeId) -> bool {
+    let mut seen = HashSet::new();
+    let mut stack = vec![target];
+    while let Some(x) = stack.pop() {
+        if x == m || !seen.insert(x) {
+            continue;
+        }
+        if edge_reads(g, x).contains(&m) {
+            return true;
+        }
+        stack.extend(successors(g, x));
+    }
+    false
 }
 
 /// The Rust variable of a switch-arm binding.
@@ -936,6 +1093,11 @@ fn get<'a, T>(slot: &'a Option<T>, node: &str) -> Result<&'a T, Error> {
     slot.as_ref().ok_or_else(|| format!("{node} has not run").into())
 }
 
+/// Moves a value out of its slot, at its last read.
+fn take_slot<T>(slot: &mut Option<T>, node: &str) -> Result<T, Error> {
+    slot.take().ok_or_else(|| format!("{node} has not run").into())
+}
+
 /// Looks up `k`, failing if it's missing.
 fn map_get<K: Ord + std::fmt::Debug, V: Clone>(m: &std::collections::BTreeMap<K, V>, k: &K) -> Result<V, Error> {
     m.get(k).cloned().ok_or_else(|| format!("key {k:?} not found").into())
@@ -971,10 +1133,11 @@ use std::sync::Arc;
 /// A string. Immutable, so a clone shares it.
 pub type Str = Arc<str>;
 
-/// An array. Immutable, so a clone shares it; `concat` makes a new one.
-/// Derefs to a slice.
+/// An array. Immutable, so a clone shares it. `concat` reuses this one's
+/// buffer when nothing else shares it, and copies otherwise. Derefs to a
+/// slice.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct List<T>(Arc<[T]>);
+pub struct List<T>(Arc<Vec<T>>);
 
 impl<T> Clone for List<T> {
     fn clone(&self) -> Self {
@@ -984,7 +1147,7 @@ impl<T> Clone for List<T> {
 
 impl<T> Default for List<T> {
     fn default() -> Self {
-        List(Arc::from(Vec::new()))
+        List(Arc::new(Vec::new()))
     }
 }
 
@@ -997,19 +1160,19 @@ impl<T> std::ops::Deref for List<T> {
 
 impl<T> From<Vec<T>> for List<T> {
     fn from(v: Vec<T>) -> Self {
-        List(v.into())
+        List(Arc::new(v))
     }
 }
 
 impl<T: Clone> From<&[T]> for List<T> {
     fn from(v: &[T]) -> Self {
-        List(v.into())
+        List(Arc::new(v.to_vec()))
     }
 }
 
 impl<T> FromIterator<T> for List<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        List(iter.into_iter().collect())
+        List(Arc::new(iter.into_iter().collect()))
     }
 }
 
@@ -1017,7 +1180,7 @@ impl<T: Clone> IntoIterator for List<T> {
     type Item = T;
     type IntoIter = std::vec::IntoIter<T>;
     fn into_iter(self) -> Self::IntoIter {
-        self.0.to_vec().into_iter()
+        Arc::unwrap_or_clone(self.0).into_iter()
     }
 }
 
@@ -1036,14 +1199,17 @@ impl<T: std::fmt::Debug> std::fmt::Debug for List<T> {
 }
 
 impl<T: Clone> List<T> {
-    /// A new array with this one's elements, then `other`'s.
-    pub fn concat(&self, other: &List<T>) -> List<T> {
-        self.iter().chain(other.iter()).cloned().collect()
+    /// This array's elements, then `other`'s. Appends in place when nothing
+    /// else shares this array.
+    pub fn concat(mut self, other: &List<T>) -> List<T> {
+        Arc::make_mut(&mut self.0).extend_from_slice(other);
+        self
     }
 }
 
-/// A map. Immutable, so a clone shares it; `merge` and `without` make new
-/// ones. Derefs to a `BTreeMap`.
+/// A map. Immutable, so a clone shares it. `merge` and `without` change
+/// this one in place when nothing else shares it, and copy otherwise.
+/// Derefs to a `BTreeMap`.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Map<K, V>(Arc<BTreeMap<K, V>>);
 
@@ -1093,20 +1259,21 @@ impl<K: std::fmt::Debug, V: std::fmt::Debug> std::fmt::Debug for Map<K, V> {
 }
 
 impl<K: Ord + Clone, V: Clone> Map<K, V> {
-    /// A new map with this one's entries and `other`'s; `other` wins.
-    pub fn merge(&self, other: &Map<K, V>) -> Map<K, V> {
-        let mut m = (*self.0).clone();
-        m.extend(other.iter().map(|(k, v)| (k.clone(), v.clone())));
-        Map(Arc::new(m))
+    /// This map's entries and `other`'s; `other` wins.
+    pub fn merge(mut self, other: &Map<K, V>) -> Map<K, V> {
+        Arc::make_mut(&mut self.0).extend(other.iter().map(|(k, v)| (k.clone(), v.clone())));
+        self
     }
 
-    /// A new map without `keys`.
-    pub fn without(&self, keys: &[K]) -> Map<K, V> {
-        let mut m = (*self.0).clone();
-        for k in keys {
-            m.remove(k);
+    /// This map without `keys`.
+    pub fn without(mut self, keys: &[K]) -> Map<K, V> {
+        if keys.iter().any(|k| self.0.contains_key(k)) {
+            let m = Arc::make_mut(&mut self.0);
+            for k in keys {
+                m.remove(k);
+            }
         }
-        Map(Arc::new(m))
+        self
     }
 }
 
