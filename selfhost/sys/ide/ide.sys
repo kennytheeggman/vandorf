@@ -1,0 +1,153 @@
+// The IDE (src/serve.rs in the reference): explorer, diagram and text
+// viewer, terminals, over the working directory. Served as [http.ide] in
+// vandorf.toml: every path is a raw route to Ide.
+//
+// Writes and terminals need the per-run token the pages are served with
+// (X-Vandorf-Token), so other sites can't drive them, and a loopback Host,
+// against DNS rebinding: the server listens on a loopback address.
+
+type HttpRequest = { method: string, path: string, query: map[string]string, headers: map[string]string, body: string };
+type HttpResponse = { status: int, headers: map[string]string, body: string };
+type TermChunk = { ok: bool, data: string, next: int, closed: bool };
+
+interface Session {
+	// A random token for this run.
+	func Token(n: int): string = "../../rs/src/ide_io.rs:token";
+	// The source directory: the working directory, canonical.
+	func Base(n: int): string = "../../rs/src/ide_io.rs:base";
+}
+
+interface Pages {
+	// An IDE page by name, or "".
+	func Get(name: string): string = "../../rs/src/ide_io.rs:page";
+}
+
+interface Files {
+	func Canon(path: string): Res<string> = "../../rs/src/ide_io.rs:canon";
+	func Read(path: string): Res<string> = "../../rs/src/ide_io.rs:try_read";
+	func Write(path: string, text: string): Res<string> = "../../rs/src/ide_io.rs:try_write";
+	// The .sys files under base, relative to it, sorted.
+	func Walk(base: string): []string = "../../rs/src/ide_io.rs:walk_rel";
+}
+
+interface Term {
+	// A shell on a pty in cwd; its id.
+	func Spawn(cwd: string): Res<int> = "../../rs/src/ide_io.rs:term_spawn";
+	func List(n: int): []int = "../../rs/src/ide_io.rs:term_list";
+	// Output from offset `from`, waiting a while for some.
+	func Read(id: int, from: int): TermChunk = "../../rs/src/ide_io.rs:term_read";
+	func Input(id: int, data: string): Res<string> = "../../rs/src/ide_io.rs:term_input";
+	func Resize(id: int, cols: int, rows: int): Res<string> = "../../rs/src/ide_io.rs:term_resize";
+	func Kill(id: int): bool = "../../rs/src/ide_io.rs:term_kill";
+}
+
+// Parses a file, a failure being a value.
+func TryParse(src: string, file: int): Res<File> = "../../rs/src/ide_io.rs:try_parse";
+func Compact(j: Json): string = "../../rs/src/doc_leaf.rs:compact";
+func ParseJson(text: string): Res<Json> = "../../rs/src/doc_leaf.rs:parse_json";
+func JsonStr(j: Json, key: string): MaybeStr = "../../rs/src/doc_leaf.rs:json_str";
+// The page served at a path ("" if none), and one carrying the token.
+func PageName(path: string): string = "../../rs/src/ide_leaf.rs:page_name";
+func PageResponse(text: string, token: string): HttpResponse = "../../rs/src/ide_leaf.rs:page_response";
+// 200 and the JSON; 400 and {"ok": false, "error": msg}; 403; 404.
+func Api(j: Json): HttpResponse = "../../rs/src/ide_leaf.rs:api";
+func ApiErr(msg: string): HttpResponse = "../../rs/src/ide_leaf.rs:api_err";
+func Forbidden(n: int): HttpResponse = "../../rs/src/ide_leaf.rs:forbidden";
+func NotFound(n: int): HttpResponse = "../../rs/src/ide_leaf.rs:not_found";
+// A loopback Host and the session's token.
+func Authorized(headers: map[string]string, token: string): bool = "../../rs/src/ide_leaf.rs:authorized";
+func HasPrefix(s: string, prefix: string): bool = "../../rs/src/cli_leaf.rs:starts_with";
+
+proc Ide(At): HttpResponse {
+	func At(req: HttpRequest): HttpRequest = "../../rs/src/sema_leaf.rs:same";
+	At -> Session.Token(n = 0);
+	Session.Token -> Session.Base(n = 0);
+	Session.Base switch {
+		(At.method == "GET" && PageName(path = At.path) != "") -> Pages.Get(name = PageName(path = At.path)),
+		(At.method == "GET" && At.path == "/api/sources") -> Files.Walk(base = this) as Sources,
+		(At.method == "GET" && At.path == "/api/tree") -> Tree(base = this),
+		(At.method == "GET" && At.path == "/api/source") -> SourceRoute(s = { base = this, query = At.query }),
+		(At.method == "POST" && At.path == "/api/compile") -> Compile(s = { base = this, body = At.body }),
+		(At.method == "POST" && At.path == "/api/save" && Authorized(headers = At.headers, token = Session.Token)) -> Save(s = { base = this, body = At.body }),
+		(At.method == "POST" && At.path == "/api/save") -> id(Forbidden(n = 0)),
+		(HasPrefix(s = At.path, prefix = "/api/term") && Authorized(headers = At.headers, token = Session.Token)) -> TermRoute(s = { base = this, req = At }),
+		(HasPrefix(s = At.path, prefix = "/api/term")) -> id(Forbidden(n = 0)),
+		else -> id(NotFound(n = 0))
+	};
+	Pages.Get -> id(PageResponse(text = this, token = Session.Token));
+	Sources -> id(Api(j = Obj([{ key = "ok", value = Bool(true) }, { key = "root", value = Str(Session.Base) }, { key = "files", value = Arr(Strs(xs = this)) }])));
+}
+
+func Strs(xs: []string): []Json = "../../rs/src/ide_leaf.rs:strs";
+
+// Resolves p under base, refusing paths that escape it.
+proc ResolvePath(At): Res<string> {
+	func At(s: { base: string, p: string }): { base: string, p: string } = "../../rs/src/sema_leaf.rs:same";
+	func Bad(p: string): bool = "../../rs/src/ide_leaf.rs:bad_path";
+	At switch {
+		(Bad(p = this.p)) -> id(Err({ msg = "invalid path", span = { at = 0, end = 0, file = 0 } })),
+		else -> Files.Canon(path = JoinP(a = this.base, b = this.p))
+	};
+	Files.Canon switch {
+		Ok(full) -> switch {
+			(full == At.base || HasPrefix(s = full, prefix = At.base + "/")) -> id(Ok(full)),
+			else -> id(Err({ msg = "path escapes source directory: " + At.p, span = { at = 0, end = 0, file = 0 } }))
+		},
+		Err(e) -> id(Err({ msg = "cannot read " + At.p + ": " + e.msg, span = e.span }))
+	};
+}
+
+proc ReadSource(At): Res<string> {
+	func At(s: { base: string, p: string }): { base: string, p: string } = "../../rs/src/sema_leaf.rs:same";
+	At -> ResolvePath(s = this);
+	ResolvePath switch {
+		Ok(full) -> Files.Read(path = full),
+		Err(e) -> id(Err(e))
+	};
+	Files.Read switch {
+		Ok(text) -> id(Ok(text)),
+		Err(e) -> id(Err({ msg = "cannot read " + At.p + ": " + e.msg, span = e.span }))
+	};
+}
+
+// GET /api/source?path=..
+proc SourceRoute(At): HttpResponse {
+	func At(s: { base: string, query: map[string]string }): { base: string, query: map[string]string } = "../../rs/src/sema_leaf.rs:same";
+	At switch {
+		("path" in this.query) -> ReadSource(s = { base = this.base, p = this.query["path"] }),
+		else -> id(ApiErr(msg = "missing ?path="))
+	};
+	ReadSource switch {
+		Ok(text) -> id(Api(j = Obj([{ key = "ok", value = Bool(true) }, { key = "path", value = Str(At.query["path"]) }, { key = "source", value = Str(text) }]))),
+		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+}
+
+// POST /api/save {path, source}: writes an existing .sys file.
+proc Save(At): HttpResponse {
+	func At(s: { base: string, body: string }): { base: string, body: string } = "../../rs/src/sema_leaf.rs:same";
+	func IsSys(p: string): bool = "../../rs/src/ide_leaf.rs:is_sys";
+	func Len(s: string): int = "../../rs/src/ide_leaf.rs:byte_len";
+	At -> ParseJson(text = this.body);
+	ParseJson switch {
+		Ok(j) -> switch {
+			(!IsSomeS(m = JsonStr(j = j, key = "path"))) -> id(ApiErr(msg = "missing path")),
+			(!IsSomeS(m = JsonStr(j = j, key = "source"))) -> id(ApiErr(msg = "missing source")),
+			else -> ResolvePath(s = { base = At.base, p = UnwrapS(m = JsonStr(j = j, key = "path")) })
+		},
+		Err(e) -> id(ApiErr(msg = "bad request: " + e.msg))
+	};
+	ResolvePath switch {
+		Ok(full) -> switch {
+			(IsSys(p = full)) -> Files.Write(path = full, text = UnwrapS(m = JsonStr(j = UnwrapJ(r = ParseJson), key = "source"))),
+			else -> id(ApiErr(msg = "only existing .sys files can be saved: " + UnwrapS(m = JsonStr(j = UnwrapJ(r = ParseJson), key = "path"))))
+		},
+		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+	Files.Write switch {
+		Ok(_) -> id(Api(j = Obj([{ key = "ok", value = Bool(true) }, { key = "path", value = Str(UnwrapS(m = JsonStr(j = UnwrapJ(r = ParseJson), key = "path"))) }, { key = "bytes", value = Num(Len(s = UnwrapS(m = JsonStr(j = UnwrapJ(r = ParseJson), key = "source")))) }]))),
+		Err(e) -> id(ApiErr(msg = "cannot write " + UnwrapS(m = JsonStr(j = UnwrapJ(r = ParseJson), key = "path")) + ": " + e.msg))
+	};
+}
+
+func UnwrapJ(r: Res<Json>): Json = "../../rs/src/ide_leaf.rs:unwrap_j";

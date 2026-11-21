@@ -2004,3 +2004,14 @@ pub fn raw_server_of(servers: List<ServerSpec>, proc: Str) -> Result<Str, String
 pub fn raw_param_type(g: RGen, pid: i64) -> Result<Str, String> {
     Ok(rtype(&g.table, &params_of(&g.prog.nodes, pid)[0].ty)?.into())
 }
+
+/// The signature an implementation must have.
+pub fn rust_signature(prog: Program, t: Table, n: i64, name: Str, types_path: Str) -> Result<Str, String> {
+    let qual = format!("{types_path}::");
+    let params: Vec<String> = params_of(&prog.nodes, n)
+        .iter()
+        .map(|m| Ok(format!("{}: {}", rust_local(m.name.clone())?, rust_render(t.clone(), get(t.clone(), m.ty.clone())?, qual.as_str().into())?)))
+        .collect::<Result<_, String>>()?;
+    let ret = rust_render(t.clone(), get(t.clone(), ret_of(&prog.nodes, n))?, qual.as_str().into())?;
+    Ok(format!("pub fn {name}({}) -> Result<{ret}, E>", params.join(", ")).into())
+}

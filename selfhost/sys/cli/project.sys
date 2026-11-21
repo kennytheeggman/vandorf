@@ -13,6 +13,8 @@ type Project = { root: string, manifest: Manifest, paths: []string, srcs: []stri
 func ParseManifest(text: string): Res<Manifest> = "../../rs/src/cli_leaf.rs:parse_manifest";
 func JoinP(a: string, b: string): string = "../../rs/src/cli_leaf.rs:join";
 func Parent(p: string): string = "../../rs/src/cli_leaf.rs:parent";
+// Implementation paths made relative to out (dirs: each file's directory).
+func RebaseImpls(prog: Program, dirs: []string, out: string): Program = "../../rs/src/cli_leaf.rs:rebase_impls";
 // target relative to the directory from; both absolute.
 func Relative(target: string, from: string): string = "../../rs/src/cli_leaf.rs:relative";
 func SortDedup(xs: []string): []string = "../../rs/src/cli_leaf.rs:sort_dedup";

@@ -249,3 +249,203 @@ pub fn edges_json(l: Layout) -> Result<Json, String> {
     }
     Ok(Json::Arr(out.into()))
 }
+
+// ---- JSON for the IDE: compact, keys sorted (as serde_json's Value) ----
+
+fn write_compact(j: &Json, out: &mut String) {
+    match j {
+        Json::Null => out.push_str("null"),
+        Json::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        Json::Num(i) => out.push_str(&i.to_string()),
+        Json::Str(s) => escape(s, out),
+        Json::Arr(xs) => {
+            out.push('[');
+            for (i, x) in xs.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                write_compact(x, out);
+            }
+            out.push(']');
+        }
+        Json::Obj(fs) => {
+            let mut fs: Vec<&JsonField> = fs.iter().collect();
+            fs.sort_by(|a, b| a.key.cmp(&b.key));
+            out.push('{');
+            for (i, f) in fs.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                escape(&f.key, out);
+                out.push(':');
+                write_compact(&f.value, out);
+            }
+            out.push('}');
+        }
+    }
+}
+
+pub fn compact(j: Json) -> Result<Str, String> {
+    let mut out = String::new();
+    write_compact(&j, &mut out);
+    Ok(out.into())
+}
+
+/// A JSON text as a Json; numbers that aren't ints are an error.
+pub fn parse_json(text: Str) -> Result<ResJson, String> {
+    struct P<'a> {
+        b: &'a [u8],
+        i: usize,
+    }
+    impl P<'_> {
+        fn ws(&mut self) {
+            while self.i < self.b.len() && self.b[self.i].is_ascii_whitespace() {
+                self.i += 1;
+            }
+        }
+        fn value(&mut self) -> Result<Json, String> {
+            self.ws();
+            match self.b.get(self.i) {
+                None => Err("EOF while parsing a value".into()),
+                Some(b'n') if self.b[self.i..].starts_with(b"null") => {
+                    self.i += 4;
+                    Ok(Json::Null)
+                }
+                Some(b't') if self.b[self.i..].starts_with(b"true") => {
+                    self.i += 4;
+                    Ok(Json::Bool(true))
+                }
+                Some(b'f') if self.b[self.i..].starts_with(b"false") => {
+                    self.i += 5;
+                    Ok(Json::Bool(false))
+                }
+                Some(b'"') => Ok(Json::Str(self.string()?.into())),
+                Some(b'[') => {
+                    self.i += 1;
+                    let mut xs = vec![];
+                    self.ws();
+                    if self.b.get(self.i) == Some(&b']') {
+                        self.i += 1;
+                        return Ok(Json::Arr(xs.into()));
+                    }
+                    loop {
+                        xs.push(self.value()?);
+                        self.ws();
+                        match self.b.get(self.i) {
+                            Some(b',') => self.i += 1,
+                            Some(b']') => {
+                                self.i += 1;
+                                return Ok(Json::Arr(xs.into()));
+                            }
+                            _ => return Err(format!("expected `,` or `]` at {}", self.i)),
+                        }
+                    }
+                }
+                Some(b'{') => {
+                    self.i += 1;
+                    let mut fs = vec![];
+                    self.ws();
+                    if self.b.get(self.i) == Some(&b'}') {
+                        self.i += 1;
+                        return Ok(Json::Obj(fs.into()));
+                    }
+                    loop {
+                        self.ws();
+                        let k = self.string()?;
+                        self.ws();
+                        if self.b.get(self.i) != Some(&b':') {
+                            return Err(format!("expected `:` at {}", self.i));
+                        }
+                        self.i += 1;
+                        fs.push(JsonField { key: k.into(), value: self.value()? });
+                        self.ws();
+                        match self.b.get(self.i) {
+                            Some(b',') => self.i += 1,
+                            Some(b'}') => {
+                                self.i += 1;
+                                return Ok(Json::Obj(fs.into()));
+                            }
+                            _ => return Err(format!("expected `,` or `}}` at {}", self.i)),
+                        }
+                    }
+                }
+                Some(c) if *c == b'-' || c.is_ascii_digit() => {
+                    let start = self.i;
+                    self.i += 1;
+                    while self.i < self.b.len() && matches!(self.b[self.i], b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' | b'-') {
+                        self.i += 1;
+                    }
+                    let t = String::from_utf8_lossy(&self.b[start..self.i]).into_owned();
+                    t.parse().map(Json::Num).map_err(|_| format!("number {t} isn't an int"))
+                }
+                Some(_) => Err(format!("expected value at {}", self.i)),
+            }
+        }
+        fn string(&mut self) -> Result<String, String> {
+            if self.b.get(self.i) != Some(&b'"') {
+                return Err(format!("expected a string at {}", self.i));
+            }
+            self.i += 1;
+            let mut out = Vec::new();
+            loop {
+                match self.b.get(self.i) {
+                    None => return Err("EOF while parsing a string".into()),
+                    Some(b'"') => {
+                        self.i += 1;
+                        return String::from_utf8(out).map_err(|e| e.to_string());
+                    }
+                    Some(b'\\') => {
+                        let c = *self.b.get(self.i + 1).ok_or("EOF while parsing a string")?;
+                        self.i += 2;
+                        match c {
+                            b'n' => out.push(b'\n'),
+                            b't' => out.push(b'\t'),
+                            b'r' => out.push(b'\r'),
+                            b'b' => out.push(8),
+                            b'f' => out.push(12),
+                            b'u' => {
+                                let hex = std::str::from_utf8(self.b.get(self.i..self.i + 4).ok_or("bad escape")?).map_err(|e| e.to_string())?;
+                                let mut cp = u32::from_str_radix(hex, 16).map_err(|e| e.to_string())?;
+                                self.i += 4;
+                                // A surrogate pair.
+                                if (0xd800..0xdc00).contains(&cp) && self.b[self.i..].starts_with(b"\\u") {
+                                    let lo = std::str::from_utf8(self.b.get(self.i + 2..self.i + 6).ok_or("bad escape")?).map_err(|e| e.to_string())?;
+                                    let lo = u32::from_str_radix(lo, 16).map_err(|e| e.to_string())?;
+                                    self.i += 6;
+                                    cp = 0x10000 + ((cp - 0xd800) << 10) + (lo - 0xdc00);
+                                }
+                                out.extend_from_slice(char::from_u32(cp).unwrap_or('\u{fffd}').to_string().as_bytes());
+                            }
+                            c => out.push(c),
+                        }
+                    }
+                    Some(&c) => {
+                        out.push(c);
+                        self.i += 1;
+                    }
+                }
+            }
+        }
+    }
+    let mut p = P { b: text.as_bytes(), i: 0 };
+    let r = p.value().and_then(|v| {
+        p.ws();
+        if p.i == p.b.len() { Ok(v) } else { Err(format!("trailing characters at {}", p.i)) }
+    });
+    Ok(match r {
+        Ok(v) => ResJson::Ok(v),
+        Err(e) => ResJson::Err(Diag { msg: e.into(), span: Span { at: 0, end: 0, file: 0 } }),
+    })
+}
+
+/// A string field of a JSON object, if it is one.
+pub fn json_str(j: Json, key: Str) -> Result<MaybeStr, String> {
+    Ok(match j {
+        Json::Obj(fs) => fs.iter().find(|f| f.key == key).and_then(|f| match &f.value {
+            Json::Str(s) => Some(MaybeStr::Some(s.clone())),
+            _ => None,
+        }).unwrap_or(MaybeStr::None),
+        _ => MaybeStr::None,
+    })
+}
+

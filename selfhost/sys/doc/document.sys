@@ -41,6 +41,13 @@ proc Document(At): string {
 	Grids -> id(Pretty(j = Obj([{ key = "grids", value = Obj(JsonFields(m = this)) }])));
 }
 
+// The document as a JSON value.
+proc DocumentJson(At): Json {
+	func At(prog: Program): Program = "../../rs/src/sema_leaf.rs:same";
+	At -> Grids(s = { prog = this, procs = Procs(nodes = this.nodes), i = 0, acc = [:] });
+	Grids -> id(Obj([{ key = "grids", value = Obj(JsonFields(m = this)) }]));
+}
+
 func JsonFields(m: map[string]Json): []JsonField = "../../rs/src/doc_leaf.rs:fields";
 
 proc Grids(At): map[string]Json {

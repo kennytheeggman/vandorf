@@ -9,3 +9,5 @@ mod sema_leaf;
 mod doc_leaf;
 mod gen_leaf;
 mod cli_leaf;
+mod ide_io;
+mod ide_leaf;
