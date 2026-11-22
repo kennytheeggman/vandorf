@@ -1,0 +1,16 @@
+// Typedefs, aliases and literals. Expr is recursive: Neg and Add hold
+// Exprs, so the generated types box them (Box<Expr> in Rust, *Expr in Go).
+type Expr = enum { Lit(int), Neg(Expr), Add({ l: Expr, r: Expr }) };
+
+proc Calc(Build): int {
+	func Build(base: int): Expr = "../go/app/impl.go:Build", "../rs/src/impls.rs:build";
+	func Eval(e: Expr, scale: int): int = "../go/app/impl.go:Eval", "../rs/src/impls.rs:eval";
+	func Total(xs: []int): int = "../go/app/impl.go:Total", "../rs/src/impls.rs:total";
+
+	// Build(3) is 3 + 2; this evaluates -(3 + 2) + 10 = 5.
+	Build -> Eval(e = Add({ l = Neg(this), r = Lit(10) }), scale = 1);
+	// A second instance of Eval, with its own output and edge: 5 * 2.
+	Eval -> Eval(e = Build, scale = 2) as Twice;
+	// 5 + 10 + 100
+	Twice -> Total(xs = [Eval, Twice, 100]);
+}

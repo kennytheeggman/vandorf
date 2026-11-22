@@ -1,0 +1,6 @@
+// The `demo` bin's entry (vandorf.toml): `demo <a: int> <b: string>`.
+proc Main(Start): string {
+	func Start(a: int, b: string): { a: int, b: string } = "../go/app/impl.go:Args", "../rs/src/impls.rs:args";
+
+	Start -> Bar(a = this.a, b = this.b);
+}

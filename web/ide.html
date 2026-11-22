@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vandorf IDE</title>
+<link rel="stylesheet" href="/ui.css">
+<style>
+body{ background:var(--app); display:grid; grid-template-rows:1fr 24px }
+iframe{ border:0; width:100%; height:100%; display:block; background:var(--bg) }
+
+#work{ display:grid; grid-template-columns:var(--side,260px) 4px 1fr; min-height:0 }
+#side{ min-width:0; min-height:0; border-right:1px solid var(--line) }
+.split-v{ cursor:col-resize; background:transparent } .split-v:hover,.split-v.drag{ background:var(--accent) }
+.split-h{ cursor:row-resize; height:4px; background:transparent } .split-h:hover,.split-h.drag{ background:var(--accent) }
+#center{ display:grid; grid-template-rows:var(--bar-h) 1fr 4px var(--panel,32%); min-width:0; min-height:0 }
+#center.nopanel{ grid-template-rows:var(--bar-h) 1fr 0 0 }
+#center.nopanel #panel, #center.nopanel .split-h{ display:none }
+
+#tabs{ display:flex; align-items:stretch; overflow-x:auto; overflow-y:hidden; background:var(--bar); border-bottom:1px solid var(--line); scrollbar-width:thin }
+.tab{ display:flex; align-items:center; gap:6px; padding:0 4px 0 10px; border-right:1px solid var(--line); color:var(--mut);
+  white-space:nowrap; cursor:pointer; user-select:none; max-width:240px; position:relative }
+.tab:hover{ background:var(--hover) }
+.tab.on{ background:var(--bg); color:var(--ink) }
+.tab.on::after{ content:""; position:absolute; left:0; right:0; top:0; height:2px; background:var(--accent) }
+.tab .t{ overflow:hidden; text-overflow:ellipsis }
+.tab .f{ font-size:11px; color:var(--mut) }
+.tab .x{ width:20px; height:20px; padding:0; font-size:14px; color:var(--mut) }
+.tab .x:hover{ background:var(--line); color:var(--ink) }
+.tab.dirty .x::before{ content:"\25CF"; color:var(--dirty); font-size:11px }
+.tab.dirty .x span{ display:none }
+.tab.dirty .x:hover::before{ content:"" } .tab.dirty .x:hover span{ display:inline }
+#frames{ position:relative; min-height:0; background:var(--bg) }
+#frames iframe{ position:absolute; inset:0; visibility:hidden }
+#frames iframe.on{ visibility:visible }
+#welcome{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--mut); text-align:center; padding:16px }
+#welcome h2{ color:var(--ink); font-size:18px; margin:0 0 8px }
+#panel{ min-height:0; border-top:1px solid var(--line) }
+
+footer{ display:flex; align-items:center; gap:4px; padding:0 4px; background:var(--bar); border-top:1px solid var(--line);
+  color:var(--mut); font-size:12px; white-space:nowrap; overflow:hidden }
+footer button{ height:20px; padding:0 6px; font-size:12px; color:var(--mut) }
+footer button:hover{ color:var(--ink) }
+footer button.icon{ width:20px; padding:0 }
+footer #status{ padding:0 6px; overflow:hidden; text-overflow:ellipsis }
+footer #status.ok{ color:var(--ok) } footer #status.bad{ color:var(--err); font-weight:600 }
+footer .spacer{ flex:1 }
+footer svg{ width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:1.6 }
+
+/* settings modal */
+#settings{ position:fixed; inset:0; z-index:50; display:none; background:rgba(0,0,0,.25) }
+#settings.on{ display:block }
+#settings .card{ position:absolute; left:8px; bottom:32px; width:300px; max-width:calc(100vw - 16px); background:var(--bg);
+  border:1px solid var(--line); border-radius:var(--r); box-shadow:0 10px 30px var(--shadow); padding:6px 12px 12px }
+#settings h3{ margin:4px 0 8px; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--mut);
+  display:flex; align-items:center } #settings h3 span{ flex:1 }
+#settings .row{ display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:32px }
+#settings .row label{ color:var(--ink) }
+#settings .hint{ color:var(--mut); font-size:12px; margin-top:6px }
+body.dragging iframe{ pointer-events:none }
+@media (max-width: 700px){
+  #work{ grid-template-columns:var(--side,180px) 4px 1fr }
+  .tab .f{ display:none }
+}
+</style>
+</head>
+<body>
+<div id="work">
+  <aside id="side"><iframe id="explorer" src="/explorer" title="Explorer"></iframe></aside>
+  <div class="split-v" id="splitSide"></div>
+  <section id="center">
+    <nav id="tabs"></nav>
+    <div id="frames">
+      <div id="welcome"><div>
+        <h2>No open procs</h2>
+        Pick a proc in the explorer to open its diagram.<br>
+        <kbd>Ctrl</kbd>+click opens another tab &middot; click a proc in a diagram to expand it in place.
+      </div></div>
+    </div>
+    <div class="split-h" id="splitPanel"></div>
+    <div id="panel"><iframe id="terminal" src="/terminal" title="Terminal"></iframe></div>
+  </section>
+</div>
+<footer>
+  <button class="icon" id="bSettings" title="Settings"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg></button>
+  <span id="proj"></span>
+  <span id="status">Ready</span>
+  <span class="spacer"></span>
+  <span id="where"></span>
+  <button id="bPanel" title="Toggle the terminal (Ctrl+`)">Terminal</button>
+</footer>
+<div id="settings">
+  <div class="card" role="dialog" aria-label="Settings">
+    <h3><span>Settings</span><button class="icon" id="sClose" title="Close (Esc)">&times;</button></h3>
+    <div class="row"><label>Theme</label>
+      <div class="seg" id="sTheme"><button data-v="system">System</button><button data-v="light">Light</button><button data-v="dark">Dark</button></div></div>
+    <div class="row"><label>Terminal panel</label>
+      <div class="seg" id="sPanel"><button data-v="1">Shown</button><button data-v="0">Hidden</button></div></div>
+    <div class="hint"><kbd>Ctrl</kbd>+<kbd>`</kbd> toggles the terminal &middot; <kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+<kbd>S</kbd> saves the file.</div>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+var $ = function(id){ return document.getElementById(id); };
+function store(k, v){
+  try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); }
+  catch (e) { return null; }
+}
+function loadJSON(k, d){ try { var v = JSON.parse(store(k)); return v == null ? d : v; } catch (e) { return d; } }
+function post(win, msg){ try { win.postMessage(msg, location.origin); } catch (e) {} }
+
+/* ---------- theme ---------- */
+var themePref = store('vandorf.ide.theme') || 'system';
+var mq = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
+var theme = 'light';
+function frames(){ return Array.prototype.slice.call(document.querySelectorAll('iframe')); }
+function applyTheme(){
+  theme = themePref === 'system' ? (mq && mq.matches ? 'dark' : 'light') : themePref;
+  document.documentElement.setAttribute('data-theme', theme);
+  frames().forEach(function(f){ if (f.contentWindow) post(f.contentWindow, { type: 'vandorf-theme', theme: theme }); });
+  segOn($('sTheme'), themePref);
+}
+function segOn(seg, v){ Array.prototype.forEach.call(seg.children, function(b){ b.classList.toggle('on', b.dataset.v === String(v)); }); }
+if (mq && mq.addEventListener) mq.addEventListener('change', function(){ if (themePref === 'system') applyTheme(); });
+$('sTheme').onclick = function(e){
+  var b = e.target.closest('button'); if (!b) return;
+  themePref = b.dataset.v; store('vandorf.ide.theme', themePref); applyTheme();
+};
+applyTheme();
+
+/* ---------- settings ---------- */
+function settings(on){ $('settings').classList.toggle('on', on); }
+$('bSettings').onclick = function(){ settings(!$('settings').classList.contains('on')); };
+$('sClose').onclick = function(){ settings(false); };
+$('settings').onclick = function(e){ if (e.target === this) settings(false); };
+window.addEventListener('keydown', function(e){ if (e.key === 'Escape') settings(false); });
+$('sPanel').onclick = function(e){ var b = e.target.closest('button'); if (b) togglePanel(b.dataset.v === '1'); };
+
+/* ---------- splitters ---------- */
+function drag(el, onMove){
+  el.addEventListener('pointerdown', function(e){
+    e.preventDefault(); el.classList.add('drag'); document.body.classList.add('dragging');
+    function mv(ev){ onMove(ev); }
+    function up(){ el.classList.remove('drag'); document.body.classList.remove('dragging');
+      window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); }
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+  });
+}
+var sideW = +store('vandorf.ide.side') || 260, panelH = store('vandorf.ide.panel') || '32%';
+document.body.style.setProperty('--side', sideW + 'px');
+$('center').style.setProperty('--panel', panelH);
+drag($('splitSide'), function(e){
+  sideW = Math.max(140, Math.min(window.innerWidth - 240, e.clientX));
+  document.body.style.setProperty('--side', sideW + 'px'); store('vandorf.ide.side', sideW);
+});
+drag($('splitPanel'), function(e){
+  var r = $('center').getBoundingClientRect();
+  var h = Math.max(80, Math.min(r.height - 120, r.bottom - e.clientY));
+  panelH = h + 'px'; $('center').style.setProperty('--panel', panelH); store('vandorf.ide.panel', panelH);
+});
+function togglePanel(show){
+  var c = $('center'), on = show === undefined ? c.classList.contains('nopanel') : show;
+  c.classList.toggle('nopanel', !on); $('bPanel').classList.toggle('on', on); segOn($('sPanel'), on ? 1 : 0);
+  store('vandorf.ide.nopanel', on ? '0' : '1');
+  if (on) post($('terminal').contentWindow, { type: 'term-focus' });
+}
+togglePanel(store('vandorf.ide.nopanel') !== '1');
+$('bPanel').onclick = function(){ togglePanel(); };
+window.addEventListener('keydown', function(e){
+  if (e.ctrlKey && e.key === '`'){ e.preventDefault(); togglePanel(); }
+});
+
+/* ---------- project info (for terminal commands and the header) ---------- */
+var tree = null;
+function loadTree(){
+  return fetch('/api/tree').then(function(r){ return r.json(); }).then(function(t){ tree = t; tabs.forEach(label); showWhere(); }).catch(function(){});
+}
+function fileInfo(path){
+  if (!tree) return null;
+  for (var i = 0; i < tree.files.length; i++) if (tree.files[i].path === path) return tree.files[i];
+  return null;
+}
+/* The file declaring a grid (a proc's qualified name), from the outlines. */
+function fileOfProc(proc){
+  if (!tree) return null;
+  function has(items){
+    for (var i = 0; i < items.length; i++){
+      if (items[i].kind === 'proc' && items[i].qual === proc) return true;
+      if (has(items[i].children || [])) return true;
+    }
+    return false;
+  }
+  for (var i = 0; i < tree.files.length; i++) if (has(tree.files[i].items)) return tree.files[i].path;
+  return null;
+}
+
+/* ---------- tabs ---------- */
+var tabs = [], active = null, seq = 0, buffers = loadJSON('vandorf.ide.buffers', {});
+function keyOf(path, proc){ return path + '#' + (proc || ''); }
+function projectKey(dir){ return 'project:' + dir; }
+/* The project whose manifest is in dir, from the outlines. */
+function projectAt(dir){
+  if (!tree) return null;
+  for (var i = 0; i < tree.files.length; i++){ var p = tree.files[i].project; if (p && p.dir === dir) return p; }
+  return null;
+}
+/* What runs a proc: ["bin demo", "POST /api/x"], or null. */
+function entryOf(path, proc){
+  var f = fileInfo(path);
+  if (!f || !proc) return null;
+  for (var i = 0; i < f.items.length; i++) if (f.items[i].kind === 'proc' && f.items[i].qual === proc) return f.items[i].entry || null;
+  return null;
+}
+function tabByWin(w){ for (var i = 0; i < tabs.length; i++) if (tabs[i].frame.contentWindow === w) return tabs[i]; return null; }
+function saveTabs(){
+  store('vandorf.ide.tabs', JSON.stringify({
+    tabs: tabs.map(function(t){ return t.project != null ? { project: t.project } : { path: t.path, proc: t.proc, mode: t.mode }; }),
+    active: active ? tabs.indexOf(active) : -1,
+  }));
+}
+function saveBuffers(){ store('vandorf.ide.buffers', JSON.stringify(buffers)); }
+
+function open(o){
+  if (!o || (!o.path && o.project == null)) return;
+  if (o.project != null) return openProject(o);
+  var key = keyOf(o.path, o.proc);
+  if (!o.newTab){
+    for (var i = 0; i < tabs.length; i++) if (tabs[i].key === key){
+      activate(tabs[i]);
+      if (o.line != null || o.mode) post(tabs[i].frame.contentWindow, { type: 'ide-goto', line: o.line, mode: o.mode });
+      return;
+    }
+  }
+  var t = { id: ++seq, path: o.path, proc: o.proc || null, key: key, mode: o.mode || (o.proc ? 'diagram' : 'text'),
+            line: o.line, dirty: false };
+  t.frame = document.createElement('iframe');
+  t.frame.title = (o.proc || o.path);
+  t.frame.src = '/viewer?tab=' + t.id;
+  $('frames').appendChild(t.frame);
+  t.el = document.createElement('div');
+  t.el.className = 'tab';
+  t.el.title = o.path + (o.proc ? ' — ' + o.proc : '');
+  t.el.innerHTML = '<span class="badge"></span><span class="t"></span><span class="f"></span><button class="x" title="Close"><span>&times;</span></button>';
+  t.el.onclick = function(e){ if (e.target.closest('.x')) close(t); else activate(t); };
+  t.el.onauxclick = function(e){ if (e.button === 1){ e.preventDefault(); close(t); } };
+  // Insert after the active tab, like most editors.
+  var at = active ? tabs.indexOf(active) + 1 : tabs.length;
+  tabs.splice(at, 0, t);
+  var next = $('tabs').children[at];
+  $('tabs').insertBefore(t.el, next || null);
+  label(t);
+  activate(t);
+}
+/* A project's overview, one tab per project. */
+function openProject(o){
+  var key = projectKey(o.project);
+  for (var i = 0; i < tabs.length; i++) if (tabs[i].key === key){ activate(tabs[i]); return; }
+  var t = { id: ++seq, project: o.project, path: null, proc: null, key: key, mode: 'project', dirty: false };
+  t.frame = document.createElement('iframe');
+  t.frame.title = 'Project ' + o.project;
+  t.frame.src = '/project?dir=' + encodeURIComponent(o.project);
+  $('frames').appendChild(t.frame);
+  t.el = document.createElement('div');
+  t.el.className = 'tab';
+  t.el.title = (o.project || '.') + '/vandorf.toml';
+  t.el.innerHTML = '<span class="badge project"></span><span class="t"></span><span class="f">project</span><button class="x" title="Close"><span>&times;</span></button>';
+  t.el.onclick = function(e){ if (e.target.closest('.x')) close(t); else activate(t); };
+  t.el.onauxclick = function(e){ if (e.button === 1){ e.preventDefault(); close(t); } };
+  var at = active ? tabs.indexOf(active) + 1 : tabs.length;
+  tabs.splice(at, 0, t);
+  $('tabs').insertBefore(t.el, $('tabs').children[at] || null);
+  label(t);
+  activate(t);
+}
+function label(t){
+  if (t.project != null){
+    var pj = projectAt(t.project);
+    t.el.querySelector('.t').textContent = pj ? pj.name : (t.project.split('/').pop() || '.');
+    return;
+  }
+  var base = t.path.split('/').pop();
+  var bd = t.el.querySelector('.badge');
+  var entry = t.proc && entryOf(t.path, t.proc);
+  bd.className = 'badge ' + (t.proc ? 'proc' : 'file') + (entry ? ' entry' : ''); bd.textContent = t.proc ? 'P' : 'S';
+  bd.title = entry ? 'Entry point: ' + entry.join(', ') : '';
+  t.el.querySelector('.t').textContent = t.proc ? t.proc.split('.').pop() : base;
+  t.el.querySelector('.f').textContent = t.proc ? base : '';
+  t.el.classList.toggle('dirty', !!buffers[t.path]);
+}
+function activate(t){
+  active = t;
+  tabs.forEach(function(x){ x.el.classList.toggle('on', x === t); x.frame.classList.toggle('on', x === t); });
+  $('welcome').style.display = t ? 'none' : '';
+  if (t){ t.el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); post(t.frame.contentWindow, { type: 'ide-activate' }); }
+  post($('explorer').contentWindow, { type: 'ide-active', path: t && t.path, proc: t && t.proc, project: t ? t.project : null });
+  showWhere(); saveTabs();
+}
+function close(t){
+  var i = tabs.indexOf(t);
+  if (i < 0) return;
+  if (t.path && buffers[t.path] && !tabs.some(function(x){ return x !== t && x.path === t.path; })){
+    if (!confirm(t.path + ' has unsaved changes. Close and keep them as a draft?\n(OK keeps the draft; Cancel keeps the tab open)')) return;
+  }
+  tabs.splice(i, 1); t.el.remove(); t.frame.remove();
+  if (active === t) activate(tabs[Math.min(i, tabs.length - 1)] || null);
+  else saveTabs();
+}
+function showWhere(){
+  var t = active, info = t && t.path && fileInfo(t.path);
+  if (t && t.project != null){
+    var pj = projectAt(t.project);
+    $('where').textContent = (t.project || '.') + '/vandorf.toml';
+    $('proj').textContent = pj ? pj.name : '';
+    post($('terminal').contentWindow, { type: 'term-context', dir: t.project, file: null, project: true });
+    return;
+  }
+  $('where').textContent = t ? t.path + (t.proc ? '  ›  ' + t.proc : '') : '';
+  $('proj').textContent = info && info.project ? info.project.name : '';
+  post($('terminal').contentWindow, { type: 'term-context', dir: info && info.project ? info.project.dir : (t ? t.path.replace(/[^/]*$/, '') : ''),
+    file: t ? t.path : null, project: !!(info && info.project) });
+}
+
+/* ---------- terminal commands ---------- */
+function run(sub){
+  togglePanel(true);
+  showWhere();
+  post($('terminal').contentWindow, { type: 'term-vandorf', sub: sub });
+}
+
+/* ---------- messages from panels ---------- */
+window.addEventListener('message', function(e){
+  if (e.origin !== location.origin || !e.data || typeof e.data.type !== 'string') return;
+  var m = e.data, t = tabByWin(e.source);
+  switch (m.type){
+  case 'ide-open':
+    if (m.proc && !m.path) m.path = fileOfProc(m.proc) || (t && t.path);
+    open(m); break;
+  case 'viewer-ready':
+    if (!t) return;
+    post(e.source, { type: 'ide-init', path: t.path, proc: t.proc, mode: t.mode, line: t.line, theme: theme,
+                     buffer: buffers[t.path] != null ? buffers[t.path] : null, active: t === active });
+    break;
+  case 'ide-tab-state':
+    if (!t) return;
+    if (m.mode) t.mode = m.mode;
+    if (m.proc !== undefined && m.proc !== t.proc){ t.proc = m.proc; t.key = keyOf(t.path, t.proc); }
+    label(t); saveTabs(); if (t === active) showWhere();
+    break;
+  case 'ide-buffer':
+    // An edit in one tab: every other tab on the file follows it.
+    if (m.dirty) buffers[m.path] = m.text; else delete buffers[m.path];
+    saveBuffers();
+    tabs.forEach(function(x){
+      if (x.path !== m.path) return;
+      label(x);
+      if (x.frame.contentWindow !== e.source) post(x.frame.contentWindow, { type: 'ide-buffer', text: m.text, dirty: m.dirty });
+    });
+    break;
+  case 'ide-saved':
+    delete buffers[m.path]; saveBuffers();
+    tabs.forEach(function(x){ if (x.path === m.path){ label(x); if (x.frame.contentWindow !== e.source) post(x.frame.contentWindow, { type: 'ide-buffer', text: m.text, dirty: false }); } });
+    loadTree(); post($('explorer').contentWindow, { type: 'ide-refresh' });
+    break;
+  case 'ide-status':
+    if (t && t !== active) return;
+    var s = $('status'); s.textContent = m.text; s.className = m.cls || '';
+    break;
+  case 'ide-close':
+    if (t) close(t); break;
+  case 'explorer-ready':
+    post(e.source, { type: 'vandorf-theme', theme: theme });
+    post(e.source, { type: 'ide-active', path: active && active.path, proc: active && active.proc });
+    break;
+  case 'project-ready':
+    post(e.source, { type: 'vandorf-theme', theme: theme }); break;
+  case 'term-ready':
+    post(e.source, { type: 'vandorf-theme', theme: theme }); showWhere(); break;
+  }
+});
+
+/* ---------- restore ---------- */
+loadTree().then(function(){
+  var saved = loadJSON('vandorf.ide.tabs', null);
+  if (saved && saved.tabs && saved.tabs.length){
+    var keep = saved.tabs.filter(function(t){ return t.project != null ? projectAt(t.project) : fileInfo(t.path); });
+    keep.forEach(function(t){ open(t.project != null ? { project: t.project } : { path: t.path, proc: t.proc, mode: t.mode, newTab: true }); });
+    if (tabs[saved.active]) activate(tabs[saved.active]);
+    return;
+  }
+  // First visit: the first Main proc, or the first proc of any file.
+  var first = null;
+  (tree && tree.files || []).some(function(f){
+    return f.items.some(function(it){ if (it.kind === 'proc' && (!first || it.name === 'Main')) first = { path: f.path, proc: it.qual }; return first && first.proc === 'Main'; });
+  });
+  if (first) open(first);
+});
+})();
+</script>
+</body>
+</html>

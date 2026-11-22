@@ -1,0 +1,57 @@
+// The parser's steps and results. Every parse proc takes (toks, pos), starts
+// with a local `At` (the shared leaf below), and ends with
+// id({ x = <what it parsed>, pos = <the next token> }), an R<T>. Lists are
+// loops: a back edge to a loop head (an AtAcc<T> leaf) that carries the
+// items so far. A list proc stops at a closing bracket and leaves it for
+// its caller to expect.
+//
+// Steps that check a token fail with "expected <what>, found <token>"; a
+// switch's else arm usually goes to one, so the error says what would have
+// been accepted.
+
+// The parser's position after a step: the tokens, the index of the next one,
+// that token (or, after Expect and Need*, the token just matched), and the
+// token before it (for spans).
+type Cur = { toks: []Tok, pos: int, tok: Tok, prev: Tok };
+
+// At(toks, pos): the position, unchanged. Each proc declares its own (an
+// entry has to be local), all implemented by this one leaf.
+//   func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
+
+// toks[pos] must be the symbol or word `text`.
+func Expect(toks: []Tok, pos: int, text: string, what: string): Cur = "leaf.rs:expect";
+// toks[pos] must be an identifier other than a keyword.
+func NeedIdent(toks: []Tok, pos: int, what: string): Cur = "leaf.rs:need_ident";
+// toks[pos] must be an identifier; keywords allowed (field names).
+func NeedName(toks: []Tok, pos: int, what: string): Cur = "leaf.rs:need_name";
+// toks[pos] must be a string.
+func NeedStr(toks: []Tok, pos: int, what: string): Cur = "leaf.rs:need_str";
+
+func IsSym(t: Tok, s: string): bool = "leaf.rs:is_sym";
+func IsWord(t: Tok, s: string): bool = "leaf.rs:is_word";
+// A closing bracket: where a list stops.
+func IsClose(t: Tok): bool = "leaf.rs:is_close";
+// toks[pos] must be the `>` closing type arguments or parameters; `>=`
+// there is an error, since it lexes as the comparison operator.
+func CloseAngle(toks: []Tok, pos: int): Cur = "leaf.rs:close_angle";
+
+// What a parse step returns: what it parsed, and the index of the next
+// token.
+type R<T> = { x: T, pos: int };
+// A list loop's head: the position, and the items so far.
+type AtAcc<T> = { cur: Cur, acc: T };
+type BodyItems = { nodes: []Node, edges: []Edge };
+
+// Parses a whole file.
+proc Parse(Start): File {
+	func Start(src: string): string = "leaf.rs:same";
+	Start -> ParseFile(src = this, file = 0);
+}
+
+// Parses the `file`th of a program's files.
+proc ParseFile(Start): File {
+	func Start(src: string, file: int): { src: string, file: int } = "leaf.rs:src_file";
+	Start -> Lex(src = this.src, file = this.file);
+	Lex -> PItems(toks = this, pos = 0, acc = { types = [], interfaces = [], nodes = [] });
+	PItems -> id(this.x);
+}

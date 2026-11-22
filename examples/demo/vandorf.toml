@@ -1,0 +1,22 @@
+# The demo project: `vandorf build` here generates both backends and both
+# bins. Impl paths in sys/*.sys are relative to sys/.
+[project]
+name = "demo"
+sources = ["sys"]
+
+[go]
+out = "go/app"               # types in go/app/types
+
+[rust]
+out = "rs/src/app"
+
+[bin.demo]                   # go/cmd/demo, rs/src/bin/demo.rs
+entry = "Main"
+
+[bin.calc]                   # calc <base: int>
+entry = "Calc"
+
+[http.api]                   # rs/src/bin/api.rs
+addr = "127.0.0.1:8099"
+routes = { "POST /api/measure" = "Measure", "GET /api/hello" = "Hello" }
+static = { "/" = "web/index.html" }
