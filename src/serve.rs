@@ -69,7 +69,7 @@ pub fn serve(opts: Options) -> Result<(), String> {
     let base = std::fs::canonicalize(&opts.dir).map_err(|e| format!("{}: {e}", opts.dir.display()))?;
     let server = Server::http(&opts.addr).map_err(|e| format!("cannot listen on {}: {e}", opts.addr))?;
     let host = opts.addr.rsplit_once(':').map(|(h, _)| h).unwrap_or(&opts.addr);
-    let loopback = true; // is_loopback(host);
+    let loopback = is_loopback(host);
     // Terminals run shells: only for this machine.
     let term = loopback;
     if term && !loopback {
