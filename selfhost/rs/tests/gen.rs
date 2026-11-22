@@ -270,6 +270,7 @@ fn generates_go_like_the_reference() {
                     import_base: import_base.as_deref().map_or(v::MaybeStr::None, |b| v::MaybeStr::Some(b.into())),
                     types_dir: types_dir.as_str().into(),
                     mains: ms.iter().map(|m| v::GoMainSpec { name: m.name.as_str().into(), entry: m.entry.as_str().into(), path: m.path.as_str().into() }).collect(),
+                    servers: v::List::default(),
                 })
                 .unwrap(),
             );
@@ -299,4 +300,99 @@ fn generates_go_like_the_reference() {
         }
     }
     assert!(files > 100 && errors > 15 && mains > 10, "{files} files, {errors} errors, {mains} mains");
+}
+
+#[test]
+fn generates_go_servers_like_the_reference() {
+    use vandorf::codegen::go::{GoOptions, GoServer};
+    let (mut n, mut with_setup) = (0, 0);
+    for (name, prog, srcs) in &programs() {
+        let srcs: Vec<&str> = srcs.iter().map(|s| s.as_str()).collect();
+        let vprog = analyze(&srcs);
+        // As for Rust: a server routing to every top-level proc, one to a
+        // missing one, a raw route, and with a setup each mistake.
+        let procs: Vec<String> = prog.top_procs.iter().map(|&p| prog.node(p).name().to_string()).collect();
+        let routes: Vec<(String, String, String)> = procs.iter().enumerate().map(|(i, p)| (if i % 2 == 0 { "POST" } else { "GET" }.to_string(), format!("/api/{}", p.to_lowercase()), p.clone())).collect();
+        let raw: Vec<(String, String, String)> = procs.iter().take(1).map(|p| ("GET".to_string(), "/raw".to_string(), p.clone())).collect();
+        let route = |m: &str, p: &str, proc: &str| (m.to_string(), p.to_string(), proc.to_string());
+        let mut cases: Vec<(Option<String>, Vec<(String, String, String)>, Vec<(String, String, String)>)> =
+            vec![(None, routes.clone(), vec![]), (None, vec![route("GET", "/x", "Missing")], vec![]), (None, vec![], raw)];
+        if procs.iter().any(|p| p == "Setup") {
+            let setup = |p: &str| Some(p.to_string());
+            cases.extend([
+                (setup("Setup"), vec![route("GET", "/hi", "Hi")], vec![route("GET", "/", "Page")]),
+                (setup("Nope"), vec![route("GET", "/hi", "Hi")], vec![]),
+                (setup("Takes"), vec![route("GET", "/hi", "Hi")], vec![]),
+                (setup("Setup"), vec![route("GET", "/x", "NoCtx")], vec![]),
+                (setup("Setup"), vec![route("GET", "/x", "WrongCtx")], vec![]),
+                (setup("Setup"), vec![route("GET", "/x", "Missing")], vec![]),
+                (setup("Setup"), vec![], vec![route("GET", "/", "NoCtx")]),
+                (setup("Setup"), vec![], vec![route("GET", "/", "Hi")]),
+            ]);
+        }
+        for (setup, routes, raw) in cases {
+            // Static contents that need escaping, and a second server without any.
+            let text = "<p class=\"x\">a\tb\\c\r\n`d` \u{1} é</p>\n";
+            let srv = GoServer {
+                name: "web-api".into(),
+                addr: "127.0.0.1:9".into(),
+                setup: setup.clone(),
+                routes: routes.clone(),
+                raw: raw.clone(),
+                statics: vec![("/".into(), "web/index.html".into(), "text/html; charset=utf-8".into(), text.into())],
+                path: "../cmd/web-api".into(),
+            };
+            let bare = GoServer { name: "plain".into(), setup: None, raw: vec![], statics: vec![], path: "../cmd/plain".into(), ..srv.clone() };
+            let servers = vec![srv, bare];
+            let mut opts = GoOptions::new("app", Some("example.com/app".into()));
+            opts.servers = servers.clone();
+            let want = go_files(vandorf::codegen::go::generate(prog, &opts));
+            let vservers: Vec<v::GoServerSpec> = servers
+                .iter()
+                .map(|s| v::GoServerSpec {
+                    name: s.name.as_str().into(),
+                    addr: s.addr.as_str().into(),
+                    setup: s.setup.as_deref().unwrap_or("").into(),
+                    routes: s.routes.iter().map(|(m, p, pr)| v::Route { method: m.as_str().into(), path: p.as_str().into(), proc: pr.as_str().into() }).collect(),
+                    raw: s.raw.iter().map(|(m, p, pr)| v::Route { method: m.as_str().into(), path: p.as_str().into(), proc: pr.as_str().into() }).collect(),
+                    statics: s.statics.iter().map(|(u, f, c, t)| v::GoStatic { url: u.as_str().into(), file: f.as_str().into(), ctype: c.as_str().into(), text: t.as_str().into() }).collect(),
+                    path: s.path.as_str().into(),
+                })
+                .collect();
+            let got = vcc_go_files(
+                vcc::vcc::run_go_generate(v::GoGenIn {
+                    prog: vprog.clone(),
+                    package: "app".into(),
+                    import_base: v::MaybeStr::Some("example.com/app".into()),
+                    types_dir: "types".into(),
+                    mains: v::List::default(),
+                    servers: vservers.into(),
+                })
+                .unwrap(),
+            );
+            let case = format!("{name} (setup {setup:?}, routes {routes:?}, raw {raw:?})");
+            match (want, got) {
+                (Ok(want), Ok(got)) => {
+                    assert_eq!(want.keys().collect::<Vec<_>>(), got.keys().collect::<Vec<_>>(), "{case}");
+                    for (file, text) in &want {
+                        if *text != got[file] {
+                            let line = text.lines().zip(got[file].lines()).position(|(a, b)| a != b);
+                            panic!(
+                                "{case}: {file:?} differs at line {line:?}:\n  reference: {:?}\n  vcc:       {:?}",
+                                line.and_then(|l| text.lines().nth(l)),
+                                line.and_then(|l| got[file].lines().nth(l))
+                            );
+                        }
+                    }
+                    assert!(want.contains_key(&(String::new(), "http_vandorf.go".into())), "{case}");
+                    n += 1;
+                    with_setup += setup.is_some() as usize;
+                }
+                (Err(w), Err(g)) => assert_eq!(w, g, "{case}"),
+                (w, g) => panic!("{case}: reference {:?}, vcc {:?}", w.map(|_| ()), g.map(|_| ())),
+            }
+        }
+    }
+    assert!(n > 15, "{n}");
+    assert!(with_setup > 0, "no server with a setup generated");
 }

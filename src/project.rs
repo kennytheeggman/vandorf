@@ -19,12 +19,13 @@
 //! post = ["cargo build --manifest-path rs/Cargo.toml"]
 //! test = ["cargo test --manifest-path rs/Cargo.toml"]
 //!
-//! [http.api]                 # an HTTP server (Rust only, for now)
+//! [http.api]                 # an HTTP server, per configured backend
 //! addr = "127.0.0.1:8080"
 //! setup = "Setup"            # runs once before serving; its result is each route's ctx
 //! routes = { "POST /api/calc" = "Calc" }   # a route runs a top-level proc
 //! raw = { "GET /" = "Page" }                # its proc takes and returns HTTP
 //! static = { "/" = "web/index.html" }      # files served as they are
+//! go = "go/cmd/api"          # Go main package; default <go.out>/../cmd/<name>
 //! rust = "bin/api.rs"        # under the crate's src/; default bin/<name>.rs
 //!
 //! [bin.demo]                 # an executable per configured backend
@@ -86,6 +87,8 @@ pub struct Server {
     /// the executable. Paths are relative to the manifest.
     #[serde(default, rename = "static")]
     pub statics: BTreeMap<String, String>,
+    /// Go main package; default <go.out>/../cmd/<name>.
+    pub go: Option<String>,
     /// Rust file under the crate's src/; default bin/<name>.rs.
     pub rust: Option<String>,
 }

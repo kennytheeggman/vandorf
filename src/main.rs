@@ -123,21 +123,17 @@ fn build(p: &Project, mut prog: Program, only: Option<&str>) -> Result<(), Strin
             }
         },
     };
-    if !m.http.is_empty() && m.rust.is_none() {
-        return Err(format!("{}: [http.*] servers are generated in Rust: configure [rust]", project::MANIFEST));
-    }
-    if !m.http.is_empty() && m.go.is_some() {
-        eprintln!("note: [http.*] servers are generated in Rust only, for now");
-    }
+    // `vandorf build <bin>` builds no servers.
+    let servers: Vec<(&String, &project::Server)> = if only.is_none() { m.http.iter().collect() } else { vec![] };
     let dirs = p.dirs();
     if let Some(g) = &m.go {
         let out = p.root.join(&g.out);
-        let output = go(&mut prog, &dirs, &out, g.package.clone(), g.module.clone(), g.types_dir.clone(), go_mains(p, g, &bins))?;
+        let (mains, servers) = (go_mains(p, g, &bins), go_servers(p, g, &servers)?);
+        let output = go(&mut prog, &dirs, &out, g.package.clone(), g.module.clone(), g.types_dir.clone(), mains, servers)?;
         check_impls(p, &prog, &out, &output, "func");
         commands(p, "post-build", &g.post)?;
     }
     if let Some(r) = &m.rust {
-        let servers: Vec<(&String, &project::Server)> = if only.is_none() { m.http.iter().collect() } else { vec![] };
         let out = p.root.join(&r.out);
         let output = rust(&mut prog, &dirs, &out, r.module_dir.clone(), rust_mains(&bins), &servers, &p.root)?;
         check_impls(p, &prog, &out, &output, "fn");
@@ -187,6 +183,7 @@ fn go(
     module: Option<String>,
     types_dir: Option<String>,
     mains: Vec<MainSpec>,
+    servers: Vec<codegen::go::GoServer>,
 ) -> Result<Output, String> {
     std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
     project::rebase_impls(prog, dirs, out);
@@ -195,6 +192,7 @@ fn go(
         opts.types_dir = d;
     }
     opts.mains = mains;
+    opts.servers = servers;
     let output = codegen::go::generate(prog, &opts)?;
     let written = write_output(out, &output)?;
     // Generated code is already indented; gofmt only aligns it.
@@ -249,7 +247,28 @@ fn rust(
 
 /// An `[http.<name>]` table as the Rust backend takes it: routes split into
 /// method and path, static files as the server's source file reaches them.
-fn server_spec(name: &str, s: &project::Server, root: &Path, out: &Path, module_dir: Option<&str>) -> Result<codegen::rust::ServerSpec, String> {
+/// The Go servers: each a main package in its `go` directory, by default
+/// `<go.out>/../cmd/<name>`, given relative to `go.out`, with its static
+/// files' contents.
+fn go_servers(p: &Project, g: &project::GoTarget, servers: &[(&String, &project::Server)]) -> Result<Vec<codegen::go::GoServer>, String> {
+    let out = project::normalize(&p.root.join(&g.out));
+    let mut specs = vec![];
+    for (name, s) in servers {
+        let (routes, raw) = server_routes(name, s)?;
+        let mut statics = vec![];
+        for (url, full, ctype) in server_statics(name, s, &p.root)? {
+            let text = std::fs::read_to_string(&full).map_err(|e| format!("{}: [http.{name}] cannot read {}: {e}", project::MANIFEST, s.statics[&url]))?;
+            statics.push((url.clone(), s.statics[&url].clone(), ctype, text));
+        }
+        let dir = s.go.clone().unwrap_or_else(|| format!("{}/../cmd/{name}", g.out));
+        let path = project::slash(&project::relative(&project::normalize(&p.root.join(dir)), &out));
+        specs.push(codegen::go::GoServer { name: name.to_string(), addr: s.addr.clone(), setup: s.setup.clone(), routes, raw, statics, path });
+    }
+    Ok(specs)
+}
+
+/// A server's routes and raw routes, as (method, path, proc).
+fn server_routes(name: &str, s: &project::Server) -> Result<(Vec<(String, String, String)>, Vec<(String, String, String)>), String> {
     let split = |route: &str| -> Result<(String, String), String> {
         route
             .split_once(' ')
@@ -275,14 +294,11 @@ fn server_spec(name: &str, s: &project::Server, root: &Path, out: &Path, module_
         };
         routes.push((method.to_string(), path.to_string(), proc.clone()));
     }
-    let path = s.rust.clone().unwrap_or_else(|| format!("bin/{name}.rs"));
-    // The crate's src/ is module_dir above out.
-    let up = module_dir.map_or(0, |d| d.split('/').filter(|x| !x.is_empty()).count());
-    let mut src = project::normalize(&project::absolute(out));
-    for _ in 0..up {
-        src.pop();
-    }
-    let file_dir = project::normalize(&src.join(&path)).parent().map(Path::to_path_buf).unwrap_or(src);
+    Ok((routes, raw))
+}
+
+/// A server's static files: (URL path, the file, content type).
+fn server_statics(name: &str, s: &project::Server, root: &Path) -> Result<Vec<(String, PathBuf, String)>, String> {
     let mut statics = vec![];
     for (url, file) in &s.statics {
         let full = project::normalize(&project::absolute(&root.join(file)));
@@ -297,7 +313,24 @@ fn server_spec(name: &str, s: &project::Server, root: &Path, out: &Path, module_
             "svg" => "image/svg+xml",
             _ => "text/plain; charset=utf-8",
         };
-        statics.push((url.clone(), project::slash(&project::relative(&full, &file_dir)), ctype.to_string()));
+        statics.push((url.clone(), full, ctype.to_string()));
+    }
+    Ok(statics)
+}
+
+fn server_spec(name: &str, s: &project::Server, root: &Path, out: &Path, module_dir: Option<&str>) -> Result<codegen::rust::ServerSpec, String> {
+    let (routes, raw) = server_routes(name, s)?;
+    let path = s.rust.clone().unwrap_or_else(|| format!("bin/{name}.rs"));
+    // The crate's src/ is module_dir above out.
+    let up = module_dir.map_or(0, |d| d.split('/').filter(|x| !x.is_empty()).count());
+    let mut src = project::normalize(&project::absolute(out));
+    for _ in 0..up {
+        src.pop();
+    }
+    let file_dir = project::normalize(&src.join(&path)).parent().map(Path::to_path_buf).unwrap_or(src);
+    let mut statics = vec![];
+    for (url, full, ctype) in server_statics(name, s, root)? {
+        statics.push((url, project::slash(&project::relative(&full, &file_dir)), ctype));
     }
     Ok(codegen::rust::ServerSpec { name: name.into(), addr: s.addr.clone(), setup: s.setup.clone(), routes, raw, statics, path })
 }

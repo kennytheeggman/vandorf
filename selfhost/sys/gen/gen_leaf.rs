@@ -2524,20 +2524,20 @@ pub fn route_docs(srv: ServerSpec) -> Result<List<Line>, String> {
     Ok(out.into())
 }
 
-const RAW_REQUEST: &[(&str, &str)] = &[
+pub(super) const RAW_REQUEST: &[(&str, &str)] = &[
     ("method", "string"),
     ("path", "string"),
     ("query", "map[string]string"),
     ("headers", "map[string]string"),
     ("body", "string"),
 ];
-const RAW_RESPONSE: &[(&str, &str)] = &[
+pub(super) const RAW_RESPONSE: &[(&str, &str)] = &[
     ("status", "int"),
     ("headers", "map[string]string"),
     ("body", "string"),
 ];
 
-fn show_type(t: &Type) -> String {
+pub(super) fn show_type(t: &Type) -> String {
     crate::vcc::run_show_type(t.clone())
         .map(|s| s.to_string())
         .unwrap_or_default()
@@ -2570,7 +2570,7 @@ pub fn raw_shape_error(
 }
 
 /// Whether t is a struct of exactly these fields (a raw request or response).
-fn raw_shape(prog: &Program, t: &Type, want: &[(&str, &str)]) -> bool {
+pub(super) fn raw_shape(prog: &Program, t: &Type, want: &[(&str, &str)]) -> bool {
     let defs = &prog.types;
     match unfold(t, defs) {
         Type::Struct(fs) => {
@@ -2586,7 +2586,7 @@ fn raw_shape(prog: &Program, t: &Type, want: &[(&str, &str)]) -> bool {
     }
 }
 
-fn show_shape(fs: &[(&str, &str)]) -> String {
+pub(super) fn show_shape(fs: &[(&str, &str)]) -> String {
     format!(
         "{{ {} }}",
         fs.iter()

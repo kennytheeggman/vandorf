@@ -73,11 +73,16 @@ pub struct GoOptions {
     pub types_dir: String,
     /// Executables to generate, each a `package main` in its own directory.
     pub mains: Vec<MainSpec>,
+    /// HTTP servers to generate: together `http_vandorf.go` in the code
+    /// package, and each a `package main` in its own directory.
+    pub servers: Vec<GoServer>,
 }
+
+pub use super::go_http::GoServer;
 
 impl GoOptions {
     pub fn new(package: impl Into<String>, import_base: Option<String>) -> GoOptions {
-        GoOptions { package: package.into(), import_base, types_dir: "types".into(), mains: vec![] }
+        GoOptions { package: package.into(), import_base, types_dir: "types".into(), mains: vec![], servers: vec![] }
     }
 }
 
@@ -186,6 +191,11 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<Output, String> {
     if let Some(e) = g.failed.take() {
         return Err(e);
     }
+    if !opts.servers.is_empty() {
+        let body = super::go_http::http_body(prog, &table, &g.tq, &opts.servers)?;
+        let imports = super::go_http::HTTP_IMPORTS.iter().map(|i| (i.to_string(), None)).collect();
+        files.insert("http_vandorf.go".into(), file(&body, imports));
+    }
     let impls = prog
         .nodes
         .iter()
@@ -201,7 +211,10 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<Output, String> {
             NodeKind::Proc(_) | NodeKind::Alias(_) | NodeKind::Id(_) => None,
         })
         .collect();
-    let mains = opts.mains.iter().map(|m| main_artifact(prog, opts, m)).collect::<Result<_, _>>()?;
+    let mut mains: Vec<Artifact> = opts.mains.iter().map(|m| main_artifact(prog, opts, m)).collect::<Result<_, _>>()?;
+    for srv in &opts.servers {
+        mains.push(super::go_http::server_main(srv, &opts.package, opts.import_base.as_deref(), header)?);
+    }
     Ok(Output { types, code: Artifact { dir: String::new(), files }, mains, impls })
 }
 

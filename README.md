@@ -249,11 +249,13 @@ naming where the func is declared and printing the expected signature.
 ## HTTP servers
 
 ```toml
-[http.api]                   # rs/src/bin/api.rs; Rust only, for now
+[http.api]                   # a server per configured backend
 addr = "127.0.0.1:8099"
 setup = "Setup"              # optional: its result is each route's ctx
 routes = { "POST /api/measure" = "Measure", "GET /api/hello" = "Hello" }
 static = { "/" = "web/index.html" }
+# go = "go/cmd/api"          # Go main package; default <go.out>/../cmd/<name>
+# rust = "bin/api.rs"        # under the crate's src/; default bin/<name>.rs
 ```
 
 Each route runs a top-level proc through its typed `run_<proc>`; only the
@@ -271,10 +273,20 @@ parameter `ctx` of exactly its type, which the server fills (a request's
 `ctx` is ignored). The context is read-only; state that changes between
 requests belongs behind an interface.
 
-`vandorf build` writes `http.rs` into the module (the JSON codec, std-only
-server and a `handle_<name>` per server) and the server's executable, which
-listens on `addr` unless given `--addr host:port`. The demo's `[http.api]`
-serves `sys/api.sys`.
+`vandorf build` generates the server for each configured backend, with the
+same routes, JSON and responses:
+
+- **Go**: `http_vandorf.go` in the code package (the JSON codec, a
+  `net/http` server and an `HTTPHandle<Name>` per server, standard library
+  only) and a `package main` per server. Static files are written into the
+  main package as strings (`go:embed` can't reach outside its directory), so
+  rebuild after changing one.
+- **Rust**: `http.rs` in the module (the JSON codec, std-only server and a
+  `handle_<name>` per server) and the server's executable under the crate's
+  `src/`.
+
+Each listens on `addr` unless given `--addr host:port`. The demo's
+`[http.api]` serves `sys/api.sys`.
 
 ## Bins
 

@@ -304,13 +304,13 @@ pub const RAW_REQUEST: &[(&str, &str)] =
     &[("method", "string"), ("path", "string"), ("query", "map[string]string"), ("headers", "map[string]string"), ("body", "string")];
 pub const RAW_RESPONSE: &[(&str, &str)] = &[("status", "int"), ("headers", "map[string]string"), ("body", "string")];
 
-fn show_shape(fs: &[(&str, &str)]) -> String {
+pub(crate) fn show_shape(fs: &[(&str, &str)]) -> String {
     format!("{{ {} }}", fs.iter().map(|(n, t)| format!("{n}: {t}")).collect::<Vec<_>>().join(", "))
 }
 
 /// Whether `t` is a struct of exactly these fields (a raw request or
 /// response).
-fn raw_shape(prog: &Program, t: &Type, want: &[(&str, &str)]) -> bool {
+pub(crate) fn raw_shape(prog: &Program, t: &Type, want: &[(&str, &str)]) -> bool {
     let defs = &prog.types;
     matches!(t.unfold(defs), Type::Struct(fs) if fs.len() == want.len()
         && want.iter().all(|(n, w)| fs.iter().any(|(f, ft)| f == n && ft.to_string() == *w || f == n && ft.unfold(defs).to_string() == *w)))

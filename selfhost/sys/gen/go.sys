@@ -39,7 +39,13 @@ type GoSetup = { pkg: string, import: MaybeStr, dir: string, tq: string, err: Ma
 type GoImport = { path: string, alias: string };
 // An executable: path is its package's directory, relative to the output.
 type GoMainSpec = { name: string, entry: string, path: string };
-type GoGenIn = { prog: Program, package: string, import_base: MaybeStr, types_dir: string, mains: []GoMainSpec };
+// A server's static file: its URL path, the file as the manifest names it,
+// its content type and its contents.
+type GoStatic = { url: string, file: string, ctype: string, text: string };
+// An HTTP server (as rust_http's ServerSpec; setup "" for none): path is
+// its main package's directory, relative to the output.
+type GoServerSpec = { name: string, addr: string, setup: string, routes: []Route, raw: []Route, statics: []GoStatic, path: string };
+type GoGenIn = { prog: Program, package: string, import_base: MaybeStr, types_dir: string, mains: []GoMainSpec, servers: []GoServerSpec };
 // dir: relative to the output directory. kind: types, code or main.
 type GoFile = { dir: string, name: string, text: string, kind: string };
 type GoOut = { files: []GoFile, err: MaybeStr };
@@ -583,8 +589,16 @@ func GoMainFiles(prog: Program, t: Table, package: string, import_base: MaybeStr
 // The Go for a program: files sorted by directory and name, or the first
 // error, in the reference's order: the types' import path, names, an error
 // that stopped the generator, one from an expression, then the mains.
+// http_vandorf.go, if there are servers: the runtime, JSON for every type,
+// and a handler per server (src/codegen/go_http.rs).
+func GoHttpFiles(prog: Program, t: Table, package: string, setup: GoSetup, servers: []GoServerSpec): GoOut = "go_leaf.rs:go_http_files";
+// Each server's package main.
+func GoServerMains(package: string, import_base: MaybeStr, servers: []GoServerSpec): GoOut = "go_leaf.rs:go_server_mains";
+
 proc GoGenerate(At): GoOut {
 	func At(s: GoGenIn): GoGenIn = "../leaf.rs:same";
+	func Http(o: GoOut): GoOut = "../leaf.rs:same";
+	func Servers(o: GoOut): GoOut = "../leaf.rs:same";
 	func Setup(s: GoSetup): GoSetup = "../leaf.rs:same";
 	func Sorted(files: []GoFile): []GoFile = "go_leaf.rs:go_sort_files";
 	func Mains(o: GoOut): GoOut = "../leaf.rs:same";
@@ -604,10 +618,18 @@ proc GoGenerate(At): GoOut {
 	GFiles switch {
 		(IsSomeS(m = this.g.fatal)) -> id({ files = [], err = this.g.fatal }),
 		(IsSomeS(m = this.g.failed)) -> id({ files = [], err = this.g.failed }),
+		else -> Http(o = GoHttpFiles(prog = At.prog, t = BuildTable, package = At.package, setup = Setup, servers = At.servers))
+	};
+	Http switch {
+		(IsSomeS(m = this.err)) -> id(this),
 		else -> Mains(o = GoMainFiles(prog = At.prog, t = BuildTable, package = At.package, import_base = At.import_base, mains = At.mains))
 	};
 	Mains switch {
 		(IsSomeS(m = this.err)) -> id(this),
-		else -> id({ files = Sorted(files = [{ dir = Setup.dir, name = "types_vandorf.go", text = GoTypegen, kind = "types" }] + GFiles.files + GoRestFiles(g = GFiles.g, package = At.package, setup = Setup) + this.files), err = None() })
+		else -> Servers(o = GoServerMains(package = At.package, import_base = At.import_base, servers = At.servers))
+	};
+	Servers switch {
+		(IsSomeS(m = this.err)) -> id(this),
+		else -> id({ files = Sorted(files = [{ dir = Setup.dir, name = "types_vandorf.go", text = GoTypegen, kind = "types" }] + GFiles.files + GoRestFiles(g = GFiles.g, package = At.package, setup = Setup) + Http.files + Mains.files + this.files), err = None() })
 	};
 }

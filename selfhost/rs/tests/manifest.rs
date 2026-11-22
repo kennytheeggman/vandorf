@@ -22,6 +22,9 @@ const CASES: &[&str] = &[
     "[project]\nname = \"x\"\n[bin.a]\nentri = \"A\"\n",
     "[project]\nname = \"x\"\n[http.w]\naddr = \"a\"\nroute = {}\n",
     "[project]\nname = \"x\"\n[project2]\n",
+    "[project]\nname = \"x\"\n[http.w]\naddr = \"a\"\ngo = \"go/cmd/w\"\nrust = \"bin/w.rs\"\n",
+    "[project]\nname = \"x\"\n[http.w]\naddr = \"a\"\ngo = 1\n",
+    "[project]\nname = \"x\"\n[http.w]\naddr = \"a\"\ngoo = \"x\"\n",
     "[project]\nname = \"x\"\n[build]\npost = []\n",
     "[project]\nname = \"x\"\n[rust]\nout = \"a\"\npre = []\n",
     // Types.

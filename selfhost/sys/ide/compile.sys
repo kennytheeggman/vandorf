@@ -211,7 +211,7 @@ proc GoPreview(At): Json {
 	At -> P(p = this.unit.project);
 	P switch {
 		Some(p) -> G(g = p.manifest.go),
-		else -> GoPreviewJson(s = { prog = At.prog, package = "app", import_base = Some("example.com/app"), types_dir = "types", mains = NominalGoMains(prog = At.prog) }) as Nominal
+		else -> GoPreviewJson(s = { prog = At.prog, package = "app", import_base = Some("example.com/app"), types_dir = "types", mains = NominalGoMains(prog = At.prog), servers = [] }) as Nominal
 	};
 	G switch {
 		Some(g) -> FindUp(s = { dir = JoinP(a = At.unit.root, b = g.out), marker = "go.mod" }),
@@ -227,7 +227,8 @@ proc GoPreview(At): Json {
 		package = GoPackage(g = UnwrapG(g = G), out = JoinP(a = At.unit.root, b = UnwrapG(g = G).out)),
 		import_base = this,
 		types_dir = UnwrapOr(m = UnwrapG(g = G).types_dir, d = "types"),
-		mains = GoMainSpecs(c = { project = UnwrapPr(p = P), prog = At.prog }, g = UnwrapG(g = G), names = UnwrapPr(p = P).manifest.bins.keys)
+		mains = GoMainSpecs(c = { project = UnwrapPr(p = P), prog = At.prog }, g = UnwrapG(g = G), names = UnwrapPr(p = P).manifest.bins.keys),
+		servers = []
 	}) as Configured;
 }
 

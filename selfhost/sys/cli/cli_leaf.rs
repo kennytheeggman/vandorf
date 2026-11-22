@@ -102,6 +102,7 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
                     routes: table("routes"),
                     raw: table("raw"),
                     statics: table("static"),
+                    go: opt(v.get("go")),
                     rust: opt(v.get("rust")),
                 },
             ));
@@ -501,6 +502,7 @@ const SERVER: Fields = &[
     ("routes", Kind::StrMap, false),
     ("raw", Kind::StrMap, false),
     ("static", Kind::StrMap, false),
+    ("go", Kind::Str, false),
     ("rust", Kind::Str, false),
 ];
 const META: Fields = &[("name", Kind::Str, true), ("sources", Kind::Strs, false)];
@@ -860,6 +862,22 @@ pub fn go_main_specs(
         })
         .collect::<Result<Vec<_>, String>>()
         .map(List::from)
+}
+
+/// A server's main package: [http.*]'s go, by default
+/// <go.out>/../cmd/<name>, relative to go.out.
+pub fn go_server_path(c: Checked, g: GoTarget, name: Str) -> Result<Str, String> {
+    let root = c.project.root.clone();
+    let out = join(root.clone(), g.out.clone())?;
+    let dir = match &c.project.manifest.http[&name].go {
+        MaybeStr::Some(d) => d.to_string(),
+        MaybeStr::None => format!("{}/../cmd/{name}", g.out),
+    };
+    relative(join(root, dir.into())?, out)
+}
+
+pub fn no_go_specs(_n: i64) -> Result<ResGoServerSpecList, String> {
+    Ok(ResGoServerSpecList::Ok(List::default()))
 }
 
 pub fn go_out_files(out: Str, files: List<GoFile>) -> Result<List<OutFile>, String> {

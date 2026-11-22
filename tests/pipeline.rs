@@ -902,6 +902,62 @@ mod codegen {
     }
 
     #[test]
+    fn go_http_servers_route_and_pass_ctx() {
+        let src = r#"
+            type Ctx = { greeting: string };
+            proc Setup(S): Ctx { func S(): Ctx; }
+            proc Hi(B): string { func B(name: string, ctx: Ctx): string; }
+            proc Calc(C): int { func C(n: int): int; }
+            type Req = { method: string, path: string, query: map[string]string, headers: map[string]string, body: string };
+            proc Page(P): { status: int, headers: map[string]string, body: string } {
+                func P(ctx: Ctx, req: Req): { status: int, headers: map[string]string, body: string };
+            }
+        "#;
+        let prog = vandorf::compile("t.sys", src).unwrap();
+        let plain = go::GoServer {
+            name: "api".into(),
+            addr: "127.0.0.1:9".into(),
+            routes: vec![("POST".into(), "/calc".into(), "Calc".into())],
+            statics: vec![("/".into(), "web/index.html".into(), "text/html; charset=utf-8".into(), "<p>\"hi\"\r\n".into())],
+            path: "../cmd/api".into(),
+            ..Default::default()
+        };
+        let web = go::GoServer {
+            name: "web-api".into(),
+            setup: Some("Setup".into()),
+            routes: vec![("GET".into(), "/hi".into(), "Hi".into())],
+            raw: vec![("GET".into(), "/".into(), "Page".into())],
+            statics: vec![],
+            path: "../cmd/web".into(),
+            ..plain.clone()
+        };
+        let mut opts = go::GoOptions::new("app", Some("example.com/app".into()));
+        opts.servers = vec![plain.clone(), web];
+        let out = go::generate(&prog, &opts).unwrap();
+        let http = &out.code.files["http_vandorf.go"];
+        assert!(http.contains("func httpCallCalc(ctx context.Context, params any) (string, int, error) {"), "{http}");
+        assert!(http.contains("case \"POST /calc\":\n\t\treturn httpJSONRoute(ctx, req, httpCallCalc), true"), "{http}");
+        // ctx comes from the setup, never from the request.
+        assert!(http.contains("var httpCtxWeb_api types.Ctx") && http.contains("func HTTPSetupWeb_api(ctx context.Context) error {"), "{http}");
+        assert!(http.contains("argCtx := httpCtxWeb_api") && !http.contains("httpArg(params, \"ctx\""), "{http}");
+        assert!(http.contains("res, err := RunPage(ctx, httpCtxWeb_api, r)"), "{http}");
+        let mains: Vec<(&str, &String)> = out.mains.iter().map(|a| (a.dir.as_str(), &a.files["main_vandorf.go"])).collect();
+        let api = mains.iter().find(|m| m.0 == "../cmd/api").unwrap().1;
+        assert!(api.contains("{Path: \"/\", Type: \"text/html; charset=utf-8\", Body: \"<p>\\\"hi\\\"\\r\\n\"},"), "{api}");
+        assert!(api.contains("app.HTTPRun(\"127.0.0.1:9\", app.HTTPHandleApi, statics)"), "{api}");
+        let web = mains.iter().find(|m| m.0 == "../cmd/web").unwrap().1;
+        assert!(web.contains("app.HTTPRunSetup(\"127.0.0.1:9\", app.HTTPSetupWeb_api, app.HTTPHandleWeb_api, statics)"), "{web}");
+        // The same checks as Rust's.
+        let bad = go::GoServer { raw: vec![("GET".into(), "/".into(), "Calc".into())], ..plain.clone() };
+        opts.servers = vec![bad];
+        let e = go::generate(&prog, &opts).unwrap_err();
+        assert!(e.contains("raw route proc Calc must take one {"), "{e}");
+        opts.servers = vec![go::GoServer { setup: Some("Setup".into()), ..plain }];
+        let e = go::generate(&prog, &opts).unwrap_err();
+        assert!(e.contains("route proc Calc must take ctx: Ctx, its setup proc Setup's result"), "{e}");
+    }
+
+    #[test]
     fn rust_http_setup_passes_its_result_as_ctx() {
         let src = r#"
             type Ctx = { greeting: string };

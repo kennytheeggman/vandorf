@@ -12,6 +12,7 @@
 //! command line. See [`MainSpec`].
 
 pub mod go;
+pub(crate) mod go_http;
 pub mod rust;
 pub mod types;
 

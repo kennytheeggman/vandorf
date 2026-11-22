@@ -2,8 +2,8 @@
 //! the procs' state machines, after src/codegen/go.rs.
 
 use super::gen_leaf::{
-    base_of, get, gname, join_path, live_after, member_of, quote, read_nodes, refs_of,
-    render_lines, rs_impl, ty_boxed,
+    RAW_REQUEST, RAW_RESPONSE, base_of, find_top, get, gname, join_path, live_after, member_of,
+    quote, raw_shape, read_nodes, refs_of, render_lines, rs_impl, show_shape, show_type, ty_boxed,
 };
 use crate::vcc::types::*;
 
@@ -1417,4 +1417,1399 @@ pub fn go_spawn_lines(g: GGen, sp: SEdge, calls: List<Str>) -> Result<List<Str>,
     ));
     out.push("_ = this".into());
     Ok(lines(out))
+}
+
+// ---- HTTP servers (src/codegen/go_http.rs) ----
+
+/// http_vandorf.go's fixed part: a copy of src/codegen/http_runtime.go.
+const GO_HTTP_RUNTIME: &str = r##"// The fixed part of a generated http_vandorf.go, after http_runtime.rs:
+// JSON values and their parser, encoders and decoders for primitives,
+// lists and maps, and a net/http server. Generated code adds an encoder and
+// decoder per type and a handler per server. Not compiled here: included
+// as text by codegen::go.
+//
+// Requests: a route's proc takes its parameters from a JSON object body,
+// or from the query string (each value read as JSON if it parses, else as
+// a string). Responses: 200 and the result as JSON; 400 for a request that
+// doesn't decode; 500 and {"error": ..} when the proc fails.
+
+// httpNum is a JSON number as written.
+type httpNum string
+
+// httpObj is a JSON object, its fields in order. A JSON value is nil, a
+// bool, an httpNum, a string, a []any or an httpObj.
+type httpObj []httpPair
+
+type httpPair struct {
+	Key string
+	Val any
+}
+
+func httpParse(s string) (any, error) {
+	p := &httpParser{b: []byte(s)}
+	v, err := p.value()
+	if err != nil {
+		return nil, err
+	}
+	p.ws()
+	if p.i != len(p.b) {
+		return nil, fmt.Errorf("unexpected input at byte %d", p.i)
+	}
+	return v, nil
+}
+
+func httpObject(v any, what string) (httpObj, error) {
+	fs, ok := v.(httpObj)
+	if !ok {
+		return nil, fmt.Errorf("expected an object for %s", what)
+	}
+	return fs, nil
+}
+
+type httpParser struct {
+	b []byte
+	i int
+}
+
+func (p *httpParser) ws() {
+	for p.i < len(p.b) && (p.b[p.i] == ' ' || p.b[p.i] == '\t' || p.b[p.i] == '\n' || p.b[p.i] == '\f' || p.b[p.i] == '\r') {
+		p.i++
+	}
+}
+
+func (p *httpParser) eat(c byte) error {
+	p.ws()
+	if p.i < len(p.b) && p.b[p.i] == c {
+		p.i++
+		return nil
+	}
+	return fmt.Errorf("expected '%c' at byte %d", c, p.i)
+}
+
+func (p *httpParser) value() (any, error) {
+	p.ws()
+	if p.i >= len(p.b) {
+		return nil, errors.New("unexpected end of input")
+	}
+	switch c := p.b[p.i]; {
+	case c == 'n':
+		return p.word("null", nil)
+	case c == 't':
+		return p.word("true", true)
+	case c == 'f':
+		return p.word("false", false)
+	case c == '"':
+		return p.string()
+	case c == '[':
+		p.i++
+		xs := []any{}
+		p.ws()
+		if p.i < len(p.b) && p.b[p.i] == ']' {
+			p.i++
+			return xs, nil
+		}
+		for {
+			x, err := p.value()
+			if err != nil {
+				return nil, err
+			}
+			xs = append(xs, x)
+			p.ws()
+			if p.i < len(p.b) && p.b[p.i] == ',' {
+				p.i++
+			} else if p.i < len(p.b) && p.b[p.i] == ']' {
+				p.i++
+				return xs, nil
+			} else {
+				return nil, fmt.Errorf("expected ',' or ']' at byte %d", p.i)
+			}
+		}
+	case c == '{':
+		p.i++
+		fs := httpObj{}
+		p.ws()
+		if p.i < len(p.b) && p.b[p.i] == '}' {
+			p.i++
+			return fs, nil
+		}
+		for {
+			p.ws()
+			k, err := p.string()
+			if err != nil {
+				return nil, err
+			}
+			if err := p.eat(':'); err != nil {
+				return nil, err
+			}
+			v, err := p.value()
+			if err != nil {
+				return nil, err
+			}
+			fs = append(fs, httpPair{k, v})
+			p.ws()
+			if p.i < len(p.b) && p.b[p.i] == ',' {
+				p.i++
+			} else if p.i < len(p.b) && p.b[p.i] == '}' {
+				p.i++
+				return fs, nil
+			} else {
+				return nil, fmt.Errorf("expected ',' or '}' at byte %d", p.i)
+			}
+		}
+	case c == '-' || (c >= '0' && c <= '9'):
+		start := p.i
+		p.i++
+		for p.i < len(p.b) && strings.IndexByte("0123456789.eE+-", p.b[p.i]) >= 0 {
+			p.i++
+		}
+		return httpNum(p.b[start:p.i]), nil
+	}
+	return nil, fmt.Errorf("unexpected character at byte %d", p.i)
+}
+
+func (p *httpParser) word(w string, v any) (any, error) {
+	if !strings.HasPrefix(string(p.b[p.i:]), w) {
+		return nil, fmt.Errorf("unexpected input at byte %d", p.i)
+	}
+	p.i += len(w)
+	return v, nil
+}
+
+func (p *httpParser) string() (string, error) {
+	if p.i >= len(p.b) || p.b[p.i] != '"' {
+		return "", fmt.Errorf("expected a string at byte %d", p.i)
+	}
+	p.i++
+	var out []byte
+	for {
+		if p.i >= len(p.b) {
+			return "", errors.New("unterminated string")
+		}
+		c := p.b[p.i]
+		switch c {
+		case '"':
+			p.i++
+			return string(out), nil
+		case '\\':
+			if p.i+1 >= len(p.b) {
+				return "", errors.New("unterminated string")
+			}
+			e := p.b[p.i+1]
+			p.i += 2
+			switch e {
+			case 'n':
+				out = append(out, '\n')
+			case 't':
+				out = append(out, '\t')
+			case 'r':
+				out = append(out, '\r')
+			case 'b':
+				out = append(out, 8)
+			case 'f':
+				out = append(out, 12)
+			case 'u':
+				if p.i+4 > len(p.b) {
+					return "", errors.New("bad \\u escape")
+				}
+				cp, ok := httpHex(string(p.b[p.i : p.i+4]))
+				if !ok {
+					return "", errors.New("invalid digit found in string")
+				}
+				p.i += 4
+				r := rune(cp)
+				if !utf8.ValidRune(r) {
+					r = utf8.RuneError
+				}
+				out = utf8.AppendRune(out, r)
+			default:
+				out = append(out, e)
+			}
+		default:
+			out = append(out, c)
+			p.i++
+		}
+	}
+}
+
+// httpHex reads hex digits, after an optional +, as Rust's from_str_radix.
+func httpHex(s string) (uint64, bool) {
+	s = strings.TrimPrefix(s, "+")
+	if s == "" {
+		return 0, false
+	}
+	var n uint64
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		var d byte
+		switch {
+		case c >= '0' && c <= '9':
+			d = c - '0'
+		case c >= 'a' && c <= 'f':
+			d = c - 'a' + 10
+		case c >= 'A' && c <= 'F':
+			d = c - 'A' + 10
+		default:
+			return 0, false
+		}
+		n = n*16 + uint64(d)
+	}
+	return n, true
+}
+
+// ---- Encoders and decoders ----
+
+func httpWriteStr(b *strings.Builder, s string) {
+	b.WriteByte('"')
+	for _, c := range s {
+		switch {
+		case c == '"':
+			b.WriteString("\\\"")
+		case c == '\\':
+			b.WriteString("\\\\")
+		case c == '\n':
+			b.WriteString("\\n")
+		case c == '\r':
+			b.WriteString("\\r")
+		case c == '\t':
+			b.WriteString("\\t")
+		case c < 0x20:
+			fmt.Fprintf(b, "\\u%04x", c)
+		default:
+			b.WriteRune(c)
+		}
+	}
+	b.WriteByte('"')
+}
+
+func httpWriteVoid(b *strings.Builder, _ struct{}) { b.WriteString("null") }
+
+func httpWriteInt(b *strings.Builder, x int) { b.WriteString(strconv.Itoa(x)) }
+
+// httpWriteFloat writes x as Rust's {:?} does: the shortest digits that
+// read back as x, in exponent form below 1e-4 or from 1e16 on.
+func httpWriteFloat(b *strings.Builder, x float64) {
+	if math.IsInf(x, 0) || math.IsNaN(x) {
+		b.WriteString("null")
+		return
+	}
+	if a := math.Abs(x); a != 0 && (a < 1e-4 || a >= 1e16) {
+		s := strconv.FormatFloat(x, 'e', -1, 64)
+		m, e, _ := strings.Cut(s, "e")
+		n, _ := strconv.Atoi(e)
+		fmt.Fprintf(b, "%se%d", m, n)
+		return
+	}
+	s := strconv.FormatFloat(x, 'f', -1, 64)
+	if !strings.Contains(s, ".") {
+		s += ".0"
+	}
+	b.WriteString(s)
+}
+
+func httpWriteBool(b *strings.Builder, x bool) {
+	if x {
+		b.WriteString("true")
+	} else {
+		b.WriteString("false")
+	}
+}
+
+func httpWriteString(b *strings.Builder, x string) { httpWriteStr(b, x) }
+
+// httpListW encodes a list with f.
+func httpListW[T any](f func(*strings.Builder, T)) func(*strings.Builder, []T) {
+	return func(b *strings.Builder, xs []T) {
+		b.WriteByte('[')
+		for i, x := range xs {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			f(b, x)
+		}
+		b.WriteByte(']')
+	}
+}
+
+// httpMapW encodes a map as an object, keys in order.
+func httpMapW[K cmp.Ordered, V any](key func(K) string, f func(*strings.Builder, V)) func(*strings.Builder, map[K]V) {
+	return func(b *strings.Builder, m map[K]V) {
+		ks := make([]K, 0, len(m))
+		for k := range m {
+			ks = append(ks, k)
+		}
+		slices.Sort(ks)
+		b.WriteByte('{')
+		for i, k := range ks {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			httpWriteStr(b, key(k))
+			b.WriteByte(':')
+			f(b, m[k])
+		}
+		b.WriteByte('}')
+	}
+}
+
+func httpIntKey(k int) string    { return strconv.Itoa(k) }
+func httpStringKey(k string) string { return k }
+
+func httpReadVoid(any) (struct{}, error) { return struct{}{}, nil }
+
+func httpReadInt(v any) (int, error) {
+	n, ok := v.(httpNum)
+	if !ok {
+		return 0, errors.New("expected an int")
+	}
+	x, err := strconv.ParseInt(string(n), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s is not an int", n)
+	}
+	return int(x), nil
+}
+
+func httpReadFloat(v any) (float64, error) {
+	n, ok := v.(httpNum)
+	if !ok {
+		return 0, errors.New("expected a float")
+	}
+	// Out of range reads as infinity or zero, as in Rust.
+	x, err := strconv.ParseFloat(string(n), 64)
+	if err != nil && !errors.Is(err, strconv.ErrRange) {
+		return 0, fmt.Errorf("%s is not a float", n)
+	}
+	return x, nil
+}
+
+func httpReadBool(v any) (bool, error) {
+	x, ok := v.(bool)
+	if !ok {
+		return false, errors.New("expected a bool")
+	}
+	return x, nil
+}
+
+func httpReadString(v any) (string, error) {
+	x, ok := v.(string)
+	if !ok {
+		return "", errors.New("expected a string")
+	}
+	return x, nil
+}
+
+// httpListR decodes a list with f.
+func httpListR[T any](f func(any) (T, error)) func(any) ([]T, error) {
+	return func(v any) ([]T, error) {
+		xs, ok := v.([]any)
+		if !ok {
+			return nil, errors.New("expected an array")
+		}
+		out := make([]T, 0, len(xs))
+		for _, x := range xs {
+			y, err := f(x)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, y)
+		}
+		return out, nil
+	}
+}
+
+// httpMapR decodes an object as a map.
+func httpMapR[K cmp.Ordered, V any](key func(string) (K, error), f func(any) (V, error)) func(any) (map[K]V, error) {
+	return func(v any) (map[K]V, error) {
+		fs, err := httpObject(v, "a map")
+		if err != nil {
+			return nil, err
+		}
+		m := make(map[K]V, len(fs))
+		for _, kv := range fs {
+			k, err := key(kv.Key)
+			if err != nil {
+				return nil, err
+			}
+			x, err := f(kv.Val)
+			if err != nil {
+				return nil, err
+			}
+			m[k] = x
+		}
+		return m, nil
+	}
+}
+
+func httpIntFromKey(k string) (int, error) {
+	x, err := strconv.ParseInt(k, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("map key %s is not an int", k)
+	}
+	return int(x), nil
+}
+
+func httpStringFromKey(k string) (string, error) { return k, nil }
+
+func httpField(fs httpObj, name string) (any, error) {
+	for _, kv := range fs {
+		if kv.Key == name {
+			return kv.Val, nil
+		}
+	}
+	return nil, fmt.Errorf("missing field %s", name)
+}
+
+// httpArg is a route's parameter, decoded; a failure is a 400.
+func httpArg[T any](params any, name string, f func(any) (T, error)) (T, error) {
+	var zero T
+	fs, err := httpObject(params, "the parameters")
+	if err != nil {
+		return zero, err
+	}
+	for _, kv := range fs {
+		if kv.Key == name {
+			x, err := f(kv.Val)
+			if err != nil {
+				return zero, fmt.Errorf("parameter %s: %s", name, err)
+			}
+			return x, nil
+		}
+	}
+	return zero, fmt.Errorf("missing parameter %s", name)
+}
+
+func httpJSON[T any](f func(*strings.Builder, T), x T) string {
+	var b strings.Builder
+	f(&b, x)
+	return b.String()
+}
+
+// ---- The server ----
+
+// HTTPRequest is a request: header names lowercased, the query string
+// undecoded.
+type HTTPRequest struct {
+	Method  string
+	Path    string
+	Query   string
+	Headers map[string]string
+	Body    string
+}
+
+type HTTPResponse struct {
+	Status  int
+	Headers map[string]string
+	Body    string
+}
+
+// HTTPHandler is a server's routes: the response, and whether it has the
+// route.
+type HTTPHandler func(ctx context.Context, req *HTTPRequest) (HTTPResponse, bool)
+
+// HTTPStatic is a file served as it is.
+type HTTPStatic struct {
+	Path string
+	Type string
+	Body string
+}
+
+func httpJSONResponse(status int, body string) HTTPResponse {
+	return HTTPResponse{Status: status, Headers: map[string]string{"Content-Type": "application/json"}, Body: body}
+}
+
+func httpErrorResponse(status int, msg string) HTTPResponse {
+	var b strings.Builder
+	b.WriteString("{\"error\":")
+	httpWriteStr(&b, msg)
+	b.WriteByte('}')
+	return httpJSONResponse(status, b.String())
+}
+
+// httpQueryPairs is the query string's parameters, decoded.
+func httpQueryPairs(query string) [][2]string {
+	var out [][2]string
+	for _, kv := range strings.Split(query, "&") {
+		if kv == "" {
+			continue
+		}
+		k, v, _ := strings.Cut(kv, "=")
+		out = append(out, [2]string{httpPercentDecode(k), httpPercentDecode(v)})
+	}
+	return out
+}
+
+func httpQueryMap(query string) map[string]string {
+	m := map[string]string{}
+	for _, kv := range httpQueryPairs(query) {
+		m[kv[0]] = kv[1]
+	}
+	return m
+}
+
+// httpJSONRoute is a JSON route: its parameters from a JSON object body,
+// or the query string (each value read as JSON if it parses, else as a
+// string).
+func httpJSONRoute(ctx context.Context, req *HTTPRequest, call func(context.Context, any) (string, int, error)) HTTPResponse {
+	var params any
+	if strings.TrimSpace(req.Body) == "" {
+		fs := httpObj{}
+		for _, kv := range httpQueryPairs(req.Query) {
+			v, err := httpParse(kv[1])
+			if err != nil {
+				v = kv[1]
+			}
+			fs = append(fs, httpPair{kv[0], v})
+		}
+		params = fs
+	} else {
+		v, err := httpParse(req.Body)
+		if err != nil {
+			return httpErrorResponse(400, "body: "+err.Error())
+		}
+		params = v
+	}
+	text, status, err := call(ctx, params)
+	if err != nil {
+		return httpErrorResponse(status, err.Error())
+	}
+	return httpJSONResponse(200, text)
+}
+
+// HTTPRun is a server's main: [--addr host:port] from the command line
+// (else addr, the manifest's), then serves.
+func HTTPRun(addr string, handler HTTPHandler, statics []HTTPStatic) {
+	if a, ok := httpListenAddr(addr); ok {
+		httpServe(a, handler, statics)
+	}
+}
+
+// HTTPRunSetup is a server's main with a setup: the address as for
+// HTTPRun, then the setup (if it fails, the server exits without
+// listening), then serves.
+func HTTPRunSetup(addr string, setup func(context.Context) error, handler HTTPHandler, statics []HTTPStatic) {
+	a, ok := httpListenAddr(addr)
+	if !ok {
+		return
+	}
+	if err := setup(context.Background()); err != nil {
+		fmt.Fprintf(os.Stderr, "error: setup: %v\n", err)
+		os.Exit(1)
+	}
+	httpServe(a, handler, statics)
+}
+
+// httpListenAddr is --addr host:port from the command line, else addr;
+// false after printing the usage for --help.
+func httpListenAddr(addr string) (string, bool) {
+	name := os.Args[0][strings.LastIndex(os.Args[0], "/")+1:]
+	usage := fmt.Sprintf("usage: %s [--addr host:port]   (default %s)", name, addr)
+	args := os.Args[1:]
+	for i := 0; i < len(args); i += 2 {
+		a := args[i]
+		switch {
+		case a == "--addr" && i+1 < len(args):
+			addr = args[i+1]
+		case a == "-h" || a == "--help":
+			fmt.Fprintln(os.Stderr, usage)
+			return "", false
+		default:
+			fmt.Fprintf(os.Stderr, "error: unexpected %s\n%s\n", a, usage)
+			os.Exit(2)
+		}
+	}
+	return addr, true
+}
+
+// httpServe serves until the process is stopped.
+func httpServe(addr string, handler HTTPHandler, statics []HTTPStatic) {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: cannot listen on %s: %v\n", addr, err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "listening on http://%s\n", addr)
+	http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<20))
+		path, query, _ := strings.Cut(r.RequestURI, "?")
+		headers := map[string]string{}
+		for k, vs := range r.Header {
+			if len(vs) > 0 {
+				headers[strings.ToLower(k)] = vs[len(vs)-1]
+			}
+		}
+		if r.Host != "" {
+			headers["host"] = r.Host
+		}
+		req := &HTTPRequest{Method: r.Method, Path: path, Query: query, Headers: headers, Body: strings.ToValidUTF8(string(body), "�")}
+		resp := httpRespond(r.Context(), req, handler, statics)
+		if resp.Status < 100 || resp.Status > 999 {
+			resp = httpErrorResponse(500, fmt.Sprintf("status %d is not an HTTP status", resp.Status))
+		}
+		for k, v := range resp.Headers {
+			w.Header()[k] = []string{v}
+		}
+		// Send no Content-Type the response doesn't set.
+		if _, ok := w.Header()["Content-Type"]; !ok {
+			w.Header()["Content-Type"] = nil
+		}
+		w.WriteHeader(resp.Status)
+		io.WriteString(w, resp.Body)
+	}))
+}
+
+func httpRespond(ctx context.Context, req *HTTPRequest, handler HTTPHandler, statics []HTTPStatic) HTTPResponse {
+	if req.Method == "GET" {
+		for _, s := range statics {
+			if s.Path == req.Path {
+				return HTTPResponse{Status: 200, Headers: map[string]string{"Content-Type": s.Type}, Body: s.Body}
+			}
+		}
+	}
+	if resp, ok := handler(ctx, req); ok {
+		return resp
+	}
+	return httpErrorResponse(404, fmt.Sprintf("no route %s %s", req.Method, req.Path))
+}
+
+func httpPercentDecode(s string) string {
+	var out []byte
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case c == '+':
+			out = append(out, ' ')
+		case c == '%' && i+2 < len(s):
+			if x, ok := httpHex(s[i+1 : i+3]); ok {
+				out = append(out, byte(x))
+				i += 2
+			} else {
+				out = append(out, '%')
+			}
+		default:
+			out = append(out, c)
+		}
+	}
+	return strings.ToValidUTF8(string(out), "�")
+}
+"##;
+
+/// What http_vandorf.go imports, besides the types package.
+const GO_HTTP_IMPORTS: &[&str] = &[
+    "cmp",
+    "context",
+    "errors",
+    "fmt",
+    "io",
+    "math",
+    "net",
+    "net/http",
+    "os",
+    "slices",
+    "strconv",
+    "strings",
+    "unicode/utf8",
+];
+
+/// A server's name as part of a Go identifier: `web-api` -> `Web_api`.
+fn go_server_ident(name: &str) -> String {
+    exported(name)
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// A Go string literal for any text: control characters escaped too.
+fn go_quote(s: &str) -> String {
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 || c == '\u{7f}' => {
+                out.push_str(&format!("\\x{:02x}", c as u32))
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn go_prim_name(p: &str) -> &'static str {
+    match p {
+        "void" => "Void",
+        "int" => "Int",
+        "float" => "Float",
+        "bool" => "Bool",
+        _ => "String",
+    }
+}
+
+fn go_key_name(k: &TyRef) -> &'static str {
+    match k {
+        TyRef::Prim(p) if &**p == "int" => "Int",
+        _ => "String",
+    }
+}
+
+struct GoHttp<'a> {
+    prog: &'a Program,
+    t: &'a Table,
+    tq: &'a str,
+    w: Vec<Line>,
+}
+
+impl GoHttp<'_> {
+    fn line(&mut self, s: String) {
+        self.w.push(Line::L(s.into()));
+    }
+
+    fn go_type(&self, ty: &Type) -> String {
+        gtype(self.t, self.tq, ty)
+    }
+
+    fn tyref(&self, ty: &Type) -> TyRef {
+        get(self.t.clone(), ty.clone()).unwrap()
+    }
+
+    fn enc(&self, r: &TyRef) -> String {
+        match r {
+            TyRef::Prim(p) => format!("httpWrite{}", go_prim_name(p)),
+            TyRef::Array(e) => format!("httpListW({})", self.enc(e)),
+            TyRef::Map(m) => format!(
+                "httpMapW(http{}Key, {})",
+                go_key_name(&m.key),
+                self.enc(&m.value)
+            ),
+            TyRef::Named(i) => format!("httpEnc{}", self.t.types[*i as usize].name),
+        }
+    }
+
+    fn dec(&self, r: &TyRef) -> String {
+        match r {
+            TyRef::Prim(p) => format!("httpRead{}", go_prim_name(p)),
+            TyRef::Array(e) => format!("httpListR({})", self.dec(e)),
+            TyRef::Map(m) => format!(
+                "httpMapR(http{}FromKey, {})",
+                go_key_name(&m.key),
+                self.dec(&m.value)
+            ),
+            TyRef::Named(i) => format!("httpDec{}", self.t.types[*i as usize].name),
+        }
+    }
+
+    fn is_boxed(&self, i: usize, n: &str) -> bool {
+        self.t.boxed.contains_key(&Str::from(format!("{i}:{n}")))
+    }
+
+    /// An encoder and a decoder per named type.
+    fn codecs(&mut self) {
+        let t = self.t.clone();
+        for (i, nt) in t.types.iter().enumerate() {
+            let ty = format!("{}{}", self.tq, nt.name);
+            match &nt.shape {
+                Shape::Struct(fs) => {
+                    self.line(format!(
+                        "func httpEnc{}(b *strings.Builder, x {ty}) {{",
+                        nt.name
+                    ));
+                    self.line("b.WriteByte('{')".into());
+                    for (j, f) in fs.iter().enumerate() {
+                        let key = format!("{}{}:", if j > 0 { "," } else { "" }, q(&f.name));
+                        self.line(format!("b.WriteString({})", q(&key)));
+                        let v = if self.is_boxed(i, &f.name) {
+                            format!("*x.{}", exported(&f.name))
+                        } else {
+                            format!("x.{}", exported(&f.name))
+                        };
+                        let e = self.enc(&f.r);
+                        self.line(format!("{e}(b, {v})"));
+                    }
+                    self.line("b.WriteByte('}')".into());
+                    self.line("}".into());
+                    self.line("".into());
+                    self.line(format!("func httpDec{}(v any) ({ty}, error) {{", nt.name));
+                    self.line(format!("var x {ty}"));
+                    self.line(format!(
+                        "{}, err := httpObject(v, {})",
+                        if fs.is_empty() { "_" } else { "fs" },
+                        q(&nt.name)
+                    ));
+                    self.line("if err != nil {".into());
+                    self.line("return x, err".into());
+                    self.line("}".into());
+                    for f in fs.iter() {
+                        self.line(format!(
+                            "if f, err := httpField(fs, {}); err != nil {{",
+                            q(&f.name)
+                        ));
+                        self.line("return x, err".into());
+                        let d = self.dec(&f.r);
+                        self.line(format!("}} else if y, err := {d}(f); err != nil {{"));
+                        self.line(format!(
+                            "return x, errors.New({} + err.Error())",
+                            q(&format!("{}: ", f.name))
+                        ));
+                        self.line("} else {".into());
+                        let y = if self.is_boxed(i, &f.name) { "&y" } else { "y" };
+                        self.line(format!("x.{} = {y}", exported(&f.name)));
+                        self.line("}".into());
+                    }
+                    self.line("return x, nil".into());
+                    self.line("}".into());
+                    self.line("".into());
+                }
+                Shape::Enum(vs) => {
+                    let void = |r: &TyRef| matches!(r, TyRef::Prim(p) if &**p == "void");
+                    self.line(format!(
+                        "func httpEnc{}(b *strings.Builder, x {ty}) {{",
+                        nt.name
+                    ));
+                    self.line("switch x.Tag {".into());
+                    for v in vs.iter() {
+                        self.line(format!("case {}:", q(&v.name)));
+                        if void(&v.r) {
+                            self.line(format!("b.WriteString({})", q(&q(&v.name))));
+                        } else {
+                            self.line(format!(
+                                "b.WriteString({})",
+                                q(&format!("{{{}:", q(&v.name)))
+                            ));
+                            let x = if self.is_boxed(i, &v.name) {
+                                format!("*x.{}", exported(&v.name))
+                            } else {
+                                format!("x.{}", exported(&v.name))
+                            };
+                            let e = self.enc(&v.r);
+                            self.line(format!("{e}(b, {x})"));
+                            self.line("b.WriteByte('}')".into());
+                        }
+                    }
+                    self.line("default:".into());
+                    self.line("b.WriteString(\"null\")".into());
+                    self.line("}".into());
+                    self.line("}".into());
+                    self.line("".into());
+                    self.line(format!("func httpDec{}(v any) ({ty}, error) {{", nt.name));
+                    self.line(format!("var x {ty}"));
+                    self.line("switch v := v.(type) {".into());
+                    self.line("case string:".into());
+                    self.line("switch v {".into());
+                    for v in vs.iter().filter(|v| void(&v.r)) {
+                        self.line(format!("case {}:", q(&v.name)));
+                        self.line(format!("x.Tag = {}", q(&v.name)));
+                        self.line("return x, nil".into());
+                    }
+                    self.line("}".into());
+                    self.line(format!(
+                        "return x, fmt.Errorf({}, v)",
+                        q(&format!("{} has no variant %s without a payload", nt.name))
+                    ));
+                    self.line("case httpObj:".into());
+                    self.line("if len(v) == 1 {".into());
+                    self.line("switch v[0].Key {".into());
+                    for v in vs.iter().filter(|v| !void(&v.r)) {
+                        self.line(format!("case {}:", q(&v.name)));
+                        let d = self.dec(&v.r);
+                        self.line(format!("y, err := {d}(v[0].Val)"));
+                        self.line("if err != nil {".into());
+                        self.line("return x, err".into());
+                        self.line("}".into());
+                        self.line(format!("x.Tag = {}", q(&v.name)));
+                        let y = if self.is_boxed(i, &v.name) { "&y" } else { "y" };
+                        self.line(format!("x.{} = {y}", exported(&v.name)));
+                        self.line("return x, nil".into());
+                    }
+                    self.line("}".into());
+                    self.line(format!(
+                        "return x, fmt.Errorf({}, v[0].Key)",
+                        q(&format!("{} has no variant %s with a payload", nt.name))
+                    ));
+                    self.line("}".into());
+                    self.line("}".into());
+                    self.line(format!(
+                        "return x, errors.New({})",
+                        q(&format!(
+                            "expected a variant of {}: \"Tag\" or {{\"Tag\": payload}}",
+                            nt.name
+                        ))
+                    ));
+                    self.line("}".into());
+                    self.line("".into());
+                }
+            }
+        }
+    }
+
+    /// A JSON route's call; with a setup (its static and server), the
+    /// context is its ctx parameter.
+    fn call(&mut self, fname: &str, pid: i64, p: &str, ctx: Option<(&str, &str)>) {
+        let nodes = self.prog.nodes.clone();
+        match ctx {
+            Some((_, server)) => self.line(format!(
+                "// {fname} runs proc {p} with the request's parameters and http server {server}'s context."
+            )),
+            None => self.line(format!(
+                "// {fname} runs proc {p} with the request's parameters."
+            )),
+        }
+        self.line(format!(
+            "func {fname}(ctx context.Context, params any) (string, int, error) {{"
+        ));
+        let mut args = vec!["ctx".to_string()];
+        for m in params_of(&nodes, pid).iter() {
+            let var = format!("arg{}", exported(&m.name));
+            match ctx {
+                Some((stat, server)) if &*m.name == "ctx" => {
+                    self.line(format!("if !{stat}Set {{"));
+                    self.line(format!(
+                        "return \"\", 500, errors.New({})",
+                        q(&format!("http server {server} is not set up"))
+                    ));
+                    self.line("}".into());
+                    self.line(format!("{var} := {stat}"));
+                }
+                _ => {
+                    let d = self.dec(&self.tyref(&m.ty));
+                    self.line(format!(
+                        "{var}, err := httpArg(params, {}, {d})",
+                        q(&m.name)
+                    ));
+                    self.line("if err != nil {".into());
+                    self.line("return \"\", 400, err".into());
+                    self.line("}".into());
+                }
+            }
+            args.push(var);
+        }
+        self.line(format!(
+            "result, err := Run{}({})",
+            gn(&nodes, pid),
+            args.join(", ")
+        ));
+        self.line("if err != nil {".into());
+        self.line("return \"\", 500, err".into());
+        self.line("}".into());
+        let e = self.enc(&self.tyref(&ret_of(&nodes, pid)));
+        self.line(format!("return httpJSON({e}, result), 200, nil"));
+        self.line("}".into());
+        self.line("".into());
+    }
+
+    /// A raw route's call: the request as the proc's request struct, and
+    /// with a setup the context as ctx.
+    fn raw(&mut self, fname: &str, pid: i64, p: &str, req_ty: &Type, ctx: Option<(&str, &str)>) {
+        let nodes = self.prog.nodes.clone();
+        match ctx {
+            Some((_, server)) => self.line(format!(
+                "// {fname} runs proc {p} on the raw request with http server {server}'s context."
+            )),
+            None => self.line(format!("// {fname} runs proc {p} on the raw request.")),
+        }
+        self.line(format!(
+            "func {fname}(ctx context.Context, req *HTTPRequest) HTTPResponse {{"
+        ));
+        self.line(format!(
+            "r := {}{{Method: req.Method, Path: req.Path, Query: httpQueryMap(req.Query), Headers: req.Headers, Body: req.Body}}",
+            self.go_type(req_ty)
+        ));
+        let mut args = vec!["ctx".to_string()];
+        if let Some((stat, server)) = ctx {
+            self.line(format!("if !{stat}Set {{"));
+            self.line(format!(
+                "return httpErrorResponse(500, {})",
+                q(&format!("http server {server} is not set up"))
+            ));
+            self.line("}".into());
+            args.extend(params_of(&nodes, pid).iter().map(|m| {
+                if &*m.name == "ctx" {
+                    stat.to_string()
+                } else {
+                    "r".into()
+                }
+            }));
+        } else {
+            args.push("r".into());
+        }
+        self.line(format!(
+            "res, err := Run{}({})",
+            gn(&nodes, pid),
+            args.join(", ")
+        ));
+        self.line("if err != nil {".into());
+        self.line("return httpErrorResponse(500, err.Error())".into());
+        self.line("}".into());
+        self.line(
+            "return HTTPResponse{Status: res.Status, Headers: res.Headers, Body: res.Body}".into(),
+        );
+        self.line("}".into());
+        self.line("".into());
+    }
+
+    fn find(&self, server: &str, p: &str) -> Result<i64, String> {
+        match find_top(self.prog.clone(), p.into())? {
+            -1 => Err(format!(
+                "http server {server} runs proc {p}, but there is no top-level proc {p}"
+            )),
+            pid => Ok(pid),
+        }
+    }
+
+    /// A server with a setup proc: its context, HTTPSetup<Server>, and a
+    /// call per route and raw route passing the context as ctx.
+    fn setup_calls(&mut self, srv: &GoServerSpec) -> Result<(), String> {
+        let nodes = self.prog.nodes.clone();
+        let (name, setup) = (&*srv.name, &*srv.setup);
+        let sid = match find_top(self.prog.clone(), setup.into())? {
+            -1 => {
+                return Err(format!(
+                    "http server {name}'s setup runs proc {setup}, but there is no top-level proc {setup}"
+                ));
+            }
+            sid => sid,
+        };
+        if !params_of(&nodes, sid).is_empty() {
+            return Err(format!(
+                "http server {name}: setup proc {setup} must take no parameters"
+            ));
+        }
+        let ctx_ty = ret_of(&nodes, sid);
+        let ident = go_server_ident(name);
+        let (gctx, stat) = (self.go_type(&ctx_ty), format!("httpCtx{ident}"));
+        // Each of the server's procs must take ctx, of the setup's type.
+        let check = |me: &Self, kind: &str, p: &str, pid: i64| -> Result<(), String> {
+            match params_of(&nodes, pid).iter().find(|m| &*m.name == "ctx") {
+                None => Err(format!(
+                    "http server {name}: {kind} proc {p} must take ctx: {}, its setup proc {setup}'s result",
+                    show_type(&ctx_ty)
+                )),
+                Some(m) if me.go_type(&m.ty) != gctx => Err(format!(
+                    "http server {name}: {kind} proc {p} takes ctx: {}, but its setup proc {setup} returns {}",
+                    show_type(&m.ty),
+                    show_type(&ctx_ty)
+                )),
+                Some(_) => Ok(()),
+            }
+        };
+        self.line(format!(
+            "// {stat} is http server {name}'s context: proc {setup}'s result, set before serving."
+        ));
+        self.line(format!("var {stat} {gctx}"));
+        self.line(format!("var {stat}Set bool"));
+        self.line("".into());
+        self.line(format!(
+            "// HTTPSetup{ident} runs proc {setup}, the setup of http server {name}."
+        ));
+        self.line(format!(
+            "func HTTPSetup{ident}(ctx context.Context) error {{"
+        ));
+        self.line(format!("c, err := Run{}(ctx)", gn(&nodes, sid)));
+        self.line("if err != nil {".into());
+        self.line("return err".into());
+        self.line("}".into());
+        self.line(format!("{stat}, {stat}Set = c, true"));
+        self.line("return nil".into());
+        self.line("}".into());
+        self.line("".into());
+        let mut procs: Vec<&str> = srv.routes.iter().map(|r| &*r.proc).collect();
+        procs.sort();
+        procs.dedup();
+        for p in procs {
+            let pid = self.find(name, p)?;
+            check(self, "route", p, pid)?;
+            self.call(
+                &format!("httpCall{ident}{}", gn(&nodes, pid)),
+                pid,
+                p,
+                Some((&stat, name)),
+            );
+        }
+        let mut raws: Vec<&str> = srv.raw.iter().map(|r| &*r.proc).collect();
+        raws.sort();
+        raws.dedup();
+        for p in raws {
+            let pid = self.find(name, p)?;
+            check(self, "raw route", p, pid)?;
+            let rest: Vec<Member> = params_of(&nodes, pid)
+                .iter()
+                .filter(|m| &*m.name != "ctx")
+                .cloned()
+                .collect();
+            if !(rest.len() == 1
+                && raw_shape(self.prog, &rest[0].ty, RAW_REQUEST)
+                && raw_shape(self.prog, &ret_of(&nodes, pid), RAW_RESPONSE))
+            {
+                return Err(format!(
+                    "http server {name}: raw route proc {p} must take ctx and one {}, and return {}",
+                    show_shape(RAW_REQUEST),
+                    show_shape(RAW_RESPONSE)
+                ));
+            }
+            self.raw(
+                &format!("httpRaw{ident}{}", gn(&nodes, pid)),
+                pid,
+                p,
+                &rest[0].ty,
+                Some((&stat, name)),
+            );
+        }
+        Ok(())
+    }
+}
+
+fn go_http_body(
+    prog: &Program,
+    t: &Table,
+    tq: &str,
+    servers: &List<GoServerSpec>,
+) -> Result<String, String> {
+    let nodes = prog.nodes.clone();
+    let mut h = GoHttp {
+        prog,
+        t,
+        tq,
+        w: vec![Line::Raw(GO_HTTP_RUNTIME.into())],
+    };
+    h.line("".into());
+    h.codecs();
+    // One call per proc a route runs (servers with a setup get their own).
+    let plain: Vec<&GoServerSpec> = servers.iter().filter(|s| s.setup.is_empty()).collect();
+    let mut procs: Vec<&str> = plain
+        .iter()
+        .flat_map(|s| s.routes.iter().map(|r| &*r.proc))
+        .collect();
+    procs.sort();
+    procs.dedup();
+    for p in procs {
+        let srv = plain
+            .iter()
+            .find(|s| s.routes.iter().any(|r| &*r.proc == p))
+            .unwrap();
+        let pid = h.find(&srv.name, p)?;
+        h.call(&format!("httpCall{}", gn(&nodes, pid)), pid, p, None);
+    }
+    // One raw call per proc a raw route runs.
+    let mut raws: Vec<&str> = plain
+        .iter()
+        .flat_map(|s| s.raw.iter().map(|r| &*r.proc))
+        .collect();
+    raws.sort();
+    raws.dedup();
+    for p in raws {
+        let srv = plain
+            .iter()
+            .find(|s| s.raw.iter().any(|r| &*r.proc == p))
+            .unwrap();
+        let pid = h.find(&srv.name, p)?;
+        let params = params_of(&nodes, pid);
+        let ok = params.len() == 1
+            && raw_shape(prog, &params[0].ty, RAW_REQUEST)
+            && raw_shape(prog, &ret_of(&nodes, pid), RAW_RESPONSE);
+        if !ok {
+            return Err(format!(
+                "http server {}: raw route proc {p} must take one {} and return {}",
+                srv.name,
+                show_shape(RAW_REQUEST),
+                show_shape(RAW_RESPONSE)
+            ));
+        }
+        h.raw(
+            &format!("httpRaw{}", gn(&nodes, pid)),
+            pid,
+            p,
+            &params[0].ty,
+            None,
+        );
+    }
+    for srv in servers.iter().filter(|s| !s.setup.is_empty()) {
+        h.setup_calls(srv)?;
+    }
+    for srv in servers.iter() {
+        let ident = go_server_ident(&srv.name);
+        // A server with a setup has calls of its own.
+        let own = if srv.setup.is_empty() {
+            String::new()
+        } else {
+            ident.clone()
+        };
+        h.line(format!(
+            "// HTTPHandle{ident} routes the requests of http server {}.",
+            srv.name
+        ));
+        h.line(format!(
+            "func HTTPHandle{ident}(ctx context.Context, req *HTTPRequest) (HTTPResponse, bool) {{"
+        ));
+        h.line("switch req.Method + \" \" + req.Path {".into());
+        // Two spellings of one route: the first is taken.
+        let mut seen = std::collections::HashSet::new();
+        for r in srv.routes.iter() {
+            let key = format!("{} {}", r.method, r.path);
+            if seen.insert(key.clone()) {
+                let pid = find_top(prog.clone(), r.proc.clone())?;
+                h.line(format!("case {}:", q(&key)));
+                h.line(format!(
+                    "return httpJSONRoute(ctx, req, httpCall{own}{}), true",
+                    gn(&nodes, pid)
+                ));
+            }
+        }
+        for r in srv.raw.iter() {
+            let key = format!("{} {}", r.method, r.path);
+            if seen.insert(key.clone()) {
+                let pid = find_top(prog.clone(), r.proc.clone())?;
+                h.line(format!("case {}:", q(&key)));
+                h.line(format!(
+                    "return httpRaw{own}{}(ctx, req), true",
+                    gn(&nodes, pid)
+                ));
+            }
+        }
+        h.line("}".into());
+        h.line("return HTTPResponse{}, false".into());
+        h.line("}".into());
+        h.line("".into());
+    }
+    Ok(render_lines(h.w.into(), "\t".into())?.to_string())
+}
+
+/// http_vandorf.go, if there are servers.
+pub fn go_http_files(
+    prog: Program,
+    t: Table,
+    package: Str,
+    setup: GoSetup,
+    servers: List<GoServerSpec>,
+) -> Result<GoOut, String> {
+    if servers.is_empty() {
+        return Ok(GoOut {
+            files: List::default(),
+            err: MaybeStr::None,
+        });
+    }
+    Ok(match go_http_body(&prog, &t, &setup.tq, &servers) {
+        Ok(body) => {
+            let imports = GO_HTTP_IMPORTS
+                .iter()
+                .map(|i| (i.to_string(), String::new()))
+                .collect();
+            GoOut {
+                files: vec![GoFile {
+                    dir: "".into(),
+                    name: "http_vandorf.go".into(),
+                    text: file_text(&package, &body, imports, &setup).into(),
+                    kind: "code".into(),
+                }]
+                .into(),
+                err: MaybeStr::None,
+            }
+        }
+        Err(e) => GoOut {
+            files: List::default(),
+            err: MaybeStr::Some(e.into()),
+        },
+    })
+}
+
+/// Each server's package main: its static files, then HTTPRun (or
+/// HTTPRunSetup) with its handler.
+pub fn go_server_mains(
+    package: Str,
+    import_base: MaybeStr,
+    servers: List<GoServerSpec>,
+) -> Result<GoOut, String> {
+    let mut files = vec![];
+    for srv in servers.iter() {
+        let MaybeStr::Some(import) = &import_base else {
+            return Ok(GoOut {
+                files: List::default(),
+                err: MaybeStr::Some(
+                    "the main package needs the code package's import path: pass --module or run inside a Go module"
+                        .into(),
+                ),
+            });
+        };
+        let alias = if &*package == "main" {
+            "procs".to_string()
+        } else {
+            package.to_string()
+        };
+        let ident = go_server_ident(&srv.name);
+        let mut doc = vec![format!(
+            "// Command {} serves http server {} on {} (or --addr host:port):",
+            srv.name, srv.name, srv.addr
+        )];
+        for r in srv.routes.iter() {
+            doc.push(format!(
+                "//   - {} {} runs proc {}",
+                r.method, r.path, r.proc
+            ));
+        }
+        for r in srv.raw.iter() {
+            doc.push(format!(
+                "//   - {} {} runs proc {} on the raw request",
+                r.method, r.path, r.proc
+            ));
+        }
+        for s in srv.statics.iter() {
+            doc.push(format!("//   - GET {} serves {}", s.url, s.file));
+        }
+        if !srv.setup.is_empty() {
+            doc.push("//".into());
+            doc.push(format!(
+                "// Proc {} runs first; its result is each route's ctx.",
+                srv.setup
+            ));
+        }
+        let head = header("main", &[(import.to_string(), alias.clone())]).replacen(
+            "package main",
+            &format!("{}\npackage main", doc.join("\n")),
+            1,
+        );
+        let mut w = vec![];
+        if srv.statics.is_empty() {
+            w.push(format!("var statics []{alias}.HTTPStatic"));
+        } else {
+            w.push(format!("var statics = []{alias}.HTTPStatic{{"));
+            for s in srv.statics.iter() {
+                w.push(format!(
+                    "{{Path: {}, Type: {}, Body: {}}},",
+                    q(&s.url),
+                    q(&s.ctype),
+                    go_quote(&s.text)
+                ));
+            }
+            w.push("}".into());
+        }
+        w.push("".into());
+        w.push("func main() {".into());
+        if srv.setup.is_empty() {
+            w.push(format!(
+                "{alias}.HTTPRun({}, {alias}.HTTPHandle{ident}, statics)",
+                q(&srv.addr)
+            ));
+        } else {
+            w.push(format!(
+                "{alias}.HTTPRunSetup({}, {alias}.HTTPSetup{ident}, {alias}.HTTPHandle{ident}, statics)",
+                q(&srv.addr)
+            ));
+        }
+        w.push("}".into());
+        files.push(GoFile {
+            dir: srv.path.trim_matches('/').into(),
+            name: "main_vandorf.go".into(),
+            text: (head + &render(w)).into(),
+            kind: "main".into(),
+        });
+    }
+    Ok(GoOut {
+        files: files.into(),
+        err: MaybeStr::None,
+    })
 }
