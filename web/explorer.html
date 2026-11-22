@@ -7,8 +7,9 @@
 <link rel="stylesheet" href="/ui.css">
 <style>
 body{ background:var(--bar); display:flex; flex-direction:column; user-select:none; overflow:hidden }
-.bar{ border-bottom:0 }
-#q{ margin:0 8px 6px; width:calc(100% - 16px); flex:none }
+/* Two toolbars: the title row matches the tab strip, the filter row the
+   viewer's toolbar beside it, so both line up across the panels. */
+#q{ width:100%; flex:1 1 auto; min-width:0 }
 #tree{ flex:1; overflow:auto; padding-bottom:16px }
 .row{ display:flex; align-items:center; gap:5px; height:22px; padding-right:8px; cursor:pointer; white-space:nowrap }
 .row:hover{ background:var(--hover) }
@@ -18,6 +19,8 @@ body{ background:var(--bar); display:flex; flex-direction:column; user-select:no
 .badge.dir{ background:none; color:var(--mut); font-size:12px }
 .row .nm{ overflow:hidden; text-overflow:ellipsis }
 .row .er{ color:var(--err); margin-left:auto; font-weight:700 }
+.row .pj{ margin-left:auto; padding-left:8px; font-size:11px; color:var(--mut) }
+.row.project .nm{ font-weight:600 }
 .row.minor .nm{ color:var(--mut) }
 .empty{ color:var(--mut); padding:12px }
 mark{ background:rgba(250,204,21,.45); color:inherit; border-radius:var(--r-sm) }
@@ -29,7 +32,7 @@ mark{ background:rgba(250,204,21,.45); color:inherit; border-radius:var(--r-sm) 
   <button class="icon" id="bCollapse" title="Collapse all">⊟</button>
   <button class="icon" id="bRefresh" title="Refresh">↻</button>
 </div>
-<input id="q" placeholder="Filter procs…" spellcheck="false" autocomplete="off">
+<div class="bar"><input id="q" placeholder="Filter procs…" spellcheck="false" autocomplete="off"></div>
 <div id="tree"><div class="empty">Loading…</div></div>
 <script>
 (function(){
@@ -39,7 +42,13 @@ function store(k, v){ try { if (v === undefined) return localStorage.getItem(k);
 function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]; }); }
 function post(m){ if (window.parent !== window) window.parent.postMessage(m, location.origin); }
 
-var data = null, active = { path: null, proc: null };
+var data = null, active = { path: null, proc: null, project: null };
+/* Directories holding a vandorf.toml, by path: their project info. */
+function projects(){
+  var out = {};
+  (data ? data.files : []).forEach(function(f){ if (f.project) out[f.project.dir] = f.project; });
+  return out;
+}
 var open = (function(){ try { return JSON.parse(store('vandorf.ex.open')) || null; } catch (e) { return null; } })();
 var showAll = store('vandorf.ex.all') === '1';
 $('bAll').classList.toggle('on', showAll);
@@ -62,11 +71,13 @@ function build(){
     }
     d.files.push(f);
   });
-  // Collapse chains of single-child directories: examples/demo/sys.
+  // Collapse chains of single-child directories (examples/demo), but not
+  // past a project's directory: it gets its own row.
+  var pj = projects();
   (function squash(d){
     Object.keys(d.dirs).forEach(function(k){
       var c = d.dirs[k];
-      while (Object.keys(c.dirs).length === 1 && !c.files.length){
+      while (!pj[c.path] && Object.keys(c.dirs).length === 1 && !c.files.length){
         var only = c.dirs[Object.keys(c.dirs)[0]];
         only.name = c.name + '/' + only.name;
         c = only;
@@ -93,7 +104,7 @@ function visible(it){ return showAll || it.kind === 'proc' || (it.children || []
 function render(){
   if (!data) return;
   var q = $('q').value.trim().toLowerCase();
-  var h = [], depth = 0;
+  var h = [], depth = 0, pj = projects();
   function pad(d){ return ' style="padding-left:' + (6 + d * 12) + 'px"'; }
   function items(list, file, d){
     list.forEach(function(it){
@@ -101,11 +112,12 @@ function render(){
       var kids = (it.children || []).filter(function(c){ return visible(c); });
       var key = 'i:' + file.path + '#' + it.qual, op = q ? true : isOpen(key, false);
       var sel = it.kind === 'proc' && active.path === file.path && active.proc === it.qual;
+      var entry = it.kind === 'proc' && it.entry;
       h.push('<div class="row' + (kids.length && op ? ' open' : '') + (sel ? ' sel' : '') + (it.kind !== 'proc' ? ' minor' : '') + '"' + pad(d) +
         ' data-k="' + esc(key) + '" data-kind="' + it.kind + '" data-path="' + esc(file.path) + '" data-qual="' + esc(it.qual) + '" data-line="' + it.line + '"' +
-        (kids.length ? ' data-tw="1"' : '') + ' title="' + esc(it.kind + ' ' + it.qual + ' — ' + file.path + ':' + (it.line + 1)) + '">' +
+        (kids.length ? ' data-tw="1"' : '') + ' title="' + esc(it.kind + ' ' + it.qual + ' — ' + file.path + ':' + (it.line + 1) + (entry ? '\nentry point: ' + entry.join(', ') : '')) + '">' +
         '<span class="tw">' + (kids.length ? '▶' : '') + '</span>' +
-        '<span class="badge ' + it.kind + '">' + { proc: 'P', func: 'ƒ', type: 'T', interface: 'I' }[it.kind] + '</span>' +
+        '<span class="badge ' + it.kind + (entry ? ' entry' : '') + '">' + { proc: 'P', func: 'ƒ', type: 'T', interface: 'I' }[it.kind] + '</span>' +
         '<span class="nm">' + hl(it.name, q) + '</span></div>');
       if (kids.length && op) items(kids, file, d + 1);
     });
@@ -116,8 +128,15 @@ function render(){
       var inner = [];
       var save = h; h = inner; dir(c, d + 1); h = save;
       if (q && !inner.length) return;
-      h.push('<div class="row' + (op ? ' open' : '') + '"' + pad(d) + ' data-k="' + esc(key) + '" data-tw="1">' +
-        '<span class="tw">▶</span><span class="badge dir">▣</span><span class="nm">' + esc(c.name) + '</span></div>');
+      var proj = pj[c.path];
+      if (proj){
+        h.push('<div class="row project' + (op ? ' open' : '') + (active.project === c.path ? ' sel' : '') + '"' + pad(d) + ' data-k="' + esc(key) + '" data-tw="1" data-project="' + esc(c.path) + '"' +
+          ' title="' + esc('project ' + proj.name + ' — click for its overview') + '">' +
+          '<span class="tw">▶</span><span class="badge project"></span><span class="nm">' + esc(c.name) + '</span><span class="pj">' + esc(proj.name) + '</span></div>');
+      } else {
+        h.push('<div class="row' + (op ? ' open' : '') + '"' + pad(d) + ' data-k="' + esc(key) + '" data-tw="1">' +
+          '<span class="tw">▶</span><span class="badge dir">▣</span><span class="nm">' + esc(c.name) + '</span></div>');
+      }
       if (op) h.push.apply(h, inner);
     });
     dd.files.forEach(function(f){
@@ -145,6 +164,11 @@ $('tree').addEventListener('click', function(e){
   var kind = r.dataset.kind, onTwisty = e.target.closest('.tw');
   if (kind === 'proc' && !onTwisty){
     post({ type: 'ide-open', path: r.dataset.path, proc: r.dataset.qual, newTab: e.ctrlKey || e.metaKey, mode: 'diagram' });
+    return;
+  }
+  if (r.dataset.project != null && !onTwisty){
+    post({ type: 'ide-open', project: r.dataset.project });
+    if (!r.classList.contains('open')){ setOpen(r.dataset.k, true); render(); }
     return;
   }
   if (kind && kind !== 'proc' && !onTwisty){
@@ -178,7 +202,7 @@ window.addEventListener('message', function(e){
   if (m.type === 'vandorf-theme') document.documentElement.setAttribute('data-theme', m.theme);
   if (m.type === 'ide-refresh') load();
   if (m.type === 'ide-active'){
-    active = { path: m.path || null, proc: m.proc || null };
+    active = { path: m.path || null, proc: m.proc || null, project: m.project != null ? m.project : null };
     if (m.path && !(open && ('f:' + m.path) in open)) setOpen('f:' + m.path, true);
     render();
   }

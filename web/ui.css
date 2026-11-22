@@ -14,6 +14,7 @@
   --code-bg:#fbfcfe; --kw:#7c3aed; --str:#b45309; --com:#94a3b8; --tyc:#0e7490; --fn:#1d4ed8; --shadow:rgba(15,23,42,.18);
   /* badge fills (white letter on top) */
   --b-proc:#e07b00; --b-func:#1d6fd8; --b-type:#0e7490; --b-iface:#7c3aed; --b-file:#64748b; --b-edge:#64748b; --b-switch:#a16207;
+  --b-entry:#15803d; --b-project:#4f46e5;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
@@ -22,6 +23,7 @@
     --accent:#3b82f6; --accent-ink:#ffffff; --err:#ff8a80; --err-bg:#3a1618; --ok:#5fd38d; --dirty:#fbbf24;
     --code-bg:#0e1624; --kw:#c4b5fd; --str:#fbbf24; --com:#5b6f8a; --tyc:#67e8f9; --fn:#93c5fd; --shadow:rgba(0,0,0,.5);
     --b-proc:#d97706; --b-func:#3b82f6; --b-type:#0891b2; --b-iface:#8b5cf6; --b-file:#52657f; --b-edge:#52657f; --b-switch:#a16207;
+    --b-entry:#16a34a; --b-project:#6366f1;
   }
 }
 :root[data-theme="dark"]{
@@ -30,6 +32,7 @@
   --accent:#3b82f6; --accent-ink:#ffffff; --err:#ff8a80; --err-bg:#3a1618; --ok:#5fd38d; --dirty:#fbbf24;
   --code-bg:#0e1624; --kw:#c4b5fd; --str:#fbbf24; --com:#5b6f8a; --tyc:#67e8f9; --fn:#93c5fd; --shadow:rgba(0,0,0,.5);
   --b-proc:#d97706; --b-func:#3b82f6; --b-type:#0891b2; --b-iface:#8b5cf6; --b-file:#52657f; --b-edge:#52657f; --b-switch:#a16207;
+  --b-entry:#16a34a; --b-project:#6366f1;
 }
 *{ box-sizing:border-box }
 html,body{ height:100%; margin:0; overflow:hidden }
@@ -69,5 +72,10 @@ input[type=text], input[type=search], input:not([type]){ display:block; padding:
 .badge.proc{ background:var(--b-proc) } .badge.func{ background:var(--b-func) } .badge.type{ background:var(--b-type) }
 .badge.interface{ background:var(--b-iface) } .badge.edge{ background:var(--b-edge) } .badge.switch{ background:var(--b-switch) }
 .badge.builtin{ background:var(--b-iface) }
+/* A proc a bin or route runs: the proc badge in the entry color. */
+.badge.proc.entry{ background:var(--b-entry) }
+.badge.project{ background:var(--b-project); position:relative }
+.badge.project::before{ content:""; position:absolute; left:4px; top:4px; width:8px; height:7px; border:1.5px solid #fff; border-radius:1px; box-sizing:border-box }
+.badge.project::after{ content:""; position:absolute; left:4px; top:6px; width:8px; height:1.5px; background:#fff }
 
 kbd{ font:11px var(--mono); border:1px solid var(--line); border-radius:var(--r-sm); padding:0 4px }

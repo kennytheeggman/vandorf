@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project</title>
+<link rel="stylesheet" href="/ui.css">
+<style>
+body{ display:flex; flex-direction:column }
+.crumb{ color:var(--mut); overflow:hidden; text-overflow:ellipsis; font-size:12px; padding:0 4px; min-width:0 }
+#main{ flex:1; overflow:auto; min-height:0 }
+#overview, #manifest{ display:none } #overview.on, #manifest.on{ display:block }
+.wrap{ max-width:980px; margin:0 auto; padding:20px 20px 40px }
+.msg{ padding:20px; color:var(--mut) } .msg.bad{ color:var(--err) }
+
+.head{ display:flex; align-items:center; gap:10px; margin-bottom:6px }
+.head .badge{ transform:scale(1.4); margin:0 4px }
+.head h1{ font-size:20px; margin:0; font-weight:700 }
+.head .dir{ color:var(--mut); font-size:12.5px }
+.stats{ display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 4px }
+.stat{ border:1px solid var(--line); border-radius:var(--r); padding:2px 8px; font-size:12px; color:var(--mut); background:var(--bar) }
+.stat b{ color:var(--ink); font-weight:600 }
+.warn{ color:var(--err); font-size:12.5px; margin-top:8px }
+
+h2{ font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--mut); margin:26px 0 8px;
+  display:flex; align-items:center; gap:8px }
+h2::after{ content:""; flex:1; height:1px; background:var(--line) }
+h3{ font-size:13px; margin:0; font-weight:600; display:flex; align-items:center; gap:8px; flex-wrap:wrap }
+.cards{ display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:10px }
+.card{ border:1px solid var(--line); border-radius:var(--r); background:var(--bg); padding:10px 12px }
+.card.wide{ grid-column:1 / -1 }
+.kv{ display:grid; grid-template-columns:auto 1fr; gap:3px 12px; margin-top:8px; font-size:12.5px }
+.kv .k{ color:var(--mut) }
+.kv code, code{ font:12px/1.5 var(--mono) }
+.dflt{ color:var(--mut); font-style:italic; font-family:inherit }
+.tag{ font-size:11px; color:var(--mut); border:1px solid var(--line); border-radius:var(--r-sm); padding:0 5px; font-weight:500 }
+
+/* An entry point: badge, proc name, where it's declared. */
+.eref{ display:inline-flex; align-items:center; gap:6px; cursor:pointer; color:var(--ink); text-decoration:none; font-weight:600 }
+.eref:hover .nm{ text-decoration:underline; color:var(--accent) }
+.eref.missing{ color:var(--err); cursor:default }
+.loc{ font-size:11.5px; color:var(--accent); cursor:pointer; font-weight:400 }
+.loc:hover{ text-decoration:underline }
+
+table{ border-collapse:collapse; width:100%; margin-top:8px; font-size:12.5px }
+td{ padding:5px 8px; border-top:1px solid var(--line); vertical-align:middle }
+tr:hover td{ background:var(--hover) }
+td.m{ width:1%; white-space:nowrap }
+td.p{ font:12px/1.5 var(--mono); word-break:break-all }
+td.a{ width:1%; color:var(--mut) }
+.method{ display:inline-block; min-width:44px; text-align:center; font:700 10px/16px var(--mono); border-radius:var(--r-sm); color:#fff; background:var(--b-file) }
+.method.GET{ background:#0e7490 } .method.POST{ background:#1d6fd8 } .method.PUT, .method.PATCH{ background:#a16207 } .method.DELETE{ background:#c62828 }
+.files{ columns:2 260px; column-gap:20px; font-size:12.5px; margin-top:4px }
+.files div{ break-inside:avoid; padding:1px 0 }
+.files a{ cursor:pointer; color:var(--ink) } .files a:hover{ color:var(--accent); text-decoration:underline }
+
+/* manifest */
+#manifest pre{ margin:0; padding:14px 18px; font:13px/1.6 var(--mono); background:var(--code-bg); min-height:100%; tab-size:4; white-space:pre-wrap; word-break:break-word }
+.t-com{ color:var(--com); font-style:italic } .t-sec{ color:var(--kw); font-weight:600 } .t-key{ color:var(--fn) } .t-str{ color:var(--str) } .t-num{ color:var(--str) }
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="seg"><button id="mOverview" class="on">Overview</button><button id="mManifest">Manifest</button></div>
+  <span class="crumb" id="crumb"></span>
+  <span class="sp"></span>
+  <button class="icon" id="bRefresh" title="Reload">&#8635;</button>
+</div>
+<div id="main">
+  <section id="overview" class="on"><div class="msg">Loading&hellip;</div></section>
+  <section id="manifest"><pre id="toml"></pre></section>
+</div>
+<script>
+(function(){
+'use strict';
+var $ = function(id){ return document.getElementById(id); };
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]; }); }
+function up(m){ if (window.parent !== window) window.parent.postMessage(m, location.origin); }
+var dir = new URLSearchParams(location.search).get('dir') || '';
+var P = null;
+
+function setMode(m){
+  $('mOverview').classList.toggle('on', m === 'overview'); $('mManifest').classList.toggle('on', m === 'manifest');
+  $('overview').classList.toggle('on', m === 'overview'); $('manifest').classList.toggle('on', m === 'manifest');
+}
+$('mOverview').onclick = function(){ setMode('overview'); };
+$('mManifest').onclick = function(){ setMode('manifest'); };
+$('bRefresh').onclick = load;
+
+function load(){
+  fetch('/api/project?dir=' + encodeURIComponent(dir)).then(function(r){ return r.json(); }).then(function(p){
+    if (!p.ok){ $('overview').innerHTML = '<div class="msg bad">' + esc(p.error) + '</div>'; up({ type: 'ide-status', text: p.error, cls: 'bad' }); return; }
+    P = p; render();
+    up({ type: 'ide-status', text: 'Project ' + p.name, cls: '' });
+  }).catch(function(e){ $('overview').innerHTML = '<div class="msg bad">Cannot load the project: ' + esc(e) + '</div>'; });
+}
+
+function val(v, dflt){ return v != null && v !== '' ? '<code>' + esc(v) + '</code>' : '<span class="dflt">' + esc(dflt) + '</span>'; }
+function procRef(name, at){
+  if (!at) return '<span class="eref missing" title="No top-level proc ' + esc(name) + ' in the project"><span class="badge proc entry">P</span><span class="nm">' + esc(name) + '</span> <span class="tag">missing</span></span>';
+  return '<a class="eref" data-proc="' + esc(name) + '" data-path="' + esc(at.path) + '" title="Open the diagram (Ctrl/⌘+click: new tab)">' +
+    '<span class="badge proc entry">P</span><span class="nm">' + esc(name) + '</span></a>' +
+    ' <span class="loc" data-path="' + esc(at.path) + '" data-line="' + at.line + '">' + esc(at.path.split('/').pop() + ':' + (at.line + 1)) + '</span>';
+}
+
+function render(){
+  var p = P, h = [];
+  $('crumb').textContent = p.manifest;
+  $('toml').innerHTML = toml(p.text);
+  h.push('<div class="wrap">');
+  h.push('<div class="head"><span class="badge project"></span><h1>' + esc(p.name) + '</h1><span class="dir">' + esc(p.dir || '.') + '/</span></div>');
+  var c = p.counts;
+  h.push('<div class="stats">' + [['files', c.files], ['procs', c.procs], ['funcs', c.funcs], ['types', c.types],
+    ['bins', p.bins.length], ['servers', p.servers.length]].map(function(x){
+      return '<span class="stat"><b>' + x[1] + '</b> ' + x[0] + '</span>'; }).join('') + '</div>');
+  if (p.unparsed.length) h.push('<div class="warn">Not parsed (syntax errors): ' + p.unparsed.map(esc).join(', ') + '</div>');
+
+  // Entry points.
+  h.push('<h2>Entry points</h2>');
+  if (!p.bins.length && !p.servers.length) h.push('<p class="dflt">No [bin.*] or [http.*] sections: nothing runs this project directly.</p>');
+  if (p.bins.length){
+    h.push('<div class="cards">');
+    p.bins.forEach(function(b){
+      h.push('<div class="card"><h3><span class="tag">bin</span>' + esc(b.name) + '</h3>' +
+        '<div class="kv"><span class="k">runs</span><span>' + procRef(b.entry, b.at) + '</span>' +
+        (b.go ? '<span class="k">Go</span><span><code>' + esc(b.go) + '</code></span>' : '') +
+        (b.rust ? '<span class="k">Rust</span><span><code>src/' + esc(b.rust) + '</code></span>' : '') +
+        (!b.go && !b.rust ? '<span class="k">built</span><span class="dflt">no backend configured</span>' : '') +
+        '</div></div>');
+    });
+    h.push('</div>');
+  }
+  p.servers.forEach(function(s){
+    h.push('<div class="card wide" style="margin-top:10px"><h3><span class="tag">http</span>' + esc(s.name) +
+      ' <code style="font-weight:400;color:var(--mut)">' + esc(s.addr) + '</code></h3>' +
+      '<div class="kv"><span class="k">Rust</span><span><code>src/' + esc(s.rust) + '</code></span></div>');
+    var rows = s.routes.map(function(r){
+      return '<tr><td class="m"><span class="method ' + esc(r.method) + '">' + esc(r.method || '*') + '</span></td>' +
+        '<td class="p">' + esc(r.path) + '</td><td class="a">→</td><td>' + procRef(r.proc, r.at) +
+        (r.raw ? ' <span class="tag" title="The proc takes the request and returns the response">raw</span>'
+               : ' <span class="tag" title="Parameters and result as JSON">json</span>') + '</td></tr>';
+    }).concat(s.statics.map(function(f){
+      return '<tr><td class="m"><span class="method GET">GET</span></td><td class="p">' + esc(f.path) + '</td><td class="a">→</td>' +
+        '<td><code>' + esc(f.file) + '</code> <span class="tag" title="Served as it is, embedded in the executable">static</span></td></tr>';
+    }));
+    if (rows.length) h.push('<table>' + rows.join('') + '</table>');
+    h.push('</div>');
+  });
+
+  // Build settings.
+  h.push('<h2>Backends</h2><div class="cards">');
+  h.push('<div class="card"><h3>Go</h3>' + (p.go
+    ? '<div class="kv"><span class="k">out</span><span>' + val(p.go.out) + '</span>' +
+      '<span class="k">package</span><span>' + val(p.go.package, p.go.out.split('/').pop() + ' (from out)') + '</span>' +
+      '<span class="k">module</span><span>' + val(p.go.module, 'from go.mod') + '</span>' +
+      '<span class="k">types</span><span>' + val(p.go.types_dir, 'types') + '</span></div>'
+    : '<div class="kv"><span class="dflt">not configured</span></div>') + '</div>');
+  h.push('<div class="card"><h3>Rust</h3>' + (p.rust
+    ? '<div class="kv"><span class="k">out</span><span>' + val(p.rust.out) + '</span>' +
+      '<span class="k">module</span><span>' + val(p.rust.module_dir, 'from Cargo.toml') + '</span></div>'
+    : '<div class="kv"><span class="dflt">not configured</span></div>') + '</div>');
+  h.push('</div>');
+
+  // Sources.
+  h.push('<h2>Sources</h2><div class="kv" style="margin-top:0"><span class="k">directories</span><span>' +
+    p.sources.map(function(s){ return '<code>' + esc(s) + '</code>'; }).join(', ') + '</span></div>');
+  h.push('<div class="files">' + p.files.map(function(f){
+    var short = p.dir && f.indexOf(p.dir + '/') === 0 ? f.slice(p.dir.length + 1) : f;
+    return '<div><a data-file="' + esc(f) + '">' + esc(short) + '</a></div>';
+  }).join('') + '</div>');
+  h.push('</div>');
+  $('overview').innerHTML = h.join('');
+}
+
+$('overview').addEventListener('click', function(e){
+  var a = e.target.closest('a.eref');
+  if (a){ up({ type: 'ide-open', path: a.dataset.path, proc: a.dataset.proc, mode: 'diagram', newTab: e.ctrlKey || e.metaKey }); return; }
+  var l = e.target.closest('.loc');
+  if (l){ up({ type: 'ide-open', path: l.dataset.path, line: +l.dataset.line, mode: 'text', newTab: e.ctrlKey || e.metaKey }); return; }
+  var f = e.target.closest('a[data-file]');
+  if (f) up({ type: 'ide-open', path: f.dataset.file, mode: 'text', newTab: e.ctrlKey || e.metaKey });
+});
+
+/* TOML, lightly: comments, [sections], keys, strings and numbers. */
+function toml(src){
+  return src.split('\n').map(function(line){
+    var m = /^(\s*)(\[[^\]]*\])(.*)$/.exec(line);
+    if (m) return esc(m[1]) + '<span class="t-sec">' + esc(m[2]) + '</span>' + rest(m[3]);
+    m = /^(\s*)([\w.-]+)(\s*=)(.*)$/.exec(line);
+    if (m) return esc(m[1]) + '<span class="t-key">' + esc(m[2]) + '</span>' + esc(m[3]) + rest(m[4]);
+    return rest(line);
+  }).join('\n');
+  function rest(s){
+    var re = /("(?:[^"\\]|\\.)*")|(#.*$)|\b(\d+(?:\.\d+)?)\b|(\b[\w-]+\b)(?=\s*=)/g, out = '', last = 0, m;
+    while ((m = re.exec(s))){
+      out += esc(s.slice(last, m.index));
+      var cls = m[1] ? 't-str' : m[2] ? 't-com' : m[3] ? 't-num' : 't-key';
+      out += '<span class="' + cls + '">' + esc(m[0]) + '</span>';
+      last = m.index + m[0].length;
+    }
+    return out + esc(s.slice(last));
+  }
+}
+
+window.addEventListener('message', function(e){
+  if (e.origin !== location.origin || !e.data) return;
+  var m = e.data;
+  if (m.type === 'vandorf-theme') document.documentElement.setAttribute('data-theme', m.theme);
+  if (m.type === 'ide-activate' && P) up({ type: 'ide-status', text: 'Project ' + P.name, cls: '' });
+  if (m.type === 'ide-refresh') load();
+});
+up({ type: 'project-ready' });
+load();
+})();
+</script>
+</body>
+</html>

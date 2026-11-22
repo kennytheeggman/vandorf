@@ -26,7 +26,7 @@
 //! address, a loopback `Host`, against DNS rebinding.
 
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -44,6 +44,7 @@ const IDE: &str = include_str!("../web/ide.html");
 const EXPLORER: &str = include_str!("../web/explorer.html");
 const VIEWER: &str = include_str!("../web/viewer.html");
 const TERMINAL: &str = include_str!("../web/terminal.html");
+const PROJECT: &str = include_str!("../web/project.html");
 const WORKBENCH: &str = include_str!("../web/workbench.html");
 const VISUALIZER: &str = include_str!("../web/visualizer.html");
 const UI_CSS: &str = include_str!("../web/ui.css");
@@ -136,6 +137,7 @@ fn handle(mut req: Request, st: &State) {
         (Method::Get, "/explorer") => page(EXPLORER),
         (Method::Get, "/viewer") => page(VIEWER),
         (Method::Get, "/terminal") => page(TERMINAL),
+        (Method::Get, "/project") => page(PROJECT),
         (Method::Get, "/workbench") => page(WORKBENCH),
         (Method::Get, "/viz" | "/viz/") => page(VISUALIZER),
         (Method::Get, "/ui.css") => Response::from_string(UI_CSS)
@@ -146,6 +148,9 @@ fn handle(mut req: Request, st: &State) {
             json!({ "ok": true, "root": base.display().to_string(), "files": files })
         })),
         (Method::Get, "/api/tree") => api(tree(base)),
+        (Method::Get, "/api/project") => api(query_param(query, "dir")
+            .ok_or_else(|| "missing ?dir=".to_string())
+            .and_then(|d| project_info(base, &d))),
         (Method::Get, "/api/source") => api(query_param(query, "path")
             .ok_or_else(|| "missing ?path=".to_string())
             .and_then(|p| read_source(base, &p).map(|src| json!({ "ok": true, "path": p, "source": src })))),
@@ -216,21 +221,146 @@ fn tree(base: &Path) -> Result<Value, String> {
                 projects
                     .entry(m.clone())
                     .or_insert_with(|| {
-                        let name = project::load(&m).map(|p| p.manifest.project.name).unwrap_or_else(|_| "?".into());
+                        let p = project::load(&m).ok();
+                        let name = p.as_ref().map(|p| p.manifest.project.name.clone()).unwrap_or_else(|| "?".into());
+                        let entries = p.as_ref().map(|p| entry_points(&p.manifest)).unwrap_or_default();
                         let dir = m.parent().and_then(|d| d.strip_prefix(base).ok()).map(slash).unwrap_or_default();
-                        json!({ "name": name, "dir": dir })
+                        json!({ "name": name, "dir": dir, "entries": entries })
                     })
                     .clone()
             });
             let text = std::fs::read_to_string(&abs).unwrap_or_default();
-            let (items, error) = match vandorf::parser::parse(&text, 0) {
+            let (mut items, error) = match vandorf::parser::parse(&text, 0) {
                 Ok(file) => (outline(&file, &text), None),
                 Err(errs) => (vec![], errs.first().map(|e| e.to_string())),
             };
+            // Top-level procs a bin or a route runs: what runs them.
+            if let Some(entries) = project.as_ref().and_then(|p| p["entries"].as_object()) {
+                for it in items.iter_mut().filter(|it| it["kind"] == "proc") {
+                    if let Some(by) = it["name"].as_str().and_then(|n| entries.get(n)) {
+                        it["entry"] = by.clone();
+                    }
+                }
+            }
             json!({ "path": rel, "project": project, "items": items, "error": error })
         })
         .collect();
     Ok(json!({ "ok": true, "root": base.display().to_string(), "files": out }))
+}
+
+/// The project's entry points by proc: `bin demo`, `POST /api/calc`, and
+/// `GET / (raw)` for a route whose proc takes and returns HTTP.
+fn entry_points(m: &project::Manifest) -> BTreeMap<String, Vec<String>> {
+    let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (name, b) in &m.bin {
+        out.entry(b.entry.clone()).or_default().push(format!("bin {name}"));
+    }
+    for s in m.http.values() {
+        for (route, proc) in &s.routes {
+            out.entry(proc.clone()).or_default().push(route.clone());
+        }
+        for (route, proc) in &s.raw {
+            out.entry(proc.clone()).or_default().push(format!("{route} (raw)"));
+        }
+    }
+    out
+}
+
+/// A project's overview: its manifest's settings, entry points (each with
+/// where its proc is declared), and counts.
+fn project_info(base: &Path, dir: &str) -> Result<Value, String> {
+    let root = if dir.is_empty() || dir == "." { base.to_path_buf() } else { resolve(base, dir)? };
+    let manifest = root.join(project::MANIFEST);
+    if !manifest.is_file() {
+        return Err(format!("no {} in {dir}", project::MANIFEST));
+    }
+    let text = std::fs::read_to_string(&manifest).map_err(|e| e.to_string())?;
+    let p = project::load(&manifest)?;
+    let m = &p.manifest;
+    let rel = |path: &Path| path.strip_prefix(base).map(slash).unwrap_or_else(|_| slash(path));
+    // Top-level procs, and counts, from the outlines of the project's files.
+    let mut procs: HashMap<String, Value> = HashMap::new();
+    let (mut nproc, mut nfunc, mut ntype) = (0, 0, 0);
+    fn count(items: &[Value], nproc: &mut usize, nfunc: &mut usize, ntype: &mut usize) {
+        for it in items {
+            match it["kind"].as_str() {
+                Some("proc") => *nproc += 1,
+                Some("func") => *nfunc += 1,
+                Some("type") => *ntype += 1,
+                _ => {}
+            }
+            if let Some(k) = it["children"].as_array() {
+                count(k, nproc, nfunc, ntype);
+            }
+        }
+    }
+    let files: Vec<String> = p.files.iter().map(|f| rel(&p.root.join(&f.path))).collect();
+    let mut errors = vec![];
+    for (f, path) in p.files.iter().zip(&files) {
+        match vandorf::parser::parse(&f.text, 0) {
+            Ok(file) => {
+                let items = outline(&file, &f.text);
+                count(&items, &mut nproc, &mut nfunc, &mut ntype);
+                for it in items.iter().filter(|it| it["kind"] == "proc") {
+                    if let Some(n) = it["name"].as_str() {
+                        procs.insert(n.to_string(), json!({ "path": path, "line": it["line"] }));
+                    }
+                }
+            }
+            Err(_) => errors.push(path.clone()),
+        }
+    }
+    let at = |proc: &str| procs.get(proc).cloned().unwrap_or(Value::Null);
+    let bins: Vec<Value> = m
+        .bin
+        .iter()
+        .map(|(name, b)| {
+            json!({
+                "name": name,
+                "entry": b.entry,
+                "at": at(&b.entry),
+                "go": m.go.as_ref().map(|g| {
+                    let d = b.go.clone().unwrap_or_else(|| format!("{}/../cmd/{name}", g.out));
+                    project::slash(&project::relative(&project::normalize(&p.root.join(d)), &p.root))
+                }),
+                "rust": m.rust.as_ref().map(|_| b.rust.clone().unwrap_or_else(|| format!("bin/{name}.rs"))),
+            })
+        })
+        .collect();
+    let route = |r: &str, proc: &str, raw: bool| {
+        let (method, path) = r.split_once(' ').unwrap_or(("", r));
+        json!({ "method": method, "path": path, "proc": proc, "raw": raw, "at": at(proc) })
+    };
+    let servers: Vec<Value> = m
+        .http
+        .iter()
+        .map(|(name, s)| {
+            let mut routes: Vec<Value> = s.routes.iter().map(|(r, p)| route(r, p, false)).collect();
+            routes.extend(s.raw.iter().map(|(r, p)| route(r, p, true)));
+            json!({
+                "name": name,
+                "addr": s.addr,
+                "rust": s.rust.clone().unwrap_or_else(|| format!("bin/{name}.rs")),
+                "routes": routes,
+                "statics": s.statics.iter().map(|(u, f)| json!({ "path": u, "file": f })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    Ok(json!({
+        "ok": true,
+        "name": m.project.name,
+        "dir": rel(&p.root),
+        "manifest": rel(&manifest),
+        "text": text,
+        "sources": m.project.sources,
+        "go": m.go.as_ref().map(|g| json!({ "out": g.out, "package": g.package, "module": g.module, "types_dir": g.types_dir })),
+        "rust": m.rust.as_ref().map(|r| json!({ "out": r.out, "module_dir": r.module_dir })),
+        "bins": bins,
+        "servers": servers,
+        "files": files,
+        "unparsed": errors,
+        "counts": { "files": p.files.len(), "procs": nproc, "funcs": nfunc, "types": ntype },
+    }))
 }
 
 /// Declarations of one file, procs with their nested procs and funcs.

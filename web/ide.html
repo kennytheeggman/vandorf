@@ -175,7 +175,7 @@ window.addEventListener('keydown', function(e){
 /* ---------- project info (for terminal commands and the header) ---------- */
 var tree = null;
 function loadTree(){
-  return fetch('/api/tree').then(function(r){ return r.json(); }).then(function(t){ tree = t; showWhere(); }).catch(function(){});
+  return fetch('/api/tree').then(function(r){ return r.json(); }).then(function(t){ tree = t; tabs.forEach(label); showWhere(); }).catch(function(){});
 }
 function fileInfo(path){
   if (!tree) return null;
@@ -199,17 +199,32 @@ function fileOfProc(proc){
 /* ---------- tabs ---------- */
 var tabs = [], active = null, seq = 0, buffers = loadJSON('vandorf.ide.buffers', {});
 function keyOf(path, proc){ return path + '#' + (proc || ''); }
+function projectKey(dir){ return 'project:' + dir; }
+/* The project whose manifest is in dir, from the outlines. */
+function projectAt(dir){
+  if (!tree) return null;
+  for (var i = 0; i < tree.files.length; i++){ var p = tree.files[i].project; if (p && p.dir === dir) return p; }
+  return null;
+}
+/* What runs a proc: ["bin demo", "POST /api/x"], or null. */
+function entryOf(path, proc){
+  var f = fileInfo(path);
+  if (!f || !proc) return null;
+  for (var i = 0; i < f.items.length; i++) if (f.items[i].kind === 'proc' && f.items[i].qual === proc) return f.items[i].entry || null;
+  return null;
+}
 function tabByWin(w){ for (var i = 0; i < tabs.length; i++) if (tabs[i].frame.contentWindow === w) return tabs[i]; return null; }
 function saveTabs(){
   store('vandorf.ide.tabs', JSON.stringify({
-    tabs: tabs.map(function(t){ return { path: t.path, proc: t.proc, mode: t.mode }; }),
+    tabs: tabs.map(function(t){ return t.project != null ? { project: t.project } : { path: t.path, proc: t.proc, mode: t.mode }; }),
     active: active ? tabs.indexOf(active) : -1,
   }));
 }
 function saveBuffers(){ store('vandorf.ide.buffers', JSON.stringify(buffers)); }
 
 function open(o){
-  if (!o || !o.path) return;
+  if (!o || (!o.path && o.project == null)) return;
+  if (o.project != null) return openProject(o);
   var key = keyOf(o.path, o.proc);
   if (!o.newTab){
     for (var i = 0; i < tabs.length; i++) if (tabs[i].key === key){
@@ -238,10 +253,38 @@ function open(o){
   label(t);
   activate(t);
 }
+/* A project's overview, one tab per project. */
+function openProject(o){
+  var key = projectKey(o.project);
+  for (var i = 0; i < tabs.length; i++) if (tabs[i].key === key){ activate(tabs[i]); return; }
+  var t = { id: ++seq, project: o.project, path: null, proc: null, key: key, mode: 'project', dirty: false };
+  t.frame = document.createElement('iframe');
+  t.frame.title = 'Project ' + o.project;
+  t.frame.src = '/project?dir=' + encodeURIComponent(o.project);
+  $('frames').appendChild(t.frame);
+  t.el = document.createElement('div');
+  t.el.className = 'tab';
+  t.el.title = (o.project || '.') + '/vandorf.toml';
+  t.el.innerHTML = '<span class="badge project"></span><span class="t"></span><span class="f">project</span><button class="x" title="Close"><span>&times;</span></button>';
+  t.el.onclick = function(e){ if (e.target.closest('.x')) close(t); else activate(t); };
+  t.el.onauxclick = function(e){ if (e.button === 1){ e.preventDefault(); close(t); } };
+  var at = active ? tabs.indexOf(active) + 1 : tabs.length;
+  tabs.splice(at, 0, t);
+  $('tabs').insertBefore(t.el, $('tabs').children[at] || null);
+  label(t);
+  activate(t);
+}
 function label(t){
+  if (t.project != null){
+    var pj = projectAt(t.project);
+    t.el.querySelector('.t').textContent = pj ? pj.name : (t.project.split('/').pop() || '.');
+    return;
+  }
   var base = t.path.split('/').pop();
   var bd = t.el.querySelector('.badge');
-  bd.className = 'badge ' + (t.proc ? 'proc' : 'file'); bd.textContent = t.proc ? 'P' : 'S';
+  var entry = t.proc && entryOf(t.path, t.proc);
+  bd.className = 'badge ' + (t.proc ? 'proc' : 'file') + (entry ? ' entry' : ''); bd.textContent = t.proc ? 'P' : 'S';
+  bd.title = entry ? 'Entry point: ' + entry.join(', ') : '';
   t.el.querySelector('.t').textContent = t.proc ? t.proc.split('.').pop() : base;
   t.el.querySelector('.f').textContent = t.proc ? base : '';
   t.el.classList.toggle('dirty', !!buffers[t.path]);
@@ -251,13 +294,13 @@ function activate(t){
   tabs.forEach(function(x){ x.el.classList.toggle('on', x === t); x.frame.classList.toggle('on', x === t); });
   $('welcome').style.display = t ? 'none' : '';
   if (t){ t.el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); post(t.frame.contentWindow, { type: 'ide-activate' }); }
-  post($('explorer').contentWindow, { type: 'ide-active', path: t && t.path, proc: t && t.proc });
+  post($('explorer').contentWindow, { type: 'ide-active', path: t && t.path, proc: t && t.proc, project: t ? t.project : null });
   showWhere(); saveTabs();
 }
 function close(t){
   var i = tabs.indexOf(t);
   if (i < 0) return;
-  if (buffers[t.path] && !tabs.some(function(x){ return x !== t && x.path === t.path; })){
+  if (t.path && buffers[t.path] && !tabs.some(function(x){ return x !== t && x.path === t.path; })){
     if (!confirm(t.path + ' has unsaved changes. Close and keep them as a draft?\n(OK keeps the draft; Cancel keeps the tab open)')) return;
   }
   tabs.splice(i, 1); t.el.remove(); t.frame.remove();
@@ -265,7 +308,14 @@ function close(t){
   else saveTabs();
 }
 function showWhere(){
-  var t = active, info = t && fileInfo(t.path);
+  var t = active, info = t && t.path && fileInfo(t.path);
+  if (t && t.project != null){
+    var pj = projectAt(t.project);
+    $('where').textContent = (t.project || '.') + '/vandorf.toml';
+    $('proj').textContent = pj ? pj.name : '';
+    post($('terminal').contentWindow, { type: 'term-context', dir: t.project, file: null, project: true });
+    return;
+  }
   $('where').textContent = t ? t.path + (t.proc ? '  ›  ' + t.proc : '') : '';
   $('proj').textContent = info && info.project ? info.project.name : '';
   post($('terminal').contentWindow, { type: 'term-context', dir: info && info.project ? info.project.dir : (t ? t.path.replace(/[^/]*$/, '') : ''),
@@ -323,6 +373,8 @@ window.addEventListener('message', function(e){
     post(e.source, { type: 'vandorf-theme', theme: theme });
     post(e.source, { type: 'ide-active', path: active && active.path, proc: active && active.proc });
     break;
+  case 'project-ready':
+    post(e.source, { type: 'vandorf-theme', theme: theme }); break;
   case 'term-ready':
     post(e.source, { type: 'vandorf-theme', theme: theme }); showWhere(); break;
   }
@@ -332,8 +384,8 @@ window.addEventListener('message', function(e){
 loadTree().then(function(){
   var saved = loadJSON('vandorf.ide.tabs', null);
   if (saved && saved.tabs && saved.tabs.length){
-    var keep = saved.tabs.filter(function(t){ return fileInfo(t.path); });
-    keep.forEach(function(t){ open({ path: t.path, proc: t.proc, mode: t.mode, newTab: true }); });
+    var keep = saved.tabs.filter(function(t){ return t.project != null ? projectAt(t.project) : fileInfo(t.path); });
+    keep.forEach(function(t){ open(t.project != null ? { project: t.project } : { path: t.path, proc: t.proc, mode: t.mode, newTab: true }); });
     if (tabs[saved.active]) activate(tabs[saved.active]);
     return;
   }
