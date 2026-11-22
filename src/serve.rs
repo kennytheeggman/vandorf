@@ -20,17 +20,17 @@
 //!   an existing `vandorf.toml` if the new text is a valid manifest
 //! - `POST /api/term`, `GET /api/term/read?id=&from=`, `POST /api/term/input?id=`,
 //!   `POST /api/term/resize?id=&cols=&rows=`, `POST /api/term/kill?id=`:
-//!   shells on a pty (via `script(1)`), read by long polling.
+//!   shells on a pty (via `portable-pty`), read by long polling.
 //!
 //! Writes and terminals need the per-run token the pages are served with
 //! (`X-Vandorf-Token`), so other sites can't drive them, and, on a loopback
 //! address, a loopback `Host`, against DNS rebinding.
 
+use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
@@ -66,7 +66,7 @@ struct State {
 }
 
 pub fn serve(opts: Options) -> Result<(), String> {
-    let base = std::fs::canonicalize(&opts.dir).map_err(|e| format!("{}: {e}", opts.dir.display()))?;
+    let base = dunce::canonicalize(&opts.dir).map_err(|e| format!("{}: {e}", opts.dir.display()))?;
     let server = Server::http(&opts.addr).map_err(|e| format!("cannot listen on {}: {e}", opts.addr))?;
     let host = opts.addr.rsplit_once(':').map(|(h, _)| h).unwrap_or(&opts.addr);
     let loopback = is_loopback(host);
@@ -104,9 +104,7 @@ fn is_loopback(host: &str) -> bool {
 
 fn token() -> Result<String, String> {
     let mut b = [0u8; 16];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut b))
-        .map_err(|e| format!("cannot make a session token: {e}"))?;
+    getrandom::fill(&mut b).map_err(|e| format!("cannot make a session token: {e}"))?;
     Ok(b.iter().map(|x| format!("{x:02x}")).collect())
 }
 
@@ -485,11 +483,12 @@ fn symbols(base: &Path, prog: &Program, files: &[vandorf::Source], roots: &[Path
 const SCROLLBACK: usize = 1 << 20;
 
 struct Term {
-    child: Mutex<Child>,
-    stdin: Mutex<ChildStdin>,
+    /// The pty's master, for resizing; None once the shell has exited.
+    master: Mutex<Option<Box<dyn MasterPty + Send>>>,
+    writer: Mutex<Box<dyn Write + Send>>,
+    killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     out: Mutex<TermOut>,
     ready: Condvar,
-    pid: u32,
 }
 
 #[derive(Default)]
@@ -501,56 +500,54 @@ struct TermOut {
 }
 
 impl Term {
+    /// The user's shell on a pty, so line editing, colors and job control
+    /// work.
     fn spawn(cwd: &Path) -> Result<Arc<Term>, String> {
-        let shell = std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/bash".into());
-        // script(1) runs the shell on a pty, so line editing, colors and
-        // job control work although we talk to it over pipes.
-        let mut child = Command::new("script")
-            .args(["-qfec", &format!("{shell} -i"), "/dev/null"])
-            .current_dir(cwd)
-            .env("TERM", "xterm-256color")
-            .env("COLORTERM", "truecolor")
-            .env("PATH", path_with_self())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("cannot start a shell with script(1): {e}"))?;
-        let stdin = child.stdin.take().unwrap();
-        let stdout = child.stdout.take().unwrap();
-        let stderr = child.stderr.take().unwrap();
+        let pty = native_pty_system().openpty(PtySize::default()).map_err(|e| format!("cannot open a pty: {e}"))?;
+        let mut cmd = shell();
+        cmd.cwd(cwd);
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
+        cmd.env("PATH", path_with_self());
+        let mut child = pty.slave.spawn_command(cmd).map_err(|e| format!("cannot start a shell: {e}"))?;
+        // Only the shell holds the slave now, so output ends when it exits.
+        drop(pty.slave);
+        let mut reader = pty.master.try_clone_reader().map_err(|e| format!("cannot read the pty: {e}"))?;
+        let writer = pty.master.take_writer().map_err(|e| format!("cannot write the pty: {e}"))?;
         let t = Arc::new(Term {
-            pid: child.id(),
-            child: Mutex::new(child),
-            stdin: Mutex::new(stdin),
+            master: Mutex::new(Some(pty.master)),
+            writer: Mutex::new(writer),
+            killer: Mutex::new(child.clone_killer()),
             out: Mutex::new(TermOut::default()),
             ready: Condvar::new(),
         });
-        let pump = |t: Arc<Term>, mut r: Box<dyn Read + Send>, closes: bool| {
-            std::thread::spawn(move || {
-                let mut buf = [0u8; 8192];
-                loop {
-                    let n = r.read(&mut buf).unwrap_or(0);
-                    let mut o = t.out.lock().unwrap();
-                    if n == 0 {
-                        if closes {
-                            o.closed = true;
-                            t.ready.notify_all();
-                        }
-                        return;
-                    }
-                    o.data.extend_from_slice(&buf[..n]);
-                    if o.data.len() > SCROLLBACK {
-                        let cut = o.data.len() - SCROLLBACK;
-                        o.data.drain(..cut);
-                        o.start += cut as u64;
-                    }
-                    t.ready.notify_all();
+        let pump = t.clone();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 8192];
+            loop {
+                let n = reader.read(&mut buf).unwrap_or(0);
+                let mut o = pump.out.lock().unwrap();
+                if n == 0 {
+                    o.closed = true;
+                    pump.ready.notify_all();
+                    return;
                 }
-            });
-        };
-        pump(t.clone(), Box::new(stdout), true);
-        pump(t.clone(), Box::new(stderr), false);
+                o.data.extend_from_slice(&buf[..n]);
+                if o.data.len() > SCROLLBACK {
+                    let cut = o.data.len() - SCROLLBACK;
+                    o.data.drain(..cut);
+                    o.start += cut as u64;
+                }
+                pump.ready.notify_all();
+            }
+        });
+        // ConPTY keeps the output open past the shell's exit until the
+        // master closes.
+        let waiter = t.clone();
+        std::thread::spawn(move || {
+            let _ = child.wait();
+            waiter.master.lock().unwrap().take();
+        });
         Ok(t)
     }
 
@@ -565,25 +562,27 @@ impl Term {
         (o.data[(from - o.start) as usize..].to_vec(), end(&o), o.closed)
     }
 
-    /// The pty's slave device: the shell's stdin, a child of script(1).
-    fn pty(&self) -> Option<PathBuf> {
-        let kids = std::fs::read_to_string(format!("/proc/{0}/task/{0}/children", self.pid)).ok()?;
-        let kid = kids.split_whitespace().next()?;
-        std::fs::read_link(format!("/proc/{kid}/fd/0")).ok().filter(|p| p.starts_with("/dev/pts"))
+    fn input(&self, data: &[u8]) -> Result<(), String> {
+        let mut w = self.writer.lock().unwrap();
+        w.write_all(data).and_then(|_| w.flush()).map_err(|e| format!("terminal closed: {e}"))
     }
 
     fn resize(&self, cols: u16, rows: u16) -> Result<(), String> {
-        let pty = self.pty().ok_or("terminal has no pty yet")?;
-        // Setting the size on the slave signals SIGWINCH to its foreground job.
-        let ok = Command::new("stty")
-            .arg("-F")
-            .arg(&pty)
-            .args(["rows", &rows.to_string(), "cols", &cols.to_string()])
-            .status()
-            .map_err(|e| format!("stty: {e}"))?
-            .success();
-        if ok { Ok(()) } else { Err("stty failed".into()) }
+        let master = self.master.lock().unwrap();
+        let master = master.as_ref().ok_or("terminal closed")?;
+        // The pty signals SIGWINCH to its foreground job.
+        master.resize(PtySize { rows, cols, ..PtySize::default() }).map_err(|e| format!("cannot resize the terminal: {e}"))
     }
+
+    fn kill(&self) {
+        let _ = self.killer.lock().unwrap().kill();
+    }
+}
+
+/// `$SHELL`, or `%COMSPEC%` on Windows. On a pty it's interactive.
+fn shell() -> CommandBuilder {
+    let (var, fallback) = if cfg!(windows) { ("COMSPEC", "cmd.exe") } else { ("SHELL", "/bin/bash") };
+    CommandBuilder::new(std::env::var(var).ok().filter(|s| !s.is_empty()).unwrap_or_else(|| fallback.into()))
 }
 
 /// `PATH` with this executable's directory first, so `vandorf` in the
@@ -592,12 +591,6 @@ fn path_with_self() -> std::ffi::OsString {
     let mut dirs: Vec<PathBuf> = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)).into_iter().collect();
     dirs.extend(std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect::<Vec<_>>()).unwrap_or_default());
     std::env::join_paths(dirs).unwrap_or_default()
-}
-
-impl Drop for Term {
-    fn drop(&mut self) {
-        let _ = self.child.get_mut().map(|c| c.kill());
-    }
 }
 
 fn term_api(req: &mut Request, st: &State, path: &str, query: &str) -> tiny_http::ResponseBox {
@@ -632,9 +625,7 @@ fn term_api(req: &mut Request, st: &State, path: &str, query: &str) -> tiny_http
             let mut data = vec![];
             let read = req.as_reader().take(1 << 20).read_to_end(&mut data);
             api(read.map_err(|e| e.to_string()).and_then(|_| get()).and_then(|t| {
-                let mut w = t.stdin.lock().unwrap();
-                w.write_all(&data).and_then(|_| w.flush()).map_err(|e| format!("terminal closed: {e}"))?;
-                Ok(json!({ "ok": true }))
+                t.input(&data).map(|_| json!({ "ok": true }))
             }))
         }
         (Method::Post, "/api/term/resize") => {
@@ -645,7 +636,7 @@ fn term_api(req: &mut Request, st: &State, path: &str, query: &str) -> tiny_http
             }))
         }
         (Method::Post, "/api/term/kill") => api(get().map(|t| {
-            let _ = t.child.lock().unwrap().kill();
+            t.kill();
             st.terms.lock().unwrap().remove(&id.unwrap());
             json!({ "ok": true })
         })),
@@ -845,7 +836,7 @@ fn resolve(base: &Path, p: &str) -> Result<PathBuf, String> {
     if p.is_empty() || p.contains('\0') {
         return Err("invalid path".into());
     }
-    let full = std::fs::canonicalize(base.join(p)).map_err(|e| format!("cannot read {p}: {e}"))?;
+    let full = dunce::canonicalize(base.join(p)).map_err(|e| format!("cannot read {p}: {e}"))?;
     if !full.starts_with(base) {
         return Err(format!("path escapes source directory: {p}"));
     }

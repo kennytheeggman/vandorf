@@ -11,6 +11,7 @@ use vandorf::sema::Program;
 const USAGE: &str = "\
 usage:
   vandorf build [<bin>]        # libraries, and every bin or just <bin>
+  vandorf test                 # build, then each language's test commands
   vandorf check
   vandorf doc                  # the visualizer document, on stdout
   vandorf serve [--addr 127.0.0.1:8080]   # the IDE, on the working directory
@@ -24,7 +25,9 @@ types and the procs), an executable per [bin.<name>] running its entry proc
 with the command-line arguments, and per [http.<name>] a Rust server (which
 takes --addr to listen elsewhere). Impl paths in `= \"file:function\"` are
 relative to the .sys file naming them; each backend uses the reference with
-its extension (.go / .rs).
+its extension (.go / .rs). After generating a language, build runs that
+language's `post` commands; test runs each language's `test` commands. They
+run in the manifest's directory; the first that fails fails the command.
 
 serve offers terminals only when listening on a loopback address.";
 
@@ -94,7 +97,12 @@ fn run(argv: Vec<String>) -> Result<(), String> {
             let (p, prog) = load()?;
             build(&p, prog, args.first().map(String::as_str))
         }
-        ("check" | "doc" | "build", _) => Err(format!("too many arguments for {cmd} (see vandorf --help)")),
+        ("test", []) => {
+            let (p, prog) = load()?;
+            build(&p, prog, None)?;
+            test(&p)
+        }
+        ("check" | "doc" | "build" | "test", _) => Err(format!("too many arguments for {cmd} (see vandorf --help)")),
         (other, _) => Err(format!("unknown command {other} (see vandorf --help)")),
     }
 }
@@ -126,14 +134,49 @@ fn build(p: &Project, mut prog: Program, only: Option<&str>) -> Result<(), Strin
         let out = p.root.join(&g.out);
         let output = go(&mut prog, &dirs, &out, g.package.clone(), g.module.clone(), g.types_dir.clone(), go_mains(p, g, &bins))?;
         check_impls(p, &prog, &out, &output, "func");
+        commands(p, "post-build", &g.post)?;
     }
     if let Some(r) = &m.rust {
         let servers: Vec<(&String, &project::Server)> = if only.is_none() { m.http.iter().collect() } else { vec![] };
         let out = p.root.join(&r.out);
         let output = rust(&mut prog, &dirs, &out, r.module_dir.clone(), rust_mains(&bins), &servers, &p.root)?;
         check_impls(p, &prog, &out, &output, "fn");
+        commands(p, "post-build", &r.post)?;
     }
     Ok(())
+}
+
+/// Runs each language's `test` commands, Go's then Rust's.
+fn test(p: &Project) -> Result<(), String> {
+    let m = &p.manifest;
+    let (go, rust) = (m.go.as_ref().map_or(&[][..], |g| &g.test), m.rust.as_ref().map_or(&[][..], |r| &r.test));
+    if go.is_empty() && rust.is_empty() {
+        return Err(format!("{}: no tests: add test = [..] to [go] or [rust]", project::MANIFEST));
+    }
+    commands(p, "test", go)?;
+    commands(p, "test", rust)
+}
+
+/// Runs shell commands in order, in the manifest's directory; the first
+/// that fails fails. `what` names them in messages.
+fn commands(p: &Project, what: &str, cmds: &[String]) -> Result<(), String> {
+    for cmd in cmds {
+        eprintln!("{what}: {cmd}");
+        let failed = match shell(cmd).current_dir(&p.root).status() {
+            Ok(st) if st.success() => continue,
+            Ok(st) => st.to_string(),
+            Err(e) => e.to_string(),
+        };
+        return Err(format!("{what} `{cmd}` failed ({failed})"));
+    }
+    Ok(())
+}
+
+/// `cmd`, run by the platform's shell.
+fn shell(cmd: &str) -> std::process::Command {
+    let mut c = std::process::Command::new(if cfg!(windows) { "cmd" } else { "sh" });
+    c.args(if cfg!(windows) { ["/C", cmd] } else { ["-c", cmd] });
+    c
 }
 
 fn go(
@@ -310,7 +353,7 @@ fn serve_cmd(argv: &[String]) -> Result<(), String> {
 }
 
 fn default_package(dir: &Path) -> String {
-    let base = std::fs::canonicalize(dir).ok()
+    let base = dunce::canonicalize(dir).ok()
         .and_then(|d| d.file_name().map(|n| n.to_string_lossy().into_owned()))
         .unwrap_or_else(|| "generated".into());
     let s: String = base.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
@@ -320,7 +363,7 @@ fn default_package(dir: &Path) -> String {
 /// Finds the nearest ancestor of `dir` containing `marker`, returning it and
 /// `dir` relative to it as `/`-separated segments.
 fn find_root(dir: &Path, marker: &str) -> Option<(PathBuf, Vec<String>)> {
-    let dir = std::fs::canonicalize(dir).ok()?;
+    let dir = dunce::canonicalize(dir).ok()?;
     let mut root = dir.as_path();
     loop {
         if root.join(marker).is_file() {

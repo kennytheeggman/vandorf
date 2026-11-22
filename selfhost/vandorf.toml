@@ -15,6 +15,8 @@ sources = ["sys"]
 
 [rust]
 out = "rs/src/vcc"
+post = ["cargo build --manifest-path rs/Cargo.toml"]
+test = ["cargo test --manifest-path rs/Cargo.toml"]
 
 [bin.vcc]
 entry = "Vcc"

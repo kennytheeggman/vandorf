@@ -28,9 +28,9 @@ mark{ background:rgba(250,204,21,.45); color:inherit; border-radius:var(--r-sm) 
 </head>
 <body>
 <div class="bar"><span class="ttl">Explorer</span><span class="sp"></span>
-  <button class="icon" id="bAll" title="Also list funcs, types and interfaces">ƒ</button>
-  <button class="icon" id="bCollapse" title="Collapse all">⊟</button>
-  <button class="icon" id="bRefresh" title="Refresh">↻</button>
+  <button class="icon letter" id="bAll" title="Also list funcs, types and interfaces">ƒ</button>
+  <button class="icon" id="bCollapse" title="Collapse all"><svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5.5 8h5"/></svg></button>
+  <button class="icon" id="bRefresh" title="Refresh"><svg viewBox="0 0 16 16"><path d="M13.2 8A5.2 5.2 0 1 1 11.7 4.3M13.2 2.3v3.4H9.8"/></svg></button>
 </div>
 <div class="bar"><input id="q" placeholder="Filter procs…" spellcheck="false" autocomplete="off"></div>
 <div id="tree"><div class="empty">Loading…</div></div>
@@ -106,20 +106,21 @@ function render(){
   var q = $('q').value.trim().toLowerCase();
   var h = [], depth = 0, pj = projects();
   function pad(d){ return ' style="padding-left:' + (6 + d * 12) + 'px"'; }
-  function items(list, file, d){
+  // An interface's funcs carry the interface badge.
+  function items(list, file, d, inIface){
     list.forEach(function(it){
       if (!visible(it) || !itemMatches(it, q)) return;
       var kids = (it.children || []).filter(function(c){ return visible(c); });
       var key = 'i:' + file.path + '#' + it.qual, op = q ? true : isOpen(key, false);
       var sel = it.kind === 'proc' && active.path === file.path && active.proc === it.qual;
-      var entry = it.kind === 'proc' && it.entry;
+      var entry = it.kind === 'proc' && it.entry, badge = inIface ? 'interface' : it.kind;
       h.push('<div class="row' + (kids.length && op ? ' open' : '') + (sel ? ' sel' : '') + (it.kind !== 'proc' ? ' minor' : '') + '"' + pad(d) +
         ' data-k="' + esc(key) + '" data-kind="' + it.kind + '" data-path="' + esc(file.path) + '" data-qual="' + esc(it.qual) + '" data-line="' + it.line + '"' +
-        (kids.length ? ' data-tw="1"' : '') + ' title="' + esc(it.kind + ' ' + it.qual + ' — ' + file.path + ':' + (it.line + 1) + (entry ? '\nentry point: ' + entry.join(', ') : '')) + '">' +
+        (kids.length ? ' data-tw="1"' : '') + ' title="' + esc((inIface ? 'interface func' : it.kind) + ' ' + it.qual + ' — ' + file.path + ':' + (it.line + 1) + (entry ? '\nentry point: ' + entry.join(', ') : '')) + '">' +
         '<span class="tw">' + (kids.length ? '▶' : '') + '</span>' +
-        '<span class="badge ' + it.kind + (entry ? ' entry' : '') + '">' + { proc: 'P', func: 'ƒ', type: 'T', interface: 'I' }[it.kind] + '</span>' +
+        '<span class="badge ' + badge + (entry ? ' entry' : '') + '">' + { proc: 'P', func: 'ƒ', type: 'T', interface: 'I' }[badge] + '</span>' +
         '<span class="nm">' + hl(it.name, q) + '</span></div>');
-      if (kids.length && op) items(kids, file, d + 1);
+      if (kids.length && op) items(kids, file, d + 1, it.kind === 'interface');
     });
   }
   function dir(dd, d){

@@ -10,10 +10,14 @@
 //! package = "app"            # default: out's last segment
 //! module = "example.com/app" # import path of out; default: from go.mod
 //! types_dir = "types"        # relative to out; "." puts types in the code package
+//! post = ["go vet ./go/..."] # shell commands run after generating Go
+//! test = ["go test ./go/..."] # shell commands `vandorf test` runs
 //!
 //! [rust]                     # optional: generate Rust
 //! out = "rs/src/app"         # a module directory under the crate's src/
 //! module_dir = "app"         # out relative to src/; default: from Cargo.toml
+//! post = ["cargo build --manifest-path rs/Cargo.toml"]
+//! test = ["cargo test --manifest-path rs/Cargo.toml"]
 //!
 //! [http.api]                 # an HTTP server (Rust only, for now)
 //! addr = "127.0.0.1:8080"
@@ -29,7 +33,11 @@
 //! ```
 //!
 //! `vandorf build` builds the libraries ([go], [rust]) and every bin;
-//! `vandorf build <bin>` the libraries and that bin.
+//! `vandorf build <bin>` the libraries and that bin. After generating a
+//! language it runs that language's `post` commands. `vandorf test` builds
+//! everything, then runs each language's `test` commands. Commands run in
+//! order, in the manifest's directory (with `sh -c`, or `cmd /C` on
+//! Windows); the first that fails fails the command.
 //!
 //! Every path is relative to the manifest's directory. The project's files
 //! share one namespace. Implementation paths (`= "impl.go:F"`) are relative
@@ -109,6 +117,12 @@ pub struct GoTarget {
     pub package: Option<String>,
     pub module: Option<String>,
     pub types_dir: Option<String>,
+    /// Shell commands run after generating Go.
+    #[serde(default)]
+    pub post: Vec<String>,
+    /// Shell commands `vandorf test` runs.
+    #[serde(default)]
+    pub test: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,6 +130,12 @@ pub struct GoTarget {
 pub struct RustTarget {
     pub out: String,
     pub module_dir: Option<String>,
+    /// Shell commands run after generating Rust.
+    #[serde(default)]
+    pub post: Vec<String>,
+    /// Shell commands `vandorf test` runs.
+    #[serde(default)]
+    pub test: Vec<String>,
 }
 
 #[derive(Debug)]

@@ -162,6 +162,8 @@ out = "go/app"             # code package; types in out/types
 [rust]                     # optional: the Rust library
 out = "rs/src/app"         # a module under the crate's src/
 # module_dir (out relative to src/; default from Cargo.toml)
+post = ["cargo build --manifest-path rs/Cargo.toml"]   # after generating Rust
+test = ["cargo test --manifest-path rs/Cargo.toml"]    # run by vandorf test
 
 [bin.demo]                 # an executable per backend, running a proc
 entry = "Main"             # default "Main"
@@ -170,7 +172,11 @@ entry = "Main"             # default "Main"
 ```
 
 `vandorf build` generates the libraries and every bin; `vandorf build calc`
-the libraries and that bin. Errors name the file they're in. The workbench
+the libraries and that bin. After generating a language it runs that
+language's `post` commands ([go] takes them too). `vandorf test` builds
+everything, then runs each language's `test` commands. Commands are shell
+commands run in order in the manifest's directory; the first that fails fails
+the command. Errors name the file they're in. The workbench
 compiles a project file together with the rest of its project.
 
 ## Workbench

@@ -17,7 +17,7 @@ body{ display:flex; flex-direction:column }
 #banner{ position:absolute; top:8px; left:50%; transform:translateX(-50%); z-index:5; background:var(--err-bg); color:var(--err);
   border:1px solid var(--err); border-radius:var(--r); padding:3px 12px; font-size:12px; cursor:pointer; display:none; box-shadow:0 4px 14px var(--shadow) }
 #banner.on{ display:block }
-body.text-mode #bFit{ display:none }
+body.text-mode #bFit, body.text-mode #bIface{ display:none }
 
 /* text mode */
 #editorWrap{ flex:1; min-height:0; position:relative }
@@ -38,19 +38,24 @@ body.text-mode #bFit{ display:none }
 #diags .d:hover{ background:var(--err-bg) }
 #diags .d b{ font-family:var(--mono); font-weight:600; margin-right:8px }
 
-/* preview panel: pops up over the bottom of the diagram */
+/* details panel: slides over the diagram from the right (the default),
+   the left or the bottom, as the IDE's settings say */
 #drawer{ position:absolute; top:0; right:0; bottom:0; width:var(--dw,460px); max-width:calc(100% - 60px); z-index:8;
   background:var(--bar); border-left:1px solid var(--line); box-shadow:-8px 0 26px var(--shadow);
   display:flex; flex-direction:column; transform:translateX(105%); transition:transform .16s ease-out; visibility:hidden }
+body.drawer-left #drawer{ right:auto; left:0; border-left:0; border-right:1px solid var(--line); box-shadow:8px 0 26px var(--shadow); transform:translateX(-105%) }
+body.drawer-bottom #drawer{ top:auto; left:0; width:auto; max-width:none; height:var(--dh,40%); max-height:calc(100% - 60px);
+  border-left:0; border-top:1px solid var(--line); box-shadow:0 -8px 26px var(--shadow); transform:translateY(105%) }
 #drawer.on{ transform:none; visibility:visible }
 body.text-mode #drawer{ display:none }
 #drawer .grip{ position:absolute; left:-3px; top:0; bottom:0; width:7px; cursor:col-resize; z-index:1 }
+body.drawer-left #drawer .grip{ left:auto; right:-3px }
+body.drawer-bottom #drawer .grip{ left:0; right:0; top:-3px; bottom:auto; width:auto; height:7px; cursor:row-resize }
 #drawer .grip:hover, #drawer .grip.drag{ background:var(--accent); opacity:.5 }
 #drawer .dh{ display:flex; align-items:center; gap:6px; height:var(--bar-h); padding:0 6px 0 12px; margin-bottom:6px; flex:none; min-width:0; border-bottom:1px solid var(--line) }
 #drawer .dh .name{ font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
 #drawer .dh .loc{ font-size:12px; color:var(--accent); cursor:pointer; white-space:nowrap }
 #drawer .dh .loc:hover{ text-decoration:underline }
-#drawer .dh svg{ width:13px; height:13px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round }
 #drawer .body{ flex:1; overflow:auto; padding:0 12px 12px; min-height:0; display:flex; flex-direction:column; gap:8px }
 #drawer h4{ margin:4px 0 0; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut) }
 #drawer pre{ margin:0; padding:8px 10px; background:var(--code-bg); border:1px solid var(--line); border-radius:var(--r); overflow:auto;
@@ -85,7 +90,8 @@ body.text-mode #drawer{ display:none }
   <div class="seg"><button id="mDiagram" class="on" title="Diagram view">Diagram</button><button id="mText" title="Source text">Text</button></div>
   <span class="crumb" id="crumb"><span id="crumbT"></span><span class="dot" title="Unsaved (Ctrl/&#8984;+S saves)">&#9679;</span></span>
   <span class="sp"></span>
-  <button class="icon" id="bFit" title="Fit diagram to window">&#10530;</button>
+  <button class="icon letter" id="bIface" title="Show the interface funcs each proc calls">I</button>
+  <button class="icon" id="bFit" title="Fit diagram to window"><svg viewBox="0 0 16 16"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
 </div>
 <div id="main">
   <section id="diagram" class="on">
@@ -101,7 +107,7 @@ body.text-mode #drawer{ display:none }
     <div class="dh"><span class="badge" id="dKind"></span><span class="name" id="dName"></span><span class="loc" id="dLoc"></span>
       <span class="sp" style="flex:1"></span>
       <button class="icon" id="dOpen" title="Open in new tab"><svg viewBox="0 0 16 16"><path d="M6 3H3.5v9.5H13V10M9 3h4v4M13 3L7.5 8.5"/></svg></button>
-      <button class="icon" id="dBack" title="Back">&larr;</button><button class="icon" id="dClose" title="Close (Esc)">&times;</button></div>
+      <button class="icon" id="dBack" title="Back"><svg viewBox="0 0 16 16"><path d="M13 8H3M7 4L3 8l4 4"/></svg></button><button class="icon" id="dClose" title="Close (Esc)"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
     <div class="body" id="dBody"></div>
   </div>
 </div>
@@ -182,6 +188,20 @@ $('mText').onclick = function(){
   setMode('text');
 };
 $('bFit').onclick = function(){ toViz({ type: 'vandorf-fit' }); };
+/* Interface visibility: shared by every diagram, like the explorer's ƒ. */
+var showIfaces = store('vandorf.viz.ifaces') === '1';
+$('bIface').classList.toggle('on', showIfaces);
+$('bIface').onclick = function(){
+  showIfaces = !showIfaces; store('vandorf.viz.ifaces', showIfaces ? '1' : '0');
+  this.classList.toggle('on', showIfaces);
+  toViz({ type: 'vandorf-ifaces', on: showIfaces });
+  up({ type: 'ide-ifaces', on: showIfaces });
+};
+/* From the IDE: the settings, or another tab's button. */
+function setIfaces(on){
+  showIfaces = on; $('bIface').classList.toggle('on', on);
+  toViz({ type: 'vandorf-ifaces', on: on });
+}
 
 /* ---------- status ---------- */
 /* The IDE's status bar shows the active tab's status. */
@@ -295,18 +315,30 @@ editor.onChange(function(){
 
 /* ---------- preview drawer ---------- */
 var drawerSel = null, history_ = [];
-var dw = +store('vandorf.viewer.drawerW') || 460;
+var dw = +store('vandorf.viewer.drawerW') || 460, dh = +store('vandorf.viewer.drawerH') || 0, drawerSide = 'right';
 $('drawer').style.setProperty('--dw', dw + 'px');
+if (dh) $('drawer').style.setProperty('--dh', dh + 'px');
+/* The side it slides from: the IDE's setting, shared by every tab. */
+function setDrawerSide(side){
+  drawerSide = side === 'left' || side === 'bottom' ? side : 'right';
+  document.body.classList.toggle('drawer-left', drawerSide === 'left');
+  document.body.classList.toggle('drawer-bottom', drawerSide === 'bottom');
+}
+setDrawerSide(store('vandorf.ide.drawerSide'));
 (function(){
   var g = $('grip');
   g.addEventListener('pointerdown', function(e){
     e.preventDefault(); g.setPointerCapture(e.pointerId); g.classList.add('drag');
     // The diagram iframe would swallow the drag.
     $('viz').style.pointerEvents = 'none';
-    var x0 = e.clientX, w0 = $('drawer').offsetWidth;
-    function mv(ev){ dw = Math.max(280, w0 + (x0 - ev.clientX)); $('drawer').style.setProperty('--dw', dw + 'px'); }
+    var x0 = e.clientX, y0 = e.clientY, w0 = $('drawer').offsetWidth, h0 = $('drawer').offsetHeight;
+    // Its inner edge follows the pointer: its width at a side, its height at the bottom.
+    function mv(ev){
+      if (drawerSide === 'bottom'){ dh = Math.max(120, h0 + (y0 - ev.clientY)); $('drawer').style.setProperty('--dh', dh + 'px'); return; }
+      dw = Math.max(280, w0 + (drawerSide === 'left' ? ev.clientX - x0 : x0 - ev.clientX)); $('drawer').style.setProperty('--dw', dw + 'px');
+    }
     function done(){ g.removeEventListener('pointermove', mv); g.removeEventListener('pointerup', done); g.classList.remove('drag');
-      $('viz').style.pointerEvents = ''; store('vandorf.viewer.drawerW', dw); }
+      $('viz').style.pointerEvents = ''; store('vandorf.viewer.drawerW', dw); if (dh) store('vandorf.viewer.drawerH', dh); }
     g.addEventListener('pointermove', mv); g.addEventListener('pointerup', done);
   });
 })();
@@ -387,7 +419,7 @@ var BADGE = { proc: 'P', func: 'ƒ', type: 'T', interface: 'I', edge: 'E', switc
 var EDGE_KIND = { call: 'calls', match: 'match arm', expand: 'expands', continue: 'continues', collect: 'collects' };
 function nodeRef(n){
   if (!n) return '';
-  var k = n.kind === 'proc' || n.kind === 'func' ? n.kind : null;
+  var k = n.kind === 'proc' ? 'proc' : n.kind === 'func' ? (n.iface ? 'interface' : 'func') : null;
   return (k ? '<span class="badge ' + k + '">' + BADGE[k] + '</span>' : '') + '<code>' + esc(n.label || '?') + '</code>';
 }
 function row(k, v){ return v ? '<tr><td class="k">' + esc(k) + '</td><td>' + v + '</td></tr>' : ''; }
@@ -446,8 +478,9 @@ function renderDrawer(){
       }).join('') + '</div>';
   } else {
     kind = 'none'; name = 'Preview';
-    body = '<p class="note">Click a func, proc, edge or switch in the diagram to preview it. Ctrl/⌘+click a proc to open it in a new tab.</p>';
+    body = '<p class="note">Click a func, proc, edge or switch in the diagram to preview it. Shift+click a proc to select it without expanding; Ctrl/⌘+click to open it in a new tab.</p>';
   }
+  if (kind === 'func' && sel.iface) kind = 'interface';
   $('dKind').className = 'badge ' + kind; $('dKind').textContent = BADGE[kind] || '?';
   $('dName').textContent = name;
   $('dLoc').textContent = locLink(loc); $('dLoc').onclick = function(){ goLoc(loc); };
@@ -602,7 +635,7 @@ window.addEventListener('message', function(e){
   if (e.origin !== location.origin || !e.data || typeof e.data.type !== 'string') return;
   var m = e.data;
   if (e.source === $('viz').contentWindow){
-    if (m.type === 'vandorf-viz-ready'){ S.vizReady = true; if (S.theme) toViz({ type: 'vandorf-theme', theme: S.theme }); pushDoc(); }
+    if (m.type === 'vandorf-viz-ready'){ S.vizReady = true; if (S.theme) toViz({ type: 'vandorf-theme', theme: S.theme }); toViz({ type: 'vandorf-ifaces', on: showIfaces }); pushDoc(); }
     if (m.type === 'vandorf-open-proc') up({ type: 'ide-open', proc: m.proc, newTab: true, mode: 'diagram' });
     if (m.type === 'vandorf-select'){
       // Clicking off everything deselects, and the panel goes with it.
@@ -619,6 +652,8 @@ window.addEventListener('message', function(e){
     if (m.theme) theme(m.theme);
     break;
   case 'vandorf-theme': theme(m.theme); break;
+  case 'ide-ifaces': if (!!m.on !== showIfaces) setIfaces(!!m.on); break;
+  case 'ide-drawer-side': setDrawerSide(m.side); break;
   case 'ide-goto':
     if (m.mode) setMode(m.mode, false);
     if (m.line != null){ S.pendingLine = m.line; if (S.mode === 'text') { editor.jump(m.line); S.pendingLine = null; } else setMode('text'); }
@@ -661,6 +696,7 @@ function vizLoaded(){
   if (S.vizReady) return;
   S.vizReady = true;
   if (S.theme) toViz({ type: 'vandorf-theme', theme: S.theme });
+  toViz({ type: 'vandorf-ifaces', on: showIfaces });
   pushDoc();
 }
 $('viz').addEventListener('load', vizLoaded);

@@ -13,7 +13,7 @@
 //! moving anything, when its target already reaches its source through the
 //! recorded forward edges (loops like `Loop -> Loop` or `End -> Start`).
 
-use crate::sema::{Edge as SEdge, Graph, NodeId, NodeKind, Program};
+use crate::sema::{Edge as SEdge, Global, Graph, NodeId, NodeKind, Program};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -48,6 +48,10 @@ pub struct Node {
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sublabel: Option<String>,
+    /// The interface a func, or the func an instance is of, belongs to. Not
+    /// in the Go document format.
+    #[serde(rename = "interface", skip_serializing_if = "Option::is_none")]
+    pub iface: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -280,13 +284,19 @@ fn layout(prog: &Program, pid: NodeId) -> Grid {
                 sublabel: (!f.imps.is_empty()).then(|| {
                     f.imps.iter().map(|i| format!("{}:{}", i.file, i.function)).collect::<Vec<_>>().join(" · ")
                 }),
+                iface: interface_of(prog, n),
             },
-            NodeKind::Proc(_) => Node { ty: NodeType::Proc, label: decl.qual_name(), sublabel: None },
-            NodeKind::Id(_) => Node { ty: NodeType::Func, label: "id".into(), sublabel: None },
+            NodeKind::Proc(_) => Node { ty: NodeType::Proc, label: decl.qual_name(), sublabel: None, iface: None },
+            NodeKind::Id(_) => Node { ty: NodeType::Func, label: "id".into(), sublabel: None, iface: None },
             // An instance shows what it instances; its kind is that node's.
             NodeKind::Alias(b) => {
                 let ty = if matches!(prog.node(*b).kind, NodeKind::Proc(_)) { NodeType::Proc } else { NodeType::Func };
-                Node { ty, label: display_label(prog, pid, n), sublabel: Some(format!("instance of {}", display_label(prog, pid, *b))) }
+                Node {
+                    ty,
+                    label: display_label(prog, pid, n),
+                    sublabel: Some(format!("instance of {}", display_label(prog, pid, *b))),
+                    iface: interface_of(prog, *b),
+                }
             }
         }
     };
@@ -320,5 +330,13 @@ fn display_label(prog: &Program, pid: NodeId, n: NodeId) -> String {
         prog.node(n).name().to_string()
     } else {
         prog.node(n).qual_name()
+    }
+}
+
+/// The interface `n` is a func of, if any.
+fn interface_of(prog: &Program, n: NodeId) -> Option<String> {
+    match prog.node(n).qual.as_slice() {
+        [i, _] if matches!(prog.globals.get(i), Some(Global::Interface(_))) => Some(i.clone()),
+        _ => None,
     }
 }

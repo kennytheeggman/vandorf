@@ -13,8 +13,18 @@ iframe{ border:0; width:100%; height:100%; display:block; background:var(--bg) }
 #side{ min-width:0; min-height:0; border-right:1px solid var(--line) }
 .split-v{ cursor:col-resize; background:transparent } .split-v:hover,.split-v.drag{ background:var(--accent) }
 .split-h{ cursor:row-resize; height:4px; background:transparent } .split-h:hover,.split-h.drag{ background:var(--accent) }
-#center{ display:grid; grid-template-rows:var(--bar-h) 1fr 4px var(--panel,32%); min-width:0; min-height:0 }
-#center.nopanel{ grid-template-rows:var(--bar-h) 1fr 0 0 }
+/* The terminal panel comes out of the bottom (the default), left or right. */
+#center{ display:grid; min-width:0; min-height:0; grid-template-columns:minmax(0,1fr);
+  grid-template-areas:"tabs" "frames" "split" "panel"; grid-template-rows:var(--bar-h) minmax(0,1fr) 4px var(--panel,32%) }
+#tabs{ grid-area:tabs } #frames{ grid-area:frames } #splitPanel{ grid-area:split } #panel{ grid-area:panel }
+#center.right{ grid-template-areas:"tabs split panel" "frames split panel"; grid-template-rows:var(--bar-h) minmax(0,1fr);
+  grid-template-columns:minmax(0,1fr) 4px var(--panelw,40%) }
+#center.left{ grid-template-areas:"panel split tabs" "panel split frames"; grid-template-rows:var(--bar-h) minmax(0,1fr);
+  grid-template-columns:var(--panelw,40%) 4px minmax(0,1fr) }
+#center.left #splitPanel, #center.right #splitPanel{ cursor:col-resize; height:auto }
+#center.nopanel{ grid-template-rows:var(--bar-h) minmax(0,1fr) 0 0 }
+#center.nopanel.right{ grid-template-rows:var(--bar-h) minmax(0,1fr); grid-template-columns:minmax(0,1fr) 0 0 }
+#center.nopanel.left{ grid-template-rows:var(--bar-h) minmax(0,1fr); grid-template-columns:0 0 minmax(0,1fr) }
 #center.nopanel #panel, #center.nopanel .split-h{ display:none }
 
 #tabs{ display:flex; align-items:stretch; overflow-x:auto; overflow-y:hidden; background:var(--bar); border-bottom:1px solid var(--line); scrollbar-width:thin }
@@ -35,7 +45,9 @@ iframe{ border:0; width:100%; height:100%; display:block; background:var(--bg) }
 #frames iframe.on{ visibility:visible }
 #welcome{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--mut); text-align:center; padding:16px }
 #welcome h2{ color:var(--ink); font-size:18px; margin:0 0 8px }
-#panel{ min-height:0; border-top:1px solid var(--line) }
+#panel{ min-height:0; min-width:0; border-top:1px solid var(--line) }
+#center.right #panel{ border-top:0; border-left:1px solid var(--line) }
+#center.left #panel{ border-top:0; border-right:1px solid var(--line) }
 
 footer{ display:flex; align-items:center; gap:4px; padding:0 4px; background:var(--bar); border-top:1px solid var(--line);
   color:var(--mut); font-size:12px; white-space:nowrap; overflow:hidden }
@@ -45,18 +57,33 @@ footer button.icon{ width:20px; padding:0 }
 footer #status{ padding:0 6px; overflow:hidden; text-overflow:ellipsis }
 footer #status.ok{ color:var(--ok) } footer #status.bad{ color:var(--err); font-weight:600 }
 footer .spacer{ flex:1 }
-footer svg{ width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:1.6 }
 
-/* settings modal */
-#settings{ position:fixed; inset:0; z-index:50; display:none; background:rgba(0,0,0,.25) }
-#settings.on{ display:block }
-#settings .card{ position:absolute; left:8px; bottom:32px; width:300px; max-width:calc(100vw - 16px); background:var(--bg);
-  border:1px solid var(--line); border-radius:var(--r); box-shadow:0 10px 30px var(--shadow); padding:6px 12px 12px }
-#settings h3{ margin:4px 0 8px; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--mut);
-  display:flex; align-items:center } #settings h3 span{ flex:1 }
-#settings .row{ display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:32px }
-#settings .row label{ color:var(--ink) }
-#settings .hint{ color:var(--mut); font-size:12px; margin-top:6px }
+/* settings: a dialog of sections, listed on the left */
+#settings{ position:fixed; inset:0; z-index:50; display:none; background:rgba(0,0,0,.35); align-items:center; justify-content:center; padding:16px }
+#settings.on{ display:flex }
+#settings .card{ display:grid; grid-template-rows:auto 1fr; width:760px; max-width:100%; height:540px; max-height:100%;
+  background:var(--bg); border:1px solid var(--line); border-radius:10px; box-shadow:0 18px 50px var(--shadow); overflow:hidden }
+#settings header{ display:flex; align-items:center; gap:8px; padding:10px 10px 10px 18px; border-bottom:1px solid var(--line) }
+#settings header h2{ flex:1; margin:0; font-size:15px }
+#settings .body{ display:grid; grid-template-columns:170px 1fr; min-height:0 }
+#sNav{ display:flex; flex-direction:column; gap:2px; padding:10px 8px; background:var(--bar); border-right:1px solid var(--line) }
+#sNav button{ justify-content:flex-start; color:var(--mut) }
+#sNav button.on{ background:var(--sel); color:var(--sel-ink) }
+#sSecs{ overflow:auto; padding:4px 22px 24px; scroll-behavior:smooth }
+#sSecs section + section{ border-top:1px solid var(--line) }
+#sSecs h3{ margin:16px 0 4px; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--mut) }
+#sSecs .opt{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:10px 0 }
+#sSecs .opt.col{ flex-direction:column; align-items:stretch; gap:8px }
+#sSecs .opt label{ color:var(--ink); font-weight:600 }
+/* Every three-way choice is the same width, its options equal. */
+#sSecs .seg{ display:grid; grid-template-columns:repeat(3,1fr); width:234px }
+#sSecs .desc{ color:var(--mut); font-size:12px; margin-top:2px; max-width:380px }
+#sSecs .path{ display:flex; gap:6px } #sSecs .path input{ flex:1; min-width:0; font-family:var(--mono); font-size:12px }
+#sSecs .cmd{ font:12px var(--mono); background:var(--code-bg); border:1px solid var(--line); border-radius:var(--r); padding:6px 8px;
+  white-space:pre-wrap; word-break:break-all; color:var(--ink) }
+#sSecs table{ border-collapse:collapse; width:100%; margin-top:6px }
+#sSecs td{ padding:6px 0; border-bottom:1px solid var(--line) } #sSecs td:first-child{ width:150px; white-space:nowrap }
+@media (max-width: 560px){ #settings .body{ grid-template-columns:1fr } #sNav{ display:none } }
 body.dragging iframe{ pointer-events:none }
 @media (max-width: 700px){
   #work{ grid-template-columns:var(--side,180px) 4px 1fr }
@@ -90,13 +117,44 @@ body.dragging iframe{ pointer-events:none }
   <button id="bPanel" title="Toggle the terminal (Ctrl+`)">Terminal</button>
 </footer>
 <div id="settings">
-  <div class="card" role="dialog" aria-label="Settings">
-    <h3><span>Settings</span><button class="icon" id="sClose" title="Close (Esc)">&times;</button></h3>
-    <div class="row"><label>Theme</label>
-      <div class="seg" id="sTheme"><button data-v="system">System</button><button data-v="light">Light</button><button data-v="dark">Dark</button></div></div>
-    <div class="row"><label>Terminal panel</label>
-      <div class="seg" id="sPanel"><button data-v="1">Shown</button><button data-v="0">Hidden</button></div></div>
-    <div class="hint"><kbd>Ctrl</kbd>+<kbd>`</kbd> toggles the terminal &middot; <kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+<kbd>S</kbd> saves the file.</div>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="sTitle">
+    <header><h2 id="sTitle">Settings</h2><button class="icon" id="sClose" title="Close (Esc)"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></header>
+    <div class="body">
+      <nav id="sNav">
+        <button data-sec="sAppearance" class="on">Appearance</button>
+        <button data-sec="sLayout">Layout</button>
+        <button data-sec="sToolchain">Toolchain</button>
+        <button data-sec="sKeys">Shortcuts</button>
+      </nav>
+      <div id="sSecs">
+        <section id="sAppearance"><h3>Appearance</h3>
+          <div class="opt"><div><label>Theme</label><div class="desc">The IDE, its diagrams and its terminals all follow it. System follows the OS.</div></div>
+            <div class="seg" id="sTheme"><button data-v="system">System</button><button data-v="light">Light</button><button data-v="dark">Dark</button></div></div>
+        </section>
+        <section id="sLayout"><h3>Layout</h3>
+          <div class="opt"><div><label>Terminal panel</label><div class="desc">The side it comes out of. Drag its edge to resize it; <kbd>Ctrl</kbd>+<kbd>`</kbd> or the Terminal button in the status bar shows and hides it.</div></div>
+            <div class="seg" id="sPanelSide"><button data-v="left">Left</button><button data-v="bottom">Bottom</button><button data-v="right">Right</button></div></div>
+          <div class="opt"><div><label>Details panel</label><div class="desc">Where a diagram shows the details of what you click. Drag its edge to resize it.</div></div>
+            <div class="seg" id="sDrawerSide"><button data-v="left">Left</button><button data-v="bottom">Bottom</button><button data-v="right">Right</button></div></div>
+        </section>
+        <section id="sToolchain"><h3>Toolchain</h3>
+          <div class="opt col"><div><label for="sCompiler">Compiler</label><div class="desc">What Check, Build and Test run. Empty means <code>vandorf</code>.</div></div>
+            <div class="path"><input id="sCompiler" placeholder="vandorf, or a path such as selfhost/rs/target/release/vcc" spellcheck="false" autocomplete="off"><button class="outline" id="sCompilerTest" title="Run it with --help in the terminal">Test</button></div></div>
+          <div class="opt col"><div><label>Check runs</label></div><div class="cmd" id="sCmd"></div></div>
+        </section>
+        <section id="sKeys"><h3>Shortcuts</h3>
+          <table>
+            <tr><td><kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+<kbd>S</kbd></td><td>Save the file</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>`</kbd></td><td>Show or hide the terminal</td></tr>
+            <tr><td>Click a proc</td><td>Expand it in place (in a diagram); open its diagram (in the explorer)</td></tr>
+            <tr><td><kbd>Shift</kbd>+click</td><td>Select a proc in a diagram without expanding it</td></tr>
+            <tr><td><kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+click</td><td>Open a proc in a new tab</td></tr>
+            <tr><td>Middle-click a tab</td><td>Close it</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>Close this dialog</td></tr>
+          </table>
+        </section>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -131,12 +189,58 @@ $('sTheme').onclick = function(e){
 applyTheme();
 
 /* ---------- settings ---------- */
-function settings(on){ $('settings').classList.toggle('on', on); }
+function settings(on){
+  $('settings').classList.toggle('on', on);
+  // The explorer's and diagrams' own buttons may have changed these.
+  if (on) showCompiler();
+}
 $('bSettings').onclick = function(){ settings(!$('settings').classList.contains('on')); };
 $('sClose').onclick = function(){ settings(false); };
 $('settings').onclick = function(e){ if (e.target === this) settings(false); };
 window.addEventListener('keydown', function(e){ if (e.key === 'Escape') settings(false); });
-$('sPanel').onclick = function(e){ var b = e.target.closest('button'); if (b) togglePanel(b.dataset.v === '1'); };
+function segPick(seg, f){ seg.onclick = function(e){ var b = e.target.closest('button'); if (b) f(b.dataset.v); }; }
+segPick($('sPanelSide'), function(v){ setPanelSide(v); });
+/* The diagrams' details panel: every tab's, read by new tabs from storage. */
+segPick($('sDrawerSide'), function(v){
+  store('vandorf.ide.drawerSide', v); segOn($('sDrawerSide'), v);
+  tabs.forEach(function(t){ if (t.path) post(t.frame.contentWindow, { type: 'ide-drawer-side', side: v }); });
+});
+segOn($('sDrawerSide'), store('vandorf.ide.drawerSide') || 'right');
+/* Interface calls: every diagram tab shows them or none does. */
+function setIfaces(on){
+  store('vandorf.viz.ifaces', on ? '1' : '0');
+  tabs.forEach(function(t){ if (t.path) post(t.frame.contentWindow, { type: 'ide-ifaces', on: on }); });
+}
+/* Sections: the list follows the scroll, and a click scrolls there. */
+$('sNav').onclick = function(e){ var b = e.target.closest('button'); if (b) $('sSecs').scrollTop = $(b.dataset.sec).offsetTop - 4; };
+$('sSecs').addEventListener('scroll', function(){
+  var secs = this.querySelectorAll('section'), at = secs[0], end = this.scrollTop + this.clientHeight >= this.scrollHeight - 2;
+  Array.prototype.forEach.call(secs, function(sc){ if (sc.offsetTop - 30 <= $('sSecs').scrollTop) at = sc; });
+  if (end) at = secs[secs.length - 1];
+  Array.prototype.forEach.call($('sNav').children, function(b){ b.classList.toggle('on', b.dataset.sec === at.id); });
+});
+
+/* ---------- toolchain: what Check and Build run ---------- */
+var srcRoot = '';
+/* The compiler: a command on PATH (a bare name) or a path, a relative one
+   made absolute from the source directory so it works wherever the shell
+   has cd'd to. */
+function compilerCmd(){
+  var p = (store('vandorf.ide.compiler') || '').trim();
+  if (!p) return 'vandorf';
+  if (p.indexOf('/') < 0 || /^(\/|~|[A-Za-z]:[\\/])/.test(p) || !srcRoot) return p;
+  return srcRoot.replace(/\/$/, '') + '/' + p.replace(/^\.\//, '');
+}
+function showCompiler(){
+  if (document.activeElement !== $('sCompiler')) $('sCompiler').value = store('vandorf.ide.compiler') || '';
+  var info = active && active.path && fileInfo(active.path);
+  var dir = active && active.project != null ? active.project : info && info.project ? info.project.dir : active && active.path ? active.path.replace(/[^/]*$/, '') : '';
+  $('sCmd').textContent = compilerCmd() + ' check -C ' + (srcRoot ? srcRoot.replace(/\/$/, '') + (dir ? '/' + dir.replace(/\/$/, '') : '') : dir || '.');
+}
+function sendCompiler(){ post($('terminal').contentWindow, { type: 'term-compiler', cmd: compilerCmd() }); }
+$('sCompiler').addEventListener('input', function(){ store('vandorf.ide.compiler', this.value.trim() || null); showCompiler(); sendCompiler(); });
+$('sCompilerTest').onclick = function(){ settings(false); togglePanel(true); post($('terminal').contentWindow, { type: 'term-compiler-test' }); };
+fetch('/api/sources').then(function(r){ return r.json(); }).then(function(r){ if (r.ok){ srcRoot = r.root || ''; showCompiler(); sendCompiler(); } }).catch(function(){});
 
 /* ---------- splitters ---------- */
 function drag(el, onMove){
@@ -148,21 +252,35 @@ function drag(el, onMove){
     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
   });
 }
-var sideW = +store('vandorf.ide.side') || 260, panelH = store('vandorf.ide.panel') || '32%';
+var sideW = +store('vandorf.ide.side') || 260, panelH = store('vandorf.ide.panel') || '32%', panelW = store('vandorf.ide.panelw') || '40%';
 document.body.style.setProperty('--side', sideW + 'px');
 $('center').style.setProperty('--panel', panelH);
+$('center').style.setProperty('--panelw', panelW);
 drag($('splitSide'), function(e){
   sideW = Math.max(140, Math.min(window.innerWidth - 240, e.clientX));
   document.body.style.setProperty('--side', sideW + 'px'); store('vandorf.ide.side', sideW);
 });
+/* The panel's edge: its height at the bottom, its width at a side. */
 drag($('splitPanel'), function(e){
   var r = $('center').getBoundingClientRect();
-  var h = Math.max(80, Math.min(r.height - 120, r.bottom - e.clientY));
-  panelH = h + 'px'; $('center').style.setProperty('--panel', panelH); store('vandorf.ide.panel', panelH);
+  if (panelSide === 'bottom'){
+    var h = Math.max(80, Math.min(r.height - 120, r.bottom - e.clientY));
+    panelH = h + 'px'; $('center').style.setProperty('--panel', panelH); store('vandorf.ide.panel', panelH);
+    return;
+  }
+  var w = Math.max(160, Math.min(r.width - 240, panelSide === 'right' ? r.right - e.clientX : e.clientX - r.left));
+  panelW = w + 'px'; $('center').style.setProperty('--panelw', panelW); store('vandorf.ide.panelw', panelW);
 });
+var panelSide = 'bottom';
+function setPanelSide(side){
+  panelSide = side === 'left' || side === 'right' ? side : 'bottom';
+  $('center').classList.toggle('left', panelSide === 'left'); $('center').classList.toggle('right', panelSide === 'right');
+  segOn($('sPanelSide'), panelSide); store('vandorf.ide.panelSide', panelSide);
+}
+setPanelSide(store('vandorf.ide.panelSide'));
 function togglePanel(show){
   var c = $('center'), on = show === undefined ? c.classList.contains('nopanel') : show;
-  c.classList.toggle('nopanel', !on); $('bPanel').classList.toggle('on', on); segOn($('sPanel'), on ? 1 : 0);
+  c.classList.toggle('nopanel', !on); $('bPanel').classList.toggle('on', on);
   store('vandorf.ide.nopanel', on ? '0' : '1');
   if (on) post($('terminal').contentWindow, { type: 'term-focus' });
 }
@@ -376,7 +494,10 @@ window.addEventListener('message', function(e){
   case 'project-ready':
     post(e.source, { type: 'vandorf-theme', theme: theme }); break;
   case 'term-ready':
-    post(e.source, { type: 'vandorf-theme', theme: theme }); showWhere(); break;
+    post(e.source, { type: 'vandorf-theme', theme: theme }); showWhere(); sendCompiler(); break;
+  case 'ide-ifaces':
+    // A diagram's own I button: the other tabs follow.
+    setIfaces(!!m.on); break;
   }
 });
 

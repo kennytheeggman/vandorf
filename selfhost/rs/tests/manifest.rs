@@ -5,6 +5,8 @@ const CASES: &[&str] = &[
     "[project]\nname = \"x\"\n",
     "[project]\nname = \"x\"\nsources = [\"sys\", \"lib\"]\n[rust]\nout = \"rs/src/x\"\n[bin.a]\nentry = \"A\"\n[http.web]\naddr = \"127.0.0.1:1\"\nroutes = { \"POST /a\" = \"A\" }\nraw = { \"GET /\" = \"P\" }\nstatic = { \"/x\" = \"x.html\" }\nrust = \"bin/web.rs\"\n",
     "[project]\nname = \"x\"\n[go]\nout = \"go/x\"\npackage = \"x\"\nmodule = \"m\"\ntypes_dir = \"t\"\n",
+    "[project]\nname = \"x\"\n[rust]\nout = \"a\"\npost = [\"cargo build\", \"echo done\"]\ntest = [\"cargo test\"]\n",
+    "[project]\nname = \"x\"\n[go]\nout = \"a\"\npost = []\ntest = [\"go test ./...\"]\n",
     // Syntax.
     "[project\nname = \"x\"\n",
     "[project]\nname = \n",
@@ -20,6 +22,8 @@ const CASES: &[&str] = &[
     "[project]\nname = \"x\"\n[bin.a]\nentri = \"A\"\n",
     "[project]\nname = \"x\"\n[http.w]\naddr = \"a\"\nroute = {}\n",
     "[project]\nname = \"x\"\n[project2]\n",
+    "[project]\nname = \"x\"\n[build]\npost = []\n",
+    "[project]\nname = \"x\"\n[rust]\nout = \"a\"\npre = []\n",
     // Types.
     "[project]\nname = 1\n",
     "[project]\nname = true\n",
@@ -32,6 +36,9 @@ const CASES: &[&str] = &[
     "[project]\nname = \"x\"\n[bin]\na = 1\n",
     "[project]\nname = \"x\"\n[http.w]\naddr = \"a\"\nroutes = { \"GET /\" = 1 }\n",
     "[project]\nname = \"x\"\n[http.w]\naddr = \"a\"\nraw = []\n",
+    "[project]\nname = \"x\"\n[rust]\nout = \"a\"\npost = \"cargo build\"\n",
+    "[project]\nname = \"x\"\n[rust]\nout = \"a\"\ntest = [1]\n",
+    "[project]\nname = \"x\"\n[go]\nout = \"a\"\ntest = \"go test\"\n",
 ];
 
 #[test]

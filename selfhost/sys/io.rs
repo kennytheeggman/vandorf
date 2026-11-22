@@ -27,9 +27,10 @@ pub fn is_dir(path: Str) -> Result<bool, String> {
     Ok(Path::new(&*path).is_dir())
 }
 
+/// The working directory, with / separators like the paths JoinP builds.
 pub fn cwd(_n: i64) -> Result<Str, String> {
     std::env::current_dir()
-        .map(|d| Str::from(d.to_string_lossy().as_ref()))
+        .map(|d| Str::from(d.to_string_lossy().replace('\\', "/").as_str()))
         .map_err(|e| e.to_string())
 }
 
@@ -72,6 +73,31 @@ pub fn rustfmt(files: List<Str>) -> Result<bool, String> {
         Err(e) => eprintln!("note: rustfmt not run ({e})"),
     }
     Ok(true)
+}
+
+pub fn shell(cmd: Str, dir: Str) -> Result<super::types::ResString, String> {
+    use super::types::{Diag, ResString, Span};
+    let mut c = std::process::Command::new(if cfg!(windows) { "cmd" } else { "sh" });
+    c.args(if cfg!(windows) {
+        ["/C", &*cmd]
+    } else {
+        ["-c", &*cmd]
+    });
+    let fail = |msg: String| {
+        ResString::Err(Diag {
+            msg: msg.into(),
+            span: Span {
+                at: 0,
+                end: 0,
+                file: 0,
+            },
+        })
+    };
+    Ok(match c.current_dir(&*dir).status() {
+        Ok(st) if st.success() => ResString::Ok(cmd),
+        Ok(st) => fail(st.to_string()),
+        Err(e) => fail(e.to_string()),
+    })
 }
 
 pub fn eprint(line: Str) -> Result<bool, String> {

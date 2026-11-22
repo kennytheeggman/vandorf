@@ -2,11 +2,13 @@
 // files it covers.
 
 type Manifest = { name: string, sources: []string, rust: MaybeRust, has_go: bool, go: MaybeGo, bins: map[string]Bin, http: map[string]ServerDecl };
-type GoTarget = { out: string, package: MaybeStr, module: MaybeStr, types_dir: MaybeStr };
+// post: shell commands run after generating the language; test: those
+// `vcc test` runs.
+type GoTarget = { out: string, package: MaybeStr, module: MaybeStr, types_dir: MaybeStr, post: []string, test: []string };
 type MaybeGo = enum { None, Some(GoTarget) };
 // `[http.<name>]`, as written.
 type ServerDecl = { addr: string, routes: map[string]string, raw: map[string]string, statics: map[string]string, rust: MaybeStr };
-type RustTarget = { out: string, module_dir: MaybeStr };
+type RustTarget = { out: string, module_dir: MaybeStr, post: []string, test: []string };
 type MaybeRust = enum { None, Some(RustTarget) };
 type Bin = { entry: string, go: MaybeStr, rust: MaybeStr };
 // root: the manifest's directory. paths: relative to root, sorted.

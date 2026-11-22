@@ -1,0 +1,6 @@
+# The tests call vcc's procs on libtest's threads, which the generated
+# thread_builder (64 MiB in debug builds) doesn't cover; unoptimized, the
+# deep ones overflow the default 2 MiB. Here rather than in rs/, so it holds
+# both in rs/ and in the manifest's directory, where [rust] test runs.
+[env]
+RUST_MIN_STACK = "67108864"
