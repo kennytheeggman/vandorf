@@ -106,6 +106,7 @@ pub fn generate(prog: &Program, opts: &RustOptions) -> Result<Output, String> {
         failed: None,
         proc_name: String::new(),
         moves: Default::default(),
+        mounts: BTreeMap::new(),
     };
     g.check_names()?;
 
@@ -164,6 +165,9 @@ mod procs;
 pub use procs::*;
 ".to_string();
     let mut code = Artifact { dir: String::new(), files: BTreeMap::from([("procs.rs".to_string(), w.out)]) };
+    for (name, path) in &g.mounts {
+        mod_rs.push_str(&format!("#[path = {}]\nmod {};\n", quote(path), rust_ident(name)));
+    }
     if !opts.servers.is_empty() {
         mod_rs.push_str("pub mod http;\n");
         code.files.insert("http.rs".into(), g.http(&opts.servers)?);
@@ -357,6 +361,9 @@ struct Gen<'a> {
     proc_name: String,
     /// Which reads in the transition being written move their value.
     moves: std::cell::RefCell<Moves>,
+    /// Implementation files outside the crate's src/, mounted in mod.rs:
+    /// module name -> path relative to the module.
+    mounts: BTreeMap<String, String>,
 }
 
 /// What a read reads from: `this`, a node's slot in the env, or a switch
@@ -432,8 +439,20 @@ impl Gen<'_> {
                 imp.file,
             ));
         };
-        let file = join_path(dir, &imp.file)
-            .ok_or_else(|| format!("{qual}: {} is outside the crate's src/", imp.file))?;
+        let Some(file) = join_path(dir, &imp.file) else {
+            // Outside the crate's src/: mounted in mod.rs with #[path], by
+            // its file's stem.
+            let stem = imp.file.rsplit('/').next().unwrap_or("").strip_suffix(".rs").unwrap_or("");
+            let valid = !stem.is_empty() && stem.chars().enumerate().all(|(i, c)| c == '_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit()));
+            if !valid || ["types", "procs", "http"].contains(&stem) {
+                return Err(format!("{qual}: {} is outside the crate's src/, and its name can't be a module of the output", imp.file));
+            }
+            if let Some(prev) = self.mounts.get(stem).filter(|p| **p != imp.file) {
+                return Err(format!("{qual}: {} and {prev} are both outside the crate's src/ and would both be module {stem}", imp.file));
+            }
+            self.mounts.insert(stem.to_string(), imp.file.clone());
+            return Ok(format!("super::{}::{}", rust_ident(stem), rust_ident(&imp.function)));
+        };
         let module = module_path(&file).ok_or_else(|| format!("{qual}: {} is not a Rust module file", imp.file))?;
         Ok(format!("{module}::{}", rust_ident(&imp.function)))
     }

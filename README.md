@@ -213,6 +213,9 @@ against its output directory.
   void funcs return just `error`.
 - **Rust**: mapped to a module path (`src/impls.rs` → `crate::impls`; the
   output's place under `src/` comes from `Cargo.toml`, or `--module-dir`).
+  A file outside the crate's `src/` is mounted in the generated `mod.rs`
+  (`#[path = "../../leaves/io.rs"] mod io;`) and called as `super::io::f`;
+  its stem must be unique among such files.
   `pub fn range(i: i64) -> Result<types::ForEachStartOut, E>` with
   `E: Into<Box<dyn Error + Send + Sync>>`; void is `()`.
 

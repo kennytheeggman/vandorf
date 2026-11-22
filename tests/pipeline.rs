@@ -822,6 +822,29 @@ mod codegen {
     }
 
     #[test]
+    fn rust_impls_outside_src_are_mounted() {
+        let src = r#"
+            proc P(A): int {
+                func A(): int = "../../leaves/lf.rs:a";
+                func B(n: int): int = "../../leaves/lf.rs:b";
+                func C(n: int): int = "../impls.rs:c";
+                A -> B(n = this);
+                B -> C(n = this);
+            }
+        "#;
+        let prog = vandorf::compile("t.sys", src).unwrap();
+        let out = rust::generate(&prog, &rust::RustOptions { module_dir: Some("app".into()), ..Default::default() }).unwrap();
+        let procs = &out.code.files["procs.rs"];
+        assert!(procs.contains("super::lf::a()") && procs.contains("super::lf::b(input.n)"), "{procs}");
+        assert!(procs.contains("crate::impls::c(input.n)"), "{procs}");
+        assert!(out.code.files["mod.rs"].contains("#[path = \"../../leaves/lf.rs\"]\nmod lf;\n"), "{}", out.code.files["mod.rs"]);
+        // Two files outside src/ with the same name.
+        let clash = vandorf::compile("t.sys", r#"proc P(A): int { func A(): int = "../../x/lf.rs:a"; func B(): int = "../../y/lf.rs:b"; A -> B(); }"#).unwrap();
+        let e = rust::generate(&clash, &rust::RustOptions { module_dir: Some("app".into()), ..Default::default() }).unwrap_err();
+        assert!(e.contains("are both outside the crate's src/ and would both be module lf"), "{e}");
+    }
+
+    #[test]
     fn rust_http_servers_route_to_procs() {
         let src = r#"
             type Shape = enum { Dot, Circle(float) };
