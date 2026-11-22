@@ -98,6 +98,7 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
                 s(n),
                 ServerDecl {
                     addr: s(addr),
+                    setup: opt(v.get("setup")),
                     routes: table("routes"),
                     raw: table("raw"),
                     statics: table("static"),
@@ -409,6 +410,13 @@ pub fn http_file(out: Str, text: Str) -> Result<List<OutFile>, String> {
     })
 }
 
+pub fn setup_name(d: ServerDecl) -> Result<Str, String> {
+    Ok(match d.setup {
+        MaybeStr::Some(p) => p,
+        MaybeStr::None => "".into(),
+    })
+}
+
 pub fn server_path(d: ServerDecl, name: Str) -> Result<Str, String> {
     Ok(match d.rust {
         MaybeStr::Some(p) => p,
@@ -489,6 +497,7 @@ const BIN: Fields = &[
 ];
 const SERVER: Fields = &[
     ("addr", Kind::Str, true),
+    ("setup", Kind::Str, false),
     ("routes", Kind::StrMap, false),
     ("raw", Kind::StrMap, false),
     ("static", Kind::StrMap, false),

@@ -299,7 +299,7 @@ fn server_spec(name: &str, s: &project::Server, root: &Path, out: &Path, module_
         };
         statics.push((url.clone(), project::slash(&project::relative(&full, &file_dir)), ctype.to_string()));
     }
-    Ok(codegen::rust::ServerSpec { name: name.into(), addr: s.addr.clone(), routes, raw, statics, path })
+    Ok(codegen::rust::ServerSpec { name: name.into(), addr: s.addr.clone(), setup: s.setup.clone(), routes, raw, statics, path })
 }
 
 /// Writes the artifacts, returning the paths written. Refuses to overwrite

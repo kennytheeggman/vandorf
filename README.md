@@ -238,6 +238,7 @@ naming where the func is declared and printing the expected signature.
 ```toml
 [http.api]                   # rs/src/bin/api.rs; Rust only, for now
 addr = "127.0.0.1:8099"
+setup = "Setup"              # optional: its result is each route's ctx
 routes = { "POST /api/measure" = "Measure", "GET /api/hello" = "Hello" }
 static = { "/" = "web/index.html" }
 ```
@@ -249,6 +250,13 @@ parses, else as a string). Structs are objects, maps objects keyed by
 string, and enums `"Tag"` or `{"Tag": payload}`. Results are 200 and JSON;
 a request that doesn't decode is a 400, a proc that fails a 500, both with
 `{"error": ".."}`. Static files are embedded in the executable.
+
+A server with `setup` runs that top-level proc, which takes no parameters,
+once before it listens; if it fails, the server exits without listening.
+Its result is the server's context: every route and raw proc must take a
+parameter `ctx` of exactly its type, which the server fills (a request's
+`ctx` is ignored). The context is read-only; state that changes between
+requests belongs behind an interface.
 
 `vandorf build` writes `http.rs` into the module (the JSON codec, std-only
 server and a `handle_<name>` per server) and the server's executable, which

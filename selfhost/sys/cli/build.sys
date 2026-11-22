@@ -236,6 +236,7 @@ proc ServerFiles(At): []OutFile {
 proc ServerSpecs(At): Res<[]ServerSpec> {
 	func At(s: { m: Manifest, root: string, out: string, module_dir: MaybeStr, names: []string, i: int, acc: []ServerSpec }): { m: Manifest, root: string, out: string, module_dir: MaybeStr, names: []string, i: int, acc: []ServerSpec } = "../leaf.rs:same";
 	func ServerPath(d: ServerDecl, name: string): string = "cli_leaf.rs:server_path";
+	func SetupName(d: ServerDecl): string = "cli_leaf.rs:setup_name";
 	// The directory of a file under the crate's src/, out being module_dir
 	// below src/.
 	func FileDir(out: string, module_dir: MaybeStr, path: string): string = "cli_leaf.rs:file_dir";
@@ -252,7 +253,7 @@ proc ServerSpecs(At): Res<[]ServerSpec> {
 		Err(e) -> id(Err(e))
 	};
 	Statics switch {
-		Ok(statics) -> At(s = { ..At, i = At.i + 1, acc = At.acc + [{ name = At.names[At.i], addr = At.m.http[At.names[At.i]].addr, routes = UnwrapRoutes(r = Routes), raw = UnwrapRoutes(r = Raws), statics = statics, path = ServerPath(d = At.m.http[At.names[At.i]], name = At.names[At.i]) }] }),
+		Ok(statics) -> At(s = { ..At, i = At.i + 1, acc = At.acc + [{ name = At.names[At.i], addr = At.m.http[At.names[At.i]].addr, setup = SetupName(d = At.m.http[At.names[At.i]]), routes = UnwrapRoutes(r = Routes), raw = UnwrapRoutes(r = Raws), statics = statics, path = ServerPath(d = At.m.http[At.names[At.i]], name = At.names[At.i]) }] }),
 		Err(e) -> id(Err(e))
 	};
 }

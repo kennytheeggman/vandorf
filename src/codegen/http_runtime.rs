@@ -412,6 +412,25 @@ fn json_route(req: &Request, call: fn(&Value) -> Result<String, (u16, String)>) 
 /// A server's main: `[--addr host:port]` from the command line (else
 /// `addr`, the manifest's), then serves.
 pub fn run(addr: &str, handler: Handler, statics: &'static [Static]) {
+    if let Some(addr) = listen_addr(addr) {
+        serve(&addr, handler, statics);
+    }
+}
+
+/// A server's main with a setup: the address as for run, then the setup
+/// (if it fails, the server exits without listening), then serves.
+pub fn run_setup(addr: &str, setup: fn() -> Result<(), String>, handler: Handler, statics: &'static [Static]) {
+    let Some(addr) = listen_addr(addr) else { return };
+    if let Err(e) = setup() {
+        eprintln!("error: setup: {e}");
+        std::process::exit(1);
+    }
+    serve(&addr, handler, statics);
+}
+
+/// `--addr host:port` from the command line, else `addr`; None after
+/// printing the usage for --help.
+fn listen_addr(addr: &str) -> Option<String> {
     let name = std::env::args().next().map(|a| a.rsplit('/').next().unwrap_or("").to_string()).unwrap_or_default();
     let usage = format!("usage: {name} [--addr host:port]   (default {addr})");
     let mut addr = addr.to_string();
@@ -421,7 +440,7 @@ pub fn run(addr: &str, handler: Handler, statics: &'static [Static]) {
             ("--addr", Some(v)) => addr = v,
             ("-h" | "--help", _) => {
                 eprintln!("{usage}");
-                return;
+                return None;
             }
             _ => {
                 eprintln!("error: unexpected {a}\n{usage}");
@@ -429,7 +448,7 @@ pub fn run(addr: &str, handler: Handler, statics: &'static [Static]) {
             }
         }
     }
-    serve(&addr, handler, statics);
+    Some(addr)
 }
 
 static ADDR: std::sync::OnceLock<String> = std::sync::OnceLock::new();

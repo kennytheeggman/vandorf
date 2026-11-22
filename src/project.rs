@@ -21,6 +21,7 @@
 //!
 //! [http.api]                 # an HTTP server (Rust only, for now)
 //! addr = "127.0.0.1:8080"
+//! setup = "Setup"            # runs once before serving; its result is each route's ctx
 //! routes = { "POST /api/calc" = "Calc" }   # a route runs a top-level proc
 //! raw = { "GET /" = "Page" }                # its proc takes and returns HTTP
 //! static = { "/" = "web/index.html" }      # files served as they are
@@ -69,6 +70,10 @@ pub struct Manifest {
 #[serde(deny_unknown_fields)]
 pub struct Server {
     pub addr: String,
+    /// A top-level proc without parameters, run once before the server
+    /// listens; its result is the context every route and raw proc takes as
+    /// its `ctx` parameter, which requests can't set.
+    pub setup: Option<String>,
     /// `"POST /api/calc" = "Calc"`: the proc's parameters and result as JSON.
     #[serde(default)]
     pub routes: BTreeMap<String, String>,

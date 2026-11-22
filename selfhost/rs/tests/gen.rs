@@ -146,17 +146,35 @@ fn generates_rust_procs_like_the_reference() {
 #[test]
 fn generates_http_like_the_reference() {
     use vandorf::codegen::rust;
-    let mut n = 0;
+    let (mut n, mut with_setup) = (0, 0);
     for (name, prog, srcs) in &programs() {
         let srcs: Vec<&str> = srcs.iter().map(|s| s.as_str()).collect();
         // A server routing to every top-level proc, and one to a missing one.
         let procs: Vec<String> = prog.top_procs.iter().map(|&p| prog.node(p).name().to_string()).collect();
         let routes: Vec<(String, String, String)> = procs.iter().enumerate().map(|(i, p)| (if i % 2 == 0 { "POST" } else { "GET" }.to_string(), format!("/api/{}", p.to_lowercase()), p.clone())).collect();
         let raw: Vec<(String, String, String)> = procs.iter().take(1).map(|p| ("GET".to_string(), "/raw".to_string(), p.clone())).collect();
-        for (routes, raw) in [(routes.clone(), vec![]), (vec![("GET".into(), "/x".into(), "Missing".into())], vec![]), (vec![], raw)] {
+        let route = |m: &str, p: &str, proc: &str| (m.to_string(), p.to_string(), proc.to_string());
+        let mut cases: Vec<(Option<String>, Vec<(String, String, String)>, Vec<(String, String, String)>)> =
+            vec![(None, routes.clone(), vec![]), (None, vec![route("GET", "/x", "Missing")], vec![]), (None, vec![], raw)];
+        // With a setup (the pipeline's setup program): ctx passed, and each mistake.
+        if procs.iter().any(|p| p == "Setup") {
+            let setup = |p: &str| Some(p.to_string());
+            cases.extend([
+                (setup("Setup"), vec![route("GET", "/hi", "Hi")], vec![route("GET", "/", "Page")]),
+                (setup("Nope"), vec![route("GET", "/hi", "Hi")], vec![]),
+                (setup("Takes"), vec![route("GET", "/hi", "Hi")], vec![]),
+                (setup("Setup"), vec![route("GET", "/x", "NoCtx")], vec![]),
+                (setup("Setup"), vec![route("GET", "/x", "WrongCtx")], vec![]),
+                (setup("Setup"), vec![route("GET", "/x", "Missing")], vec![]),
+                (setup("Setup"), vec![], vec![route("GET", "/", "NoCtx")]),
+                (setup("Setup"), vec![], vec![route("GET", "/", "Hi")]),
+            ]);
+        }
+        for (setup, routes, raw) in cases {
             let srv = rust::ServerSpec {
                 name: "web-api".into(),
                 addr: "127.0.0.1:9".into(),
+                setup: setup.clone(),
                 routes: routes.clone(),
                 raw: raw.clone(),
                 statics: vec![("/".into(), "../../web/index.html".into(), "text/html; charset=utf-8".into())],
@@ -167,6 +185,7 @@ fn generates_http_like_the_reference() {
             let vsrv = v::ServerSpec {
                 name: srv.name.as_str().into(),
                 addr: srv.addr.as_str().into(),
+                setup: setup.as_deref().unwrap_or("").into(),
                 routes: routes.iter().map(|(m, p, pr)| v::Route { method: m.as_str().into(), path: p.as_str().into(), proc: pr.as_str().into() }).collect(),
                 raw: raw.iter().map(|(m, p, pr)| v::Route { method: m.as_str().into(), path: p.as_str().into(), proc: pr.as_str().into() }).collect(),
                 statics: srv.statics.iter().map(|(u, f, c)| v::StaticFile { url: u.as_str().into(), file: f.as_str().into(), ctype: c.as_str().into() }).collect(),
@@ -187,6 +206,7 @@ fn generates_http_like_the_reference() {
                     assert_eq!((main.dir.as_str(), main.files.keys().next().unwrap().as_str()), (&*bin.dir, &*bin.file), "{name}");
                     assert_eq!(main.files["web.rs"], *bin.text, "{name}");
                     n += 1;
+                    with_setup += setup.is_some() as usize;
                 }
                 (Err(e), v::MaybeStr::Some(g)) => assert_eq!(e, g.to_string(), "{name}"),
                 (w, g) => panic!("{name}: reference {:?}, vcc {g:?}", w.map(|_| ())),
@@ -194,4 +214,5 @@ fn generates_http_like_the_reference() {
         }
     }
     assert!(n > 15, "{n}");
+    assert!(with_setup > 0, "no server with a setup generated");
 }

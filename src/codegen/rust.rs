@@ -76,6 +76,9 @@ pub struct RustOptions {
 pub struct ServerSpec {
     pub name: String,
     pub addr: String,
+    /// A top-level proc run before serving, whose result every route and
+    /// raw proc takes as `ctx`.
+    pub setup: Option<String>,
     /// (method, path, proc), e.g. ("POST", "/api/calc", "Calc"): the proc
     /// takes its parameters and returns its result as JSON.
     pub routes: Vec<(String, String, String)>,
@@ -305,6 +308,14 @@ fn show_shape(fs: &[(&str, &str)]) -> String {
     format!("{{ {} }}", fs.iter().map(|(n, t)| format!("{n}: {t}")).collect::<Vec<_>>().join(", "))
 }
 
+/// Whether `t` is a struct of exactly these fields (a raw request or
+/// response).
+fn raw_shape(prog: &Program, t: &Type, want: &[(&str, &str)]) -> bool {
+    let defs = &prog.types;
+    matches!(t.unfold(defs), Type::Struct(fs) if fs.len() == want.len()
+        && want.iter().all(|(n, w)| fs.iter().any(|(f, ft)| f == n && ft.to_string() == *w || f == n && ft.unfold(defs).to_string() == *w)))
+}
+
 /// A server's name as part of a Rust identifier: `web-api` -> `web_api`.
 fn server_ident(name: &str) -> String {
     snake(&exported(name)).chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' }).collect()
@@ -333,6 +344,10 @@ fn server_artifact(opts: &RustOptions, srv: &ServerSpec, module_dir: Option<&str
     for (p, f, _) in &srv.statics {
         w.line(&format!("//! - `GET {p}` serves {f}"));
     }
+    if let Some(setup) = &srv.setup {
+        w.line("//!");
+        w.line(&format!("//! Proc {setup} runs first; its result is each route's ctx."));
+    }
     w.line("");
     w.line(&format!("static STATICS: &[{http}::Static] = &["));
     for (p, f, ctype) in &srv.statics {
@@ -341,7 +356,11 @@ fn server_artifact(opts: &RustOptions, srv: &ServerSpec, module_dir: Option<&str
     w.line("];");
     w.line("");
     w.line("fn main() {");
-    w.line(&format!("{http}::run({}, {http}::handle_{}, STATICS);", quote(&srv.addr), server_ident(&srv.name)));
+    let ident = server_ident(&srv.name);
+    match srv.setup {
+        Some(_) => w.line(&format!("{http}::run_setup({}, {http}::setup_{ident}, {http}::handle_{ident}, STATICS);", quote(&srv.addr))),
+        None => w.line(&format!("{http}::run({}, {http}::handle_{ident}, STATICS);", quote(&srv.addr))),
+    }
     w.line("}");
     let up = vec![".."; dir.split('/').filter(|s| !s.is_empty()).count()];
     let (sub, file) = srv.path.trim_matches('/').rsplit_once('/').unwrap_or(("", srv.path.as_str()));
@@ -538,13 +557,15 @@ impl Gen<'_> {
             w.line("}");
             w.line("");
         }
-        // One call per proc a route runs.
-        let mut procs: Vec<&str> = servers.iter().flat_map(|s| s.routes.iter().map(|(_, _, p)| p.as_str())).collect();
+        // One call per proc a route runs (servers with a setup get their own,
+        // below).
+        let plain: Vec<&ServerSpec> = servers.iter().filter(|s| s.setup.is_none()).collect();
+        let mut procs: Vec<&str> = plain.iter().flat_map(|s| s.routes.iter().map(|(_, _, p)| p.as_str())).collect();
         procs.sort();
         procs.dedup();
         for p in procs {
             let pid = super::find_proc(prog, p).ok_or_else(|| {
-                let srv = servers.iter().find(|s| s.routes.iter().any(|r| r.2 == p)).unwrap();
+                let srv = plain.iter().find(|s| s.routes.iter().any(|r| r.2 == p)).unwrap();
                 format!("http server {} runs proc {p}, but there is no top-level proc {p}", srv.name)
             })?;
             w.line(&format!("/// Runs proc {p} with the request's parameters."));
@@ -561,20 +582,15 @@ impl Gen<'_> {
             w.line("");
         }
         // One raw call per proc a raw route runs.
-        let mut raws: Vec<&str> = servers.iter().flat_map(|s| s.raw.iter().map(|(_, _, p)| p.as_str())).collect();
+        let mut raws: Vec<&str> = plain.iter().flat_map(|s| s.raw.iter().map(|(_, _, p)| p.as_str())).collect();
         raws.sort();
         raws.dedup();
         for p in raws {
-            let srv = servers.iter().find(|s| s.raw.iter().any(|r| r.2 == p)).unwrap();
+            let srv = plain.iter().find(|s| s.raw.iter().any(|r| r.2 == p)).unwrap();
             let pid = super::find_proc(prog, p)
                 .ok_or_else(|| format!("http server {} runs proc {p}, but there is no top-level proc {p}", srv.name))?;
-            let defs = &prog.types;
-            let shape = |t: &Type, want: &[(&str, &str)]| -> bool {
-                matches!(t.unfold(defs), Type::Struct(fs) if fs.len() == want.len()
-                    && want.iter().all(|(n, w)| fs.iter().any(|(f, ft)| f == n && ft.to_string() == *w || f == n && ft.unfold(defs).to_string() == *w)))
-            };
             let params = prog.params(pid);
-            let ok = params.len() == 1 && shape(&params[0].1, RAW_REQUEST) && shape(prog.ret(pid), RAW_RESPONSE);
+            let ok = params.len() == 1 && raw_shape(prog, &params[0].1, RAW_REQUEST) && raw_shape(prog, prog.ret(pid), RAW_RESPONSE);
             if !ok {
                 return Err(format!(
                     "http server {}: raw route proc {p} must take one {} and return {}",
@@ -584,35 +600,29 @@ impl Gen<'_> {
             let fname = snake(&gname(prog, pid));
             w.line(&format!("/// Runs proc {p} on the raw request."));
             w.line(&format!("fn raw_{fname}(req: &Request) -> Response {{"));
-            w.line(&format!("let r = {} {{", self.rust_type(&params[0].1)));
-            w.line("method: types::Str::from(req.method.as_str()),");
-            w.line("path: types::Str::from(req.path.as_str()),");
-            w.line("query: query_pairs(&req.query).into_iter().map(|(k, v)| (types::Str::from(k.as_str()), types::Str::from(v.as_str()))).collect(),");
-            w.line("headers: req.headers.iter().map(|(k, v)| (types::Str::from(k.as_str()), types::Str::from(v.as_str()))).collect(),");
-            w.line("body: types::Str::from(req.body.as_str()),");
-            w.line("};");
-            w.line(&format!("match super::run_{fname}(r) {{"));
-            w.line("Ok(res) => Response {");
-            w.line("status: res.status as u16,");
-            w.line("headers: res.headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),");
-            w.line("body: res.body.as_bytes().to_vec(),");
-            w.line("},");
-            w.line("Err(e) => error_response(500, &e.to_string()),");
-            w.line("}");
-            w.line("}");
-            w.line("");
+            self.raw_body(&mut w, pid, &params[0].1, None);
+        }
+        for srv in servers {
+            if let Some(setup) = &srv.setup {
+                self.setup_calls(&mut w, srv, setup)?;
+            }
         }
         for srv in servers {
             w.line(&format!("/// The routes of http server {}.", srv.name));
             w.line(&format!("pub fn handle_{}(req: &Request) -> Option<Response> {{", server_ident(&srv.name)));
             w.line("match (req.method.as_str(), req.path.as_str()) {");
+            // A server with a setup has calls of its own: call_<server>_<proc>.
+            let own = match srv.setup {
+                Some(_) => format!("{}_", server_ident(&srv.name)),
+                None => String::new(),
+            };
             for (m, path, p) in &srv.routes {
                 let pid = super::find_proc(prog, p).unwrap();
-                w.line(&format!("({}, {}) => Some(json_route(req, call_{})),", quote(m), quote(path), snake(&gname(prog, pid))));
+                w.line(&format!("({}, {}) => Some(json_route(req, call_{own}{})),", quote(m), quote(path), snake(&gname(prog, pid))));
             }
             for (m, path, p) in &srv.raw {
                 let pid = super::find_proc(prog, p).unwrap();
-                w.line(&format!("({}, {}) => Some(raw_{}(req)),", quote(m), quote(path), snake(&gname(prog, pid))));
+                w.line(&format!("({}, {}) => Some(raw_{own}{}(req)),", quote(m), quote(path), snake(&gname(prog, pid))));
             }
             w.line("_ => None,");
             w.line("}");
@@ -620,6 +630,116 @@ impl Gen<'_> {
             w.line("");
         }
         Ok(w.out)
+    }
+
+    /// The body of a raw call: the request as the proc's request struct
+    /// (`req_ty`), and `ctx` from `ctx_static` if the server has a setup.
+    fn raw_body(&self, w: &mut Writer, pid: NodeId, req_ty: &Type, ctx: Option<(&str, &str)>) {
+        let fname = snake(&gname(self.prog, pid));
+        w.line(&format!("let r = {} {{", self.rust_type(req_ty)));
+        w.line("method: types::Str::from(req.method.as_str()),");
+        w.line("path: types::Str::from(req.path.as_str()),");
+        w.line("query: query_pairs(&req.query).into_iter().map(|(k, v)| (types::Str::from(k.as_str()), types::Str::from(v.as_str()))).collect(),");
+        w.line("headers: req.headers.iter().map(|(k, v)| (types::Str::from(k.as_str()), types::Str::from(v.as_str()))).collect(),");
+        w.line("body: types::Str::from(req.body.as_str()),");
+        w.line("};");
+        let args = match ctx {
+            Some((stat, server)) => {
+                w.line(&format!("let ctx = match {stat}.get() {{"));
+                w.line("Some(c) => c.clone(),");
+                w.line(&format!("None => return error_response(500, {}),", quote(&format!("http server {server} is not set up"))));
+                w.line("};");
+                self.prog.params(pid).iter().map(|(n, _)| if n == "ctx" { "ctx" } else { "r" }).collect::<Vec<_>>().join(", ")
+            }
+            None => "r".to_string(),
+        };
+        w.line(&format!("match super::run_{fname}({args}) {{"));
+        w.line("Ok(res) => Response {");
+        w.line("status: res.status as u16,");
+        w.line("headers: res.headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),");
+        w.line("body: res.body.as_bytes().to_vec(),");
+        w.line("},");
+        w.line("Err(e) => error_response(500, &e.to_string()),");
+        w.line("}");
+        w.line("}");
+        w.line("");
+    }
+
+    /// A server with a setup proc: its context, setup_<server> to run the
+    /// setup before serving, and a call per route and raw route passing the
+    /// context as ctx (never read from the request).
+    fn setup_calls(&self, w: &mut Writer, srv: &ServerSpec, setup: &str) -> Result<(), String> {
+        let prog = self.prog;
+        let sid = super::find_proc(prog, setup)
+            .ok_or_else(|| format!("http server {}'s setup runs proc {setup}, but there is no top-level proc {setup}", srv.name))?;
+        if !prog.params(sid).is_empty() {
+            return Err(format!("http server {}: setup proc {setup} must take no parameters", srv.name));
+        }
+        let (ctx_ty, ident) = (prog.ret(sid), server_ident(&srv.name));
+        let (rctx, stat) = (self.rust_type(ctx_ty), format!("CTX_{}", ident.to_uppercase()));
+        // Each of the server's procs must take ctx, of the setup's type.
+        let check = |kind: &str, p: &str, pid: NodeId| -> Result<(), String> {
+            match prog.params(pid).iter().find(|(n, _)| n == "ctx") {
+                None => Err(format!("http server {}: {kind} proc {p} must take ctx: {ctx_ty}, its setup proc {setup}'s result", srv.name)),
+                Some((_, t)) if self.rust_type(t) != rctx => {
+                    Err(format!("http server {}: {kind} proc {p} takes ctx: {t}, but its setup proc {setup} returns {ctx_ty}", srv.name))
+                }
+                Some(_) => Ok(()),
+            }
+        };
+        w.line(&format!("/// The context of http server {}: proc {setup}'s result, set before serving.", srv.name));
+        w.line(&format!("static {stat}: std::sync::OnceLock<{rctx}> = std::sync::OnceLock::new();"));
+        w.line("");
+        w.line(&format!("/// Runs proc {setup}, the setup of http server {}.", srv.name));
+        w.line(&format!("pub fn setup_{ident}() -> Result<(), String> {{"));
+        w.line(&format!("let ctx = super::run_{}().map_err(|e| e.to_string())?;", snake(&gname(prog, sid))));
+        w.line(&format!("let _ = {stat}.set(ctx);"));
+        w.line("Ok(())");
+        w.line("}");
+        w.line("");
+        let unset = quote(&format!("http server {} is not set up", srv.name));
+        let mut procs: Vec<&str> = srv.routes.iter().map(|(_, _, p)| p.as_str()).collect();
+        procs.sort();
+        procs.dedup();
+        for p in procs {
+            let pid = super::find_proc(prog, p).ok_or_else(|| format!("http server {} runs proc {p}, but there is no top-level proc {p}", srv.name))?;
+            check("route", p, pid)?;
+            let fname = snake(&gname(prog, pid));
+            w.line(&format!("/// Runs proc {p} with the request's parameters and http server {}'s context.", srv.name));
+            w.line(&format!("fn call_{ident}_{fname}(params: &Value) -> Result<String, (u16, String)> {{"));
+            let mut args = vec![];
+            for (n, t) in prog.params(pid) {
+                let var = local(n);
+                if n == "ctx" {
+                    w.line(&format!("let {var}: {rctx} = {stat}.get().cloned().ok_or_else(|| (500, {unset}.to_string()))?;"));
+                } else {
+                    w.line(&format!("let {var}: {} = arg(params, {})?;", self.rust_type(t), quote(n)));
+                }
+                args.push(var);
+            }
+            w.line(&format!("let result = super::run_{fname}({}).map_err(|e| (500, e.to_string()))?;", args.join(", ")));
+            w.line("Ok(json(&result))");
+            w.line("}");
+            w.line("");
+        }
+        let mut raws: Vec<&str> = srv.raw.iter().map(|(_, _, p)| p.as_str()).collect();
+        raws.sort();
+        raws.dedup();
+        for p in raws {
+            let pid = super::find_proc(prog, p).ok_or_else(|| format!("http server {} runs proc {p}, but there is no top-level proc {p}", srv.name))?;
+            check("raw route", p, pid)?;
+            let rest: Vec<&(String, Type)> = prog.params(pid).iter().filter(|(n, _)| n != "ctx").collect();
+            if !(rest.len() == 1 && raw_shape(prog, &rest[0].1, RAW_REQUEST) && raw_shape(prog, prog.ret(pid), RAW_RESPONSE)) {
+                return Err(format!(
+                    "http server {}: raw route proc {p} must take ctx and one {}, and return {}",
+                    srv.name, show_shape(RAW_REQUEST), show_shape(RAW_RESPONSE),
+                ));
+            }
+            w.line(&format!("/// Runs proc {p} on the raw request with http server {}'s context.", srv.name));
+            w.line(&format!("fn raw_{ident}_{}(req: &Request) -> Response {{", snake(&gname(prog, pid))));
+            self.raw_body(w, pid, &rest[0].1, Some((&stat, &srv.name)));
+        }
+        Ok(())
     }
 
     // ---- Types ----
