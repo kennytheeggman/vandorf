@@ -45,7 +45,7 @@
 
 use super::types::{Shape, TyRef, TypeTable};
 use super::{Artifact, ImplUse, MainSpec, Output, Writer, dir_of, exported, gname, join_path, quote};
-use crate::sema::{Arm, BinOp, Body, Call, Edge, Expr, NodeId, NodeKind, Pat, PatKind, Program, Query, Ref, RegionId, Root, Test, UnOp};
+use crate::sema::{Arm, BinOp, Body, Branch, Call, Edge, Expr, NodeId, NodeKind, Pat, PatKind, Program, Query, Ref, RegionId, Root, Test, UnOp};
 use crate::types::{Prim, Type};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
@@ -169,7 +169,7 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<Output, String> {
         body.push('\n');
         body.push_str(h);
     }
-    let imports = ["cmp", "context", "fmt", "slices", "sync"].iter().map(|i| (i.to_string(), None)).collect();
+    let imports = ["cmp", "context", "fmt", "os", "slices", "sync"].iter().map(|i| (i.to_string(), None)).collect();
     files.insert("runtime_vandorf.go".into(), file(&body, imports));
 
     if let Some(e) = g.failed.take() {
@@ -884,7 +884,88 @@ impl Gen<'_> {
                 self.transition(w, pid, c);
                 w.line("}");
             }
+            Edge::Spawn { branches, join, joined } => {
+                w.line("{");
+                self.emit_spawn(w, branches, joined)?;
+                self.transition(w, pid, join);
+                w.line("}");
+            }
         }
+        Ok(())
+    }
+
+    /// A spawn's branches, each a call of its node: detached ones through
+    /// spawnDetached, joined ones through joinAll, which this step waits
+    /// for. `this` becomes the joined outputs. The arguments are all built
+    /// first, from the spawner's step.
+    fn emit_spawn(&mut self, w: &mut Writer, branches: &[Branch], joined: &Type) -> Result<(), String> {
+        let prog = self.prog;
+        let mut calls = vec![];
+        for (i, b) in branches.iter().enumerate() {
+            let n = b.call.target;
+            let mut call = match prog.node(prog.base(n)).kind {
+                NodeKind::Proc(_) => format!("Run{}", gname(prog, prog.base(n))),
+                _ => self.callee(n)?,
+            };
+            call.push_str("(ctx");
+            for a in &b.call.args {
+                let v = self.value(w, &a.value, &a.param);
+                let var = format!("a{i}{}", exported(&a.name));
+                w.line(&format!("{var} := {v}"));
+                write!(call, ", {var}").unwrap();
+            }
+            call.push(')');
+            // Void funcs return only an error.
+            let err_only = matches!(prog.node(prog.base(n)).kind, NodeKind::Func(_)) && prog.ret(n).is_void();
+            calls.push((call, err_only, quote(&format!("{}: %w", prog.node(n).qual_name()))));
+        }
+        for i in (0..branches.len()).filter(|&i| branches[i].detach) {
+            let (call, err_only, wrap) = &calls[i];
+            let run = if *err_only { format!("err := {call}") } else { format!("_, err := {call}") };
+            w.line(&format!("spawnDetached(ctx, func(ctx context.Context) error {{"));
+            w.line(&run);
+            w.line("if err != nil {");
+            w.line(&format!("return fmt.Errorf({wrap}, err)"));
+            w.line("}");
+            w.line("return nil");
+            w.line("})");
+        }
+        let waited: Vec<usize> = (0..branches.len()).filter(|&i| !branches[i].detach).collect();
+        let mut fields = vec![];
+        for &i in &waited {
+            let n = branches[i].call.target;
+            let name = prog.node(n).name();
+            if joined.field(name, &prog.types).is_some() {
+                w.line(&format!("var r{i} {}", self.go_type(prog.ret(n))));
+                let boxed = self.table.index(joined).is_some_and(|j| self.table.is_boxed(j, name));
+                fields.push(format!("{}: {}", exported(name), if boxed { format!("ptrTo(r{i})") } else { format!("r{i}") }));
+            }
+        }
+        w.line("if err := joinAll(ctx,");
+        for &i in &waited {
+            let (call, err_only, wrap) = &calls[i];
+            let n = branches[i].call.target;
+            let kept = joined.field(prog.node(n).name(), &prog.types).is_some();
+            w.line("func(ctx context.Context) error {");
+            match (err_only, kept) {
+                (true, _) => w.line(&format!("err := {call}")),
+                (false, true) => {
+                    w.line("var err error");
+                    w.line(&format!("r{i}, err = {call}"));
+                }
+                (false, false) => w.line(&format!("_, err := {call}")),
+            }
+            w.line("if err != nil {");
+            w.line(&format!("return fmt.Errorf({wrap}, err)"));
+            w.line("}");
+            w.line("return nil");
+            w.line("},");
+        }
+        w.line("); err != nil {");
+        w.line("return zero, err");
+        w.line("}");
+        w.line(&format!("this := {}{{{}}}", self.go_type(joined), fields.join(", ")));
+        w.line("_ = this");
         Ok(())
     }
 
@@ -1117,6 +1198,41 @@ func mapRemove[K comparable, V any](m map[K]V, ks []K) map[K]V {
 // itself.
 func ptrTo[T any](v T) *T {
 	return &v
+}
+
+// joinAll runs fs concurrently and waits for all of them: a spawn's joined
+// branches. The first error cancels the rest and is returned.
+func joinAll(ctx context.Context, fs ...func(context.Context) error) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var (
+		wg    sync.WaitGroup
+		once  sync.Once
+		first error
+	)
+	for _, f := range fs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := f(ctx); err != nil {
+				once.Do(func() { first = err; cancel() })
+			}
+		}()
+	}
+	wg.Wait()
+	return first
+}
+
+// spawnDetached runs f on a goroutine of its own, a spawn's detached branch:
+// nothing waits for it, it outlives ctx's cancellation, and a failure is
+// only reported.
+func spawnDetached(ctx context.Context, f func(context.Context) error) {
+	ctx = context.WithoutCancel(ctx)
+	go func() {
+		if err := f(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		}
+	}()
 }
 
 // fanOut runs f over xs concurrently and returns the results in input order.

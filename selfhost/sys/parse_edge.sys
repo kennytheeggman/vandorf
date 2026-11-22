@@ -3,12 +3,14 @@
 // edge := path ( '->' target
 //              | 'switch' '{' arm,* '}'
 //              | 'collect' 'each' '(' IDENT ')' '->' target
-//              | 'for' 'each' '(' expr ')' '->' target )
+//              | 'for' 'each' '(' expr ')' '->' target
+//              | '->' 'spawn' '{' branch,* '}' 'join' target )
 proc PEdge(At): R<Edge> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	At -> PPath(toks = this.toks, pos = this.pos);
 	PPath -> At(toks = At.toks, pos = this.pos) as Kw;
 	Kw switch {
+		(IsSym(t = this.tok, s = "->") && IsWord(t = this.toks[this.pos + 1], s = "spawn") && IsSym(t = this.toks[this.pos + 2], s = "{")) -> PBranches(toks = this.toks, pos = this.pos + 3),
 		(IsSym(t = this.tok, s = "->")) -> PTarget(toks = this.toks, pos = this.pos + 1) as CallTarget,
 		(IsWord(t = this.tok, s = "switch")) -> Expect(toks = this.toks, pos = this.pos + 1, text = "{", what = "{ after switch") as SwitchOpen,
 		(IsWord(t = this.tok, s = "collect")) -> Expect(toks = this.toks, pos = this.pos + 1, text = "each", what = "each after collect") as CollectEach,
@@ -30,6 +32,14 @@ proc PEdge(At): R<Edge> {
 		pos = this.pos
 	});
 
+	PBranches -> Expect(toks = At.toks, pos = this.pos, text = "}", what = ", or }") as SpawnClose;
+	SpawnClose -> Expect(toks = this.toks, pos = this.pos, text = "join", what = "join after the spawn's branches") as Join;
+	Join -> PTarget(toks = this.toks, pos = this.pos) as JoinTarget;
+	JoinTarget -> id({
+		x = { source = PPath.x, kind = Spawn({ branches = PBranches.x, join = this.x }), span = { at = PPath.x.span.at, end = At.toks[this.pos - 1].end, file = PPath.x.span.file } },
+		pos = this.pos
+	});
+
 	For -> Expect(toks = this.toks, pos = this.pos, text = "each", what = "each after for") as ForEach;
 	ForEach -> Expect(toks = this.toks, pos = this.pos, text = "(", what = "( after for each") as ForOpen;
 	ForOpen -> PExpr(toks = this.toks, pos = this.pos) as ForDim;
@@ -40,6 +50,27 @@ proc PEdge(At): R<Edge> {
 		x = { source = PPath.x, kind = ForEach({ dim = ForDim.x, target = this.x }), span = { at = PPath.x.span.at, end = At.toks[this.pos - 1].end, file = PPath.x.span.file } },
 		pos = this.pos
 	});
+}
+
+// branch (',' branch)* ','?, at least one, stopping at a closing bracket;
+// branch := 'detach'? target
+proc PBranches(At): R<[]Branch> {
+	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
+	func Loop(toks: []Tok, pos: int, acc: []Branch): AtAcc<[]Branch> = "leaf.rs:at_branches";
+	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
+	Loop switch {
+		(IsClose(t = this.cur.tok) && this.acc.len > 0) -> id({ x = this.acc, pos = this.cur.pos }),
+		(IsWord(t = this.cur.tok, s = "detach")) -> PTarget(toks = this.cur.toks, pos = this.cur.pos + 1) as Detached,
+		else -> PTarget(toks = this.cur.toks, pos = this.cur.pos) as Joined
+	};
+	func Got(s: { b: Branch, pos: int }): { b: Branch, pos: int } = "leaf.rs:same";
+	Detached -> Got(s = { b = { detach = true, target = this.x }, pos = this.pos });
+	Joined -> Got(s = { b = { detach = false, target = this.x }, pos = this.pos });
+	Got -> At(toks = Loop.cur.toks, pos = this.pos) as After;
+	After switch {
+		(IsSym(t = this.tok, s = ",")) -> Loop(toks = this.toks, pos = this.pos + 1, acc = Loop.acc + [Got.b]),
+		else -> id({ x = Loop.acc + [Got.b], pos = this.pos })
+	};
 }
 
 // target := 'id' '(' expr ')' ('as' IDENT)? | path '(' (arg (',' arg)*)? ')' ('as' IDENT)?

@@ -52,6 +52,10 @@ pub struct Node {
     /// in the Go document format.
     #[serde(rename = "interface", skip_serializing_if = "Option::is_none")]
     pub iface: Option<String>,
+    /// A spawn branch: "joined" or "detached". Not in the Go document
+    /// format.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -62,6 +66,13 @@ pub enum EdgeType {
     ForEachExpand = 2,
     ForEachContinue = 3,
     ForEachCollect = 4,
+    /// A spawner to one of its branches.
+    Spawn = 5,
+    /// A joined branch to the join.
+    Join = 6,
+    /// A spawn whose branches are all detached, on to the join: drawn from
+    /// the strip, so it leaves from the first branch.
+    Pass = 7,
 }
 
 #[derive(Debug, Serialize)]
@@ -176,6 +187,18 @@ impl Layout {
 fn edge_targets(prog: &Program, g: &Graph, src: NodeId) -> Vec<Out> {
     let in_region = g.region_of.get(&src).is_some_and(|&r| r != 0);
     let ret = prog.ret(src).to_string();
+    // A branch leads on to its spawn's join.
+    if let Some(sp) = g.spawned.get(&src) {
+        let Some(SEdge::Spawn { branches, join, joined }) = g.edges.get(sp) else { unreachable!() };
+        let b = branches.iter().find(|b| b.call.target == src).unwrap();
+        let first = branches[0].call.target == src;
+        let ty = match (b.detach, branches.iter().all(|b| b.detach)) {
+            (false, _) => EdgeType::Join,
+            (true, true) if first => EdgeType::Pass,
+            (true, _) => return vec![],
+        };
+        return vec![Out { ty, target: join.target, label: None, value: joined.to_string(), args: join.text.clone() }];
+    }
     match &g.edges[&src] {
         SEdge::Call(c) => {
             let ty = if in_region { EdgeType::ForEachContinue } else { EdgeType::Call };
@@ -194,6 +217,10 @@ fn edge_targets(prog: &Program, g: &Graph, src: NodeId) -> Vec<Out> {
             vec![Out { ty: EdgeType::ForEachExpand, target: call.target, label: None, value: elem.to_string(), args: call.text.clone() }]
         }
         SEdge::Collect(c) => vec![Out { ty: EdgeType::ForEachCollect, target: c.target, label: None, value: format!("[]{ret}"), args: c.text.clone() }],
+        SEdge::Spawn { branches, .. } => branches
+            .iter()
+            .map(|b| Out { ty: EdgeType::Spawn, target: b.call.target, label: None, value: ret.clone(), args: b.call.text.clone() })
+            .collect(),
     }
 }
 
@@ -224,13 +251,13 @@ fn arm_label(s: &str) -> String {
 fn layout(prog: &Program, pid: NodeId) -> Grid {
     let proc = prog.proc(pid);
     let g = &proc.graph;
-    let has_edge = |n: &NodeId| g.edges.contains_key(n) && g.region_of.contains_key(n);
+    let has_edge = |n: &NodeId| (g.edges.contains_key(n) && g.region_of.contains_key(n)) || g.spawned.contains_key(n);
 
     let mut l = Layout { rows: vec![vec![]], ..Default::default() };
     l.place(proc.entry, 0);
     // Every pushdown moves a node strictly lower and forward edges form a
     // DAG, so the grid can't grow past one row per node. Guard regardless.
-    let max_rows = g.region_of.len() + 1;
+    let max_rows = g.region_of.len() + g.spawned.len() + 1;
 
     while l.rows.len() <= max_rows {
         let last = l.rows.len() - 1;
@@ -285,9 +312,10 @@ fn layout(prog: &Program, pid: NodeId) -> Grid {
                     f.imps.iter().map(|i| format!("{}:{}", i.file, i.function)).collect::<Vec<_>>().join(" · ")
                 }),
                 iface: interface_of(prog, n),
+                branch: None,
             },
-            NodeKind::Proc(_) => Node { ty: NodeType::Proc, label: decl.qual_name(), sublabel: None, iface: None },
-            NodeKind::Id(_) => Node { ty: NodeType::Func, label: "id".into(), sublabel: None, iface: None },
+            NodeKind::Proc(_) => Node { ty: NodeType::Proc, label: decl.qual_name(), sublabel: None, iface: None, branch: None },
+            NodeKind::Id(_) => Node { ty: NodeType::Func, label: "id".into(), sublabel: None, iface: None, branch: None },
             // An instance shows what it instances; its kind is that node's.
             NodeKind::Alias(b) => {
                 let ty = if matches!(prog.node(*b).kind, NodeKind::Proc(_)) { NodeType::Proc } else { NodeType::Func };
@@ -296,12 +324,21 @@ fn layout(prog: &Program, pid: NodeId) -> Grid {
                     label: display_label(prog, pid, n),
                     sublabel: Some(format!("instance of {}", display_label(prog, pid, *b))),
                     iface: interface_of(prog, *b),
+                    branch: None,
                 }
             }
         }
     };
+    // Spawn branches are marked joined or detached.
+    let branch = |n: NodeId, mut node: Node| {
+        if let Some(Some(SEdge::Spawn { branches, .. })) = g.spawned.get(&n).map(|s| g.edges.get(s)) {
+            let detach = branches.iter().any(|b| b.call.target == n && b.detach);
+            node.branch = Some(if detach { "detached" } else { "joined" });
+        }
+        node
+    };
     let mut grid = Grid {
-        rows: l.rows.iter().map(|r| Row { nodes: r.iter().map(|&n| node(n)).collect() }).collect(),
+        rows: l.rows.iter().map(|r| Row { nodes: r.iter().map(|&n| branch(n, node(n))).collect() }).collect(),
         edges: vec![],
     };
     for (ri, r) in l.rows.iter().enumerate() {

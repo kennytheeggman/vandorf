@@ -495,8 +495,16 @@ fn edge<'a>() -> impl Parser<'a, In<'a>, Edge, Extra<'a>> + Clone {
         .then(target())
         .map(|(dim, target)| EdgeKind::ForEach { dim, target });
 
+    let branch = kw("detach").or_not().then(target()).map(|(d, target)| Branch { detach: d.is_some(), target });
+    let spawn = arrow()
+        .ignore_then(kw("spawn"))
+        .ignore_then(branch.separated_by(sym(",")).allow_trailing().at_least(1).collect().delimited_by(sym("{"), sym("}")))
+        .then_ignore(kw("join"))
+        .then(target())
+        .map(|(branches, join)| EdgeKind::Spawn { branches, join });
+
     path()
-        .then(choice((call, match_, collect, foreach)))
+        .then(choice((spawn, call, match_, collect, foreach)))
         .map_with(|(source, kind), e| Edge { source, kind, span: e.span() })
 }
 

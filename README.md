@@ -73,6 +73,19 @@ proc Calc(Build): int {
   It's the identity func, built in, so procs don't need an identity leaf per
   result type. Each `id(..)` is its own node (drawn as `id`).
 
+- **Spawns** run nodes concurrently:
+  `A -> spawn { Fetch(url = this.a), Fetch(url = this.b) as F2, detach Log(line = "go") } join Merge(x = this.Fetch, y = this.F2);`.
+  Each branch is one node called with A's output as `this`. The join runs once
+  the joined branches have finished, with `this` their outputs by node name
+  (void ones left out); if one fails, the proc fails. A `detach`ed branch runs
+  on its own: nothing waits for it, its output goes nowhere, and a failure is
+  only logged, so a strip of detached branches is fire and forget (the join
+  runs at once). A branch runs only in its spawn: it has no edge of its own,
+  and its output is the join's alone. Rust runs branches on threads (joined
+  ones scoped to the step), Go on goroutines (detached ones outlive the
+  request's cancellation). The diagram draws a spawn as a row of dotted cells,
+  detached ones faded.
+
 Field, parameter and argument names may be keywords (`{ type: string }`).
 
 An edge may only read outputs of nodes that ran on every path to it (the

@@ -139,6 +139,18 @@ pub enum EdgeKind {
     Collect { dim: Ident, target: Target },
     /// `A for each (path) -> B(..)`
     ForEach { dim: Value, target: Target },
+    /// `A -> spawn { B(..), detach C(..) } join D(..)`: the branches run
+    /// concurrently, each one node; `join` runs once the joined (not
+    /// detached) ones have finished.
+    Spawn { branches: Vec<Branch>, join: Target },
+}
+
+/// One node a spawn runs.
+#[derive(Debug, Clone)]
+pub struct Branch {
+    /// `detach`: nothing waits for it, and its output goes nowhere.
+    pub detach: bool,
+    pub target: Target,
 }
 
 #[derive(Debug, Clone)]

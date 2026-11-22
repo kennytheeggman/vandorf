@@ -22,7 +22,7 @@
 //! array) are [`TypeTable::is_boxed`]: `Box<T>` in Rust, `*T` in Go.
 
 use super::{exported, gname};
-use crate::sema::{NodeKind, Program};
+use crate::sema::{Edge, NodeKind, Program};
 use crate::types::{Prim, Type, TypeDef};
 use std::collections::{HashMap, HashSet};
 
@@ -88,6 +88,18 @@ impl TypeTable {
             }
             if !matches!(n.kind, NodeKind::Alias(_)) {
                 t.register(prog.ret(id), &format!("{g}Out"), &format!("return of {q}"));
+            }
+        }
+        // What each spawn's join receives, in spawner order.
+        for n in &prog.nodes {
+            let NodeKind::Proc(p) = &n.kind else { continue };
+            let mut spawns: Vec<(usize, &Type)> = p.graph.edges.iter()
+                .filter_map(|(&src, e)| if let Edge::Spawn { joined, .. } = e { Some((src, joined)) } else { None })
+                .collect();
+            spawns.sort_by_key(|&(src, _)| src);
+            for (src, joined) in spawns {
+                let q = prog.node(src).qual_name();
+                t.register(joined, &format!("{}Joined", gname(prog, src)), &format!("joined branches of {q}'s spawn"));
             }
         }
         t.find_boxed();

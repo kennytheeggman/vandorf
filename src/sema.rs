@@ -104,6 +104,9 @@ pub struct Graph {
     pub region_of: HashMap<NodeId, RegionId>,
     /// For-each source node -> the region it opens.
     pub opens: HashMap<NodeId, RegionId>,
+    /// Spawn branch node -> the node whose spawn runs it. Branches are in
+    /// no region: they run inside their spawner's step.
+    pub spawned: HashMap<NodeId, NodeId>,
 }
 
 /// One state machine in the generated code: the proc body, or the part of
@@ -129,6 +132,16 @@ pub enum Edge {
     /// `dim` is an array of `elem`s.
     ForEach { dim: Expr, elem: Type, call: Call },
     Collect(Call),
+    /// The branches run concurrently; `join` runs once the joined ones have,
+    /// with `this` of type `joined`: their outputs by node name (void ones
+    /// left out).
+    Spawn { branches: Vec<Branch>, join: Call, joined: Type },
+}
+
+#[derive(Debug, Clone)]
+pub struct Branch {
+    pub call: Call,
+    pub detach: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -205,6 +218,7 @@ impl Edge {
         match self {
             Edge::Call(c) | Edge::Collect(c) | Edge::ForEach { call: c, .. } => vec![c],
             Edge::Match(arms) => arms.iter().flat_map(|a| a.leaves()).map(|(_, c)| c).collect(),
+            Edge::Spawn { branches, join, .. } => branches.iter().map(|b| &b.call).chain([join]).collect(),
         }
     }
 }
@@ -494,6 +508,7 @@ fn targets(k: &ast::EdgeKind) -> Vec<&ast::Target> {
     }
     match k {
         ast::EdgeKind::Call(t) | ast::EdgeKind::Collect { target: t, .. } | ast::EdgeKind::ForEach { target: t, .. } => vec![t],
+        ast::EdgeKind::Spawn { branches, join } => branches.iter().map(|b| &b.target).chain([join]).collect(),
         ast::EdgeKind::Match(arms) => {
             let mut out = vec![];
             arm_targets(arms, &mut out);
@@ -1570,19 +1585,80 @@ impl<'a> Cx<'a> {
                     let call = self.call(pid, target, &Scope::this(elem))?;
                     Edge::ForEach { dim: d, elem: (**elem).clone(), call }
                 }
+                ast::EdgeKind::Spawn { branches, join } => self.spawn(pid, branches, join, &ret)?,
             };
             if g.edges.insert(src, edge).is_some() {
                 return err(e.source.span, format!("{} already has an outgoing edge", e.source));
             }
         }
+        // A branch runs inside its spawn only: once, with no edge of its own.
+        let name = |n: NodeId| self.prog.nodes[n].qual_name();
+        let mut spawns: Vec<(NodeId, &Edge)> = g.edges.iter().map(|(&n, e)| (n, e)).collect();
+        spawns.sort_by_key(|&(n, _)| n);
+        let mut spawned = HashMap::new();
+        for (src, edge) in spawns {
+            let Edge::Spawn { branches, .. } = edge else { continue };
+            for b in branches {
+                let n = b.call.target;
+                if spawned.insert(n, src).is_some() {
+                    return err(b.call.span, format!("{} runs in more than one spawn branch; name each with `as`", name(n)));
+                }
+                if g.edges.contains_key(&n) {
+                    return err(b.call.span, format!("{} runs in a spawn, so it can't have an edge of its own: its output goes to the join", name(n)));
+                }
+            }
+        }
+        g.spawned = spawned;
         let entry = self.prog.proc(pid).entry;
         let root = new_region(&mut g, None, entry, Type::Prim(Prim::Void));
         self.fill(&mut g, root, p)?;
+        let mut both: Vec<NodeId> = g.spawned.keys().copied().filter(|n| g.region_of.contains_key(n)).collect();
+        both.sort();
+        if let Some(&n) = both.first() {
+            return err(p.name.span, format!("{} runs in a spawn and is also called directly; name one with `as`", name(n)));
+        }
         self.check_scopes(pid, &g, p)?;
         self.check_runs(&g)?;
         let NodeKind::Proc(decl) = &mut self.prog.nodes[pid].kind else { unreachable!() };
         decl.graph = g;
         Ok(())
+    }
+
+    /// `-> spawn { .. } join J(..)`: each branch is called with the
+    /// spawner's output as `this`; the join with the joined branches'
+    /// outputs, by node name.
+    fn spawn(&self, pid: NodeId, branches: &[ast::Branch], join: &ast::Target, ret: &Type) -> Result<Edge, Error> {
+        let mut out: Vec<Branch> = vec![];
+        let mut fields: Vec<(String, Type)> = vec![];
+        for b in branches {
+            if b.target.id.is_some() {
+                return err(b.target.node.span, "id ends the proc, so it can't run in a spawn branch");
+            }
+            let call = self.call(pid, &b.target, &Scope::this(ret))?;
+            if out.iter().any(|o| o.call.target == call.target) {
+                return err(b.target.node.span, format!("{} runs twice in this spawn; name one with `as`", self.prog.nodes[call.target].qual_name()));
+            }
+            let (name, ty) = (self.prog.nodes[call.target].name().to_string(), self.prog.ret(call.target).clone());
+            if !b.detach && !matches!(ty, Type::Prim(Prim::Void)) {
+                if fields.iter().any(|(f, _)| *f == name) {
+                    return err(b.target.node.span, format!("two joined branches are named {name}; name one with `as`"));
+                }
+                fields.push((name, ty));
+            }
+            out.push(Branch { call, detach: b.detach });
+        }
+        // `this.X` in the join, for a detached X.
+        for a in &join.args {
+            let ast::ValueKind::Ref(path) = &a.value.kind else { continue };
+            let [this, x, ..] = &path.segs[..] else { continue };
+            let detached = |b: &Branch| b.detach && self.prog.nodes[b.call.target].name() == x.name;
+            if this.name == "this" && out.iter().any(detached) {
+                return err(x.span, format!("{} is detached, so the join doesn't get its output", x.name));
+            }
+        }
+        let joined = Type::Struct(fields);
+        let join = self.call(pid, join, &Scope::this(&joined))?;
+        Ok(Edge::Spawn { branches: out, join, joined })
     }
 
     /// Assigns every node reachable from a region's entry to that region,
@@ -1610,7 +1686,7 @@ impl<'a> Cx<'a> {
                 continue;
             };
             match &edge {
-                Edge::Call(c) => work.push(c.target),
+                Edge::Call(c) | Edge::Spawn { join: c, .. } => work.push(c.target),
                 Edge::Match(arms) => work.extend(arms.iter().flat_map(|a| a.leaves()).map(|(_, c)| c.target)),
                 Edge::Collect(c) => {
                     if r == 0 {
@@ -1650,6 +1726,12 @@ impl<'a> Cx<'a> {
         };
         let check = |scope: RegionId, r: &Ref| -> Result<(), Error> {
             let Root::Node(n) = r.root else { return Ok(()) }; // this and bindings are always in scope
+            if let Some(&s) = g.spawned.get(&n) {
+                return err(r.span, format!(
+                    "{} runs in {}'s spawn, so its output is only visible to the join, as this.{}",
+                    self.prog.nodes[n].qual_name(), self.prog.nodes[s].qual_name(), self.prog.nodes[n].name(),
+                ));
+            }
             match g.region_of.get(&n) {
                 Some(nr) if ancestors(scope).contains(nr) => Ok(()),
                 Some(_) => err(r.span, format!("{} runs inside a for each region, so its output is not visible here", self.prog.nodes[n].qual_name())),
@@ -1750,6 +1832,8 @@ impl<'a> Cx<'a> {
             let Some(&r) = g.region_of.get(&src) else { continue };
             match edge {
                 Edge::Call(c) => check(args(c), r, src, src)?,
+                // The branches and the join are all at the spawner's step.
+                Edge::Spawn { .. } => check(edge.calls().into_iter().flat_map(args).collect(), r, src, src)?,
                 Edge::Match(arms) => {
                     let mut refs = vec![];
                     for a in arms {
@@ -1790,7 +1874,7 @@ fn dominators(g: &Graph) -> HashMap<NodeId, HashSet<NodeId>> {
         let mut preds: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
         for &n in &region.nodes {
             let succs: Vec<NodeId> = match g.edges.get(&n) {
-                Some(Edge::Call(c)) => vec![c.target],
+                Some(Edge::Call(c) | Edge::Spawn { join: c, .. }) => vec![c.target],
                 Some(Edge::Match(arms)) => arms.iter().flat_map(|a| a.leaves()).map(|(_, c)| c.target).collect(),
                 Some(Edge::ForEach { .. }) => {
                     let sink = g.regions[g.opens[&n]].sink.unwrap();

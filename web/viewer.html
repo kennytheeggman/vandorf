@@ -416,7 +416,7 @@ function locLink(loc){
   return (loc.file === S.path ? '' : loc.file.split('/').pop() + ':') + 'line ' + (loc.line + 1);
 }
 var BADGE = { proc: 'P', func: 'ƒ', type: 'T', interface: 'I', edge: 'E', switch: '◇', builtin: 'B', none: 'i' };
-var EDGE_KIND = { call: 'calls', match: 'match arm', expand: 'expands', continue: 'continues', collect: 'collects' };
+var EDGE_KIND = { call: 'calls', match: 'match arm', expand: 'expands', continue: 'continues', collect: 'collects', spawn: 'spawns', join: 'joins', pass: 'passes on' };
 function nodeRef(n){
   if (!n) return '';
   var k = n.kind === 'proc' ? 'proc' : n.kind === 'func' ? (n.iface ? 'interface' : 'func') : null;

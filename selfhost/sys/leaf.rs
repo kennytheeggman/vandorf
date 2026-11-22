@@ -260,6 +260,17 @@ pub fn at_arms(toks: List<Tok>, pos: i64, acc: List<Arm>) -> Result<AtAccArmList
     })
 }
 
+pub fn at_branches(
+    toks: List<Tok>,
+    pos: i64,
+    acc: List<Branch>,
+) -> Result<AtAccBranchList, String> {
+    Ok(AtAccBranchList {
+        cur: at(toks, pos)?,
+        acc,
+    })
+}
+
 pub fn at_pats(toks: List<Tok>, pos: i64, acc: List<Pat>) -> Result<AtAccPatList, String> {
     Ok(AtAccPatList {
         cur: at(toks, pos)?,

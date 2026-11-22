@@ -499,8 +499,11 @@ proc RNodeBody(At): EmitLines {
 		Call(c) -> RTransition(s = { g = At.g, pid = At.pid, c = c }) as Jump,
 		Collect(_) -> id({ g = At.g, lines = Head(g = At.g, pid = At.pid, n = At.n, run = At.run) + [L("return Ok(this);"), L("}")] }),
 		Match(arms) -> RSwitch(s = { g = At.g, pid = At.pid, n = At.n, arms = arms, top = true, i = 0, always = false, acc = [] }) as Arms,
-		ForEach(f) -> ROwn(s = { g = At.g, e = f.dim }) as Dim
+		ForEach(f) -> ROwn(s = { g = At.g, e = f.dim }) as Dim,
+		Spawn(sp) -> RSpawn(s = { g = At.g, branches = sp.branches, joined = sp.joined, i = 0, lines = [], calls = [] })
 	};
+	RSpawn -> RTransition(s = { g = this.g, pid = At.pid, c = SpawnJoin(e = E) }) as Joined;
+	Joined -> id({ g = this.g, lines = Head(g = At.g, pid = At.pid, n = At.n, run = At.run) + RSpawn.lines + this.lines + [L("}")] });
 	Jump -> EdgeLines(x = this);
 	Arms -> EdgeLines(x = this);
 	func EdgeLines(x: EmitLines): EmitLines = "../leaf.rs:same";
@@ -514,6 +517,40 @@ proc RNodeBody(At): EmitLines {
 }
 
 func CollectCall(g: Graph, n: int): Call = "gen_leaf.rs:collect_call";
+func SpawnJoin(e: SEdge): Call = "gen_leaf.rs:spawn_join";
+
+// A spawn's branches, each a call of its node (emit_spawn in the
+// reference): every branch's arguments into variables, then the threads.
+proc RSpawn(At): EmitLines {
+	func At(s: { g: RGen, branches: []SBranch, joined: Type, i: int, lines: []Line, calls: []string }): { g: RGen, branches: []SBranch, joined: Type, i: int, lines: []Line, calls: []string } = "../leaf.rs:same";
+	func K(k: NodeKind): NodeKind = "../leaf.rs:same";
+	func Called(s: { g: RGen, callee: string }): { g: RGen, callee: string } = "../leaf.rs:same";
+	// `let a<i>_<arg> = <value>;` per argument, and the variables.
+	func ArgLines(i: int, args: []CallArg, values: []string): []Line = "gen_leaf.rs:spawn_arg_lines";
+	func ArgVars(i: int, args: []CallArg): string = "gen_leaf.rs:spawn_arg_vars";
+	// Detached branches on threads of their own; joined ones on scoped
+	// threads, then this: the joined outputs.
+	func Threads(g: RGen, branches: []SBranch, joined: Type, calls: []string): []Line = "gen_leaf.rs:spawn_threads";
+	At switch {
+		(this.i == this.branches.len) -> id({ g = this.g, lines = this.lines + Threads(g = this.g, branches = this.branches, joined = this.joined, calls = this.calls) }),
+		else -> RArgs(s = { g = this.g, args = this.branches[this.i].call.args, i = 0, acc = [] })
+	};
+	RArgs -> K(k = this.g.prog.nodes[BaseOf(nodes = this.g.prog.nodes, n = At.branches[At.i].call.target)].kind);
+	K switch {
+		Proc(_) -> Called(s = { g = RArgs.g, callee = "run_" + SnakeG(n = RArgs.g.prog.nodes[BaseOf(nodes = RArgs.g.prog.nodes, n = At.branches[At.i].call.target)]) }),
+		else -> RCallee(s = { g = RArgs.g, n = At.branches[At.i].call.target })
+	};
+	// A callee error here stops the generator.
+	RCallee switch {
+		(IsSomeS(m = this.g.failed) && !IsSomeS(m = RArgs.g.failed)) -> Called(s = { g = GFatal(g = RArgs.g, msg = UnwrapS(m = this.g.failed)), callee = "" }),
+		else -> Called(s = { g = this.g, callee = this.s })
+	};
+	Called -> At(s = {
+		g = this.g, branches = At.branches, joined = At.joined, i = At.i + 1,
+		lines = At.lines + ArgLines(i = At.i, args = At.branches[At.i].call.args, values = RArgs.parts),
+		calls = At.calls + [this.callee + "(" + ArgVars(i = At.i, args = At.branches[At.i].call.args) + ").map_err(|e| wrap(" + Quote(s = QualName(n = At.g.prog.nodes[At.branches[At.i].call.target])) + ", e.into()))"]
+	});
+}
 func RegionFn(g: RGen, pid: int, r: int): string = "gen_leaf.rs:region_fn";
 
 // A region's state machine: a loop over its nodes' states.

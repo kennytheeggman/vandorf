@@ -14,6 +14,8 @@
   --proc-bd:#e07b00; --proc-bg:#fff4e2;
   --badge-proc:#e07b00; --badge-func:#1d6fd8;
   --iface-bd:#7c3aed; --iface-bg:#f3edff; --badge-iface:#7c3aed;
+  --node-bg:#ffffff;     --node-sub:#64748b; --ell-bg:#f1f5f9; --ell-bd:#94a3b8;
+  --hdiam-bg:#fce9fb;    --lab-bg:#ffffff; --lab-bd:#d7dee8; --lab-tx:#334155;
 
   --cbg:#ffffff;         --dot:#cbd5e1;
   --bar-bg:#ffffff;      --bar-tx:#0f172a; --bar-mut:#64748b; --bar-bd:#e2e8f0;
@@ -24,6 +26,12 @@
   --btn-bg:#f1f5f9;      --btn-bd:#cbd5e1; --btn-tx:#0f172a; --btn-hover:#e2e8f0;
 }
 html.dark{
+  --ink:#e2e8f0; --mut:#94a3b8; --line:#334155; --bg:#0e1420;
+  --func-bd:#4f8fe6; --func-bg:#12223d;
+  --proc-bd:#e8901f; --proc-bg:#2a1c0b;
+  --iface-bd:#9b6cf7; --iface-bg:#211739;
+  --node-bg:#141c2a;     --node-sub:#94a3b8; --ell-bg:#151e2d; --ell-bd:#475569;
+  --hdiam-bg:#2f1431;    --lab-bg:#111a29; --lab-bd:#2c3a50; --lab-tx:#cbd5e1;
   --cbg:#0e1420;         --dot:rgba(148,163,184,.38);
   --bar-bg:#0b1526;      --bar-tx:#ffffff; --bar-mut:#8aa2bf; --bar-bd:#22324a;
   --surf-bg:#0e1a2f;     --surf-tx:#dbe6f4; --surf-mut:#8aa2bf; --surf-bd:#2c4a6e;
@@ -145,15 +153,16 @@ main#main{position:absolute; inset:0; overflow:hidden; padding:0; min-width:0}
 }
 svg text{font-family:Arial,Helvetica,sans-serif}
 .node{cursor:default}
-.node rect{fill:#fff; stroke-width:1.4}
+.node rect{fill:var(--node-bg); stroke-width:1.4}
 .node-func rect{fill:var(--func-bg); stroke:var(--func-bd)}
 .node.node-proc > rect{fill:var(--proc-bg); stroke:var(--proc-bd); cursor:pointer}
 .node.node-proc > rect:hover{filter:brightness(.97); stroke-width:2}
-.node-ell rect{fill:#f1f5f9; stroke:#94a3b8; stroke-dasharray:5 4}
+html.dark .node.node-proc > rect:hover{filter:brightness(1.25)}
+.node-ell rect{fill:var(--ell-bg); stroke:var(--ell-bd); stroke-dasharray:5 4}
 .node text.lab{font-size:12.5px; font-weight:600; fill:var(--ink)}
-.node text.sub{font-size:10.5px; fill:#64748b}
-.node text.sub.ell{font-size:16px; font-weight:700; fill:#94a3b8}
-.hdiam{fill:#fce9fb; stroke:var(--match); stroke-width:1.4; stroke-linejoin:round; cursor:pointer}
+.node text.sub{font-size:10.5px; fill:var(--node-sub)}
+.node text.sub.ell{font-size:16px; font-weight:700; fill:var(--ell-bd)}
+.hdiam{fill:var(--hdiam-bg); stroke:var(--match); stroke-width:1.4; stroke-linejoin:round; cursor:pointer}
 .hdiam:hover{stroke-width:2.2}
 .hdiam.sel{stroke-width:3; filter:drop-shadow(0 0 4px rgba(31,111,235,.6))}
 .nbadge rect{stroke:none}
@@ -178,7 +187,7 @@ svg.ifocus .ifn.hot{opacity:1}
 .panel-hd{cursor:pointer}
 .panel-bg{fill:var(--proc-bg)}
 .pt{font-size:12px; font-weight:700; fill:var(--ink)}
-.pn-min rect{fill:#fff; stroke:var(--proc-bd); stroke-width:1}
+.pn-min rect{fill:var(--node-bg); stroke:var(--proc-bd); stroke-width:1}
 .pn-min text{font-size:13px; font-weight:800; fill:var(--proc-bd)}
 .e{fill:none; stroke-linejoin:round; stroke-linecap:round; stroke-width:1.8}
 .e-call{stroke:var(--call)}
@@ -186,11 +195,16 @@ svg.ifocus .ifn.hot{opacity:1}
 .e-expand{stroke:var(--expand)}
 .e-cont{stroke:var(--cont); stroke-dasharray:2 5}
 .e-collect{stroke:var(--collect)}
-.elabel rect{fill:#fff; fill-opacity:.92; stroke:#d7dee8; stroke-width:1}
-.elabel text{font-size:11px; font-weight:600; fill:#334155; text-anchor:middle}
-/* .sys syntax colors: labels sit on white; the tooltip follows the theme. */
+.e-spawn, .e-join{stroke:#2563eb}
+.e-pass{stroke:var(--call); stroke-dasharray:6 5}
+/* A spawn's strip: dotted cells, one per branch; a detached branch is faded. */
+.strip-cell{fill:none; stroke:#94a3b8; stroke-width:1.6; stroke-dasharray:0.1 4.5; stroke-linecap:round}
+.node.detached{opacity:.55}
+.elabel rect{fill:var(--lab-bg); fill-opacity:.92; stroke:var(--lab-bd); stroke-width:1}
+.elabel text{font-size:11px; font-weight:600; fill:var(--lab-tx); text-anchor:middle}
+/* .sys syntax colors: edge labels and the tooltip follow the theme. */
 :root, .elabel{--hl-kw:#7c3aed; --hl-str:#b45309; --hl-num:#b45309; --hl-fn:#1d4ed8; --hl-ty:#0e7490; --hl-op:#94a3b8}
-html.dark #etip{--hl-kw:#c4b5fd; --hl-str:#fbbf24; --hl-num:#fbbf24; --hl-fn:#93c5fd; --hl-ty:#67e8f9; --hl-op:#8aa2bf}
+html.dark #etip, html.dark .elabel{--hl-kw:#c4b5fd; --hl-str:#fbbf24; --hl-num:#fbbf24; --hl-fn:#93c5fd; --hl-ty:#67e8f9; --hl-op:#8aa2bf}
 .hl-kw{color:var(--hl-kw); fill:var(--hl-kw)} .hl-str{color:var(--hl-str); fill:var(--hl-str)} .hl-num{color:var(--hl-num); fill:var(--hl-num)}
 .hl-fn{color:var(--hl-fn); fill:var(--hl-fn)} .hl-ty{color:var(--hl-ty); fill:var(--hl-ty)} .hl-op{color:var(--hl-op); fill:var(--hl-op)}
 /* Edge hover: a wide invisible stroke makes thin edges easy to hit. */
@@ -423,6 +437,10 @@ var DOC = null;
 var expanded = {};
 var MAXDEPTH = 5;
 var GAP_H = 48, PAD_X = 46, PAD_Y = 44, NODE_W = 160, PANEL_HD = 30;
+// A spawn's branches sit in dotted cells, side by side: half a gap of room
+// left and right, so neighbouring cells share a border, and this above and
+// below.
+var STRIP_PX = GAP_H / 2, STRIP_PY = 12;
 var GAP_MIN = 64;     // smallest band between two rows
 var EXIT_MERGE = 14;  // a panel's exits join this far above its bottom
 var LANE_STEP = 10;   // spacing between parallel horizontal runs in a band
@@ -432,7 +450,7 @@ var RAIL_GAP = 30;    // side rail: this far outside the rows it passes
 var RAIL_STEP = 14;   // spacing between neighbouring rails
 var FAN_OFF = 10;     // fan stroke spacing unit from the center line
 
-var ETYPE = { CALL: 0, MATCH: 1, EXPAND: 2, CONTINUE: 3, COLLECT: 4 };
+var ETYPE = { CALL: 0, MATCH: 1, EXPAND: 2, CONTINUE: 3, COLLECT: 4, SPAWN: 5, JOIN: 6, PASS: 7 };
 function isFan(t){ return t === ETYPE.EXPAND || t === ETYPE.CONTINUE || t === ETYPE.COLLECT; }
 // An edge whose target lies not below its source (self-reference, a node of
 // the same row, or a row above) is rendered as a loop back along a side rail.
@@ -588,6 +606,24 @@ function layoutGrid(name, prefix, depth){
     byRow[r] = list; rowH[r] = mh; rowL[r] = -tw / 2; rowR[r] = tw / 2;
   });
 
+  // Spawn strips: each spawner's branches, one row of cells. One arrow
+  // comes into a strip (its first spawn edge, redirected to it); a strip of
+  // detached branches passes on from its bottom.
+  var strips = {}, stripOf = {}, stripRow = {};
+  edges.forEach(function(e, i){
+    if (!e || e.type !== ETYPE.SPAWN || !e.source || !e.target) return;
+    var sk = rc(e.source[0], e.source[1]), t = pos[rc(e.target[0], e.target[1])];
+    if (!t) return;
+    var st = strips[sk] = strips[sk] || { first: i, cells: [] };
+    st.cells.push(t); stripOf[t.key] = st;
+  });
+  Object.keys(strips).forEach(function(k){
+    var st = strips[k], a = Infinity, b = -Infinity, h = 0;
+    st.cells.forEach(function(p){ a = Math.min(a, p.x); b = Math.max(b, p.x + p.w); h = Math.max(h, p.h); });
+    st.pos = { x: a - STRIP_PX, w: b - a + 2 * STRIP_PX, cx: (a + b) / 2, row: st.cells[0].row, col: -1, key: 'strip:' + k, h: h, pad: -STRIP_PY, y: 0 };
+    stripRow[st.pos.row] = true;
+  });
+
   var matchSrc = {};
   edges.forEach(function(e){
     if (e.type === ETYPE.MATCH && e.source) matchSrc[rc(e.source[0], e.source[1])] = true;
@@ -686,6 +722,12 @@ function layoutGrid(name, prefix, depth){
     if (!e || !e.source || !e.target) return;
     var s = pos[rc(e.source[0], e.source[1])], t = pos[rc(e.target[0], e.target[1])];
     if (!s || !t) return;
+    if (e.type === ETYPE.SPAWN){
+      var st = stripOf[t.key];
+      if (st && st.first !== i) return;
+      if (st) t = st.pos;
+    }
+    if (e.type === ETYPE.PASS && stripOf[s.key]) s = stripOf[s.key].pos;
     var it = { i: i, e: e, s: s, t: t, type: e.type !== undefined ? e.type : ETYPE.CALL };
     if (isBackEdge(e)) backs.push(it);
     else if (t.row === s.row + 1) singles.push(it);
@@ -752,7 +794,8 @@ function layoutGrid(name, prefix, depth){
     edges.forEach(function(e){ if (e && e.source) hasSrc[rc(e.source[0], e.source[1])] = true; });
     rows.forEach(function(row, r){
       byRow[r].forEach(function(q){
-        if (hasSrc[q.key]) return;
+        // A detached branch leads nowhere, not out of the panel.
+        if (hasSrc[q.key] || (row.nodes[q.col] || {}).branch === 'detached') return;
         var plan = { kind: 'exit', ox: q.cx, s: q };
         if (r < R - 1 && !clearX(r + 1, R - 1, q.cx, 8)){
           var ch = channel(r, R, q.cx, q.cx, false, 'x:' + q.key, 'x:' + q.key);
@@ -769,6 +812,7 @@ function layoutGrid(name, prefix, depth){
   for (var r = 0; r < R; r++){
     var ex = 0;
     byRow[r].forEach(function(p){ ex = Math.max(ex, (matchSrc[p.key] ? p.h + 1 + diamondH(p) : p.h) - rowH[r]); });
+    if (stripRow[r]) ex = Math.max(ex, STRIP_PY);
     laneTop[r] = Math.max(16, ex + 10);
   }
   laneTop[-1] = 0;
@@ -841,7 +885,7 @@ function layoutGrid(name, prefix, depth){
   });
 
   // 4. y: rows and bands.
-  function bottomAir(r){ return Math.max(22, (lblRow[r] || 0) * LBL_STEP + 17); }
+  function bottomAir(r){ return Math.max(22 + (stripRow[r] ? STRIP_PY : 0), (lblRow[r] || 0) * LBL_STEP + 17); }
   var rowY = [], laneY0 = {}, nTop = nLanes[-1] || 0;
   var y = Math.max(PAD_Y, nTop ? 24 + (nTop - 1) * LANE_STEP + 16 : 0);
   laneY0[-1] = y - 24 - (nTop ? (nTop - 1) * LANE_STEP : 0);
@@ -863,6 +907,7 @@ function layoutGrid(name, prefix, depth){
     p.y = rowY[p.row]; p.cy = p.y + p.h / 2;
     if (p.in) p.in.y = p.y + p.in.dy;
   });
+  Object.keys(strips).forEach(function(k){ strips[k].pos.y = rowY[strips[k].pos.row]; });
 
   // 5. Routes.
   var routes = {};
@@ -914,6 +959,7 @@ function layoutGrid(name, prefix, depth){
     if (Rt.lw) ext(Rt.lx - Rt.lw / 2, Rt.lx + Rt.lw / 2);
   });
   exitPts.forEach(function(pts){ pts.forEach(function(p){ ext(p[0], p[0]); }); });
+  Object.keys(strips).forEach(function(k){ ext(strips[k].pos.x, strips[k].pos.x + strips[k].pos.w); });
   if (minX === Infinity){ minX = 0; maxX = 0; }
   // Keep the rows' axis in the middle of the grid's box.
   maxX = Math.max(maxX, -minX); minX = -maxX;
@@ -929,9 +975,11 @@ function layoutGrid(name, prefix, depth){
     Rt.lx += sx;
   });
   exitPts.forEach(function(pts){ pts.forEach(function(p){ p[0] += sx; }); });
+  Object.keys(strips).forEach(function(k){ strips[k].pos.x += sx; strips[k].pos.cx += sx; });
 
   return { name: name, prefix: prefix, depth: depth, grid: grid, pos: pos, byRow: byRow,
            rowY: rowY, rowH: rowH, matchSrc: matchSrc, routes: routes, exits: exitPts,
+           strips: Object.keys(strips).map(function(k){ return strips[k]; }),
            w: maxX - minX + 2 * PAD_X, h: H };
 }
 
@@ -958,15 +1006,30 @@ function edgeRoute(L, e, i){ return hasOwn(L.routes, i) ? L.routes[i] : null; }
 function exitRoutes(L){ return L.exits || []; }
 /* LAYOUT-END */
 
+// A spawn's strip: a dotted cell per branch, all as tall as the tallest.
+function stripSVG(L){
+  var s = '';
+  (L.strips || []).forEach(function(st){
+    st.cells.forEach(function(p){
+      s += '<rect class="strip-cell" x="' + (p.x - STRIP_PX) + '" y="' + (p.y - STRIP_PY) + '" width="' + (p.w + 2 * STRIP_PX) +
+           '" height="' + (st.pos.h + 2 * STRIP_PY) + '"></rect>';
+    });
+  });
+  return s;
+}
+
 /* ---------- edge types (document.EdgeType) ---------- */
 var EDGE_META = {
   0: { cls: 'e-call',    color: '#64748b' },
   1: { cls: 'e-match',   color: '#c026d3' },
   2: { cls: 'e-expand',  color: '#00897b' },
   3: { cls: 'e-cont',    color: '#7e57c2' },
-  4: { cls: 'e-collect', color: '#00838f' }
+  4: { cls: 'e-collect', color: '#00838f' },
+  5: { cls: 'e-spawn',   color: '#2563eb' },
+  6: { cls: 'e-join',    color: '#2563eb' },
+  7: { cls: 'e-pass',    color: '#64748b' }
 };
-var EDGE_NAME = { 0: 'call', 1: 'match', 2: 'expand', 3: 'continue', 4: 'collect' };
+var EDGE_NAME = { 0: 'call', 1: 'match', 2: 'expand', 3: 'continue', 4: 'collect', 5: 'spawn', 6: 'join', 7: 'pass' };
 function edgeType(v){ return EDGE_META[v] || EDGE_META[0]; }
 
 /* ---------- rendering ---------- */
@@ -1072,7 +1135,7 @@ function defs(){
          '<path d="M0 0L10 5L0 10z" fill="' + EDGE_META[t].color + '" stroke="' + EDGE_META[t].color + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></marker>';
   }
   s += '<marker id="' + MK + '-iface" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">' +
-       '<path d="M0 0L10 5L0 10z" fill="#7c3aed" stroke="#7c3aed" stroke-width="1.5" stroke-linejoin="round"/></marker>';
+       '<path d="M0 0L10 5L0 10z" style="fill:var(--iface-bd); stroke:var(--iface-bd)" stroke-width="1.5" stroke-linejoin="round"/></marker>';
   return s + '</defs>';
 }
 
@@ -1127,6 +1190,7 @@ function nodeSVG(L, k, n){
   var p = L.pos[k];
   if (p.lay) return panelSVG(L, k, n);
   var cls = n.type === 1 ? 'node-proc' : (n.type === 2 ? 'node-ell' : 'node-func');
+  if (n.branch === 'detached') cls += ' detached';
   if (n.type === 1 && !p.grid) cls += ' nogrid';
   var iq = ifaceName(n);
   if (iq) cls += ' node-iface';
@@ -1149,6 +1213,7 @@ function nodeSVG(L, k, n){
   s += '<rect x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '" rx="6"></rect>';
   var full = (n.type === 2 ? 'ellipsis' : (n.type === 1 ? 'procedure: ' : iq ? 'interface func: ' : 'function: ') + (n.label || ''));
   if (n.sublabel) full += ' — ' + n.sublabel;
+  if (n.branch) full += n.branch === 'detached' ? '\ndetached: runs on its own, nothing waits for it' : '\nspawned: runs alongside the others, the join waits for it';
   if (n.type === 1) full += p.grid ? '\nclick: expand · shift-click: select · ctrl/⌘-click: open' : '\n(no grid found)';
   s += '<title>' + esc(full) + '</title>';
   // Badge at the left; the text is centered in the room right of it.
@@ -1288,7 +1353,7 @@ function fanHead(pts, off, cls, pairs){
 }
 
 function renderLayout(L){
-  var s = '', labs = '';
+  var s = stripSVG(L), labs = '';
   (L.grid.edges || []).forEach(function(e, i){ var x = edgeSVG(L, e, i); s += x[0]; labs += x[1]; });
   (L.grid.rows || []).forEach(function(row, r){
     (row.nodes || []).forEach(function(n, c){ s += nodeSVG(L, rc(r, c), n); });

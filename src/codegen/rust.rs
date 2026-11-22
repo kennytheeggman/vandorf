@@ -51,7 +51,7 @@
 
 use super::types::{Shape, TyRef, TypeTable};
 use super::{Artifact, ImplUse, MainSpec, Output, Writer, exported, gname, join_path, quote, snake};
-use crate::sema::{Arm, BinOp, Body, Call, Edge, Expr, Graph, NodeId, NodeKind, Pat, PatKind, Program, Query, Ref, RegionId, Root, Test, UnOp};
+use crate::sema::{Arm, BinOp, Body, Branch, Call, Edge, Expr, Graph, NodeId, NodeKind, Pat, PatKind, Program, Query, Ref, RegionId, Root, Test, UnOp};
 use crate::types::{Prim, Type};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
@@ -1194,8 +1194,62 @@ impl Gen<'_> {
                 let Some(Edge::Collect(c)) = proc.graph.edges.get(&sink) else { unreachable!() };
                 self.transition(w, pid, c);
             }
+            Some(Edge::Spawn { branches, join, joined }) => {
+                self.emit_spawn(w, branches, joined)?;
+                self.transition(w, pid, join);
+            }
         }
         w.line("}");
+        Ok(())
+    }
+
+    /// A spawn's branches, each a call of its node: detached ones on threads
+    /// of their own, which log a failure; joined ones on scoped threads
+    /// this step waits for, failing if any fails. `this` becomes the joined
+    /// outputs. The arguments are all built first, from the spawner's step.
+    fn emit_spawn(&mut self, w: &mut Writer, branches: &[Branch], joined: &Type) -> Result<(), String> {
+        let prog = self.prog;
+        let mut calls = vec![];
+        for (i, b) in branches.iter().enumerate() {
+            let n = b.call.target;
+            let mut args = vec![];
+            for a in &b.call.args {
+                let v = self.value(&a.value, &a.param);
+                let var = format!("a{i}_{}", local(&a.name));
+                w.line(&format!("let {var} = {v};"));
+                args.push(var);
+            }
+            let base = prog.base(n);
+            let callee = match prog.node(base).kind {
+                NodeKind::Proc(_) => format!("run_{}", snake(&gname(prog, base))),
+                _ => self.callee(n)?,
+            };
+            calls.push(format!("{callee}({}).map_err(|e| wrap({}, e.into()))", args.join(", "), quote(&prog.node(n).qual_name())));
+        }
+        for i in (0..branches.len()).filter(|&i| branches[i].detach) {
+            w.line(&format!(
+                "thread_builder().spawn(move || if let Err(e) = {} {{ eprintln!(\"error: {{}}\", describe_error(&e)); }}).expect(\"cannot spawn a thread\");",
+                calls[i],
+            ));
+        }
+        w.line("let this = std::thread::scope(|s| -> Result<_, Error> {");
+        let waited: Vec<usize> = (0..branches.len()).filter(|&i| !branches[i].detach).collect();
+        for &i in &waited {
+            w.line(&format!("let h{i} = thread_builder().spawn_scoped(s, move || {}).expect(\"cannot spawn a thread\");", calls[i]));
+        }
+        for &i in &waited {
+            w.line(&format!("let r{i} = h{i}.join().unwrap_or_else(|p| std::panic::resume_unwind(p))?;"));
+        }
+        let mut fields = vec![];
+        for &i in &waited {
+            let name = prog.node(branches[i].call.target).name();
+            if joined.field(name, &prog.types).is_some() {
+                let v = if self.is_boxed(joined, name) { format!("std::sync::Arc::new(r{i})") } else { format!("r{i}") };
+                fields.push(format!("{}: {v}", rust_ident(name)));
+            }
+        }
+        w.line(&format!("Ok({} {{ {} }})", self.rust_type(joined), fields.join(", ")));
+        w.line("})?;");
         Ok(())
     }
 
@@ -1370,6 +1424,8 @@ fn edge_reads(g: &Graph, n: NodeId) -> HashSet<NodeId> {
 fn successors(g: &Graph, n: NodeId) -> Vec<NodeId> {
     match g.edges.get(&n) {
         None | Some(Edge::Collect(_)) => vec![],
+        // The branches run inside the spawner's step.
+        Some(Edge::Spawn { join, .. }) => vec![join.target],
         Some(Edge::ForEach { call, .. }) => {
             let sink = g.regions[g.opens[&n]].sink.unwrap();
             let mut out = vec![call.target];

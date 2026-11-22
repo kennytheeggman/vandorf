@@ -403,8 +403,14 @@ fn r_graph(prog: &rs::Program) -> Vec<String> {
                 rs::Edge::Match(arms) => format!("switch {}", r_arms(arms)),
                 rs::Edge::ForEach { dim, elem, call } => format!("for each {} :{elem} -> {}", r_expr(dim), r_call(call)),
                 rs::Edge::Collect(c) => format!("collect -> {}", r_call(c)),
+                rs::Edge::Spawn { branches, join, joined } => {
+                    let bs: Vec<String> = branches.iter().map(|b| format!("{}{}", if b.detach { "detach " } else { "" }, r_call(&b.call))).collect();
+                    format!("spawn {{ {} }} join :{joined} -> {}", bs.join(", "), r_call(join))
+                }
             }));
         }
+        let sp: std::collections::BTreeMap<_, _> = g.spawned.iter().collect();
+        out.push(format!("#{id} spawned={sp:?}"));
         for (i, r) in g.regions.iter().enumerate() {
             out.push(format!("#{id} region {i}: parent={} entry={} elem={} nodes={:?} sink={}", r.parent.map_or(-1, |x| x as i64), r.entry, r.elem, r.nodes, r.sink.map_or(-1, |x| x as i64)));
         }
@@ -500,8 +506,14 @@ fn v_graph(prog: &v::Program) -> Vec<String> {
                 v::SEdge::Match(arms) => format!("switch {}", v_arms(arms)),
                 v::SEdge::ForEach(f) => format!("for each {} :{} -> {}", v_expr(&f.dim), show(&f.elem), v_call(&f.call)),
                 v::SEdge::Collect(c) => format!("collect -> {}", v_call(c)),
+                v::SEdge::Spawn(sp) => {
+                    let bs: Vec<String> = sp.branches.iter().map(|b| format!("{}{}", if b.detach { "detach " } else { "" }, v_call(&b.call))).collect();
+                    format!("spawn {{ {} }} join :{} -> {}", bs.join(", "), show(&sp.joined), v_call(&sp.join))
+                }
             }));
         }
+        let sp: std::collections::BTreeMap<usize, usize> = g.spawned.iter().map(|(k, v)| (*k as usize, *v as usize)).collect();
+        out.push(format!("#{id} spawned={:?}", sp.iter().collect::<std::collections::BTreeMap<_, _>>()));
         for (i, r) in g.regions.iter().enumerate() {
             let nodes: Vec<usize> = r.nodes.iter().map(|&x| x as usize).collect();
             out.push(format!("#{id} region {i}: parent={} entry={} elem={} nodes={nodes:?} sink={}", r.parent, r.entry, show(&r.elem), r.sink));
@@ -632,7 +644,30 @@ fn analyzes_pipeline_programs_like_the_reference() {
     for src in DECL_CASES {
         check_analysis(src);
     }
+    for edges in SPAWN_CASES {
+        check_analysis(&format!(
+            "interface I {{ func B(n: int): int; }} interface J {{ func B(n: int): int; }}
+            proc P(A): int {{ func A(): int; func B(n: int): int; func C(n: int): string; func L(s: string): void; func D(b: int): int; func E(b: int): int; {edges} }}"
+        ));
+    }
 }
+
+/// Spawn edges in a proc with nodes A..E and L, valid and not.
+const SPAWN_CASES: &[&str] = &[
+    "A -> spawn { B(n = this), B(n = this + 1) as B2, C(n = this), detach L(s = \"x\") } join D(b = this.B + this.B2);",
+    "A -> spawn { detach L(s = \"a\"), detach L(s = \"b\") as L2 } join id(A);",
+    "A -> spawn { L(s = \"a\") } join D(b = A);",
+    "A -> spawn { B(n = 1) } join D(b = this.B); B -> D(b = this);",
+    "A -> spawn { B(n = 1) } join D(b = this.B); D -> E(b = B);",
+    "A -> spawn { B(n = 1), B(n = 2) } join D(b = this.B);",
+    "A -> spawn { B(n = 1) } join D(b = this.B); D -> B(n = this);",
+    "A -> spawn { id(1) } join D(b = 1);",
+    "A -> spawn { detach B(n = 1) } join D(b = this.B);",
+    "A -> spawn { B(n = 1) } join D(b = this.C);",
+    "A -> spawn { I.B(n = 1), J.B(n = 2) } join D(b = this.B);",
+    "A -> spawn { B(n = 1) } join D(b = this.B); D -> spawn { B(n = 2) } join E(b = this.B);",
+    "A -> spawn { B(n = 1) } join D(b = this.B); D -> spawn { B(n = 2) as B3 } join E(b = this.B3 + A);",
+];
 
 #[test]
 fn checks_struct_updates_like_the_reference() {

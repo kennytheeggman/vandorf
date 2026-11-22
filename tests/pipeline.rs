@@ -973,3 +973,72 @@ mod codegen {
         assert!(go::generate(&arr, &opts).unwrap_err().contains("parameter l"));
     }
 }
+
+#[test]
+fn spawn_runs_branches_in_a_row_and_joins() {
+    let doc = document::generate(&compile(
+        r#"
+        proc P(A): int {
+            func A(): int;
+            func B(n: int): int;
+            func C(n: int): string;
+            func L(s: string): void;
+            func S(n: int): void;
+            func D(b: int, b2: int, c: string): int;
+            A -> spawn { B(n = this), B(n = this + 1) as B2, C(n = this), S(n = 1), detach L(s = "x") } join D(b = this.B, b2 = this.B2, c = this.C);
+        }
+        "#,
+    ));
+    let g = &doc.grids["P"];
+    assert_eq!(labels(g), vec![vec!["A"], vec!["B", "B2", "C", "S", "L"], vec!["D"]]);
+    let types: Vec<EdgeType> = g.edges.iter().map(|e| e.ty).collect();
+    use EdgeType::{Join, Spawn};
+    assert_eq!(types, vec![Spawn, Spawn, Spawn, Spawn, Spawn, Join, Join, Join, Join]);
+    let marks: Vec<Option<&str>> = g.rows[1].nodes.iter().map(|n| n.branch).collect();
+    assert_eq!(marks, vec![Some("joined"); 4].into_iter().chain([Some("detached")]).collect::<Vec<_>>());
+    // The join receives the joined branches' outputs; void ones are waited for but carry nothing.
+    let join = g.edges.iter().find(|e| e.ty == Join).unwrap();
+    assert_eq!(join.value_type.as_deref(), Some("{ B: int, B2: int, C: string }"));
+}
+
+#[test]
+fn spawn_of_detached_branches_passes_on_at_once() {
+    let doc = document::generate(&compile(
+        r#"
+        proc P(A): int {
+            func A(): int;
+            func L(s: string): void;
+            A -> spawn { detach L(s = "a"), detach L(s = "b") as L2 } join id(A);
+        }
+        "#,
+    ));
+    let g = &doc.grids["P"];
+    assert_eq!(labels(g), vec![vec!["A"], vec!["L", "L2"], vec!["id"]]);
+    let types: Vec<EdgeType> = g.edges.iter().map(|e| e.ty).collect();
+    assert_eq!(types, vec![EdgeType::Spawn, EdgeType::Spawn, EdgeType::Pass]);
+}
+
+#[test]
+fn spawn_errors() {
+    let cases = [
+        // A branch has no edge of its own.
+        ("A -> spawn { B(n = 1) } join D(b = this.B); B -> D(b = this);", "can't have an edge of its own"),
+        // Its output is only the join's.
+        ("A -> spawn { B(n = 1) } join D(b = this.B); D -> E(b = B);", "only visible to the join, as this.B"),
+        ("A -> spawn { B(n = 1), B(n = 2) } join D(b = this.B);", "runs twice in this spawn"),
+        ("A -> spawn { B(n = 1) } join D(b = this.B); D -> B(n = this);", "also called directly"),
+        ("A -> spawn { id(1) } join D(b = 1);", "can't run in a spawn branch"),
+        // A detached branch's output goes nowhere.
+        ("A -> spawn { detach B(n = 1) } join D(b = this.B);", "B is detached, so the join doesn't get its output"),
+        ("A -> spawn { B(n = 1) } join D(b = this.C);", "C"),
+        ("A -> spawn { I.B(n = 1), J.B(n = 2) } join D(b = this.B);", "two joined branches are named B"),
+    ];
+    for (edges, want) in cases {
+        let src = format!(
+            "interface I {{ func B(n: int): int; }} interface J {{ func B(n: int): int; }}
+            proc P(A): int {{ func A(): int; func B(n: int): int; func D(b: int): int; func E(b: int): int; {edges} }}"
+        );
+        let e = compile_err(&src);
+        assert!(e.contains(want), "{edges}\n{e}");
+    }
+}

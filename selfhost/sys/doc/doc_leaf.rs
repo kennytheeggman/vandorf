@@ -142,8 +142,57 @@ pub fn frontier(l: Layout, g: Graph) -> Result<List<i64>, String> {
     Ok(last
         .iter()
         .copied()
-        .filter(|n| g.edges.contains_key(n) && g.region_of.contains_key(n))
+        .filter(|n| {
+            (g.edges.contains_key(n) && g.region_of.contains_key(n)) || g.spawned.contains_key(n)
+        })
         .collect())
+}
+
+fn spawn_of(g: &Graph, sp: i64) -> &SEdgeSpawn {
+    match g.edges.get(&sp) {
+        Some(SEdge::Spawn(s)) => s,
+        _ => unreachable!(),
+    }
+}
+
+/// A spawner's edges, one to each branch.
+pub fn spawn_outs(branches: List<SBranch>, value: Str) -> Result<List<Out>, String> {
+    Ok(branches
+        .iter()
+        .map(|b| Out {
+            ty: 5,
+            target: b.call.target,
+            label: MaybeStr::None,
+            value: value.clone(),
+            args: b.call.text.clone(),
+        })
+        .collect())
+}
+
+/// A branch's edge on to its spawn's join: a joined one's, or, when every
+/// branch is detached, the first one's (drawn from the strip); none for
+/// other detached ones.
+pub fn branch_outs(g: Graph, src: i64, value: Str) -> Result<List<Out>, String> {
+    let s = spawn_of(&g, g.spawned[&src]);
+    let b = s.branches.iter().find(|b| b.call.target == src).unwrap();
+    let first = s.branches[0].call.target == src;
+    let ty = match (b.detach, s.branches.iter().all(|b| b.detach)) {
+        (false, _) => 6,
+        (true, true) if first => 7,
+        (true, _) => return Ok(List::default()),
+    };
+    Ok(vec![Out {
+        ty,
+        target: s.join.target,
+        label: MaybeStr::None,
+        value,
+        args: s.join.text.clone(),
+    }]
+    .into())
+}
+
+pub fn joined_type(g: Graph, src: i64) -> Result<Type, String> {
+    Ok(spawn_of(&g, g.spawned[&src]).joined.clone())
 }
 
 /// Targets of n's recorded forward edges.
@@ -296,6 +345,19 @@ fn node_json(prog: &Program, pid: i64, n: i64) -> Json {
     }
     if let Some(i) = iface {
         fs.push(field("interface", Json::Str(i.into())));
+    }
+    // Spawn branches are marked joined or detached.
+    if let NodeKind::Proc(p) = &prog.nodes[pid as usize].kind
+        && let Some(&sp) = p.graph.spawned.get(&n)
+    {
+        let detach = spawn_of(&p.graph, sp)
+            .branches
+            .iter()
+            .any(|b| b.call.target == n && b.detach);
+        fs.push(field(
+            "branch",
+            Json::Str(if detach { "detached" } else { "joined" }.into()),
+        ));
     }
     Json::Obj(fs.into())
 }
