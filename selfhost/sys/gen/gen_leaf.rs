@@ -807,7 +807,7 @@ fn conds_of(a: &SArm, out: &mut Vec<Expr>) {
     }
 }
 
-fn refs_of(e: &Expr, out: &mut Vec<i64>) {
+pub(super) fn refs_of(e: &Expr, out: &mut Vec<i64>) {
     let parts = super::sema_leaf::expr_parts(e.clone()).unwrap_or_default();
     if let Expr::Ref(r) = e {
         if let Root::Node(n) = &r.root {

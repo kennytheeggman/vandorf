@@ -2,7 +2,8 @@
 //! the procs' state machines, after src/codegen/go.rs.
 
 use super::gen_leaf::{
-    base_of, get, gname, join_path, member_of, quote, render_lines, rs_impl, ty_boxed,
+    base_of, get, gname, join_path, live_after, member_of, quote, read_nodes, refs_of,
+    render_lines, rs_impl, ty_boxed,
 };
 use crate::vcc::types::*;
 
@@ -687,7 +688,34 @@ pub fn go_node_head(g: GGen, pid: i64, n: i64, call: Str) -> Result<List<Str>, S
         ));
         out.push("}".into());
     }
-    out.push(format!("env.out{id} = this"));
+    // The input is spent; the output is kept only for the edges that read
+    // it, and let go at its last read (see go_last_reads).
+    out.push(format!("zeroOut(&env.in{id})"));
+    if read_nodes(graph(nodes, pid).clone())?.contains_key(&n) {
+        out.push(format!("env.out{id} = this"));
+    } else {
+        out.push("_ = this".into());
+    }
+    Ok(lines(out))
+}
+
+/// `zeroOut(&env.out<N>)` for each node the transition's call reads for the
+/// last time, in node order.
+pub fn go_last_reads(g: GGen, pid: i64, c: Call) -> Result<List<Str>, String> {
+    let nodes = &g.prog.nodes;
+    let gr = graph(nodes, pid);
+    let mut refs = vec![];
+    for a in c.args.iter() {
+        refs_of(&a.value, &mut refs);
+    }
+    refs.sort();
+    refs.dedup();
+    let mut out = vec![];
+    for n in refs {
+        if !live_after(gr.clone(), c.target, n)? {
+            out.push(format!("zeroOut(&env.out{})", gn(nodes, n)));
+        }
+    }
     Ok(lines(out))
 }
 
@@ -927,7 +955,9 @@ pub fn go_rest_files(g: GGen, package: Str, setup: GoSetup) -> Result<List<GoFil
         file_text(
             &package,
             &body,
-            plain(&["cmp", "context", "fmt", "os", "slices", "sync"]),
+            plain(&[
+                "cmp", "context", "fmt", "os", "runtime", "slices", "sync", "unsafe",
+            ]),
             &setup,
         ),
     ));
@@ -1150,10 +1180,61 @@ func mapMerge[K comparable, V any](a, b map[K]V) map[K]V {
 	return r
 }
 
-// sliceConcat returns a new slice with a's elements, then b's.
+// Arrays that sliceConcat builds keep spare capacity in reserve. The
+// reserve is hidden from every slice handed out, whose capacity is clipped
+// to its length, so code that appends to one (implementations included)
+// always copies. reserves records each such array by the address of its
+// first element: how much of it is filled. A + whose left side ends
+// exactly there appends into the reserve; any other copies. So values
+// never change where anyone can see, and a loop like acc + [x] costs
+// amortized O(1) per element. A finalizer drops an array's entry when it's
+// freed, before its address can be reused.
+type reserve struct{ filled, cap int }
+
+var (
+	reservesMu sync.Mutex
+	reserves   = map[uintptr]reserve{}
+)
+
+// sliceConcat returns a new slice with a's elements, then b's; neither
+// changes.
 func sliceConcat[E any](a, b []E) []E {
-	r := make([]E, 0, len(a)+len(b))
-	return append(append(r, a...), b...)
+	n := len(a) + len(b)
+	var zero E
+	size := int(unsafe.Sizeof(zero))
+	if size == 0 {
+		// All zero-size arrays share one address: nothing to reserve.
+		return make([]E, n)
+	}
+	if p := unsafe.SliceData(a); p != nil {
+		base := uintptr(unsafe.Pointer(p))
+		reservesMu.Lock()
+		if r, ok := reserves[base]; ok && r.filled == len(a) && n <= r.cap {
+			reserves[base] = reserve{n, r.cap}
+			reservesMu.Unlock()
+			full := unsafe.Slice(p, r.cap)
+			copy(full[len(a):n], b)
+			return full[:n:n]
+		}
+		reservesMu.Unlock()
+	}
+	// Room to double, and over 16 bytes: the tiny allocator's blocks may
+	// never be finalized.
+	c := max(2*n, 16/size+1)
+	r := make([]E, n, c)
+	copy(r, a)
+	copy(r[len(a):], b)
+	p := unsafe.SliceData(r)
+	base := uintptr(unsafe.Pointer(p))
+	reservesMu.Lock()
+	reserves[base] = reserve{n, c}
+	reservesMu.Unlock()
+	runtime.SetFinalizer(p, func(*E) {
+		reservesMu.Lock()
+		delete(reserves, base)
+		reservesMu.Unlock()
+	})
+	return r[:n:n]
 }
 
 // mapRemove returns a new map without the keys ks.
@@ -1172,6 +1253,13 @@ func mapRemove[K comparable, V any](m map[K]V, ks []K) map[K]V {
 // itself.
 func ptrTo[T any](v T) *T {
 	return &v
+}
+
+// zeroOut clears a slot no later state reads, so the garbage collector can
+// reclaim what it held.
+func zeroOut[T any](p *T) {
+	var zero T
+	*p = zero
 }
 
 // joinAll runs fs concurrently and waits for all of them: a spawn's joined

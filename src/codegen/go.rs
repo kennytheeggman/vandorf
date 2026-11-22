@@ -22,6 +22,17 @@
 //! `for each` region (see [`crate::sema::Region`]) compiles to its own state
 //! machine run once per element, concurrently, on a copy of the env; the
 //! parent resumes at the collect target with the ordered results as `this`.
+//! Slots are cleared once spent (an input after its node runs, an output at
+//! its last read, as in the Rust backend), so the collector can reclaim what
+//! they held.
+//!
+//! Values are immutable, and slices, maps and strings share what they point
+//! to, so copies are cheap. Arrays built by `+` (`sliceConcat` in the
+//! runtime) also keep a reserve of spare capacity, hidden from every slice
+//! handed out (each is clipped to its length, so implementations see plain
+//! slices and an append of theirs copies): a `+` whose left side is the
+//! newest extension of its array appends into the reserve, so `acc + [x]`
+//! in a loop costs amortized O(1). Maps still copy on `+` and `-`.
 //!
 //! # Implementations
 //!
@@ -44,7 +55,7 @@
 //! printing its result.
 
 use super::types::{Shape, TyRef, TypeTable};
-use super::{Artifact, ImplUse, MainSpec, Output, Writer, dir_of, exported, gname, join_path, quote};
+use super::{Artifact, ImplUse, MainSpec, Output, Writer, dir_of, exported, gname, join_path, last_reads, quote, read_nodes};
 use crate::sema::{Arm, BinOp, Body, Branch, Call, Edge, Expr, NodeId, NodeKind, Pat, PatKind, Program, Query, Ref, RegionId, Root, Test, UnOp};
 use crate::types::{Prim, Type};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -169,7 +180,7 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<Output, String> {
         body.push('\n');
         body.push_str(h);
     }
-    let imports = ["cmp", "context", "fmt", "os", "slices", "sync"].iter().map(|i| (i.to_string(), None)).collect();
+    let imports = ["cmp", "context", "fmt", "os", "runtime", "slices", "sync", "unsafe"].iter().map(|i| (i.to_string(), None)).collect();
     files.insert("runtime_vandorf.go".into(), file(&body, imports));
 
     if let Some(e) = g.failed.take() {
@@ -850,7 +861,14 @@ impl Gen<'_> {
             w.line(&format!("return zero, fmt.Errorf({}, err)", quote(&format!("{qual}: %w"))));
             w.line("}");
         }
-        w.line(&format!("env.out{id} = this"));
+        // The input is spent; the output is kept only for the edges that
+        // read it, and let go at its last read (see transition).
+        w.line(&format!("zeroOut(&env.in{id})"));
+        if read_nodes(&proc.graph).contains(&n) {
+            w.line(&format!("env.out{id} = this"));
+        } else {
+            w.line("_ = this");
+        }
 
         let Some(edge) = proc.graph.edges.get(&n) else {
             let e = self.coerce("this", ret, &proc.ret);
@@ -1053,6 +1071,10 @@ impl Gen<'_> {
     fn transition(&mut self, w: &mut Writer, pid: NodeId, c: &Call) {
         let input = self.input(w, c);
         w.line(&format!("env.in{} = {input}", gname(self.prog, c.target)));
+        // Outputs no later state reads, so the collector can reclaim them.
+        for n in last_reads(&self.prog.proc(pid).graph, c) {
+            w.line(&format!("zeroOut(&env.out{})", gname(self.prog, n)));
+        }
         w.line(&format!("pc = {}", pc_name(self.prog, pid, c.target)));
         w.line("continue");
     }
@@ -1176,10 +1198,61 @@ func mapMerge[K comparable, V any](a, b map[K]V) map[K]V {
 	return r
 }
 
-// sliceConcat returns a new slice with a's elements, then b's.
+// Arrays that sliceConcat builds keep spare capacity in reserve. The
+// reserve is hidden from every slice handed out, whose capacity is clipped
+// to its length, so code that appends to one (implementations included)
+// always copies. reserves records each such array by the address of its
+// first element: how much of it is filled. A + whose left side ends
+// exactly there appends into the reserve; any other copies. So values
+// never change where anyone can see, and a loop like acc + [x] costs
+// amortized O(1) per element. A finalizer drops an array's entry when it's
+// freed, before its address can be reused.
+type reserve struct{ filled, cap int }
+
+var (
+	reservesMu sync.Mutex
+	reserves   = map[uintptr]reserve{}
+)
+
+// sliceConcat returns a new slice with a's elements, then b's; neither
+// changes.
 func sliceConcat[E any](a, b []E) []E {
-	r := make([]E, 0, len(a)+len(b))
-	return append(append(r, a...), b...)
+	n := len(a) + len(b)
+	var zero E
+	size := int(unsafe.Sizeof(zero))
+	if size == 0 {
+		// All zero-size arrays share one address: nothing to reserve.
+		return make([]E, n)
+	}
+	if p := unsafe.SliceData(a); p != nil {
+		base := uintptr(unsafe.Pointer(p))
+		reservesMu.Lock()
+		if r, ok := reserves[base]; ok && r.filled == len(a) && n <= r.cap {
+			reserves[base] = reserve{n, r.cap}
+			reservesMu.Unlock()
+			full := unsafe.Slice(p, r.cap)
+			copy(full[len(a):n], b)
+			return full[:n:n]
+		}
+		reservesMu.Unlock()
+	}
+	// Room to double, and over 16 bytes: the tiny allocator's blocks may
+	// never be finalized.
+	c := max(2*n, 16/size+1)
+	r := make([]E, n, c)
+	copy(r, a)
+	copy(r[len(a):], b)
+	p := unsafe.SliceData(r)
+	base := uintptr(unsafe.Pointer(p))
+	reservesMu.Lock()
+	reserves[base] = reserve{n, c}
+	reservesMu.Unlock()
+	runtime.SetFinalizer(p, func(*E) {
+		reservesMu.Lock()
+		delete(reserves, base)
+		reservesMu.Unlock()
+	})
+	return r[:n:n]
 }
 
 // mapRemove returns a new map without the keys ks.
@@ -1198,6 +1271,13 @@ func mapRemove[K comparable, V any](m map[K]V, ks []K) map[K]V {
 // itself.
 func ptrTo[T any](v T) *T {
 	return &v
+}
+
+// zeroOut clears a slot no later state reads, so the garbage collector can
+// reclaim what it held.
+func zeroOut[T any](p *T) {
+	var zero T
+	*p = zero
 }
 
 // joinAll runs fs concurrently and waits for all of them: a spawn's joined

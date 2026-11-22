@@ -50,8 +50,8 @@
 //! declared order and the result is printed.
 
 use super::types::{Shape, TyRef, TypeTable};
-use super::{Artifact, ImplUse, MainSpec, Output, Writer, exported, gname, join_path, quote, snake};
-use crate::sema::{Arm, BinOp, Body, Branch, Call, Edge, Expr, Graph, NodeId, NodeKind, Pat, PatKind, Program, Query, Ref, RegionId, Root, Test, UnOp};
+use super::{Artifact, ImplUse, MainSpec, Output, Writer, exported, gname, join_path, live_after, quote, read_nodes, snake};
+use crate::sema::{Arm, BinOp, Body, Branch, Call, Edge, Expr, NodeId, NodeKind, Pat, PatKind, Program, Query, Ref, RegionId, Root, Test, UnOp};
 use crate::types::{Prim, Type};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
@@ -1389,70 +1389,6 @@ impl Gen<'_> {
         w.line(&format!("pc = Pc{}::{target};", gname(self.prog, pid)));
         w.line("continue;");
     }
-}
-
-/// Nodes whose output some edge of `g` reads.
-fn read_nodes(g: &Graph) -> HashSet<NodeId> {
-    g.edges.keys().flat_map(|&n| edge_reads(g, n)).collect()
-}
-
-/// Nodes whose output the edge from `n` reads (conditions, `for each`
-/// arrays and arguments).
-fn edge_reads(g: &Graph, n: NodeId) -> HashSet<NodeId> {
-    let mut exprs: Vec<&Expr> = vec![];
-    match g.edges.get(&n) {
-        None => {}
-        Some(Edge::Match(arms)) => arms.iter().for_each(|a| exprs.extend(a.conds())),
-        Some(Edge::ForEach { dim, .. }) => exprs.push(dim),
-        Some(_) => {}
-    }
-    if let Some(e) = g.edges.get(&n) {
-        for c in e.calls() {
-            exprs.extend(c.args.iter().map(|a| &a.value));
-        }
-    }
-    let mut refs = vec![];
-    for e in exprs {
-        e.refs(&mut refs);
-    }
-    refs.into_iter().filter_map(|r| if let Root::Node(m) = r.root { Some(m) } else { None }).collect()
-}
-
-/// States that can run after `n` in the same env: its calls' targets, and
-/// for a `for each` both the region (run on copies of the env, so its reads
-/// count) and the `collect` target. A region's sink ends its element.
-fn successors(g: &Graph, n: NodeId) -> Vec<NodeId> {
-    match g.edges.get(&n) {
-        None | Some(Edge::Collect(_)) => vec![],
-        // The branches run inside the spawner's step.
-        Some(Edge::Spawn { join, .. }) => vec![join.target],
-        Some(Edge::ForEach { call, .. }) => {
-            let sink = g.regions[g.opens[&n]].sink.unwrap();
-            let mut out = vec![call.target];
-            if let Some(Edge::Collect(c)) = g.edges.get(&sink) {
-                out.push(c.target);
-            }
-            out
-        }
-        Some(e) => e.calls().iter().map(|c| c.target).collect(),
-    }
-}
-
-/// Whether `m`'s slot can still be read once control moves to `target`:
-/// some state reachable from it reads `m` before `m` runs again.
-fn live_after(g: &Graph, target: NodeId, m: NodeId) -> bool {
-    let mut seen = HashSet::new();
-    let mut stack = vec![target];
-    while let Some(x) = stack.pop() {
-        if x == m || !seen.insert(x) {
-            continue;
-        }
-        if edge_reads(g, x).contains(&m) {
-            return true;
-        }
-        stack.extend(successors(g, x));
-    }
-    false
 }
 
 /// The Rust variable of a switch-arm binding.

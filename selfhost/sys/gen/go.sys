@@ -372,8 +372,12 @@ proc GNamedArgs(At): GParts {
 proc GTransition(At): GGen {
 	func At(s: { g: GGen, pid: int, c: Call }): { g: GGen, pid: int, c: Call } = "../leaf.rs:same";
 	At -> GInput(s = { g = this.g, c = this.c });
-	GInput -> id(GW(g = this.g, ls = ["env.in" + Gname(n = At.g.prog.nodes[At.c.target]) + " = " + this.s, "pc = " + GoPc(nodes = At.g.prog.nodes, pid = At.pid, n = At.c.target), "continue"]));
+	// Outputs no later state reads go, so the collector can reclaim them.
+	GInput -> id(GW(g = this.g, ls = ["env.in" + Gname(n = At.g.prog.nodes[At.c.target]) + " = " + this.s] + GoLastReads(g = At.g, pid = At.pid, c = At.c) + ["pc = " + GoPc(nodes = At.g.prog.nodes, pid = At.pid, n = At.c.target), "continue"]));
 }
+
+// zeroOut(&env.out<N>) for each node the call reads for the last time.
+func GoLastReads(g: GGen, pid: int, c: Call): []string = "go_leaf.rs:go_last_reads";
 
 type GSwitchIn = { g: GGen, pid: int, n: int, arms: []SArm, top: bool, i: int, always: bool };
 

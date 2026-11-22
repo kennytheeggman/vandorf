@@ -15,9 +15,9 @@ pub mod go;
 pub mod rust;
 pub mod types;
 
-use crate::sema::{NodeId, NodeKind, Program};
+use crate::sema::{Call, Edge, Expr, Graph, NodeId, NodeKind, Program, Root};
 use crate::types::{Prim, Type};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 #[derive(Debug)]
 pub struct Output {
@@ -224,4 +224,87 @@ impl Writer {
     pub fn raw(&mut self, s: &str) {
         self.out.push_str(s);
     }
+}
+
+// ---- Liveness: when a node's output slot can be let go ----
+
+/// Nodes whose output some edge of `g` reads.
+pub(crate) fn read_nodes(g: &Graph) -> HashSet<NodeId> {
+    g.edges.keys().flat_map(|&n| edge_reads(g, n)).collect()
+}
+
+/// Nodes whose output the edge from `n` reads (conditions, `for each`
+/// arrays and arguments).
+pub(crate) fn edge_reads(g: &Graph, n: NodeId) -> HashSet<NodeId> {
+    let mut exprs: Vec<&Expr> = vec![];
+    match g.edges.get(&n) {
+        None => {}
+        Some(Edge::Match(arms)) => arms.iter().for_each(|a| exprs.extend(a.conds())),
+        Some(Edge::ForEach { dim, .. }) => exprs.push(dim),
+        Some(_) => {}
+    }
+    if let Some(e) = g.edges.get(&n) {
+        for c in e.calls() {
+            exprs.extend(c.args.iter().map(|a| &a.value));
+        }
+    }
+    let mut refs = vec![];
+    for e in exprs {
+        e.refs(&mut refs);
+    }
+    refs.into_iter().filter_map(|r| if let Root::Node(m) = r.root { Some(m) } else { None }).collect()
+}
+
+/// States that can run after `n` in the same env: its calls' targets, and
+/// for a `for each` both the region (run on copies of the env, so its reads
+/// count) and the `collect` target. A region's sink ends its element.
+pub(crate) fn successors(g: &Graph, n: NodeId) -> Vec<NodeId> {
+    match g.edges.get(&n) {
+        None | Some(Edge::Collect(_)) => vec![],
+        // The branches run inside the spawner's step.
+        Some(Edge::Spawn { join, .. }) => vec![join.target],
+        Some(Edge::ForEach { call, .. }) => {
+            let sink = g.regions[g.opens[&n]].sink.unwrap();
+            let mut out = vec![call.target];
+            if let Some(Edge::Collect(c)) = g.edges.get(&sink) {
+                out.push(c.target);
+            }
+            out
+        }
+        Some(e) => e.calls().iter().map(|c| c.target).collect(),
+    }
+}
+
+/// Whether `m`'s slot can still be read once control moves to `target`:
+/// some state reachable from it reads `m` before `m` runs again.
+pub(crate) fn live_after(g: &Graph, target: NodeId, m: NodeId) -> bool {
+    let mut seen = HashSet::new();
+    let mut stack = vec![target];
+    while let Some(x) = stack.pop() {
+        if x == m || !seen.insert(x) {
+            continue;
+        }
+        if edge_reads(g, x).contains(&m) {
+            return true;
+        }
+        stack.extend(successors(g, x));
+    }
+    false
+}
+
+/// The nodes a transition's call reads for the last time: no state
+/// reachable from its target reads them before they run again. In order.
+pub(crate) fn last_reads(g: &Graph, c: &Call) -> Vec<NodeId> {
+    let mut refs = vec![];
+    for a in &c.args {
+        a.value.refs(&mut refs);
+    }
+    let mut out: Vec<NodeId> = refs
+        .into_iter()
+        .filter_map(|r| if let Root::Node(n) = r.root { Some(n) } else { None })
+        .filter(|&n| !live_after(g, c.target, n))
+        .collect();
+    out.sort();
+    out.dedup();
+    out
 }
