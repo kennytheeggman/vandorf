@@ -451,10 +451,20 @@ pub fn serve(addr: &str, handler: Handler, statics: &'static [Static]) {
     let _ = ADDR.set(addr.to_string());
     eprintln!("listening on http://{addr}");
     for stream in listener.incoming().flatten() {
-        std::thread::spawn(move || {
+        let _ = thread_builder().spawn(move || {
             let _ = connection(stream, handler, statics);
         });
     }
+}
+
+/// Unoptimized, a proc's frame holds every node's temporaries at once, so
+/// grammar-deep recursion overflows the default 2 MiB; debug builds give
+/// their threads more.
+fn thread_builder() -> std::thread::Builder {
+    let b = std::thread::Builder::new();
+    #[cfg(debug_assertions)]
+    let b = b.stack_size(64 << 20);
+    b
 }
 
 fn connection(mut stream: std::net::TcpStream, handler: Handler, statics: &[Static]) -> std::io::Result<()> {

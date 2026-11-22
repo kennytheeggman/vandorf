@@ -1405,11 +1405,24 @@ fn slice_get<E: Clone>(xs: &[E], i: &i64) -> Result<E, Error> {
         .ok_or_else(|| format!("index {i} out of range [0, {})", xs.len()).into())
 }
 
+/// Unoptimized, a proc's frame holds every node's temporaries at once, so
+/// grammar-deep recursion overflows the default 2 MiB; debug builds give
+/// their threads more.
+fn thread_builder() -> std::thread::Builder {
+    let b = std::thread::Builder::new();
+    #[cfg(debug_assertions)]
+    let b = b.stack_size(64 << 20);
+    b
+}
+
 /// Runs `f` over `xs` on scoped threads; results keep input order.
 fn fan_out<E: Send, R: Send>(xs: Vec<E>, f: impl Fn(E) -> Result<R, Error> + Sync) -> Result<Vec<R>, Error> {
     std::thread::scope(|s| {
         let f = &f;
-        let handles: Vec<_> = xs.into_iter().map(|x| s.spawn(move || f(x))).collect();
+        let handles: Vec<_> = xs
+            .into_iter()
+            .map(|x| thread_builder().spawn_scoped(s, move || f(x)).expect("cannot spawn a thread"))
+            .collect();
         handles
             .into_iter()
             .map(|h| h.join().unwrap_or_else(|p| std::panic::resume_unwind(p)))
