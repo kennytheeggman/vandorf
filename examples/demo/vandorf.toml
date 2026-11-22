@@ -6,15 +6,18 @@ sources = ["sys"]
 
 [go]
 out = "go/app"               # types in go/app/types
+post = ["go build -C ./go ./cmd/demo", "go build -C ./go ./cmd/calc", "go build -C ./go ./cmd/api"]
 
 [rust]
 out = "rs/src/app"
+post = ["cargo build --manifest-path rs/Cargo.toml"]
 
 [bin.demo]                   # go/cmd/demo, rs/src/bin/demo.rs
 entry = "Main"
 
 [bin.calc]                   # calc <base: int>
 entry = "Calc"
+
 
 [http.api]                   # go/cmd/api, rs/src/bin/api.rs
 addr = "127.0.0.1:8099"
