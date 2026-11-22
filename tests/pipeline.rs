@@ -871,6 +871,7 @@ mod codegen {
         let srv = rust::ServerSpec {
             name: "web-api".into(),
             addr: "127.0.0.1:9".into(),
+            setup: None,
             routes: vec![("POST".into(), "/area".into(), "Area".into()), ("GET".into(), "/hi".into(), "Hi".into())],
             raw: vec![("GET".into(), "/".into(), "Page".into())],
             statics: vec![("/".into(), "../../index.html".into(), "text/html".into())],
@@ -898,6 +899,54 @@ mod codegen {
         let srv = rust::ServerSpec { routes: vec![("GET".into(), "/x".into(), "Nope".into())], ..srv };
         let opts = rust::RustOptions { servers: vec![srv], ..opts };
         assert!(rust::generate(&prog, &opts).unwrap_err().contains("http server web-api runs proc Nope, but there is no top-level proc Nope"));
+    }
+
+    #[test]
+    fn rust_http_setup_passes_its_result_as_ctx() {
+        let src = r#"
+            type Ctx = { greeting: string };
+            proc Setup(S): Ctx { func S(): Ctx; }
+            proc Hi(B): string { func B(name: string, ctx: Ctx): string; }
+            type Req = { method: string, path: string, query: map[string]string, headers: map[string]string, body: string };
+            proc Page(C): { status: int, headers: map[string]string, body: string } {
+                func C(ctx: Ctx, req: Req): { status: int, headers: map[string]string, body: string };
+            }
+            proc NoCtx(D): string { func D(name: string): string; }
+            proc WrongCtx(E): string { func E(ctx: string): string; }
+            proc Takes(F): Ctx { func F(n: int): Ctx; }
+        "#;
+        let prog = vandorf::compile("t.sys", src).unwrap();
+        let srv = rust::ServerSpec {
+            name: "web-api".into(),
+            addr: "127.0.0.1:9".into(),
+            setup: Some("Setup".into()),
+            routes: vec![("GET".into(), "/hi".into(), "Hi".into())],
+            raw: vec![("GET".into(), "/".into(), "Page".into())],
+            statics: vec![],
+            path: "bin/web.rs".into(),
+        };
+        let opts = rust::RustOptions { module_dir: Some("app".into()), crate_name: Some("demo".into()), servers: vec![srv.clone()], ..Default::default() };
+        let out = rust::generate(&prog, &opts).unwrap();
+        let http = &out.code.files["http.rs"];
+        assert!(http.contains("static CTX_WEB_API: std::sync::OnceLock<types::Ctx>") && http.contains("pub fn setup_web_api() -> Result<(), String> {"), "{http}");
+        // ctx comes from the server, never from the request.
+        assert!(http.contains("let ctx: types::Ctx = CTX_WEB_API.get().cloned()") && !http.contains("arg(params, \"ctx\")"), "{http}");
+        assert!(http.contains("super::run_hi(name, ctx)") && http.contains("super::run_page(ctx, r)"), "{http}");
+        assert!(http.contains("(\"GET\", \"/hi\") => Some(json_route(req, call_web_api_hi)),") && http.contains("Some(raw_web_api_page(req))"), "{http}");
+        let bin = &out.mains[0].files["web.rs"];
+        assert!(bin.contains("demo::app::http::run_setup(\"127.0.0.1:9\", demo::app::http::setup_web_api, demo::app::http::handle_web_api, STATICS);"), "{bin}");
+        // Mistakes.
+        let fails = |srv: rust::ServerSpec| rust::generate(&prog, &rust::RustOptions { servers: vec![srv], ..opts.clone() }).unwrap_err();
+        let e = fails(rust::ServerSpec { setup: Some("Nope".into()), ..srv.clone() });
+        assert!(e.contains("http server web-api's setup runs proc Nope, but there is no top-level proc Nope"), "{e}");
+        let e = fails(rust::ServerSpec { setup: Some("Takes".into()), ..srv.clone() });
+        assert!(e.contains("http server web-api: setup proc Takes must take no parameters"), "{e}");
+        let e = fails(rust::ServerSpec { routes: vec![("GET".into(), "/x".into(), "NoCtx".into())], ..srv.clone() });
+        assert!(e.contains("http server web-api: route proc NoCtx must take ctx: Ctx, its setup proc Setup's result"), "{e}");
+        let e = fails(rust::ServerSpec { routes: vec![("GET".into(), "/x".into(), "WrongCtx".into())], ..srv.clone() });
+        assert!(e.contains("http server web-api: route proc WrongCtx takes ctx: string, but its setup proc Setup returns Ctx"), "{e}");
+        let e = fails(rust::ServerSpec { raw: vec![("GET".into(), "/".into(), "NoCtx".into())], routes: vec![], ..srv });
+        assert!(e.contains("http server web-api: raw route proc NoCtx must take ctx: Ctx"), "{e}");
     }
 
     #[test]

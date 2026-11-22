@@ -88,14 +88,6 @@ pub fn forbidden(_n: i64) -> Result<HttpResponse, String> {
     api_status(403, "forbidden: missing or wrong session token")
 }
 
-pub fn not_found(_n: i64) -> Result<HttpResponse, String> {
-    Ok(response(
-        404,
-        &[("Content-Type", "text/plain; charset=UTF-8")],
-        s("not found"),
-    ))
-}
-
 pub fn ok_json(_n: i64) -> Result<HttpResponse, String> {
     api(obj(vec![("ok", Json::Bool(true))]))
 }
@@ -192,8 +184,15 @@ pub fn non_empty(m: MaybeStr) -> Result<bool, String> {
 }
 
 /// q[k] as an int, or -1.
-pub fn query_int(s_: TermRouteQS) -> Result<i64, String> {
+pub fn query_int(s_: QueryIntS) -> Result<i64, String> {
     Ok(s_.q.get(&s_.k).and_then(|v| v.parse().ok()).unwrap_or(-1))
+}
+
+/// Whether q has an id that's a terminal number (not negative).
+pub fn has_id(q: Map<Str, Str>) -> Result<bool, String> {
+    Ok(q.get(&s("id"))
+        .and_then(|v| v.parse::<i64>().ok())
+        .is_some_and(|i| i >= 0))
 }
 
 pub fn byte_len(x: Str) -> Result<i64, String> {

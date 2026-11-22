@@ -2,15 +2,20 @@
 //! pages, files under the source directory, and terminals.
 
 use crate::vcc::types::*;
+use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Duration;
 
 fn s(x: &str) -> Str {
     x.into()
+}
+
+/// p with / separators, like the paths JoinP and Parent build.
+fn slash(p: &Path) -> String {
+    p.to_string_lossy().replace('\\', "/")
 }
 
 fn err_str(msg: String) -> ResString {
@@ -31,7 +36,7 @@ pub fn token(_n: i64) -> Result<Str, String> {
     static TOKEN: OnceLock<String> = OnceLock::new();
     Ok(s(TOKEN.get_or_init(|| {
         let mut b = [0u8; 16];
-        let _ = std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut b));
+        let _ = getrandom::fill(&mut b);
         b.iter().map(|x| format!("{x:02x}")).collect()
     })))
 }
@@ -41,10 +46,7 @@ pub fn base(_n: i64) -> Result<Str, String> {
     static BASE: OnceLock<String> = OnceLock::new();
     Ok(s(BASE.get_or_init(|| {
         let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
-        std::fs::canonicalize(&cwd)
-            .unwrap_or(cwd)
-            .to_string_lossy()
-            .into_owned()
+        slash(&dunce::canonicalize(&cwd).unwrap_or(cwd))
     })))
 }
 
@@ -66,8 +68,8 @@ pub fn page(name: Str) -> Result<Str, String> {
 // ---- Files ----
 
 pub fn canon(path: Str) -> Result<ResString, String> {
-    Ok(match std::fs::canonicalize(&*path) {
-        Ok(p) => ResString::Ok(s(&p.to_string_lossy())),
+    Ok(match dunce::canonicalize(&*path) {
+        Ok(p) => ResString::Ok(s(&slash(&p))),
         Err(e) => err_str(e.to_string()),
     })
 }
@@ -143,11 +145,12 @@ pub fn try_parse(src: Str, file: i64) -> Result<ResFile, String> {
 const SCROLLBACK: usize = 1 << 20;
 
 struct Term {
-    child: Mutex<Child>,
-    stdin: Mutex<ChildStdin>,
+    /// The pty's master, for resizing; None once the shell has exited.
+    master: Mutex<Option<Box<dyn MasterPty + Send>>>,
+    writer: Mutex<Box<dyn Write + Send>>,
+    killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     out: Mutex<TermOut>,
     ready: Condvar,
-    pid: u32,
 }
 
 #[derive(Default)]
@@ -182,27 +185,88 @@ fn path_with_self() -> std::ffi::OsString {
     std::env::join_paths(dirs).unwrap_or_default()
 }
 
-/// A shell on a pty (via script(1)) in cwd; its id.
+/// `$SHELL`, or `%COMSPEC%` on Windows. On a pty it's interactive.
+fn shell() -> CommandBuilder {
+    let (var, fallback) = if cfg!(windows) {
+        ("COMSPEC", "cmd.exe")
+    } else {
+        ("SHELL", "/bin/bash")
+    };
+    CommandBuilder::new(
+        std::env::var(var)
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| fallback.into()),
+    )
+}
+
+fn spawn(cwd: &str) -> Result<Arc<Term>, String> {
+    let pty = native_pty_system()
+        .openpty(PtySize::default())
+        .map_err(|e| format!("cannot open a pty: {e}"))?;
+    let mut cmd = shell();
+    cmd.cwd(cwd);
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+    cmd.env("PATH", path_with_self());
+    let mut child = pty
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| format!("cannot start a shell: {e}"))?;
+    // Only the shell holds the slave now, so output ends when it exits.
+    drop(pty.slave);
+    let mut reader = pty
+        .master
+        .try_clone_reader()
+        .map_err(|e| format!("cannot read the pty: {e}"))?;
+    let writer = pty
+        .master
+        .take_writer()
+        .map_err(|e| format!("cannot write the pty: {e}"))?;
+    let t = Arc::new(Term {
+        master: Mutex::new(Some(pty.master)),
+        writer: Mutex::new(writer),
+        killer: Mutex::new(child.clone_killer()),
+        out: Mutex::new(TermOut::default()),
+        ready: Condvar::new(),
+    });
+    let pump = t.clone();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 8192];
+        loop {
+            let n = reader.read(&mut buf).unwrap_or(0);
+            let mut o = pump.out.lock().unwrap();
+            if n == 0 {
+                o.closed = true;
+                pump.ready.notify_all();
+                return;
+            }
+            o.data.extend_from_slice(&buf[..n]);
+            if o.data.len() > SCROLLBACK {
+                let cut = o.data.len() - SCROLLBACK;
+                o.data.drain(..cut);
+                o.start += cut as u64;
+            }
+            pump.ready.notify_all();
+        }
+    });
+    // ConPTY keeps the output open past the shell's exit until the master
+    // closes.
+    let waiter = t.clone();
+    std::thread::spawn(move || {
+        let _ = child.wait();
+        waiter.master.lock().unwrap().take();
+    });
+    Ok(t)
+}
+
+/// The user's shell on a pty in cwd; its id.
 pub fn term_spawn(cwd: Str) -> Result<ResInt, String> {
-    let shell = std::env::var("SHELL")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "/bin/bash".into());
-    let child = Command::new("script")
-        .args(["-qfec", &format!("{shell} -i"), "/dev/null"])
-        .current_dir(&*cwd)
-        .env("TERM", "xterm-256color")
-        .env("COLORTERM", "truecolor")
-        .env("PATH", path_with_self())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
-    let mut child = match child {
-        Ok(c) => c,
-        Err(e) => {
+    let t = match spawn(&cwd) {
+        Ok(t) => t,
+        Err(msg) => {
             return Ok(ResInt::Err(Diag {
-                msg: format!("cannot start a shell with script(1): {e}").into(),
+                msg: msg.into(),
                 span: Span {
                     at: 0,
                     end: 0,
@@ -211,43 +275,6 @@ pub fn term_spawn(cwd: Str) -> Result<ResInt, String> {
             }));
         }
     };
-    let (stdin, stdout, stderr) = (
-        child.stdin.take().unwrap(),
-        child.stdout.take().unwrap(),
-        child.stderr.take().unwrap(),
-    );
-    let t = Arc::new(Term {
-        pid: child.id(),
-        child: Mutex::new(child),
-        stdin: Mutex::new(stdin),
-        out: Mutex::new(TermOut::default()),
-        ready: Condvar::new(),
-    });
-    let pump = |t: Arc<Term>, mut r: Box<dyn Read + Send>, closes: bool| {
-        std::thread::spawn(move || {
-            let mut buf = [0u8; 8192];
-            loop {
-                let n = r.read(&mut buf).unwrap_or(0);
-                let mut o = t.out.lock().unwrap();
-                if n == 0 {
-                    if closes {
-                        o.closed = true;
-                        t.ready.notify_all();
-                    }
-                    return;
-                }
-                o.data.extend_from_slice(&buf[..n]);
-                if o.data.len() > SCROLLBACK {
-                    let cut = o.data.len() - SCROLLBACK;
-                    o.data.drain(..cut);
-                    o.start += cut as u64;
-                }
-                t.ready.notify_all();
-            }
-        });
-    };
-    pump(t.clone(), Box::new(stdout), true);
-    pump(t.clone(), Box::new(stderr), false);
     let mut reg = terms().lock().unwrap();
     let id = reg.1;
     reg.1 += 1;
@@ -307,7 +334,7 @@ pub fn term_input(id: i64, data: Str) -> Result<ResString, String> {
     let Some(t) = get(id) else {
         return Ok(err_str("no such terminal".into()));
     };
-    let mut w = t.stdin.lock().unwrap();
+    let mut w = t.writer.lock().unwrap();
     Ok(match w.write_all(data.as_bytes()).and_then(|_| w.flush()) {
         Ok(()) => ResString::Ok(s("")),
         Err(e) => err_str(format!("terminal closed: {e}")),
@@ -318,34 +345,27 @@ pub fn term_resize(id: i64, cols: i64, rows: i64) -> Result<ResString, String> {
     let Some(t) = get(id) else {
         return Ok(err_str("no such terminal".into()));
     };
-    // The pty's slave: the shell's stdin, a child of script(1).
-    let pty = std::fs::read_to_string(format!("/proc/{0}/task/{0}/children", t.pid))
-        .ok()
-        .and_then(|kids| kids.split_whitespace().next().map(str::to_string))
-        .and_then(|kid| std::fs::read_link(format!("/proc/{kid}/fd/0")).ok())
-        .filter(|p| p.starts_with("/dev/pts"));
-    let Some(pty) = pty else {
-        return Ok(err_str("terminal has no pty yet".into()));
+    let master = t.master.lock().unwrap();
+    let Some(master) = master.as_ref() else {
+        return Ok(err_str("terminal closed".into()));
     };
-    Ok(
-        match Command::new("stty")
-            .arg("-F")
-            .arg(&pty)
-            .args(["rows", &rows.to_string(), "cols", &cols.to_string()])
-            .status()
-        {
-            Ok(st) if st.success() => ResString::Ok(s("")),
-            Ok(_) => err_str("stty failed".into()),
-            Err(e) => err_str(format!("stty: {e}")),
-        },
-    )
+    let size = PtySize {
+        rows: rows.clamp(1, u16::MAX as i64) as u16,
+        cols: cols.clamp(1, u16::MAX as i64) as u16,
+        ..PtySize::default()
+    };
+    // The pty signals SIGWINCH to its foreground job.
+    Ok(match master.resize(size) {
+        Ok(()) => ResString::Ok(s("")),
+        Err(e) => err_str(format!("cannot resize the terminal: {e}")),
+    })
 }
 
 pub fn term_kill(id: i64) -> Result<bool, String> {
     let Some(t) = terms().lock().unwrap().0.remove(&id) else {
         return Ok(false);
     };
-    let _ = t.child.lock().unwrap().kill();
+    let _ = t.killer.lock().unwrap().kill();
     Ok(true)
 }
 

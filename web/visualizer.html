@@ -13,6 +13,7 @@
   --func-bd:#1d6fd8; --func-bg:#eef4ff;
   --proc-bd:#e07b00; --proc-bg:#fff4e2;
   --badge-proc:#e07b00; --badge-func:#1d6fd8;
+  --iface-bd:#7c3aed; --iface-bg:#f3edff; --badge-iface:#7c3aed;
 
   --cbg:#ffffff;         --dot:#cbd5e1;
   --bar-bg:#ffffff;      --bar-tx:#0f172a; --bar-mut:#64748b; --bar-bd:#e2e8f0;
@@ -30,7 +31,7 @@ html.dark{
   --menu-bg:#0e1a2f;     --menu-tx:#dbe6f4; --menu-hl:#122442;
   --accent:#1f6feb;      --accent-tx:#ffffff; --accent-dk:#1c63d2;
   --btn-bg:#122442;      --btn-bd:#2c4a6e; --btn-tx:#e6effb; --btn-hover:#183256;
-  --badge-proc:#d97706;  --badge-func:#3b82f6;
+  --badge-proc:#d97706;  --badge-func:#3b82f6; --badge-iface:#8b5cf6;
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
@@ -158,6 +159,20 @@ svg text{font-family:Arial,Helvetica,sans-serif}
 .nbadge rect{stroke:none}
 .nbadge.b-proc rect{fill:var(--badge-proc)}
 .nbadge.b-func rect{fill:var(--badge-func)}
+.nbadge.b-iface rect{fill:var(--badge-iface)}
+/* Interface funcs: in the diagram and in the interface group. */
+.node.node-iface > rect{fill:var(--iface-bg); stroke:var(--iface-bd)}
+.node.ihot > rect{stroke:var(--iface-bd); stroke-width:3.4; filter:drop-shadow(0 0 4px rgba(124,58,237,.55))}
+.ifg-box{fill:none; stroke:var(--iface-bd); stroke-width:1.4; stroke-dasharray:6 4}
+.ifg-title{font-size:12px; font-weight:700; fill:var(--iface-bd); letter-spacing:.4px}
+.ifg-hd{font-size:12px; font-weight:700; fill:var(--surf-tx)}
+.ifg-none{font-size:11px; fill:var(--surf-mut)}
+.ie{fill:none; stroke:var(--iface-bd); stroke-width:1.4; stroke-dasharray:5 4; opacity:.5; pointer-events:none}
+svg.ifocus .ie{opacity:.1}
+svg.ifocus .ie.hot{opacity:1; stroke-width:2.6}
+svg.ifocus .ifn{opacity:.4}
+svg.ifocus .ifn.hot{opacity:1}
+.ifn.hot > rect{stroke-width:3}
 .nbadge text{font:700 9px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; fill:#fff; text-anchor:middle; pointer-events:none}
 .node.node-proc rect.wpanel{fill:transparent; stroke:var(--proc-bd); stroke-width:1.6}
 .panel-hd{cursor:pointer}
@@ -213,6 +228,7 @@ html.embed #fg{top:0}
 <header class="topbar">
   <div class="brand"><span class="logo">Vandorf</span><span class="sub">dataflow viewer</span></div>
   <div class="spacer"></div>
+  <button id="ifaceBtn" class="sbtn" title="Show the interface funcs each proc calls"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">I</span>&nbsp;Interfaces</button>
   <button id="settingsBtn" class="sbtn" title="Source / compile settings">&#9881;&nbsp;Settings</button>
 </header>
 
@@ -957,7 +973,7 @@ function edgeType(v){ return EDGE_META[v] || EDGE_META[0]; }
 function renderDoc(doc, proc){
   DOC = doc || { grids: {} };
   if (!DOC.grids) DOC.grids = {};
-  RESOLVED = {};
+  RESOLVED = {}; IFACE_USE = {};
   buildProcMenu();
   var names = Object.keys(DOC.grids).sort();
   if (!names.length){
@@ -1055,11 +1071,13 @@ function defs(){
     s += '<marker id="' + MK + '-' + EDGE_NAME[t] + '" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">' +
          '<path d="M0 0L10 5L0 10z" fill="' + EDGE_META[t].color + '" stroke="' + EDGE_META[t].color + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></marker>';
   }
+  s += '<marker id="' + MK + '-iface" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">' +
+       '<path d="M0 0L10 5L0 10z" fill="#7c3aed" stroke="#7c3aed" stroke-width="1.5" stroke-linejoin="round"/></marker>';
   return s + '</defs>';
 }
 
 function nodeKind(n){ return !n ? null : n.type === 1 ? 'proc' : (n.type === 2 ? 'ellipsis' : 'func'); }
-function nodeRef(n){ return { label: (n && n.label) || '', kind: nodeKind(n), sublabel: (n && n.sublabel) || null }; }
+function nodeRef(n){ return { label: (n && n.label) || '', kind: nodeKind(n), sublabel: (n && n.sublabel) || null, iface: (n && n.interface) || null }; }
 function nodeAt(L, p){ return p && L.grid.rows[p[0]] ? (L.grid.rows[p[0]].nodes || [])[p[1]] || null : null; }
 
 // What a click on a node reports: the value and call of an edge into it.
@@ -1070,7 +1088,7 @@ function nodeInfo(L, k, n){
   });
   return {
     kind: n.type === 1 ? 'proc' : 'func', label: n.label || '', sublabel: n.sublabel || null,
-    grid: n.type === 1 ? resolveProc(n, L.name) : null, owner: L.name,
+    grid: n.type === 1 ? resolveProc(n, L.name) : null, owner: L.name, iface: n.interface || null, iq: ifaceName(n),
     valueType: inE ? (inE.valueType || null) : null, call: inE ? (inE.call || null) : null, edgeLabel: null
   };
 }
@@ -1092,9 +1110,9 @@ function switchInfo(L, k, n, id){
 }
 
 function badgeSVG(x, y, n){
-  var proc = n.type === 1;
-  return '<g class="nbadge ' + (proc ? 'b-proc' : 'b-func') + '"><rect x="' + x + '" y="' + y + '" width="16" height="15" rx="3"></rect>' +
-         '<text x="' + (x + 8) + '" y="' + (y + 11) + '">' + (proc ? 'P' : 'ƒ') + '</text></g>';
+  var b = n.type === 1 ? ['b-proc', 'P'] : n.interface ? ['b-iface', 'I'] : ['b-func', 'ƒ'];
+  return '<g class="nbadge ' + b[0] + '"><rect x="' + x + '" y="' + y + '" width="16" height="15" rx="3"></rect>' +
+         '<text x="' + (x + 8) + '" y="' + (y + 11) + '">' + b[1] + '</text></g>';
 }
 
 function diamondSVG(L, k, n, p){
@@ -1110,12 +1128,14 @@ function nodeSVG(L, k, n){
   if (p.lay) return panelSVG(L, k, n);
   var cls = n.type === 1 ? 'node-proc' : (n.type === 2 ? 'node-ell' : 'node-func');
   if (n.type === 1 && !p.grid) cls += ' nogrid';
+  var iq = ifaceName(n);
+  if (iq) cls += ' node-iface';
   var id = 'n:' + p.path, attr = '';
   if (n.type !== 2){
     INFO[id] = nodeInfo(L, k, n);
     INFO[id].path = p.path;
     INFO[id].canExpand = !!(p.grid && L.depth < MAXDEPTH);
-    attr = ' data-sel="' + esc(id) + '"';
+    attr = ' data-sel="' + esc(id) + '"' + (iq ? ' data-iq="' + esc(iq) + '"' : '');
   }
   if (isId(n)){
     var r0 = ID_D / 2;
@@ -1127,9 +1147,9 @@ function nodeSVG(L, k, n){
   }
   var s = '<g class="node ' + cls + '"' + attr + '>';
   s += '<rect x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '" rx="6"></rect>';
-  var full = (n.type === 2 ? 'ellipsis' : (n.type === 1 ? 'procedure: ' : 'function: ') + (n.label || ''));
+  var full = (n.type === 2 ? 'ellipsis' : (n.type === 1 ? 'procedure: ' : iq ? 'interface func: ' : 'function: ') + (n.label || ''));
   if (n.sublabel) full += ' — ' + n.sublabel;
-  if (n.type === 1) full += p.grid ? '\nclick: expand · ctrl/⌘-click: open' : '\n(no grid found)';
+  if (n.type === 1) full += p.grid ? '\nclick: expand · shift-click: select · ctrl/⌘-click: open' : '\n(no grid found)';
   s += '<title>' + esc(full) + '</title>';
   // Badge at the left; the text is centered in the room right of it.
   var tx = p.cx + 10, tw = p.w - 44;
@@ -1277,8 +1297,128 @@ function renderLayout(L){
 }
 
 function renderSvg(name){
-  var L = layoutGrid(name, '', 0);
-  return '<svg data-gname="' + esc(name) + '" width="' + L.w + '" height="' + L.h + '" viewBox="0 0 ' + L.w + ' ' + L.h + '">' + defs() + renderLayout(L) + '</svg>';
+  var L = layoutGrid(name, '', 0), w = L.w, h = L.h, under = '', over = '';
+  if (showIfaces){
+    var G = ifaceSVG(L, name);
+    w = G.w; h = Math.max(h, G.h); under = G.edges; over = G.nodes;
+  }
+  return '<svg data-gname="' + esc(name) + '" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' + defs() +
+         under + renderLayout(L) + over + '</svg>';
+}
+
+/* ---------- interfaces: the interface funcs each proc calls ----------
+   With the toggle on, a group right of the diagram holds every interface
+   func the shown proc reaches, nested procs included. Each collapsed proc
+   node has an arrow to each one it reaches; an expanded panel has none of
+   its own (its child procs do). Interface funcs in the visible grids are
+   already drawn in place. */
+var showIfaces = storeGet('vandorf.viz.ifaces') === '1';
+var IFACE_USE = {};   // grid name -> interface funcs it reaches, sorted
+var IF_GAP = 150, IF_PAD = 14, IF_TITLE = 30, IF_HD = 24, IF_NODE_H = 32, IF_NODE_GAP = 8;
+
+// The interface func a node calls (an instance's: the func it is of), or null.
+function ifaceName(n){
+  if (!n || n.type !== 0 || !n.interface) return null;
+  var inst = /^instance of (.+)$/.exec(n.sublabel || '');
+  return inst ? inst[1] : n.label;
+}
+// Interface funcs grid `name` calls, its nested procs' included.
+function ifaceUse(name){
+  if (hasOwn(IFACE_USE, name)) return IFACE_USE[name];
+  var seen = {}, out = {}, stack = [name];
+  while (stack.length){
+    var g = stack.pop();
+    if (hasOwn(seen, g)) continue;
+    seen[g] = true;
+    (getGrid(g).rows || []).forEach(function(row){
+      (row.nodes || []).forEach(function(n){
+        var q = ifaceName(n), k = n.type === 1 ? resolveProc(n, g) : null;
+        if (q) out[q] = true;
+        if (k && !hasOwn(seen, k)) stack.push(k);
+      });
+    });
+  }
+  return (IFACE_USE[name] = Object.keys(out).sort());
+}
+// Walks the drawn grids in root coordinates: collapsed procs that reach an
+// interface func (arrow sources), and interface func nodes drawn in place.
+function ifaceWalk(L, ox, oy, srcs, inline){
+  Object.keys(L.pos).forEach(function(k){
+    var p = L.pos[k], n = nodeAt(L, [p.row, p.col]);
+    if (p.lay){ ifaceWalk(p.lay, ox + p.x, oy + p.y + PANEL_HD, srcs, inline); return; }
+    var q = ifaceName(n), use = p.grid ? ifaceUse(p.grid) : [];
+    if (q) inline.push({ q: q, y: oy + p.y });
+    if (use.length) srcs.push({ path: p.path, x: ox + p.x + p.w, y: oy + p.y + p.h / 2, use: use });
+  });
+}
+function ifaceSVG(L, root){
+  var srcs = [], inline = [];
+  ifaceWalk(L, 0, 0, srcs, inline);
+  // Interfaces and their funcs top to bottom in the order of what calls
+  // them, so fewer arrows cross.
+  var first = {};
+  ifaceUse(root).forEach(function(q){ first[q] = Infinity; });
+  function seen(q, y){ if (hasOwn(first, q) && y < first[q]) first[q] = y; }
+  srcs.forEach(function(sr){ sr.use.forEach(function(q){ seen(q, sr.y); }); });
+  inline.forEach(function(x){ seen(x.q, x.y); });
+  var byIf = {};
+  Object.keys(first).forEach(function(q){
+    var i = q.indexOf('.'), name = q.slice(0, i);
+    var I = byIf[name] = byIf[name] || { name: name, y: Infinity, funcs: [] };
+    I.funcs.push(q); I.y = Math.min(I.y, first[q]);
+  });
+  function order(a, b, ya, yb){ return ya - yb || (a < b ? -1 : a > b ? 1 : 0); }
+  var ifs = Object.keys(byIf).map(function(k){ return byIf[k]; })
+    .sort(function(a, b){ return order(a.name, b.name, a.y, b.y); });
+
+  var x0 = L.w + IF_GAP, w = NODE_W + 2 * IF_PAD, nx = x0 + IF_PAD, at = {}, nodes = '';
+  var hgt = IF_TITLE + ifs.reduce(function(t, I){ return t + IF_HD + I.funcs.length * (IF_NODE_H + IF_NODE_GAP) + 6; }, 0) + (ifs.length ? 4 : 26);
+  var y0 = Math.max(PAD_Y, (L.h - hgt) / 2), y = y0 + IF_TITLE;
+  ifs.forEach(function(I){
+    nodes += '<g class="nbadge b-iface"><rect x="' + nx + '" y="' + (y + 2) + '" width="16" height="15" rx="3"></rect><text x="' + (nx + 8) + '" y="' + (y + 13) + '">I</text></g>' +
+             '<text class="ifg-hd" x="' + (nx + 22) + '" y="' + (y + 14) + '">' + esc(truncate(I.name, 12, NODE_W - 22, 700)) + '</text>';
+    y += IF_HD;
+    I.funcs.sort(function(a, b){ return order(a, b, first[a], first[b]); }).forEach(function(q){
+      var id = 'i:' + q;
+      INFO[id] = { kind: 'func', label: q, sublabel: null, grid: null, owner: root, iface: I.name, iq: q,
+                   valueType: null, call: null, edgeLabel: null };
+      at[q] = { x: nx, y: y + IF_NODE_H / 2 };
+      nodes += '<g class="node node-func node-iface ifn" data-sel="' + esc(id) + '" data-q="' + esc(q) + '">' +
+               '<title>' + esc('interface func: ' + q) + '</title>' +
+               '<rect x="' + nx + '" y="' + y + '" width="' + NODE_W + '" height="' + IF_NODE_H + '" rx="6"></rect>' +
+               badgeSVG(nx + 9, y + IF_NODE_H / 2 - 7.5, { type: 0, interface: I.name }) +
+               '<text class="lab" x="' + (nx + NODE_W / 2 + 10) + '" y="' + (y + IF_NODE_H / 2 + 4.5) + '" text-anchor="middle">' +
+                 esc(truncate(q.slice(I.name.length + 1), 12.5, NODE_W - 44, 1000)) + '</text></g>';
+      y += IF_NODE_H + IF_NODE_GAP;
+    });
+    y += 6;
+  });
+  if (!ifs.length) nodes += '<text class="ifg-none" x="' + nx + '" y="' + (y + 12) + '">' + esc(root) + ' calls no interface funcs</text>';
+  var box = '<rect class="ifg-box" x="' + x0 + '" y="' + y0 + '" width="' + w + '" height="' + hgt + '" rx="10"></rect>' +
+            '<text class="ifg-title" x="' + nx + '" y="' + (y0 + 20) + '">INTERFACES</text>';
+
+  // Arrows from each source's right side to the func's left side.
+  var edges = '';
+  srcs.forEach(function(sr){
+    sr.use.forEach(function(q){
+      var t = at[q];
+      if (!t) return;
+      // Turn toward the func's height at once, rather than running along
+      // the source's row, then come in level.
+      var dx = Math.max(40, (t.x - sr.x) * 0.45);
+      edges += '<path class="ie" data-from="' + esc(sr.path) + '" data-to="' + esc(q) + '" d="M' + sr.x + ' ' + sr.y +
+               ' C' + (sr.x + 50) + ' ' + (sr.y + (t.y - sr.y) * 0.6) + ' ' + (t.x - dx) + ' ' + t.y + ' ' + (t.x - 2) + ' ' + t.y + '" marker-end="url(#' + MK + '-iface)"></path>';
+    });
+  });
+  // Arrows run under the diagram; a highlighted proc's move to the top layer.
+  return { w: x0 + w + PAD_X, h: y0 + hgt + PAD_Y, edges: '<g id="iflLo">' + edges + '</g>',
+           nodes: '<g id="iflHi"></g>' + box + nodes };
+}
+function setIfaces(on){
+  showIfaces = !!on;
+  var b = document.getElementById('ifaceBtn');
+  if (b) b.classList.toggle('on', showIfaces);
+  rerenderProc();
 }
 
 /* ---------- selection ---------- */
@@ -1287,7 +1427,7 @@ function applySelection(){
   Array.prototype.forEach.call(stageEl.querySelectorAll('.sel, .selbox'), function(el){
     el.classList.remove('sel'); el.classList.remove('selbox');
   });
-  if (!selected) return;
+  if (!selected){ applyIfaceFocus(); return; }
   var q = selQ(selected);
   Array.prototype.forEach.call(stageEl.querySelectorAll('[data-sel=' + q + ']'), function(el){
     // A panel header highlights its whole panel instead.
@@ -1296,6 +1436,50 @@ function applySelection(){
   Array.prototype.forEach.call(stageEl.querySelectorAll('[data-selbox=' + q + ']'), function(el){ el.classList.add('selbox'); });
   // A selected switch lights up its arms.
   Array.prototype.forEach.call(stageEl.querySelectorAll('[data-sw=' + q + ']'), function(el){ el.classList.add('sel'); });
+  applyIfaceFocus();
+}
+// With interfaces shown, a selected proc lights up the interface funcs it
+// calls and the arrows from it (or, expanded, from the procs inside it) and
+// dims the rest; a selected interface func lights up what calls it.
+function applyIfaceFocus(){
+  var svg = stageEl.querySelector('svg'), lo = stageEl.querySelector('#iflLo'), hi = stageEl.querySelector('#iflHi');
+  if (!svg || !lo || !hi) return;
+  Array.prototype.forEach.call(stageEl.querySelectorAll('.ie.hot, .ifn.hot, .node.ihot'), function(el){
+    el.classList.remove('hot'); el.classList.remove('ihot');
+  });
+  while (hi.firstChild) lo.appendChild(hi.firstChild);
+  svg.classList.remove('ifocus');
+  var info = selected ? INFO[selected] : null, hotQ = {}, edgeHot = null, inlineHot = null;
+  if (!info) return;
+  if (selected.indexOf('i:') === 0){
+    var q = info.iq;
+    hotQ[q] = true;
+    edgeHot = function(from, to){ return to === q; };
+    inlineHot = function(path, iq){ return iq === q; };
+  } else if (selected.indexOf('n:') === 0){
+    var path = info.path;
+    if (info.kind === 'proc' && info.grid) ifaceUse(info.grid).forEach(function(x){ hotQ[x] = true; });
+    if (info.iq) hotQ[info.iq] = true;
+    edgeHot = function(from){ return from === path || from.indexOf(path + '/') === 0; };
+    inlineHot = function(p){ return p.indexOf(path + '/') === 0; };
+  } else return;
+  var any = false;
+  Array.prototype.slice.call(lo.querySelectorAll('.ie')).forEach(function(el){
+    if (!edgeHot(el.getAttribute('data-from'), el.getAttribute('data-to'))) return;
+    el.classList.add('hot'); hi.appendChild(el); any = true;
+    if (selected.indexOf('i:') === 0){
+      var src = stageEl.querySelector('[data-sel=' + selQ('n:' + el.getAttribute('data-from')) + ']');
+      if (src) src.classList.add('ihot');
+    }
+  });
+  Array.prototype.forEach.call(stageEl.querySelectorAll('.ifn'), function(el){
+    if (hasOwn(hotQ, el.getAttribute('data-q'))){ el.classList.add('hot'); any = true; }
+  });
+  Array.prototype.forEach.call(stageEl.querySelectorAll('[data-iq]'), function(el){
+    if (el.classList.contains('ifn')) return;
+    if (inlineHot(el.getAttribute('data-sel').slice(2), el.getAttribute('data-iq'))) el.classList.add('ihot');
+  });
+  if (any) svg.classList.add('ifocus');
 }
 function selectMsg(i){
   if (i.kind === 'edge'){
@@ -1308,7 +1492,7 @@ function selectMsg(i){
              valueType: i.valueType, arms: i.arms };
   }
   return { type: 'vandorf-select', kind: i.kind, label: i.label, sublabel: i.sublabel, grid: i.grid,
-           owner: i.owner, valueType: i.valueType, call: i.call, edgeLabel: i.edgeLabel };
+           owner: i.owner, valueType: i.valueType, call: i.call, edgeLabel: i.edgeLabel, iface: i.iface || null };
 }
 function select(id){
   selected = id && INFO[id] ? id : null;
@@ -1566,7 +1750,8 @@ main.addEventListener('click', function(ev){
   var info = id ? INFO[id] : null;
   if (!info){ select(null); return; }
   if (info.kind === 'proc' && (ev.ctrlKey || ev.metaKey)){ openProc(info.grid); return; }
-  if (info.kind === 'proc' && !info.expanded && info.canExpand){
+  // Shift-click only selects.
+  if (info.kind === 'proc' && !info.expanded && info.canExpand && !ev.shiftKey){
     expanded[info.path] = true;
     saveExpanded();
     rerenderProc();
@@ -1605,6 +1790,8 @@ window.addEventListener('message', function(e){
     else pendingProc = m.proc || null;
   } else if (m.type === 'vandorf-theme'){
     applyTheme(m.theme === 'dark' ? 'dark' : 'light', false);
+  } else if (m.type === 'vandorf-ifaces'){
+    setIfaces(m.on);
   } else if (m.type === 'vandorf-fit'){
     fitView();
   } else if (m.type === 'vandorf-highlight'){
@@ -1613,6 +1800,11 @@ window.addEventListener('message', function(e){
     selected = null;
     applySelection();
   }
+});
+document.getElementById('ifaceBtn').classList.toggle('on', showIfaces);
+document.getElementById('ifaceBtn').addEventListener('click', function(){
+  storeSet('vandorf.viz.ifaces', showIfaces ? '0' : '1');
+  setIfaces(!showIfaces);
 });
 if (EMBEDDED) window.parent.postMessage({ type: 'vandorf-viz-ready' }, location.origin);
 

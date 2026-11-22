@@ -93,7 +93,36 @@ proc Build(At): string {
 	Tools.Rustfmt -> BuildTable(prog = Rebased(c = At.c));
 	// Warnings for implementations that aren't where the .sys says.
 	BuildTable -> ImplWarnings(s = { checks = ImplChecks(prog = Rebased(c = At.c), t = this, module_dir = ModuleDir(target = UnwrapR(r = R), out = OutDir(c = At.c), croot = Crate), out = OutDir(c = At.c), root = At.c.project.root, paths = At.c.project.paths, srcs = At.c.project.srcs), i = 0 });
-	ImplWarnings -> id("built " + At.c.project.manifest.name);
+	ImplWarnings -> Commands(s = { what = "post-build", cmds = UnwrapR(r = R).post, dir = At.c.project.root, i = 0 });
+	Commands -> id("built " + At.c.project.manifest.name);
+}
+
+// vcc test: builds everything, then runs [rust]'s test commands.
+proc Test(At): string {
+	func At(s: Checked): Checked = "../leaf.rs:same";
+	At -> Build(s = { c = this, only = "" });
+	Build -> R(r = At.project.manifest.rust);
+	func R(r: MaybeRust): MaybeRust = "../leaf.rs:same";
+	R switch {
+		(UnwrapR(r = this).test.len == 0) -> Fail(msg = "vandorf.toml: no tests: add test = [..] to [rust] (vcc builds Rust only so far)") as NoTests,
+		else -> Commands(s = { what = "test", cmds = UnwrapR(r = this).test, dir = At.project.root, i = 0 })
+	};
+	Commands -> id("tested " + At.project.manifest.name);
+}
+
+// Shell commands, in order, in dir; the first that fails fails the proc
+// that called this. what names them in messages.
+proc Commands(At): string {
+	func At(s: { what: string, cmds: []string, dir: string, i: int }): { what: string, cmds: []string, dir: string, i: int } = "../leaf.rs:same";
+	At switch {
+		(this.i == this.cmds.len) -> id(""),
+		else -> Console.Err(line = this.what + ": " + this.cmds[this.i])
+	};
+	Console.Err -> Tools.Shell(cmd = At.cmds[At.i], dir = At.dir);
+	Tools.Shell switch {
+		Ok(_) -> At(s = { ..At, i = At.i + 1 }),
+		Err(e) -> Fail(msg = At.what + " `" + At.cmds[At.i] + "` failed (" + e.msg + ")") as Failed
+	};
 }
 
 type ImplCheck = { path: string, function: string, missing: string, undefined: string };
@@ -207,6 +236,7 @@ proc ServerFiles(At): []OutFile {
 proc ServerSpecs(At): Res<[]ServerSpec> {
 	func At(s: { m: Manifest, root: string, out: string, module_dir: MaybeStr, names: []string, i: int, acc: []ServerSpec }): { m: Manifest, root: string, out: string, module_dir: MaybeStr, names: []string, i: int, acc: []ServerSpec } = "../leaf.rs:same";
 	func ServerPath(d: ServerDecl, name: string): string = "cli_leaf.rs:server_path";
+	func SetupName(d: ServerDecl): string = "cli_leaf.rs:setup_name";
 	// The directory of a file under the crate's src/, out being module_dir
 	// below src/.
 	func FileDir(out: string, module_dir: MaybeStr, path: string): string = "cli_leaf.rs:file_dir";
@@ -223,7 +253,7 @@ proc ServerSpecs(At): Res<[]ServerSpec> {
 		Err(e) -> id(Err(e))
 	};
 	Statics switch {
-		Ok(statics) -> At(s = { ..At, i = At.i + 1, acc = At.acc + [{ name = At.names[At.i], addr = At.m.http[At.names[At.i]].addr, routes = UnwrapRoutes(r = Routes), raw = UnwrapRoutes(r = Raws), statics = statics, path = ServerPath(d = At.m.http[At.names[At.i]], name = At.names[At.i]) }] }),
+		Ok(statics) -> At(s = { ..At, i = At.i + 1, acc = At.acc + [{ name = At.names[At.i], addr = At.m.http[At.names[At.i]].addr, setup = SetupName(d = At.m.http[At.names[At.i]]), routes = UnwrapRoutes(r = Routes), raw = UnwrapRoutes(r = Raws), statics = statics, path = ServerPath(d = At.m.http[At.names[At.i]], name = At.names[At.i]) }] }),
 		Err(e) -> id(Err(e))
 	};
 }

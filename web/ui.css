@@ -50,6 +50,10 @@ button:focus-visible, select:focus, input:focus{ border-color:var(--accent) }
 button.on{ background:var(--hover); color:var(--ink) }
 button.icon{ width:var(--h); padding:0; color:var(--mut) }
 button.icon:hover{ color:var(--ink) }
+/* Icons: line drawings on a 16-unit grid, all drawn at one size and weight.
+   A letter icon (.letter: ƒ, I) is set to match them. */
+button.icon svg{ width:14px; height:14px; flex:none; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round }
+button.icon.letter{ font:700 13px/1 var(--mono) }
 button.outline, select, input[type=text], input[type=search], input:not([type]){ border-color:var(--line); background:var(--bg) }
 button.primary{ background:var(--accent); border-color:var(--accent); color:var(--accent-ink) }
 select{ padding:0 6px }

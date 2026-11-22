@@ -9,11 +9,12 @@ func LineCol(src: string, offset: int): { line: int, ch: int } = "ide_leaf.rs:li
 func ItemsJson(items: []Item): Json = "ide_leaf.rs:items_json";
 func Qualify(prefix: string, name: string): string = "ide_leaf.rs:qualify";
 
-proc Tree(At): HttpResponse {
-	func At(base: string): string = "../leaf.rs:same";
-	At -> Files.Walk(base = this);
-	Files.Walk -> TreeFiles(s = { base = At, paths = this, i = 0, acc = [], projects = [:] });
-	TreeFiles -> id(Api(j = Obj([{ key = "ok", value = Bool(true) }, { key = "root", value = Str(At) }, { key = "files", value = Arr(this) }])));
+proc TreeRoute(At): HttpResponse {
+	func At(req: HttpRequest): HttpRequest = "../leaf.rs:same";
+	At -> Session.Base(n = 0);
+	Session.Base -> Files.Walk(base = this);
+	Files.Walk -> TreeFiles(s = { base = Session.Base, paths = this, i = 0, acc = [], projects = [:] });
+	TreeFiles -> id(Api(j = Obj([{ key = "ok", value = Bool(true) }, { key = "root", value = Str(Session.Base) }, { key = "files", value = Arr(this) }])));
 }
 
 proc TreeFiles(At): []Json {

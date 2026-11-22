@@ -246,8 +246,17 @@ pub fn display_label(prog: Program, pid: i64, n: i64) -> Result<Str, String> {
     Ok(display(&prog, pid, n).into())
 }
 
+/// The interface n is a func of, if any.
+fn interface_of(prog: &Program, n: i64) -> Option<String> {
+    match &prog.nodes[n as usize].qual[..] {
+        [i, _] if matches!(prog.globals.get(i), Some(Global::Interface(_))) => Some(i.to_string()),
+        _ => None,
+    }
+}
+
 fn node_json(prog: &Program, pid: i64, n: i64) -> Json {
     let decl = &prog.nodes[n as usize];
+    let mut iface = None;
     let (ty, label, sub) = match &decl.kind {
         NodeKind::Func(f) => {
             let imps: Vec<String> = f
@@ -255,6 +264,7 @@ fn node_json(prog: &Program, pid: i64, n: i64) -> Json {
                 .iter()
                 .map(|i| format!("{}:{}", i.file, i.function))
                 .collect();
+            iface = interface_of(prog, n);
             (
                 0,
                 display(prog, pid, n),
@@ -269,6 +279,7 @@ fn node_json(prog: &Program, pid: i64, n: i64) -> Json {
             } else {
                 0
             };
+            iface = interface_of(prog, *b);
             (
                 ty,
                 display(prog, pid, n),
@@ -282,6 +293,9 @@ fn node_json(prog: &Program, pid: i64, n: i64) -> Json {
     ];
     if let Some(s) = sub {
         fs.push(field("sublabel", Json::Str(s.into())));
+    }
+    if let Some(i) = iface {
+        fs.push(field("interface", Json::Str(i.into())));
     }
     Json::Obj(fs.into())
 }

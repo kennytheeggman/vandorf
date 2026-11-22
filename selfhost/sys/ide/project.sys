@@ -2,12 +2,13 @@
 // entry points (each with where its proc is declared), files and counts.
 
 proc ProjectRoute(At): HttpResponse {
-	func At(s: { base: string, query: map[string]string }): { base: string, query: map[string]string } = "../leaf.rs:same";
+	func At(req: HttpRequest): HttpRequest = "../leaf.rs:same";
 	func Root(r: Res<string>): Res<string> = "../leaf.rs:same";
-	At switch {
-		(!("dir" in this.query)) -> id(ApiErr(msg = "missing ?dir=")),
-		(this.query["dir"] == "" || this.query["dir"] == ".") -> Root(r = Ok(this.base)),
-		else -> ResolvePath(s = { base = this.base, p = this.query["dir"] })
+	At -> Session.Base(n = 0);
+	Session.Base switch {
+		(!("dir" in At.query)) -> id(ApiErr(msg = "missing ?dir=")),
+		(At.query["dir"] == "" || At.query["dir"] == ".") -> Root(r = Ok(this)),
+		else -> ResolvePath(s = { base = this, p = At.query["dir"] })
 	};
 	ResolvePath -> Root(r = this);
 	Root switch {
@@ -26,7 +27,7 @@ proc ProjectRoute(At): HttpResponse {
 		Ok(p) -> Outlines(s = { p = p, i = 0, acc = [] }),
 		Err(e) -> id(ApiErr(msg = e.msg))
 	};
-	Outlines -> id(Api(j = ProjectJson(base = At.base, p = UnwrapP(r = LoadProject), text = UnwrapR2(r = Files.Read), outlines = this)));
+	Outlines -> id(Api(j = ProjectJson(base = Session.Base, p = UnwrapP(r = LoadProject), text = UnwrapR2(r = Files.Read), outlines = this)));
 }
 
 // The project's overview from its files' outlines.

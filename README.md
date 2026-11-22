@@ -162,6 +162,8 @@ out = "go/app"             # code package; types in out/types
 [rust]                     # optional: the Rust library
 out = "rs/src/app"         # a module under the crate's src/
 # module_dir (out relative to src/; default from Cargo.toml)
+post = ["cargo build --manifest-path rs/Cargo.toml"]   # after generating Rust
+test = ["cargo test --manifest-path rs/Cargo.toml"]    # run by vandorf test
 
 [bin.demo]                 # an executable per backend, running a proc
 entry = "Main"             # default "Main"
@@ -170,7 +172,11 @@ entry = "Main"             # default "Main"
 ```
 
 `vandorf build` generates the libraries and every bin; `vandorf build calc`
-the libraries and that bin. Errors name the file they're in. The workbench
+the libraries and that bin. After generating a language it runs that
+language's `post` commands ([go] takes them too). `vandorf test` builds
+everything, then runs each language's `test` commands. Commands are shell
+commands run in order in the manifest's directory; the first that fails fails
+the command. Errors name the file they're in. The workbench
 compiles a project file together with the rest of its project.
 
 ## Workbench
@@ -232,6 +238,7 @@ naming where the func is declared and printing the expected signature.
 ```toml
 [http.api]                   # rs/src/bin/api.rs; Rust only, for now
 addr = "127.0.0.1:8099"
+setup = "Setup"              # optional: its result is each route's ctx
 routes = { "POST /api/measure" = "Measure", "GET /api/hello" = "Hello" }
 static = { "/" = "web/index.html" }
 ```
@@ -243,6 +250,13 @@ parses, else as a string). Structs are objects, maps objects keyed by
 string, and enums `"Tag"` or `{"Tag": payload}`. Results are 200 and JSON;
 a request that doesn't decode is a 400, a proc that fails a 500, both with
 `{"error": ".."}`. Static files are embedded in the executable.
+
+A server with `setup` runs that top-level proc, which takes no parameters,
+once before it listens; if it fails, the server exits without listening.
+Its result is the server's context: every route and raw proc must take a
+parameter `ctx` of exactly its type, which the server fills (a request's
+`ctx` is ignored). The context is read-only; state that changes between
+requests belongs behind an interface.
 
 `vandorf build` writes `http.rs` into the module (the JSON codec, std-only
 server and a `handle_<name>` per server) and the server's executable, which

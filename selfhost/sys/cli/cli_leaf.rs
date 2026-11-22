@@ -29,6 +29,10 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
         Ok(t) => t,
         Err(e) => return fail(e.to_string()),
     };
+    // Refuse what the reference refuses, rather than ignore it.
+    if let Err(e) = check_table(&t, MANIFEST) {
+        return fail(e);
+    }
     let Some(project) = t.get("project").and_then(|p| p.as_table()) else {
         return fail("missing field `project`".into());
     };
@@ -39,11 +43,20 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
         Some(a) => a.iter().filter_map(|x| x.as_str()).map(s).collect(),
         None => vec![s(".")],
     };
+    // A target's commands: post and test.
+    let cmds = |t: &toml::Table, k: &str| -> List<Str> {
+        t.get(k)
+            .and_then(|a| a.as_array())
+            .map(|a| a.iter().filter_map(|x| x.as_str()).map(s).collect())
+            .unwrap_or_default()
+    };
     let rust = match t.get("rust").and_then(|r| r.as_table()) {
         Some(r) => match r.get("out").and_then(|o| o.as_str()) {
             Some(out) => MaybeRust::Some(RustTarget {
                 out: s(out),
                 module_dir: opt(r.get("module_dir")),
+                post: cmds(r, "post"),
+                test: cmds(r, "test"),
             }),
             None => return fail("[rust]: missing field `out`".into()),
         },
@@ -56,6 +69,8 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
                 package: opt(g.get("package")),
                 module: opt(g.get("module")),
                 types_dir: opt(g.get("types_dir")),
+                post: cmds(g, "post"),
+                test: cmds(g, "test"),
             }),
             None => return fail("[go]: missing field `out`".into()),
         },
@@ -83,6 +98,7 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
                 s(n),
                 ServerDecl {
                     addr: s(addr),
+                    setup: opt(v.get("setup")),
                     routes: table("routes"),
                     raw: table("raw"),
                     statics: table("static"),
@@ -394,6 +410,13 @@ pub fn http_file(out: Str, text: Str) -> Result<List<OutFile>, String> {
     })
 }
 
+pub fn setup_name(d: ServerDecl) -> Result<Str, String> {
+    Ok(match d.setup {
+        MaybeStr::Some(p) => p,
+        MaybeStr::None => "".into(),
+    })
+}
+
 pub fn server_path(d: ServerDecl, name: Str) -> Result<Str, String> {
     Ok(match d.rust {
         MaybeStr::Some(p) => p,
@@ -474,6 +497,7 @@ const BIN: Fields = &[
 ];
 const SERVER: Fields = &[
     ("addr", Kind::Str, true),
+    ("setup", Kind::Str, false),
     ("routes", Kind::StrMap, false),
     ("raw", Kind::StrMap, false),
     ("static", Kind::StrMap, false),
@@ -485,8 +509,15 @@ const GO: Fields = &[
     ("package", Kind::Str, false),
     ("module", Kind::Str, false),
     ("types_dir", Kind::Str, false),
+    ("post", Kind::Strs, false),
+    ("test", Kind::Strs, false),
 ];
-const RUST: Fields = &[("out", Kind::Str, true), ("module_dir", Kind::Str, false)];
+const RUST: Fields = &[
+    ("out", Kind::Str, true),
+    ("module_dir", Kind::Str, false),
+    ("post", Kind::Strs, false),
+    ("test", Kind::Strs, false),
+];
 const MANIFEST: Fields = &[
     ("project", Kind::Table("Meta", META), true),
     ("go", Kind::Table("GoTarget", GO), false),

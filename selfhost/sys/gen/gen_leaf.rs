@@ -252,11 +252,24 @@ fn slice_get<E: Clone>(xs: &[E], i: &i64) -> Result<E, Error> {
         .ok_or_else(|| format!("index {i} out of range [0, {})", xs.len()).into())
 }
 
+/// Unoptimized, a proc's frame holds every node's temporaries at once, so
+/// grammar-deep recursion overflows the default 2 MiB; debug builds give
+/// their threads more.
+fn thread_builder() -> std::thread::Builder {
+    let b = std::thread::Builder::new();
+    #[cfg(debug_assertions)]
+    let b = b.stack_size(64 << 20);
+    b
+}
+
 /// Runs `f` over `xs` on scoped threads; results keep input order.
 fn fan_out<E: Send, R: Send>(xs: Vec<E>, f: impl Fn(E) -> Result<R, Error> + Sync) -> Result<Vec<R>, Error> {
     std::thread::scope(|s| {
         let f = &f;
-        let handles: Vec<_> = xs.into_iter().map(|x| s.spawn(move || f(x))).collect();
+        let handles: Vec<_> = xs
+            .into_iter()
+            .map(|x| thread_builder().spawn_scoped(s, move || f(x)).expect("cannot spawn a thread"))
+            .collect();
         handles
             .into_iter()
             .map(|h| h.join().unwrap_or_else(|p| std::panic::resume_unwind(p)))
@@ -2100,6 +2113,25 @@ fn json_route(req: &Request, call: fn(&Value) -> Result<String, (u16, String)>) 
 /// A server's main: `[--addr host:port]` from the command line (else
 /// `addr`, the manifest's), then serves.
 pub fn run(addr: &str, handler: Handler, statics: &'static [Static]) {
+    if let Some(addr) = listen_addr(addr) {
+        serve(&addr, handler, statics);
+    }
+}
+
+/// A server's main with a setup: the address as for run, then the setup
+/// (if it fails, the server exits without listening), then serves.
+pub fn run_setup(addr: &str, setup: fn() -> Result<(), String>, handler: Handler, statics: &'static [Static]) {
+    let Some(addr) = listen_addr(addr) else { return };
+    if let Err(e) = setup() {
+        eprintln!("error: setup: {e}");
+        std::process::exit(1);
+    }
+    serve(&addr, handler, statics);
+}
+
+/// `--addr host:port` from the command line, else `addr`; None after
+/// printing the usage for --help.
+fn listen_addr(addr: &str) -> Option<String> {
     let name = std::env::args().next().map(|a| a.rsplit('/').next().unwrap_or("").to_string()).unwrap_or_default();
     let usage = format!("usage: {name} [--addr host:port]   (default {addr})");
     let mut addr = addr.to_string();
@@ -2109,7 +2141,7 @@ pub fn run(addr: &str, handler: Handler, statics: &'static [Static]) {
             ("--addr", Some(v)) => addr = v,
             ("-h" | "--help", _) => {
                 eprintln!("{usage}");
-                return;
+                return None;
             }
             _ => {
                 eprintln!("error: unexpected {a}\n{usage}");
@@ -2117,7 +2149,7 @@ pub fn run(addr: &str, handler: Handler, statics: &'static [Static]) {
             }
         }
     }
-    serve(&addr, handler, statics);
+    Some(addr)
 }
 
 static ADDR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -2139,10 +2171,20 @@ pub fn serve(addr: &str, handler: Handler, statics: &'static [Static]) {
     let _ = ADDR.set(addr.to_string());
     eprintln!("listening on http://{addr}");
     for stream in listener.incoming().flatten() {
-        std::thread::spawn(move || {
+        let _ = thread_builder().spawn(move || {
             let _ = connection(stream, handler, statics);
         });
     }
+}
+
+/// Unoptimized, a proc's frame holds every node's temporaries at once, so
+/// grammar-deep recursion overflows the default 2 MiB; debug builds give
+/// their threads more.
+fn thread_builder() -> std::thread::Builder {
+    let b = std::thread::Builder::new();
+    #[cfg(debug_assertions)]
+    let b = b.stack_size(64 << 20);
+    b
 }
 
 fn connection(mut stream: std::net::TcpStream, handler: Handler, statics: &[Static]) -> std::io::Result<()> {
@@ -2273,9 +2315,12 @@ pub fn find_top(prog: Program, name: Str) -> Result<i64, String> {
         .unwrap_or(-1))
 }
 
+/// The procs routes of servers without a setup run (those with one get
+/// calls of their own).
 pub fn route_procs(servers: List<ServerSpec>) -> Result<List<Str>, String> {
     Ok(servers
         .iter()
+        .filter(|s| s.setup.is_empty())
         .flat_map(|s| s.routes.iter().map(|r| r.proc.clone()).collect::<Vec<_>>())
         .collect())
 }
@@ -2283,6 +2328,7 @@ pub fn route_procs(servers: List<ServerSpec>) -> Result<List<Str>, String> {
 pub fn server_of(servers: List<ServerSpec>, proc: Str) -> Result<Str, String> {
     Ok(servers
         .iter()
+        .filter(|s| s.setup.is_empty())
         .find(|s| s.routes.iter().any(|r| r.proc == proc))
         .map_or("".into(), |s| s.name.clone()))
 }
@@ -2353,6 +2399,16 @@ pub fn route_docs(srv: ServerSpec) -> Result<List<Line>, String> {
             .iter()
             .map(|s| Line::L(format!("//! - `GET {}` serves {}", s.url, s.file).into())),
     );
+    if !srv.setup.is_empty() {
+        out.push(Line::L("//!".into()));
+        out.push(Line::L(
+            format!(
+                "//! Proc {} runs first; its result is each route's ctx.",
+                srv.setup
+            )
+            .into(),
+        ));
+    }
     Ok(out.into())
 }
 
@@ -2383,51 +2439,265 @@ pub fn raw_shape_error(
     server: Str,
     name: Str,
 ) -> Result<MaybeStr, String> {
-    let defs = &prog.types;
-    let shape = |t: &Type, want: &[(&str, &str)]| -> bool {
-        match unfold(t, defs) {
-            Type::Struct(fs) => {
-                fs.len() == want.len()
-                    && want.iter().all(|(n, w)| {
-                        fs.iter().any(|f| {
-                            &*f.name == *n
-                                && (show_type(&f.ty) == *w || show_type(unfold(&f.ty, defs)) == *w)
-                        })
-                    })
-            }
-            _ => false,
-        }
-    };
     let params = params_of(&prog.nodes, pid);
     let ok = params.len() == 1
-        && shape(&params[0].ty, RAW_REQUEST)
-        && shape(&ret_of(&prog.nodes, pid), RAW_RESPONSE);
-    let show = |fs: &[(&str, &str)]| {
-        format!(
-            "{{ {} }}",
-            fs.iter()
-                .map(|(n, t)| format!("{n}: {t}"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
-    };
+        && raw_shape(&prog, &params[0].ty, RAW_REQUEST)
+        && raw_shape(&prog, &ret_of(&prog.nodes, pid), RAW_RESPONSE);
     Ok(if ok {
         MaybeStr::None
     } else {
         MaybeStr::Some(
             format!(
                 "http server {server}: raw route proc {name} must take one {} and return {}",
-                show(RAW_REQUEST),
-                show(RAW_RESPONSE)
+                show_shape(RAW_REQUEST),
+                show_shape(RAW_RESPONSE)
             )
             .into(),
         )
     })
 }
 
+/// Whether t is a struct of exactly these fields (a raw request or response).
+fn raw_shape(prog: &Program, t: &Type, want: &[(&str, &str)]) -> bool {
+    let defs = &prog.types;
+    match unfold(t, defs) {
+        Type::Struct(fs) => {
+            fs.len() == want.len()
+                && want.iter().all(|(n, w)| {
+                    fs.iter().any(|f| {
+                        &*f.name == *n
+                            && (show_type(&f.ty) == *w || show_type(unfold(&f.ty, defs)) == *w)
+                    })
+                })
+        }
+        _ => false,
+    }
+}
+
+fn show_shape(fs: &[(&str, &str)]) -> String {
+    format!(
+        "{{ {} }}",
+        fs.iter()
+            .map(|(n, t)| format!("{n}: {t}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+/// What a server's handler calls a route's proc through: its own calls
+/// (`call_<server>_<proc>`) if it has a setup.
+pub fn own_prefix(srv: ServerSpec) -> Result<Str, String> {
+    Ok(if srv.setup.is_empty() {
+        "".into()
+    } else {
+        format!("{}_", server_ident(srv.name)?).into()
+    })
+}
+
+/// A server's main: run, or run_setup if it has a setup.
+pub fn run_call(srv: ServerSpec, http: Str) -> Result<Str, String> {
+    let ident = server_ident(srv.name.clone())?;
+    Ok(if srv.setup.is_empty() {
+        format!(
+            "{http}::run({}, {http}::handle_{ident}, STATICS);",
+            q(&srv.addr)
+        )
+    } else {
+        format!(
+            "{http}::run_setup({}, {http}::setup_{ident}, {http}::handle_{ident}, STATICS);",
+            q(&srv.addr)
+        )
+    }
+    .into())
+}
+
+/// A server with a setup proc, for each server that has one: its context,
+/// setup_<server> to run the setup before serving, and a call per route
+/// and raw route passing the context as ctx (never read from the request).
+pub fn setup_calls(g: RGen, servers: List<ServerSpec>) -> Result<RustHttpSetupCallsOut, String> {
+    let mut lines = vec![];
+    for srv in servers.iter().filter(|s| !s.setup.is_empty()) {
+        if let Err(e) = setup_server(&g, srv, &mut lines) {
+            return Ok(RustHttpSetupCallsOut {
+                lines: List::default(),
+                err: MaybeStr::Some(e.into()),
+            });
+        }
+    }
+    Ok(RustHttpSetupCallsOut {
+        lines: lines.into(),
+        err: MaybeStr::None,
+    })
+}
+
+fn setup_server(g: &RGen, srv: &ServerSpec, w: &mut Vec<Line>) -> Result<(), String> {
+    let prog = &g.prog;
+    let (name, setup) = (&*srv.name, &*srv.setup);
+    let mut line = |s: String| w.push(Line::L(s.into()));
+    let find = |p: &str| -> Result<i64, String> {
+        match find_top(prog.clone(), p.into())? {
+            -1 => Err(format!(
+                "http server {name} runs proc {p}, but there is no top-level proc {p}"
+            )),
+            pid => Ok(pid),
+        }
+    };
+    let sid = match find_top(prog.clone(), setup.into())? {
+        -1 => {
+            return Err(format!(
+                "http server {name}'s setup runs proc {setup}, but there is no top-level proc {setup}"
+            ));
+        }
+        sid => sid,
+    };
+    if !params_of(&prog.nodes, sid).is_empty() {
+        return Err(format!(
+            "http server {name}: setup proc {setup} must take no parameters"
+        ));
+    }
+    let ctx_ty = ret_of(&prog.nodes, sid);
+    let ident = server_ident(srv.name.clone())?;
+    let (rctx, stat) = (
+        rtype(&g.table, &ctx_ty)?,
+        format!("CTX_{}", ident.to_uppercase()),
+    );
+    // Each of the server's procs must take ctx, of the setup's type.
+    let check = |kind: &str, p: &str, pid: i64| -> Result<(), String> {
+        match params_of(&prog.nodes, pid)
+            .iter()
+            .find(|m| &*m.name == "ctx")
+        {
+            None => Err(format!(
+                "http server {name}: {kind} proc {p} must take ctx: {}, its setup proc {setup}'s result",
+                show_type(&ctx_ty)
+            )),
+            Some(m) if rtype(&g.table, &m.ty)? != rctx => Err(format!(
+                "http server {name}: {kind} proc {p} takes ctx: {}, but its setup proc {setup} returns {}",
+                show_type(&m.ty),
+                show_type(&ctx_ty)
+            )),
+            Some(_) => Ok(()),
+        }
+    };
+    let sn = |pid: i64| snake_gname(prog.nodes[pid as usize].clone()).map(|s| s.to_string());
+    line(format!(
+        "/// The context of http server {name}: proc {setup}'s result, set before serving."
+    ));
+    line(format!(
+        "static {stat}: std::sync::OnceLock<{rctx}> = std::sync::OnceLock::new();"
+    ));
+    line(String::new());
+    line(format!(
+        "/// Runs proc {setup}, the setup of http server {name}."
+    ));
+    line(format!("pub fn setup_{ident}() -> Result<(), String> {{"));
+    line(format!(
+        "let ctx = super::run_{}().map_err(|e| e.to_string())?;",
+        sn(sid)?
+    ));
+    line(format!("let _ = {stat}.set(ctx);"));
+    line("Ok(())".into());
+    line("}".into());
+    line(String::new());
+    let unset = q(&format!("http server {name} is not set up"));
+    let mut procs: Vec<&str> = srv.routes.iter().map(|r| &*r.proc).collect();
+    procs.sort();
+    procs.dedup();
+    for p in procs {
+        let pid = find(p)?;
+        check("route", p, pid)?;
+        let fname = sn(pid)?;
+        line(format!(
+            "/// Runs proc {p} with the request's parameters and http server {name}'s context."
+        ));
+        line(format!(
+            "fn call_{ident}_{fname}(params: &Value) -> Result<String, (u16, String)> {{"
+        ));
+        let mut args = vec![];
+        for m in params_of(&prog.nodes, pid).iter() {
+            let var = rust_local(m.name.clone())?.to_string();
+            if &*m.name == "ctx" {
+                line(format!(
+                    "let {var}: {rctx} = {stat}.get().cloned().ok_or_else(|| (500, {unset}.to_string()))?;"
+                ));
+            } else {
+                line(format!(
+                    "let {var}: {} = arg(params, {})?;",
+                    rtype(&g.table, &m.ty)?,
+                    q(&m.name)
+                ));
+            }
+            args.push(var);
+        }
+        line(format!(
+            "let result = super::run_{fname}({}).map_err(|e| (500, e.to_string()))?;",
+            args.join(", ")
+        ));
+        line("Ok(json(&result))".into());
+        line("}".into());
+        line(String::new());
+    }
+    let mut raws: Vec<&str> = srv.raw.iter().map(|r| &*r.proc).collect();
+    raws.sort();
+    raws.dedup();
+    for p in raws {
+        let pid = find(p)?;
+        check("raw route", p, pid)?;
+        let params = params_of(&prog.nodes, pid);
+        let rest: Vec<&Member> = params.iter().filter(|m| &*m.name != "ctx").collect();
+        if !(rest.len() == 1
+            && raw_shape(prog, &rest[0].ty, RAW_REQUEST)
+            && raw_shape(prog, &ret_of(&prog.nodes, pid), RAW_RESPONSE))
+        {
+            return Err(format!(
+                "http server {name}: raw route proc {p} must take ctx and one {}, and return {}",
+                show_shape(RAW_REQUEST),
+                show_shape(RAW_RESPONSE)
+            ));
+        }
+        let fname = sn(pid)?;
+        line(format!(
+            "/// Runs proc {p} on the raw request with http server {name}'s context."
+        ));
+        line(format!(
+            "fn raw_{ident}_{fname}(req: &Request) -> Response {{"
+        ));
+        line(format!("let r = {} {{", rtype(&g.table, &rest[0].ty)?));
+        line("method: types::Str::from(req.method.as_str()),".into());
+        line("path: types::Str::from(req.path.as_str()),".into());
+        line("query: query_pairs(&req.query).into_iter().map(|(k, v)| (types::Str::from(k.as_str()), types::Str::from(v.as_str()))).collect(),".into());
+        line("headers: req.headers.iter().map(|(k, v)| (types::Str::from(k.as_str()), types::Str::from(v.as_str()))).collect(),".into());
+        line("body: types::Str::from(req.body.as_str()),".into());
+        line("};".into());
+        line(format!("let ctx = match {stat}.get() {{"));
+        line("Some(c) => c.clone(),".into());
+        line(format!("None => return error_response(500, {unset}),"));
+        line("};".into());
+        let args: Vec<&str> = params
+            .iter()
+            .map(|m| if &*m.name == "ctx" { "ctx" } else { "r" })
+            .collect();
+        line(format!("match super::run_{fname}({}) {{", args.join(", ")));
+        line("Ok(res) => Response {".into());
+        line("status: res.status as u16,".into());
+        line(
+            "headers: res.headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),"
+                .into(),
+        );
+        line("body: res.body.as_bytes().to_vec(),".into());
+        line("},".into());
+        line("Err(e) => error_response(500, &e.to_string()),".into());
+        line("}".into());
+        line("}".into());
+        line(String::new());
+    }
+    Ok(())
+}
+
 pub fn raw_procs(servers: List<ServerSpec>) -> Result<List<Str>, String> {
     Ok(servers
         .iter()
+        .filter(|s| s.setup.is_empty())
         .flat_map(|s| s.raw.iter().map(|r| r.proc.clone()).collect::<Vec<_>>())
         .collect())
 }
@@ -2435,6 +2705,7 @@ pub fn raw_procs(servers: List<ServerSpec>) -> Result<List<Str>, String> {
 pub fn raw_server_of(servers: List<ServerSpec>, proc: Str) -> Result<Str, String> {
     Ok(servers
         .iter()
+        .filter(|s| s.setup.is_empty())
         .find(|s| s.raw.iter().any(|r| r.proc == proc))
         .map_or("".into(), |s| s.name.clone()))
 }

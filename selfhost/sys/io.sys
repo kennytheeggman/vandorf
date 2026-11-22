@@ -17,6 +17,9 @@ interface Fs {
 interface Tools {
 	// Formats Rust files, if rustfmt is installed.
 	func Rustfmt(files: []string): bool = "io.rs:rustfmt";
+	// Runs cmd with the platform's shell (sh -c, or cmd /C on Windows) in
+	// dir, on this process's terminal; Err with why if it fails.
+	func Shell(cmd: string, dir: string): Res<string> = "io.rs:shell";
 }
 
 interface Console {

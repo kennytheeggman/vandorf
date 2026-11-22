@@ -1,11 +1,13 @@
 // The IDE (src/serve.rs in the reference): explorer, diagram and text
 // viewer, terminals, over the working directory. Served as [http.ide] in
-// vandorf.toml: every path is a raw route to Ide.
+// vandorf.toml: each path is a raw route to its own proc, named for it
+// (PageRoute, TreeRoute, CompileRoute, TermReadRoute, ..), which does its
+// own checks and reads the session as it needs.
 //
 // Writes and terminals need the per-run token the pages are served with
 // (X-Vandorf-Token), so other sites can't drive them, and, on a loopback
-// address, a loopback Host, against DNS rebinding. Terminals are offered
-// only on a loopback address.
+// address, a loopback Host, against DNS rebinding (WriteGate). Terminals are
+// offered only on a loopback address (TermGate).
 
 type HttpRequest = { method: string, path: string, query: map[string]string, headers: map[string]string, body: string };
 type HttpResponse = { status: int, headers: map[string]string, body: string };
@@ -54,38 +56,60 @@ func JsonStr(j: Json, key: string): MaybeStr = "../doc/doc_leaf.rs:json_str";
 func PageName(path: string): string = "ide_leaf.rs:page_name";
 func PageResponse(text: string, token: string): HttpResponse = "ide_leaf.rs:page_response";
 func CssResponse(text: string): HttpResponse = "ide_leaf.rs:css_response";
-// 200 and the JSON; 400 and {"ok": false, "error": msg}; 403; 404.
+// 200 and the JSON; 400 and {"ok": false, "error": msg}; 403.
 func Api(j: Json): HttpResponse = "ide_leaf.rs:api";
 func ApiErr(msg: string): HttpResponse = "ide_leaf.rs:api_err";
 func Forbidden(n: int): HttpResponse = "ide_leaf.rs:forbidden";
-func NotFound(n: int): HttpResponse = "ide_leaf.rs:not_found";
 // The session's token, and (on a loopback address) a loopback Host.
 func Authorized(headers: map[string]string, token: string, loopback: bool): bool = "ide_leaf.rs:authorized";
 func HasPrefix(s: string, prefix: string): bool = "../cli/cli_leaf.rs:starts_with";
 
-proc Ide(At): HttpResponse {
+// Whether a request may go on, or the response that turns it away.
+type Gate = enum { Open, Shut(HttpResponse) };
+
+// Writes: the session token, and on a loopback address a loopback Host.
+proc WriteGate(At): Gate {
 	func At(req: HttpRequest): HttpRequest = "../leaf.rs:same";
 	At -> Session.Token(n = 0);
-	Session.Token -> Session.Base(n = 0);
-	Session.Base -> Session.Loopback(n = 0);
+	Session.Token -> Session.Loopback(n = 0);
 	Session.Loopback switch {
-		(At.method == "GET" && PageName(path = At.path) != "") -> Pages.Get(name = PageName(path = At.path)),
-		(At.method == "GET" && At.path == "/ui.css") -> Pages.Get(name = "ui.css") as Css,
-		(At.method == "GET" && At.path == "/api/project") -> ProjectRoute(s = { base = Session.Base, query = At.query }),
-		(At.method == "GET" && At.path == "/api/sources") -> Files.Walk(base = Session.Base) as Sources,
-		(At.method == "GET" && At.path == "/api/tree") -> Tree(base = Session.Base),
-		(At.method == "GET" && At.path == "/api/source") -> SourceRoute(s = { base = Session.Base, query = At.query }),
-		(At.method == "POST" && At.path == "/api/compile") -> Compile(s = { base = Session.Base, body = At.body }),
-		(At.method == "POST" && At.path == "/api/save" && Authorized(headers = At.headers, token = Session.Token, loopback = Session.Loopback)) -> Save(s = { base = Session.Base, body = At.body }),
-		(At.method == "POST" && At.path == "/api/save") -> id(Forbidden(n = 0)),
-		(HasPrefix(s = At.path, prefix = "/api/term") && !Session.Loopback) -> id(ApiErr(msg = "terminals are off: the IDE isn't listening on a loopback address")),
-		(HasPrefix(s = At.path, prefix = "/api/term") && Authorized(headers = At.headers, token = Session.Token, loopback = Session.Loopback)) -> TermRoute(s = { base = Session.Base, req = At }),
-		(HasPrefix(s = At.path, prefix = "/api/term")) -> id(Forbidden(n = 0)),
-		else -> id(NotFound(n = 0))
+		(Authorized(headers = At.headers, token = Session.Token, loopback = this)) -> id(Open()),
+		else -> id(Shut(Forbidden(n = 0)))
 	};
+}
+
+// Terminals: only on a loopback address, then as writes.
+proc TermGate(At): Gate {
+	func At(req: HttpRequest): HttpRequest = "../leaf.rs:same";
+	At -> Session.Loopback(n = 0);
+	Session.Loopback switch {
+		(!this) -> id(Shut(ApiErr(msg = "terminals are off: the IDE isn't listening on a loopback address"))),
+		else -> WriteGate(req = At)
+	};
+}
+
+// GET /, /explorer, /viewer, /terminal, /workbench, /project, /viz: an IDE
+// page, carrying the session token.
+proc PageRoute(At): HttpResponse {
+	func At(req: HttpRequest): HttpRequest = "../leaf.rs:same";
+	At -> Session.Token(n = 0);
+	Session.Token -> Pages.Get(name = PageName(path = At.path));
 	Pages.Get -> id(PageResponse(text = this, token = Session.Token));
-	Css -> id(CssResponse(text = this));
-	Sources -> id(Api(j = Obj([{ key = "ok", value = Bool(true) }, { key = "root", value = Str(Session.Base) }, { key = "files", value = Arr(Strs(xs = this)) }])));
+}
+
+// GET /ui.css
+proc CssRoute(At): HttpResponse {
+	func At(req: HttpRequest): HttpRequest = "../leaf.rs:same";
+	At -> Pages.Get(name = "ui.css");
+	Pages.Get -> id(CssResponse(text = this));
+}
+
+// GET /api/sources: the .sys files under the source directory.
+proc SourcesRoute(At): HttpResponse {
+	func At(req: HttpRequest): HttpRequest = "../leaf.rs:same";
+	At -> Session.Base(n = 0);
+	Session.Base -> Files.Walk(base = this);
+	Files.Walk -> id(Api(j = Obj([{ key = "ok", value = Bool(true) }, { key = "root", value = Str(Session.Base) }, { key = "files", value = Arr(Strs(xs = this)) }])));
 }
 
 func Strs(xs: []string): []Json = "ide_leaf.rs:strs";
@@ -122,9 +146,10 @@ proc ReadSource(At): Res<string> {
 
 // GET /api/source?path=..
 proc SourceRoute(At): HttpResponse {
-	func At(s: { base: string, query: map[string]string }): { base: string, query: map[string]string } = "../leaf.rs:same";
-	At switch {
-		("path" in this.query) -> ReadSource(s = { base = this.base, p = this.query["path"] }),
+	func At(req: HttpRequest): HttpRequest = "../leaf.rs:same";
+	At -> Session.Base(n = 0);
+	Session.Base switch {
+		("path" in At.query) -> ReadSource(s = { base = this, p = At.query["path"] }),
 		else -> id(ApiErr(msg = "missing ?path="))
 	};
 	ReadSource switch {
@@ -136,17 +161,22 @@ proc SourceRoute(At): HttpResponse {
 // POST /api/save {path, source}: writes an existing .sys file, or an
 // existing vandorf.toml if the new text is a valid manifest (one that
 // doesn't parse would break the project, and the IDE's view of it).
-proc Save(At): HttpResponse {
-	func At(s: { base: string, body: string }): { base: string, body: string } = "../leaf.rs:same";
+proc SaveRoute(At): HttpResponse {
+	func At(req: HttpRequest): HttpRequest = "../leaf.rs:same";
 	func IsSys(p: string): bool = "ide_leaf.rs:is_sys";
 	func IsManifest(p: string): bool = "ide_leaf.rs:is_manifest";
 	func Len(s: string): int = "ide_leaf.rs:byte_len";
-	At -> ParseJson(text = this.body);
+	At -> WriteGate(req = this);
+	WriteGate switch {
+		Shut(r) -> id(r),
+		else -> Session.Base(n = 0)
+	};
+	Session.Base -> ParseJson(text = At.body);
 	ParseJson switch {
 		Ok(j) -> switch {
 			(!IsSomeS(m = JsonStr(j = j, key = "path"))) -> id(ApiErr(msg = "missing path")),
 			(!IsSomeS(m = JsonStr(j = j, key = "source"))) -> id(ApiErr(msg = "missing source")),
-			else -> ResolvePath(s = { base = At.base, p = UnwrapS(m = JsonStr(j = j, key = "path")) })
+			else -> ResolvePath(s = { base = Session.Base, p = UnwrapS(m = JsonStr(j = j, key = "path")) })
 		},
 		Err(e) -> id(ApiErr(msg = "bad request: " + e.msg))
 	};
