@@ -53,7 +53,7 @@ def report(name, a, b):
     for x in d[:4]:
         print("   ", x)
 
-for p in ["/api/sources", "/api/tree", "/api/source?path=examples/demo/sys/calc.sys", "/api/source?path=../etc/passwd", "/api/source"]:
+for p in ["/api/sources", "/api/tree", "/api/project?dir=examples/demo", "/api/project?dir=selfhost", "/api/project?dir=.", "/api/project?dir=src", "/api/project", "/ui.css", "/api/source?path=examples/demo/sys/calc.sys", "/api/source?path=../etc/passwd", "/api/source"]:
     report(p, call(VCC, p), call(REF, p))
 
 demo = open("examples/demo/sys/calc.sys").read()
@@ -75,7 +75,7 @@ for name, body in [
 def token(port):
     import re
     return re.search(r"[0-9a-f]{32}", call(port, "/viewer")[1].decode()).group(0)
-for p in ["/", "/explorer", "/viewer", "/terminal", "/workbench", "/viz"]:
+for p in ["/", "/project", "/explorer", "/viewer", "/terminal", "/workbench", "/viz"]:
     a, b = call(VCC, p), call(REF, p)
     a = (a[0], a[1].decode().replace(token(VCC), "TOKEN").encode())
     b = (b[0], b[1].decode().replace(token(REF), "TOKEN").encode())

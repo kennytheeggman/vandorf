@@ -47,6 +47,8 @@ pub fn page(name: Str) -> Result<Str, String> {
         "terminal" => include_str!("../../../web/terminal.html"),
         "workbench" => include_str!("../../../web/workbench.html"),
         "viz" => include_str!("../../../web/visualizer.html"),
+        "project" => include_str!("../../../web/project.html"),
+        "ui.css" => include_str!("../../../web/ui.css"),
         _ => "",
     }))
 }

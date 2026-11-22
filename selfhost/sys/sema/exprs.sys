@@ -501,7 +501,7 @@ proc Args(At): Res<Call> {
 proc FillArgs(At): Res<Call> {
 	func At(s: { env: Env, target: int, seen: map[string]Expr, span: Span, ps: []Member, i: int, acc: []CallArg }): { env: Env, target: int, seen: map[string]Expr, span: Span, ps: []Member, i: int, acc: []CallArg } = "../../rs/src/sema_leaf.rs:same";
 	At switch {
-		(this.i == this.ps.len) -> id(Ok({ target = this.target, args = this.acc, span = this.span })),
+		(this.i == this.ps.len) -> id(Ok({ target = this.target, args = this.acc, span = this.span, text = "" })),
 		(this.ps[this.i].name in this.seen) -> At(s = { env = this.env, target = this.target, seen = this.seen, span = this.span, ps = this.ps, i = this.i + 1, acc = this.acc + [{ name = this.ps[this.i].name, param = this.ps[this.i].ty, value = this.seen[this.ps[this.i].name] }] }),
 		else -> id(Err({ msg = "call to " + QualName(n = this.env.nodes[this.target]) + " is missing argument " + this.ps[this.i].name, span = this.span }))
 	};
@@ -520,18 +520,28 @@ proc CallOf(At): Res<Call> {
 		else -> AliasOf(t = At.t)
 	};
 	IdV switch {
-		Ok(x) -> id(Ok({ target = At.env.ids[SpanKey(s = At.t.node.span)], args = [{ name = "value", param = NodeRet(nodes = At.env.nodes, n = At.env.ids[SpanKey(s = At.t.node.span)]), value = x }], span = At.t.node.span })),
+		Ok(x) -> id(Ok({ target = At.env.ids[SpanKey(s = At.t.node.span)], args = [{ name = "value", param = NodeRet(nodes = At.env.nodes, n = At.env.ids[SpanKey(s = At.t.node.span)]), value = x }], span = At.t.node.span, text = Squash(src = At.env.srcs[At.t.inner.file], span = At.t.inner) })),
 		Err(e) -> id(Err(Prefixed(d = e, prefix = "id: ")))
 	};
 	AliasOf switch {
-		Some(a) -> Args(s = { env = At.env, sc = At.sc, target = OwnLocal(nodes = At.env.nodes, pid = At.env.pid, name = a.name), given = At.t.args, span = At.t.node.span, i = 0, seen = [:] }) as Called,
+		Some(a) -> Args(s = { env = At.env, sc = At.sc, target = OwnLocal(nodes = At.env.nodes, pid = At.env.pid, name = a.name), given = At.t.args, span = At.t.node.span, i = 0, seen = [:] }) as AliasCall,
 		else -> ResolveNode(s = { nodes = At.env.nodes, globals = At.env.globals, pid = At.env.pid, path = At.t.node })
 	};
 	ResolveNode switch {
-		Ok(n) -> Args(s = { env = At.env, sc = At.sc, target = n, given = At.t.args, span = At.t.node.span, i = 0, seen = [:] }) as Called,
+		Ok(n) -> Args(s = { env = At.env, sc = At.sc, target = n, given = At.t.args, span = At.t.node.span, i = 0, seen = [:] }) as NodeCall,
+		Err(e) -> id(Err(e))
+	};
+	AliasCall -> Called(r = this);
+	NodeCall -> Called(r = this);
+	func Called(r: Res<Call>): Res<Call> = "../../rs/src/sema_leaf.rs:same";
+	Called switch {
+		Ok(c) -> id(Ok({ ..c, text = Squash(src = At.env.srcs[At.t.inner.file], span = At.t.inner) })),
 		Err(e) -> id(Err(e))
 	};
 }
+
+// The source text of a span on one line: whitespace runs become a space.
+func Squash(src: string, span: Span): string = "../../rs/src/sema_leaf.rs:squash";
 
 // A bool condition or guard.
 proc Cond(At): Res<Expr> {

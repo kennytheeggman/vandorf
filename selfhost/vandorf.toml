@@ -21,4 +21,4 @@ entry = "Vcc"
 #   (cd rs && cargo build --release) && rs/target/release/ide
 [http.ide]
 addr = "127.0.0.1:8080"
-raw = { "GET /" = "Ide", "GET /explorer" = "Ide", "GET /viewer" = "Ide", "GET /terminal" = "Ide", "GET /workbench" = "Ide", "GET /viz" = "Ide", "GET /viz/" = "Ide", "GET /api/sources" = "Ide", "GET /api/tree" = "Ide", "GET /api/source" = "Ide", "POST /api/compile" = "Ide", "POST /api/save" = "Ide", "POST /api/term" = "Ide", "GET /api/term/list" = "Ide", "GET /api/term/read" = "Ide", "POST /api/term/input" = "Ide", "POST /api/term/resize" = "Ide", "POST /api/term/kill" = "Ide" }
+raw = { "GET /" = "Ide", "GET /project" = "Ide", "GET /ui.css" = "Ide", "GET /api/project" = "Ide", "GET /explorer" = "Ide", "GET /viewer" = "Ide", "GET /terminal" = "Ide", "GET /workbench" = "Ide", "GET /viz" = "Ide", "GET /viz/" = "Ide", "GET /api/sources" = "Ide", "GET /api/tree" = "Ide", "GET /api/source" = "Ide", "POST /api/compile" = "Ide", "POST /api/save" = "Ide", "POST /api/term" = "Ide", "GET /api/term/list" = "Ide", "GET /api/term/read" = "Ide", "POST /api/term/input" = "Ide", "POST /api/term/resize" = "Ide", "POST /api/term/kill" = "Ide" }

@@ -17,8 +17,9 @@ func Pretty(j: Json): string = "../../rs/src/doc_leaf.rs:pretty";
 
 // 0 func, 1 proc. Edges: 0 call, 1 match, 2 for each expand, 3 for each
 // continue, 4 for each collect.
-type Pending = { ty: int, target: int, label: MaybeStr, value: string, call: string, back: bool };
-type Out = { ty: int, target: int, label: MaybeStr, value: string };
+// args: the call's arguments as written.
+type Pending = { ty: int, target: int, label: MaybeStr, value: string, call: string, args: string, back: bool };
+type Out = { ty: int, target: int, label: MaybeStr, value: string, args: string };
 type Pos = { r: int, c: int };
 type Layout = { rows: [][]int, pos: map[int]Pos, out: map[int][]Pending };
 
@@ -106,7 +107,7 @@ proc Record(At): Layout {
 		else -> Placed(l = Place(l = PushDown(l = At.l, set = this), n = At.outs[At.i].target, r = At.row), target = At.outs[At.i].target, back = false)
 	};
 	Placed -> CallSig(s = { prog = At.prog, pid = At.pid, n = At.outs[At.i].target });
-	CallSig -> At(s = { prog = At.prog, pid = At.pid, src = At.src, row = At.row, outs = At.outs, i = At.i + 1, l = Placed.l, acc = At.acc + [{ ty = At.outs[At.i].ty, target = At.outs[At.i].target, label = At.outs[At.i].label, value = At.outs[At.i].value, call = this, back = Placed.back }] });
+	CallSig -> At(s = { prog = At.prog, pid = At.pid, src = At.src, row = At.row, outs = At.outs, i = At.i + 1, l = Placed.l, acc = At.acc + [{ ty = At.outs[At.i].ty, target = At.outs[At.i].target, label = At.outs[At.i].label, value = At.outs[At.i].value, call = this, args = At.outs[At.i].args, back = Placed.back }] });
 }
 
 // `from` and every placed node reachable from it along forward edges.
@@ -129,14 +130,14 @@ proc EdgeTargets(At): []Out {
 	Ret -> E(e = At.g.edges[At.src]);
 	E switch {
 		Call(c) -> switch {
-			(At.src in At.g.region_of && At.g.region_of[At.src] != 0) -> id([{ ty = 3, target = c.target, label = None(), value = Ret }]),
-			else -> id([{ ty = 0, target = c.target, label = None(), value = Ret }])
+			(At.src in At.g.region_of && At.g.region_of[At.src] != 0) -> id([{ ty = 3, target = c.target, label = None(), value = Ret, args = c.text }]),
+			else -> id([{ ty = 0, target = c.target, label = None(), value = Ret, args = c.text }])
 		},
 		Match(arms) -> MatchOuts(s = { paths = ArmPaths(arms = arms), value = Ret, i = 0, acc = [] }),
 		ForEach(f) -> ShowType(t = f.elem) as Elem,
-		Collect(c) -> id([{ ty = 4, target = c.target, label = None(), value = "[]" + Ret }])
+		Collect(c) -> id([{ ty = 4, target = c.target, label = None(), value = "[]" + Ret, args = c.text }])
 	};
-	Elem -> id([{ ty = 2, target = ForEachCall(e = E).target, label = None(), value = this }]);
+	Elem -> id([{ ty = 2, target = ForEachCall(e = E).target, label = None(), value = this, args = ForEachCall(e = E).text }]);
 }
 
 // A nested switch's arms are flattened into one edge per call.
@@ -145,7 +146,7 @@ proc MatchOuts(At): []Out {
 	func Labels(ls: []string): string = "../../rs/src/doc_leaf.rs:join_labels";
 	At switch {
 		(this.i == this.paths.len) -> id(this.acc),
-		else -> At(s = { paths = this.paths, value = this.value, i = this.i + 1, acc = this.acc + [{ ty = 1, target = this.paths[this.i].call.target, label = Some(Labels(ls = this.paths[this.i].labels)), value = this.value }] })
+		else -> At(s = { paths = this.paths, value = this.value, i = this.i + 1, acc = this.acc + [{ ty = 1, target = this.paths[this.i].call.target, label = Some(Labels(ls = this.paths[this.i].labels)), value = this.value, args = this.paths[this.i].call.text }] })
 	};
 }
 

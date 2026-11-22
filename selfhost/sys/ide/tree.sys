@@ -41,15 +41,19 @@ proc Contents(At): { at: { base: string, paths: []string, i: int, acc: []Json, p
 		Ok(f) -> Outline(s = { src = OrEmpty(r = Files.Read), f = f }),
 		Err(e) -> id({ at = At.at, file = Obj([{ key = "path", value = Str(At.at.paths[At.at.i]) }, { key = "project", value = At.project }, { key = "items", value = Arr([]) }, { key = "error", value = Str(e.msg) }]) })
 	};
-	Outline -> id({ at = At.at, file = Obj([{ key = "path", value = Str(At.at.paths[At.at.i]) }, { key = "project", value = At.project }, { key = "items", value = ItemsJson(items = this) }, { key = "error", value = Null() }]) });
+	// Top-level procs a bin or a route runs carry what runs them.
+	Outline -> id({ at = At.at, file = Obj([{ key = "path", value = Str(At.at.paths[At.at.i]) }, { key = "project", value = At.project }, { key = "items", value = WithEntries(items = ItemsJson(items = this), project = At.project) }, { key = "error", value = Null() }]) });
 }
 
-// { name, dir } of the project whose manifest is in dir.
+func WithEntries(items: Json, project: Json): Json = "../../rs/src/ide_leaf.rs:with_entries";
+
+// { name, dir, entries } of the project whose manifest is in dir: entries
+// by proc, what runs it ("bin demo", "POST /api/calc", "GET / (raw)").
 proc ProjectInfo(At): Json {
 	func At(s: { base: string, dir: string }): { base: string, dir: string } = "../../rs/src/sema_leaf.rs:same";
-	func Name(text: Res<string>): string = "../../rs/src/ide_leaf.rs:project_name";
+	func Info(text: Res<string>, dir: string): Json = "../../rs/src/ide_leaf.rs:project_info";
 	At -> Files.Read(path = JoinP(a = this.dir, b = "vandorf.toml"));
-	Files.Read -> id(Obj([{ key = "name", value = Str(Name(text = this)) }, { key = "dir", value = Str(Relative(target = At.dir, from = At.base)) }]));
+	Files.Read -> id(Info(text = this, dir = Relative(target = At.dir, from = At.base)));
 }
 
 // A file's declarations, sorted by line.

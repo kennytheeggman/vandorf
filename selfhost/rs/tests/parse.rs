@@ -214,6 +214,7 @@ fn r_edge(o: &mut Out, e: &r::Edge) {
 
 fn r_target(o: &mut Out, t: &r::Target) {
     o.open("target");
+    o.s.push_str(&format!(" text={:?}", t.text));
     r_path(o, &t.node);
     for a in &t.args {
         o.open("arg");
@@ -557,6 +558,8 @@ fn v_edge(o: &mut Out, e: &v::Edge) {
 
 fn v_target(o: &mut Out, t: &v::Target) {
     o.open("target");
+    let text = o.src.get(t.inner.at as usize..t.inner.end as usize).unwrap_or("").split_whitespace().collect::<Vec<_>>().join(" ");
+    o.s.push_str(&format!(" text={text:?}"));
     v_path(o, &t.node);
     for a in &t.args {
         o.open("arg");

@@ -1119,3 +1119,8 @@ pub fn pack_placed(l: Layout, _target: i64, back: bool) -> Result<RecordPlacedOu
 pub fn extra_member(bfs: List<Member>, fs: List<Member>) -> Result<Str, String> {
     Ok(bfs.iter().find(|b| !fs.iter().any(|f| f.name == b.name)).map_or("".into(), |b| b.name.clone()))
 }
+
+pub fn squash(src: Str, span: Span) -> Result<Str, String> {
+    let text = src.get(span.at as usize..span.end as usize).unwrap_or("");
+    Ok(text.split_whitespace().collect::<Vec<_>>().join(" ").into())
+}

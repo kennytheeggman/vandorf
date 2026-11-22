@@ -53,15 +53,18 @@ proc PTarget(At): R<Target> {
 	IdValue -> Expect(toks = At.toks, pos = this.pos, text = ")", what = ") after id's value") as IdClose;
 	IdClose -> PAlias(toks = this.toks, pos = this.pos) as IdAlias;
 	IdAlias -> id({
-		x = { node = { segs = [MkIdent(t = At.tok)], span = SpanOf(t = At.tok) }, args = [], alias = this.x, id = Some(IdValue.x) },
+		x = { node = { segs = [MkIdent(t = At.tok)], span = SpanOf(t = At.tok) }, args = [], alias = this.x, id = Some(IdValue.x), inner = Inner(toks = At.toks, from = IdOpen.pos, to = IdValue.pos) },
 		pos = this.pos
 	});
 	PPath -> Expect(toks = At.toks, pos = this.pos, text = "(", what = "( and the call's arguments") as Open;
 	Open -> PArgList(toks = this.toks, pos = this.pos);
 	PArgList -> Expect(toks = At.toks, pos = this.pos, text = ")", what = ", or )") as Close;
 	Close -> PAlias(toks = this.toks, pos = this.pos) as CallAlias;
-	CallAlias -> id({ x = { node = PPath.x, args = PArgList.x, alias = this.x, id = None() }, pos = this.pos });
+	CallAlias -> id({ x = { node = PPath.x, args = PArgList.x, alias = this.x, id = None(), inner = Inner(toks = At.toks, from = Open.pos, to = PArgList.pos) }, pos = this.pos });
 }
+
+// The span of toks[from..to]; empty, at toks[from], if there are none.
+func Inner(toks: []Tok, from: int, to: int): Span = "../rs/src/leaf.rs:inner_span";
 
 // ('as' IDENT)?
 proc PAlias(At): R<OptIdent> {

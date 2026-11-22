@@ -323,3 +323,12 @@ pub fn or_of(pats: List<Pat>) -> Result<Pat, String> {
 }
 
 
+
+pub fn inner_span(toks: List<Tok>, from: i64, to: i64) -> Result<Span, String> {
+    let first = get(&toks, from);
+    if to <= from {
+        return Ok(Span { at: first.at, end: first.at, file: first.file });
+    }
+    let last = get(&toks, to - 1);
+    Ok(Span { at: first.at, end: last.end, file: first.file })
+}

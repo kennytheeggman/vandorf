@@ -32,6 +32,13 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
         },
         None => MaybeRust::None,
     };
+    let go = match t.get("go").and_then(|g| g.as_table()) {
+        Some(g) => match g.get("out").and_then(|o| o.as_str()) {
+            Some(out) => MaybeGo::Some(GoTarget { out: s(out), package: opt(g.get("package")), module: opt(g.get("module")), types_dir: opt(g.get("types_dir")) }),
+            None => return fail("[go]: missing field `out`".into()),
+        },
+        None => MaybeGo::None,
+    };
     let mut http = vec![];
     if let Some(h) = t.get("http").and_then(|h| h.as_table()) {
         for (n, v) in h {
@@ -49,7 +56,7 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
             bins.push((s(n), Bin { entry: v.get("entry").and_then(|e| e.as_str()).map_or(s("Main"), s), go: opt(v.get("go")), rust: opt(v.get("rust")) }));
         }
     }
-    Ok(ResManifest::Ok(Manifest { name: s(name), sources: sources.into(), rust, has_go: t.contains_key("go"), bins: bins.into_iter().collect(), http: http.into_iter().collect() }))
+    Ok(ResManifest::Ok(Manifest { name: s(name), sources: sources.into(), rust, has_go: t.contains_key("go"), go, bins: bins.into_iter().collect(), http: http.into_iter().collect() }))
 }
 
 fn normalize(p: &Path) -> PathBuf {

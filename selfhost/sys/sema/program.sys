@@ -61,7 +61,9 @@ type SPatKind = enum {
 type MaybePat = enum { None, Some(SPat) };
 type PatMember = { name: string, pat: SPat };
 
-type Call = { target: int, args: []CallArg, span: Span };
+// text: the arguments as written, whitespace collapsed (empty for calls in
+// expressions).
+type Call = { target: int, args: []CallArg, span: Span, text: string };
 type CallArg = { name: string, param: Type, value: Expr };
 
 type Expr = enum {

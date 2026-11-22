@@ -49,6 +49,7 @@ func JsonStr(j: Json, key: string): MaybeStr = "../../rs/src/doc_leaf.rs:json_st
 // The page served at a path ("" if none), and one carrying the token.
 func PageName(path: string): string = "../../rs/src/ide_leaf.rs:page_name";
 func PageResponse(text: string, token: string): HttpResponse = "../../rs/src/ide_leaf.rs:page_response";
+func CssResponse(text: string): HttpResponse = "../../rs/src/ide_leaf.rs:css_response";
 // 200 and the JSON; 400 and {"ok": false, "error": msg}; 403; 404.
 func Api(j: Json): HttpResponse = "../../rs/src/ide_leaf.rs:api";
 func ApiErr(msg: string): HttpResponse = "../../rs/src/ide_leaf.rs:api_err";
@@ -64,6 +65,8 @@ proc Ide(At): HttpResponse {
 	Session.Token -> Session.Base(n = 0);
 	Session.Base switch {
 		(At.method == "GET" && PageName(path = At.path) != "") -> Pages.Get(name = PageName(path = At.path)),
+		(At.method == "GET" && At.path == "/ui.css") -> Pages.Get(name = "ui.css") as Css,
+		(At.method == "GET" && At.path == "/api/project") -> ProjectRoute(s = { base = this, query = At.query }),
 		(At.method == "GET" && At.path == "/api/sources") -> Files.Walk(base = this) as Sources,
 		(At.method == "GET" && At.path == "/api/tree") -> Tree(base = this),
 		(At.method == "GET" && At.path == "/api/source") -> SourceRoute(s = { base = this, query = At.query }),
@@ -75,6 +78,7 @@ proc Ide(At): HttpResponse {
 		else -> id(NotFound(n = 0))
 	};
 	Pages.Get -> id(PageResponse(text = this, token = Session.Token));
+	Css -> id(CssResponse(text = this));
 	Sources -> id(Api(j = Obj([{ key = "ok", value = Bool(true) }, { key = "root", value = Str(Session.Base) }, { key = "files", value = Arr(Strs(xs = this)) }])));
 }
 

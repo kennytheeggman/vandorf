@@ -58,7 +58,8 @@ type PatField = { name: Ident, pat: Pat };
 type OptPat = enum { None, Some(Pat) };
 
 // `id(value)` has `node` = id and an `id` value; other targets have args.
-type Target = { node: Path, args: []Arg, alias: OptIdent, id: OptValue };
+// inner: what's inside the parentheses (empty if nothing), for its text.
+type Target = { node: Path, args: []Arg, alias: OptIdent, id: OptValue, inner: Span };
 type Arg = { name: Ident, value: Value };
 type OptValue = enum { None, Some(Value) };
 

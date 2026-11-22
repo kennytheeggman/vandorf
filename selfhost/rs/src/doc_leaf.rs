@@ -243,6 +243,9 @@ pub fn edges_json(l: Layout) -> Result<Json, String> {
                 }
                 fs.push(field("valueType", Json::Str(e.value.clone())));
                 fs.push(field("call", Json::Str(e.call.clone())));
+                if !e.args.is_empty() {
+                    fs.push(field("args", Json::Str(e.args.clone())));
+                }
                 out.push(Json::Obj(fs.into()));
             }
         }

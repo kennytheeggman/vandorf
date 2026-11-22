@@ -357,7 +357,7 @@ fn r_ref(r: &rs::Ref) -> String {
 
 fn r_call(c: &rs::Call) -> String {
     let args: Vec<String> = c.args.iter().map(|a| format!("{}:{}={}", a.name, a.param, r_expr(&a.value))).collect();
-    format!("call #{}({}) @{}..{}", c.target, args.join(", "), c.span.start, c.span.end)
+    format!("call #{}({}) @{}..{} text={:?}", c.target, args.join(", "), c.span.start, c.span.end, c.text)
 }
 
 fn r_pat(p: &rs::Pat) -> String {
@@ -453,7 +453,7 @@ fn v_ref(r: &v::Ref) -> String {
 
 fn v_call(c: &v::Call) -> String {
     let args: Vec<String> = c.args.iter().map(|a| format!("{}:{}={}", a.name, show(&a.param), v_expr(&a.value))).collect();
-    format!("call #{}({}) @{}..{}", c.target, args.join(", "), c.span.at, c.span.end)
+    format!("call #{}({}) @{}..{} text={:?}", c.target, args.join(", "), c.span.at, c.span.end, &*c.text)
 }
 
 fn v_pat(p: &v::SPat) -> String {
