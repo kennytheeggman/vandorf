@@ -5,107 +5,84 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Viewer</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="/ui.css">
 <style>
-:root{
-  --bg:#ffffff; --bar:#f6f8fb; --ink:#0f172a; --mut:#64748b; --line:#dde3ec; --hover:#e8eef7;
-  --accent:#1f6feb; --accent-ink:#fff; --err:#c62828; --err-bg:#fdecec; --ok:#1b7f3b; --dirty:#e07b00;
-  --code-bg:#fbfcfe; --kw:#7c3aed; --str:#b45309; --com:#94a3b8; --type:#0e7490; --fn:#1d4ed8; --shadow:rgba(15,23,42,.18);
-}
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    --bg:#0e1420; --bar:#0e1624; --ink:#dbe6f4; --mut:#8aa2bf; --line:#22324a; --hover:#172640;
-    --accent:#3b82f6; --accent-ink:#fff; --err:#ff8a80; --err-bg:#3a1618; --ok:#5fd38d; --dirty:#fbbf24;
-    --code-bg:#0e1624; --kw:#c4b5fd; --str:#fbbf24; --com:#5b6f8a; --type:#67e8f9; --fn:#93c5fd; --shadow:rgba(0,0,0,.5);
-  }
-}
-:root[data-theme="dark"]{
-  --bg:#0e1420; --bar:#0e1624; --ink:#dbe6f4; --mut:#8aa2bf; --line:#22324a; --hover:#172640;
-  --accent:#3b82f6; --accent-ink:#fff; --err:#ff8a80; --err-bg:#3a1618; --ok:#5fd38d; --dirty:#fbbf24;
-  --code-bg:#0e1624; --kw:#c4b5fd; --str:#fbbf24; --com:#5b6f8a; --type:#67e8f9; --fn:#93c5fd; --shadow:rgba(0,0,0,.5);
-}
-*{ box-sizing:border-box }
-html,body{ height:100%; margin:0; overflow:hidden }
-body{ background:var(--bg); color:var(--ink); font:13px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif; display:flex; flex-direction:column }
-button,select{ font:inherit; color:var(--ink); background:none; border:1px solid transparent; border-radius:6px; padding:3px 9px; cursor:pointer }
-button:hover{ background:var(--hover) }
-select{ border-color:var(--line); background:var(--bg); max-width:260px }
-.bar{ display:flex; align-items:center; gap:6px; height:34px; padding:0 8px; border-bottom:1px solid var(--line); background:var(--bar); flex:none; white-space:nowrap; overflow-x:auto; overflow-y:hidden }
-.seg{ display:flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; flex:none }
-.seg button{ border:0; border-radius:0; padding:3px 12px }
-.seg button.on{ background:var(--accent); color:var(--accent-ink) }
-.crumb{ color:var(--mut); overflow:hidden; text-overflow:ellipsis; font-size:12px }
-.sp{ flex:1 }
-#status{ font-size:12px; color:var(--mut) } #status.ok{ color:var(--ok) } #status.bad{ color:var(--err); cursor:pointer }
-#bSave{ color:var(--dirty); font-weight:600; display:none } #bSave.on{ display:inline-block }
+body{ display:flex; flex-direction:column }
+.crumb{ color:var(--mut); overflow:hidden; text-overflow:ellipsis; font-size:12px; padding:0 4px; min-width:0 }
+.crumb .dot{ color:var(--dirty); margin-left:6px; display:none } .crumb.dirty .dot{ display:inline }
 #main{ flex:1; position:relative; min-height:0 }
 #diagram, #text{ position:absolute; inset:0; display:none }
 #diagram.on, #text.on{ display:flex; flex-direction:column }
 #viz{ flex:1; border:0; width:100%; background:var(--bg) }
 #banner{ position:absolute; top:8px; left:50%; transform:translateX(-50%); z-index:5; background:var(--err-bg); color:var(--err);
-  border:1px solid var(--err); border-radius:8px; padding:4px 12px; font-size:12px; cursor:pointer; display:none; box-shadow:0 4px 14px var(--shadow) }
+  border:1px solid var(--err); border-radius:var(--r); padding:3px 12px; font-size:12px; cursor:pointer; display:none; box-shadow:0 4px 14px var(--shadow) }
 #banner.on{ display:block }
+body.text-mode #bFit{ display:none }
 
 /* text mode */
 #editorWrap{ flex:1; min-height:0; position:relative }
-#editorWrap textarea{ width:100%; height:100%; border:0; resize:none; padding:10px; font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; background:var(--code-bg); color:var(--ink) }
-.CodeMirror{ height:100%; font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; background:var(--code-bg); color:var(--ink) }
+#editorWrap textarea{ width:100%; height:100%; border:0; resize:none; padding:10px; font:13px/1.5 var(--mono); background:var(--code-bg); color:var(--ink) }
+.CodeMirror{ height:100%; font:13px/1.5 var(--mono); background:var(--code-bg); color:var(--ink) }
 .CodeMirror-gutters{ background:var(--bar); border-right:1px solid var(--line) }
 .CodeMirror-linenumber{ color:var(--mut) }
 .CodeMirror-cursor{ border-left-color:var(--ink) }
 .CodeMirror-selected, .CodeMirror-focused .CodeMirror-selected{ background:rgba(59,130,246,.22) }
 .cm-keyword{ color:var(--kw); font-weight:600 } .cm-string, .cm-number{ color:var(--str) }
-.cm-comment{ color:var(--com); font-style:italic } .cm-type{ color:var(--type) }
+.cm-comment{ color:var(--com); font-style:italic } .cm-type{ color:var(--tyc) }
 .cm-errmark{ text-decoration:wavy underline var(--err); background:var(--err-bg) }
 .cm-flash{ background:rgba(250,204,21,.35) }
 #diags{ max-height:30%; overflow:auto; border-top:1px solid var(--line); background:var(--bar); display:none; flex:none }
 #diags.on{ display:block }
 #diags .d{ padding:5px 12px; border-bottom:1px solid var(--line); cursor:pointer; color:var(--err); font-size:12.5px }
 #diags .d:hover{ background:var(--err-bg) }
-#diags .d b{ font-family:ui-monospace,monospace; font-weight:600; margin-right:8px }
+#diags .d b{ font-family:var(--mono); font-weight:600; margin-right:8px }
 
-/* preview drawer: pops up over the bottom of the diagram */
-#drawer{ position:absolute; left:10px; right:10px; bottom:0; height:var(--dh,240px); max-height:calc(100% - 40px); z-index:8;
-  background:var(--bar); border:1px solid var(--line); border-bottom:0; border-radius:10px 10px 0 0; box-shadow:0 -8px 26px var(--shadow);
-  display:flex; flex-direction:column; transform:translateY(105%); transition:transform .16s ease-out; visibility:hidden }
+/* preview panel: pops up over the bottom of the diagram */
+#drawer{ position:absolute; top:0; right:0; bottom:0; width:var(--dw,460px); max-width:calc(100% - 60px); z-index:8;
+  background:var(--bar); border-left:1px solid var(--line); box-shadow:-8px 0 26px var(--shadow);
+  display:flex; flex-direction:column; transform:translateX(105%); transition:transform .16s ease-out; visibility:hidden }
 #drawer.on{ transform:none; visibility:visible }
 body.text-mode #drawer{ display:none }
-body.text-mode #bPrev{ display:none }
-#drawer .grip{ height:7px; cursor:row-resize; flex:none; display:flex; justify-content:center; align-items:center }
-#drawer .grip::before{ content:""; width:40px; height:3px; border-radius:2px; background:var(--line) }
-#drawer .dh{ display:flex; align-items:center; gap:8px; padding:0 8px 6px 12px; flex:none; min-width:0 }
-#drawer .dh .k{ font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; color:#fff; border-radius:4px; padding:1px 5px; flex:none }
-.k.func{ background:#1d6fd8 } .k.proc{ background:#e07b00 } .k.type{ background:#0e7490 } .k.edge{ background:#64748b } .k.builtin{ background:#7c3aed }
+#drawer .grip{ position:absolute; left:-3px; top:0; bottom:0; width:7px; cursor:col-resize; z-index:1 }
+#drawer .grip:hover, #drawer .grip.drag{ background:var(--accent); opacity:.5 }
+#drawer .dh{ display:flex; align-items:center; gap:6px; height:var(--bar-h); padding:0 6px 0 12px; margin-bottom:6px; flex:none; min-width:0; border-bottom:1px solid var(--line) }
 #drawer .dh .name{ font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
 #drawer .dh .loc{ font-size:12px; color:var(--accent); cursor:pointer; white-space:nowrap }
 #drawer .dh .loc:hover{ text-decoration:underline }
-#drawer .body{ flex:1; overflow:auto; padding:0 12px 12px; min-height:0 }
-#drawer h4{ margin:10px 0 4px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut) }
-#drawer pre{ margin:0; padding:8px 10px; background:var(--code-bg); border:1px solid var(--line); border-radius:7px; overflow:auto;
-  font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; tab-size:4; white-space:pre }
-#drawer .sig{ font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; word-break:break-word }
-#drawer a[data-type], #drawer a[data-node]{ color:var(--type); text-decoration:none; border-bottom:1px dotted currentColor; cursor:pointer }
+#drawer .dh svg{ width:13px; height:13px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round }
+#drawer .body{ flex:1; overflow:auto; padding:0 12px 12px; min-height:0; display:flex; flex-direction:column; gap:8px }
+#drawer h4{ margin:4px 0 0; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut) }
+#drawer pre{ margin:0; padding:8px 10px; background:var(--code-bg); border:1px solid var(--line); border-radius:var(--r); overflow:auto;
+  font:12px/1.5 var(--mono); tab-size:4; white-space:pre; flex:none }
+#drawer .sig{ font:12.5px/1.5 var(--mono); word-break:break-word; padding:8px 10px; background:var(--code-bg); border:1px solid var(--line); border-radius:var(--r) }
+#drawer a[data-type], #drawer a[data-node]{ color:var(--tyc); text-decoration:none; border-bottom:1px dotted currentColor; cursor:pointer }
 #drawer a[data-node]{ color:var(--fn) }
-#drawer .tabs{ display:flex; gap:2px; margin:10px 0 4px }
-#drawer .tabs button{ font-size:12px; padding:2px 9px; border-radius:5px 5px 0 0; color:var(--mut) }
-#drawer .tabs button.on{ color:var(--ink); box-shadow:inset 0 -2px var(--accent) }
-#drawer .cols{ display:grid; grid-template-columns:minmax(260px,1fr) minmax(260px,1.4fr); gap:14px }
-#drawer .note{ color:var(--mut); font-size:12px }
-#drawer .acts{ display:flex; gap:6px; margin-top:10px }
-#drawer .acts button{ border-color:var(--line); font-size:12px }
-.tk-kw{ color:var(--kw); font-weight:600 } .tk-str{ color:var(--str) } .tk-com{ color:var(--com); font-style:italic } .tk-num{ color:var(--str) } .tk-ty{ color:var(--type) }
-@media (max-width: 760px){ #drawer .cols{ grid-template-columns:1fr } }
+#drawer .impl{ display:flex; flex-direction:column; gap:0 }
+#drawer .tabs{ display:flex; flex-wrap:wrap; gap:2px; align-items:flex-end }
+#drawer .tabs button{ font-size:12px; height:22px; border-radius:var(--r) var(--r) 0 0; color:var(--mut) }
+#drawer .tabs button.on{ color:var(--ink); background:none; box-shadow:inset 0 -2px var(--accent) }
+#drawer .tabs .src{ margin-left:auto; font-size:11.5px; color:var(--mut); padding:0 4px 3px }
+#drawer .note{ color:var(--mut); font-size:12px; margin:0 }
+#drawer table{ border-collapse:collapse; width:100%; font-size:12.5px }
+#drawer td{ padding:4px 8px; border-top:1px solid var(--line); vertical-align:top }
+#drawer td.k{ color:var(--mut); width:1%; white-space:nowrap; font-size:11px; text-transform:uppercase; letter-spacing:.05em; padding-top:6px }
+#drawer td code, #drawer .arm code{ font:12px/1.5 var(--mono); word-break:break-word }
+#drawer .arms{ display:flex; flex-direction:column; border:1px solid var(--line); border-radius:var(--r); overflow:hidden; background:var(--bg) }
+#drawer .arm{ display:flex; flex-direction:column; gap:3px; padding:6px 10px; cursor:pointer; border-top:1px solid var(--line) }
+#drawer .arm:first-child{ border-top:0 }
+#drawer .arm:hover{ background:var(--sel); color:var(--sel-ink) }
+#drawer .arm .to{ display:flex; align-items:center; gap:6px; min-width:0; padding-left:12px; color:var(--mut) }
+#drawer .arm .to code{ color:var(--ink) }
+#drawer .arm .ty{ color:var(--mut); margin-left:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.tk-kw{ color:var(--kw); font-weight:600 } .tk-str{ color:var(--str) } .tk-com{ color:var(--com); font-style:italic } .tk-num{ color:var(--str) } .tk-ty{ color:var(--tyc) }
 </style>
 </head>
 <body>
 <div class="bar">
   <div class="seg"><button id="mDiagram" class="on" title="Diagram view">Diagram</button><button id="mText" title="Source text">Text</button></div>
-  <select id="procSel" title="Proc shown in the diagram"></select>
-  <span class="crumb" id="crumb"></span>
+  <span class="crumb" id="crumb"><span id="crumbT"></span><span class="dot" title="Unsaved (Ctrl/&#8984;+S saves)">&#9679;</span></span>
   <span class="sp"></span>
-  <span id="status"></span>
-  <button id="bSave" title="Save (Ctrl/⌘+S)">● Save</button>
-  <button id="bPrev" title="Preview drawer (types and implementations)">Preview</button>
-  <button id="bFit" title="Fit diagram to window">⤢</button>
+  <button class="icon" id="bFit" title="Fit diagram to window">&#10530;</button>
 </div>
 <div id="main">
   <section id="diagram" class="on">
@@ -118,8 +95,10 @@ body.text-mode #bPrev{ display:none }
   </section>
   <div id="drawer">
     <div class="grip" id="grip"></div>
-    <div class="dh"><span class="k" id="dKind"></span><span class="name" id="dName"></span><span class="loc" id="dLoc"></span>
-      <span class="sp"></span><button id="dBack" title="Back">←</button><button id="dClose" title="Close (Esc)">✕</button></div>
+    <div class="dh"><span class="badge" id="dKind"></span><span class="name" id="dName"></span><span class="loc" id="dLoc"></span>
+      <span class="sp" style="flex:1"></span>
+      <button class="icon" id="dOpen" title="Open in new tab"><svg viewBox="0 0 16 16"><path d="M6 3H3.5v9.5H13V10M9 3h4v4M13 3L7.5 8.5"/></svg></button>
+      <button class="icon" id="dBack" title="Back">&larr;</button><button class="icon" id="dClose" title="Close (Esc)">&times;</button></div>
     <div class="body" id="dBody"></div>
   </div>
 </div>
@@ -189,8 +168,6 @@ function setMode(m, quietly){
   $('mDiagram').classList.toggle('on', m === 'diagram'); $('mText').classList.toggle('on', m === 'text');
   $('diagram').classList.toggle('on', m === 'diagram'); $('text').classList.toggle('on', m === 'text');
   document.body.classList.toggle('text-mode', m === 'text');
-  $('bFit').style.display = m === 'diagram' ? '' : 'none';
-  $('procSel').style.display = m === 'diagram' ? '' : 'none';
   if (m === 'text' && cm) setTimeout(function(){ cm.refresh(); if (S.pendingLine != null){ editor.jump(S.pendingLine); S.pendingLine = null; } }, 0);
   if (!quietly) up({ type: 'ide-tab-state', mode: m });
 }
@@ -204,11 +181,12 @@ $('mText').onclick = function(){
 $('bFit').onclick = function(){ toViz({ type: 'vandorf-fit' }); };
 
 /* ---------- status ---------- */
+/* The IDE's status bar shows the active tab's status. */
+var lastStatus = { text: '', cls: '' };
 function status(text, cls){
-  var s = $('status'); s.textContent = text; s.className = cls || '';
+  lastStatus = { text: text, cls: cls || '' };
   up({ type: 'ide-status', text: text, cls: cls });
 }
-$('status').onclick = function(){ if (this.classList.contains('bad')) setMode('text'); };
 $('banner').onclick = function(){ setMode('text'); };
 
 /* ---------- compile ---------- */
@@ -251,8 +229,7 @@ function show(res){
   S.good = res;
   var failed = [res.go && res.go.ok === false && res.go.error !== 'not configured in vandorf.toml' ? 'Go' : null,
                 res.rust && res.rust.ok === false && res.rust.error !== 'not configured in vandorf.toml' ? 'Rust' : null].filter(Boolean);
-  status('OK' + (res.project ? ' · ' + res.project : '') + (failed.length ? ' · ' + failed.join(', ') + ' codegen failed' : ''), failed.length ? 'bad' : 'ok');
-  fillProcs();
+  status('OK' + (failed.length ? ' · ' + failed.join(', ') + ' codegen failed' : ''), failed.length ? 'bad' : 'ok');
   if (!S.proc || !res.document.grids[S.proc]){
     var mine = procsHere();
     if (S.proc && !res.document.grids[S.proc]) status('proc ' + S.proc + ' is gone', 'bad');
@@ -275,26 +252,17 @@ function procsHere(){
   out.sort(function(a, b){ return n[a].loc.line - n[b].loc.line; });
   return out;
 }
-function fillProcs(){
-  var sel = $('procSel'), mine = procsHere(), all = S.good ? Object.keys(S.good.document.grids) : [];
-  var opts = mine.slice();
-  if (S.proc && opts.indexOf(S.proc) < 0 && all.indexOf(S.proc) >= 0) opts.unshift(S.proc);
-  sel.innerHTML = opts.map(function(q){ return '<option value="' + esc(q) + '">' + esc(q) + '</option>'; }).join('') ||
-    '<option value="">(no procs in this file)</option>';
-  if (S.proc) sel.value = S.proc;
-}
 function setProc(q, quietly){
-  S.proc = q; $('procSel').value = q || '';
+  S.proc = q;
   crumb();
   if (!quietly) toViz({ type: 'vandorf-show-proc', proc: q });
   up({ type: 'ide-tab-state', proc: q });
 }
-$('procSel').onchange = function(){ setProc(this.value); };
-function crumb(){ $('crumb').textContent = S.path || ''; }
+function crumb(){ $('crumbT').textContent = S.path || ''; $('crumb').title = S.path || ''; }
 
 /* ---------- saving ---------- */
 function setDirty(d){
-  S.dirty = d; $('bSave').classList.toggle('on', d);
+  S.dirty = d; $('crumb').classList.toggle('dirty', d);
 }
 function save(){
   if (!S.path) return;
@@ -311,7 +279,6 @@ function save(){
     })
     .catch(function(e){ status('Save failed: ' + e, 'bad'); });
 }
-$('bSave').onclick = save;
 document.addEventListener('keydown', function(e){
   if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')){ e.preventDefault(); save(); }
   if (e.key === 'Escape' && $('drawer').classList.contains('on')) closeDrawer();
@@ -325,30 +292,35 @@ editor.onChange(function(){
 
 /* ---------- preview drawer ---------- */
 var drawerSel = null, history_ = [];
-var dh = +store('vandorf.viewer.drawer') || 240;
-$('drawer').style.setProperty('--dh', dh + 'px');
+var dw = +store('vandorf.viewer.drawerW') || 460;
+$('drawer').style.setProperty('--dw', dw + 'px');
 (function(){
   var g = $('grip');
   g.addEventListener('pointerdown', function(e){
-    e.preventDefault(); g.setPointerCapture(e.pointerId);
-    var y0 = e.clientY, h0 = $('drawer').offsetHeight;
-    function mv(ev){ dh = Math.max(90, h0 + (y0 - ev.clientY)); $('drawer').style.setProperty('--dh', dh + 'px'); }
-    function done(){ g.removeEventListener('pointermove', mv); g.removeEventListener('pointerup', done); store('vandorf.viewer.drawer', dh); }
+    e.preventDefault(); g.setPointerCapture(e.pointerId); g.classList.add('drag');
+    // The diagram iframe would swallow the drag.
+    $('viz').style.pointerEvents = 'none';
+    var x0 = e.clientX, w0 = $('drawer').offsetWidth;
+    function mv(ev){ dw = Math.max(280, w0 + (x0 - ev.clientX)); $('drawer').style.setProperty('--dw', dw + 'px'); }
+    function done(){ g.removeEventListener('pointermove', mv); g.removeEventListener('pointerup', done); g.classList.remove('drag');
+      $('viz').style.pointerEvents = ''; store('vandorf.viewer.drawerW', dw); }
     g.addEventListener('pointermove', mv); g.addEventListener('pointerup', done);
   });
 })();
 function openDrawer(sel, push){
   if (push && drawerSel) history_.push(drawerSel);
   drawerSel = sel; renderDrawer();
-  $('drawer').classList.add('on'); $('bPrev').classList.add('on');
+  $('drawer').classList.add('on');
 }
-function closeDrawer(){ $('drawer').classList.remove('on'); $('bPrev').classList.remove('on'); }
-$('dClose').onclick = closeDrawer;
+/* fromViz: the diagram already dropped its selection. */
+function closeDrawer(fromViz){
+  $('drawer').classList.remove('on');
+  toViz({ type: 'vandorf-highlight', id: null });
+  if (!fromViz) toViz({ type: 'vandorf-clear-selection' });
+  drawerSel = null; history_ = [];
+}
+$('dClose').onclick = function(){ closeDrawer(); };
 $('dBack').onclick = function(){ if (history_.length){ drawerSel = history_.pop(); renderDrawer(); } };
-$('bPrev').onclick = function(){
-  if ($('drawer').classList.contains('on')) closeDrawer();
-  else openDrawer(drawerSel || (S.proc ? { kind: 'proc', grid: S.proc, label: S.proc } : { kind: 'none' }));
-};
 
 /* Resolves a name as written inside grid `owner` to a symbol: a local of the
    owner or of an enclosing proc, else a global (interface funcs are qualified). */
@@ -408,24 +380,24 @@ function locLink(loc){
   if (!loc || !loc.file) return '';
   return (loc.file === S.path ? '' : loc.file.split('/').pop() + ':') + 'line ' + (loc.line + 1);
 }
-function typeBlock(names){
-  var t = syms().types;
-  if (!names.length) return '';
-  return '<h4>Types</h4>' + names.map(function(n){
-    return '<pre>' + '<span class="tk-kw">type</span> ' + esc(n) + ' = ' + linkTypes(prettyType(t[n].def)) + ';</pre>';
-  }).join('<div style="height:6px"></div>');
+var BADGE = { proc: 'P', func: 'ƒ', type: 'T', interface: 'I', edge: 'E', switch: '◇', builtin: 'B', none: 'i' };
+var EDGE_KIND = { call: 'calls', match: 'match arm', expand: 'expands', continue: 'continues', collect: 'collects' };
+function nodeRef(n){
+  if (!n) return '';
+  var k = n.kind === 'proc' || n.kind === 'func' ? n.kind : null;
+  return (k ? '<span class="badge ' + k + '">' + BADGE[k] + '</span>' : '') + '<code>' + esc(n.label || '?') + '</code>';
 }
+function row(k, v){ return v ? '<tr><td class="k">' + esc(k) + '</td><td>' + v + '</td></tr>' : ''; }
 
 function renderDrawer(){
   var sel = drawerSel || { kind: 'none' };
-  var body = '', kind = sel.kind, name = '', loc = null, n = syms().nodes;
-  $('dBack').style.visibility = history_.length ? 'visible' : 'hidden';
+  var body = '', kind = sel.kind, name = '', loc = null, n = syms().nodes, openQ = null;
+  $('dBack').style.display = history_.length ? '' : 'none';
   if (kind === 'type'){
     var t = syms().types[sel.name];
     name = sel.name;
     body = t ? '<pre><span class="tk-kw">type</span> ' + esc(sel.name) + ' = ' + linkTypes(prettyType(t.def)) + ';</pre>' +
-      (t.recursive ? '<p class="note">Recursive: fields that contain it are boxed in generated code.</p>' : '') +
-      typeBlock(typesIn(t.def).filter(function(x){ return x !== sel.name; }))
+      (t.recursive ? '<p class="note">Recursive: fields that contain it are boxed in generated code.</p>' : '')
       : '<p class="note">Unknown type.</p>';
   } else if (kind === 'func' || kind === 'proc'){
     var label = sel.label;
@@ -440,42 +412,49 @@ function renderDrawer(){
     } else {
       var s = n[q]; kind = s.kind; name = q; loc = s.loc;
       var inst = instanceOf(sel.sublabel);
-      var sig = '<span class="tk-kw">' + s.kind + '</span> ' + esc(q) + '(' + linkTypes(s.params) + '): ' + linkTypes(s.ret);
-      var left = '<div class="sig">' + sig + '</div>' +
-        (inst && sel.label ? '<p class="note">Shown as <b>' + esc(sel.label) + '</b>: a separate instance (<code>as ' + esc(sel.label) + '</code>).</p>' : '') +
-        (s.kind === 'proc' ? '<p class="note">Entry: <a data-node="' + esc(q + '.' + s.entry) + '">' + esc(s.entry) + '</a></p>' : '') +
-        typeBlock(typesIn(s.params + ' ' + s.ret));
-      var right = '';
+      body = '<div class="sig"><span class="tk-kw">' + s.kind + '</span> ' + esc(q) + '(' + linkTypes(s.params) + '): ' + linkTypes(s.ret) + '</div>' +
+        (inst && sel.label ? '<p class="note">Shown as <b>' + esc(sel.label) + '</b>: a separate instance (<code>as ' + esc(sel.label) + '</code>).</p>' : '');
       if (s.kind === 'func'){
-        if (!s.imps.length) right = '<h4>Implementation</h4><p class="note">No implementation named (an interface func, or stubbed).</p>';
+        if (!s.imps.length) body += '<p class="note">No implementation named (an interface func, or stubbed).</p>';
         else {
-          right = '<div class="tabs">' + s.imps.map(function(im, i){
+          body += '<div class="impl"><div class="tabs">' + s.imps.map(function(im, i){
             return '<button data-imp="' + i + '" class="' + (i === (sel.imp || 0) ? 'on' : '') + '">' + esc(im.written + ':' + im.function) + '</button>';
-          }).join('') + '</div><pre id="impCode" class="impl">Loading…</pre>';
+          }).join('') + '<span class="src" id="impSrc"></span></div><pre id="impCode">Loading…</pre></div>';
+          setTimeout(function(){ loadImpl(s.imps[sel.imp || 0]); }, 0);
         }
       } else {
-        right = '<div class="acts"><button id="aOpen">Open in new tab</button><button id="aShow">Show here</button></div>';
+        openQ = q;
+        body += '<pre id="sysCode">Loading…</pre>';
+        setTimeout(function(){ loadSys(s.loc); }, 0);
       }
-      body = '<div class="cols"><div>' + left + '</div><div>' + right + '</div></div>';
-      if (s.kind === 'func' && s.imps.length) setTimeout(function(){ loadImpl(s.imps[sel.imp || 0]); }, 0);
     }
   } else if (kind === 'edge'){
-    name = sel.call || 'edge';
-    body = (sel.edgeLabel ? '<h4>Arm</h4><div class="sig">' + esc(sel.edgeLabel) + '</div>' : '') +
-      (sel.valueType ? '<h4>this</h4><div class="sig">' + linkTypes(sel.valueType) + '</div>' : '') +
-      (sel.call ? '<h4>Calls</h4><div class="sig">' + linkTypes(sel.call) + '</div>' : '') +
-      typeBlock(typesIn((sel.valueType || '') + ' ' + (sel.call || '')));
+    name = (sel.from && sel.from.label || '?') + ' → ' + (sel.to && sel.to.label || '?');
+    body = '<table>' +
+      row('kind', esc(EDGE_KIND[sel.edgeType] || sel.edgeType || 'edge')) +
+      row('from', nodeRef(sel.from)) + row('to', nodeRef(sel.to)) +
+      row('arm', sel.edgeLabel ? '<code>' + esc(sel.edgeLabel) + '</code>' : '') +
+      row('this', sel.valueType ? '<code>' + linkTypes(sel.valueType) + '</code>' : '') +
+      row('calls', sel.call ? '<code>' + linkTypes(sel.call) + '</code>' : '') + '</table>';
+  } else if (kind === 'switch'){
+    var arms = sel.arms || [];
+    name = 'switch on ' + (sel.from && sel.from.label || '?');
+    body = (sel.valueType ? '<div class="sig">' + linkTypes(sel.valueType) + '</div>' : '') +
+      '<h4>' + arms.length + ' arm' + (arms.length === 1 ? '' : 's') + '</h4>' +
+      '<div class="arms">' + arms.map(function(a, i){
+        return '<div class="arm" data-arm="' + i + '"><code>' + esc(a.edgeLabel || '_') + '</code>' +
+          '<span class="to">→ ' + nodeRef(a.to) + '<span class="ty">' + esc(a.valueType || '') + '</span></span></div>';
+      }).join('') + '</div>';
   } else {
-    name = 'Preview';
-    body = '<p class="note">Click a func, proc or edge in the diagram to preview its signature, types and implementation. Ctrl/⌘+click a proc to open it in a new tab.</p>';
+    kind = 'none'; name = 'Preview';
+    body = '<p class="note">Click a func, proc, edge or switch in the diagram to preview it. Ctrl/⌘+click a proc to open it in a new tab.</p>';
   }
-  $('dKind').className = 'k ' + kind; $('dKind').textContent = kind === 'none' ? 'info' : kind;
+  $('dKind').className = 'badge ' + kind; $('dKind').textContent = BADGE[kind] || '?';
   $('dName').textContent = name;
   $('dLoc').textContent = locLink(loc); $('dLoc').onclick = function(){ goLoc(loc); };
+  $('dOpen').style.display = openQ ? '' : 'none';
+  $('dOpen').onclick = function(){ up({ type: 'ide-open', proc: openQ, newTab: true, mode: 'diagram' }); };
   $('dBody').innerHTML = body;
-  var ao = $('aOpen'), as = $('aShow');
-  if (ao) ao.onclick = function(){ up({ type: 'ide-open', proc: name, newTab: true, mode: 'diagram' }); };
-  if (as) as.onclick = function(){ setProc(name); };
 }
 $('dBody').addEventListener('click', function(e){
   var a = e.target.closest('a[data-type]');
@@ -483,12 +462,63 @@ $('dBody').addEventListener('click', function(e){
   var nd = e.target.closest('a[data-node]');
   if (nd){ var s = sym_(nd.dataset.node); openDrawer({ kind: s ? s.kind : 'func', label: nd.dataset.node, grid: nd.dataset.node }, true); return; }
   var b = e.target.closest('button[data-imp]');
-  if (b){ drawerSel.imp = +b.dataset.imp; renderDrawer(); }
+  if (b){ drawerSel.imp = +b.dataset.imp; renderDrawer(); return; }
+  var arm = e.target.closest('.arm');
+  if (arm && drawerSel && drawerSel.arms){
+    var x = drawerSel.arms[+arm.dataset.arm];
+    toViz({ type: 'vandorf-highlight', id: null });
+    openDrawer({ kind: 'edge', id: x.id, edgeType: 'match', edgeLabel: x.edgeLabel, valueType: x.valueType, call: x.call,
+                 owner: drawerSel.owner, from: drawerSel.from, to: x.to }, true);
+  }
 });
+/* Hovering an arm lights it up in the diagram, with its tooltip. */
+$('dBody').addEventListener('mouseover', function(e){
+  var arm = e.target.closest('.arm');
+  if (!arm || !drawerSel || !drawerSel.arms || arm === hotArm) return;
+  hotArm = arm;
+  toViz({ type: 'vandorf-highlight', id: drawerSel.arms[+arm.dataset.arm].id });
+});
+$('dBody').addEventListener('mouseout', function(e){
+  if (!hotArm || (e.relatedTarget && hotArm.contains(e.relatedTarget))) return;
+  hotArm = null; toViz({ type: 'vandorf-highlight', id: null });
+});
+var hotArm = null;
 function goLoc(loc){
   if (!loc || !loc.file) return;
   if (loc.file === S.path){ S.pendingLine = loc.line; setMode('text'); }
   else up({ type: 'ide-open', path: loc.file, line: loc.line, mode: 'text' });
+}
+
+/* A proc's .sys source, from its declaration line to its closing brace. */
+function loadSys(loc){
+  var el = $('sysCode'); if (!el) return;
+  if (!loc || !loc.file){ el.textContent = 'Source location unknown.'; return; }
+  var got = loc.file === S.path ? Promise.resolve({ ok: true, source: editor.get() })
+    : fetch('/api/source?path=' + encodeURIComponent(loc.file)).then(function(r){ return r.json(); });
+  got.then(function(res){
+    var el2 = $('sysCode'); if (!el2) return;
+    if (!res.ok){ el2.textContent = res.error; return; }
+    var text = sysBlock(res.source, loc.line);
+    el2.innerHTML = text ? highlight(text, 'sys') : esc('// not found at line ' + (loc.line + 1));
+  });
+}
+function sysBlock(src, line){
+  var lines = src.split('\n');
+  if (line >= lines.length) return null;
+  var start = 0;
+  for (var i = 0; i < line; i++) start += lines[i].length + 1;
+  var i = src.indexOf('{', start), depth = 0;
+  if (i < 0) return null;
+  for (; i < src.length; i++){
+    var c = src[i];
+    if (c === '"'){ i++; while (i < src.length && src[i] !== '"'){ if (src[i] === '\\') i++; i++; } continue; }
+    if (c === '/' && src[i + 1] === '/'){ i = src.indexOf('\n', i); if (i < 0) break; continue; }
+    if (c === '{') depth++;
+    if (c === '}' && --depth === 0) break;
+  }
+  // Leading tabs of the declaration come off every line.
+  var block = src.slice(start, i + 1), ind = /^[\t ]*/.exec(block)[0];
+  return ind ? block.split('\n').map(function(l){ return l.indexOf(ind) === 0 ? l.slice(ind.length) : l; }).join('\n') : block;
 }
 
 /* Implementation snippets: the function out of its file, by brace matching. */
@@ -502,10 +532,7 @@ function loadImpl(im){
     if (!res.ok){ delete fileCache[im.path]; el2.textContent = res.error; return; }
     var snip = extract(res.source, im.function, im.lang);
     el2.innerHTML = snip ? highlight(snip.text, im.lang) : esc('// ' + im.function + ' not found in ' + im.path);
-    if (snip){
-      var link = document.createElement('div'); link.className = 'note'; link.style.marginTop = '4px';
-      link.textContent = im.path + ':' + (snip.line + 1); el2.after(link);
-    }
+    var src = $('impSrc'); if (src) src.textContent = snip ? im.path + ':' + (snip.line + 1) : '';
   });
 }
 function extract(src, fn, lang){
@@ -539,7 +566,9 @@ function extract(src, fn, lang){
   return { text: src.slice(start, i + 1), line: src.slice(0, start).split('\n').length - 1 };
 }
 function highlight(s, lang){
-  var kw = lang === 'go'
+  var kw = lang === 'sys'
+    ? 'interface|func|proc|enum|switch|collect|for|each|as|type|else|map|in|id|this|true|false'
+    : lang === 'go'
     ? 'func|return|if|else|for|range|var|const|type|struct|interface|map|switch|case|default|break|continue|nil|true|false|package|import|go|defer|chan|select'
     : 'fn|let|mut|return|if|else|for|in|while|loop|match|impl|pub|struct|enum|use|mod|crate|self|Self|super|as|ref|move|where|true|false|const|static|break|continue|dyn|unsafe';
   var re = new RegExp('(\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/)|("(?:[^"\\\\]|\\\\.)*"|`[^`]*`)|\\b(' + kw + ')\\b|\\b(\\d+(?:\\.\\d+)?)\\b|\\b([A-Z]\\w*)\\b', 'g');
@@ -561,11 +590,12 @@ window.addEventListener('message', function(e){
     if (m.type === 'vandorf-viz-ready'){ S.vizReady = true; if (S.theme) toViz({ type: 'vandorf-theme', theme: S.theme }); pushDoc(); }
     if (m.type === 'vandorf-open-proc') up({ type: 'ide-open', proc: m.proc, newTab: true, mode: 'diagram' });
     if (m.type === 'vandorf-select'){
-      if (!m.kind){ return; }
+      // Clicking off everything deselects, and the panel goes with it.
+      if (!m.kind){ closeDrawer(true); return; }
       history_ = [];
       openDrawer(m, false);
     }
-    if (m.type === 'vandorf-proc-shown' && m.proc && m.proc !== S.proc){ S.proc = m.proc; $('procSel').value = m.proc; up({ type: 'ide-tab-state', proc: m.proc }); }
+    if (m.type === 'vandorf-proc-shown' && m.proc && m.proc !== S.proc){ S.proc = m.proc; up({ type: 'ide-tab-state', proc: m.proc }); }
     return;
   }
   switch (m.type){
@@ -586,7 +616,7 @@ window.addEventListener('message', function(e){
   case 'ide-activate':
     S.active = true;
     // Re-announce the status: the IDE shows only the active tab's.
-    up({ type: 'ide-status', text: $('status').textContent, cls: $('status').className });
+    up({ type: 'ide-status', text: lastStatus.text, cls: lastStatus.cls });
     if (S.mode === 'text' && cm) setTimeout(function(){ cm.refresh(); }, 0);
     break;
   }

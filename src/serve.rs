@@ -46,6 +46,7 @@ const VIEWER: &str = include_str!("../web/viewer.html");
 const TERMINAL: &str = include_str!("../web/terminal.html");
 const WORKBENCH: &str = include_str!("../web/workbench.html");
 const VISUALIZER: &str = include_str!("../web/visualizer.html");
+const UI_CSS: &str = include_str!("../web/ui.css");
 
 pub struct Options {
     pub addr: String,
@@ -137,6 +138,10 @@ fn handle(mut req: Request, st: &State) {
         (Method::Get, "/terminal") => page(TERMINAL),
         (Method::Get, "/workbench") => page(WORKBENCH),
         (Method::Get, "/viz" | "/viz/") => page(VISUALIZER),
+        (Method::Get, "/ui.css") => Response::from_string(UI_CSS)
+            .with_header(header("text/css; charset=utf-8"))
+            .with_header(Header::from_bytes("Cache-Control", "no-store").unwrap())
+            .boxed(),
         (Method::Get, "/api/sources") => api(list_sources(base).map(|files| {
             json!({ "ok": true, "root": base.display().to_string(), "files": files })
         })),

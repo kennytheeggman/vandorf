@@ -5,23 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Terminal</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+<link rel="stylesheet" href="/ui.css">
 <style>
-:root{ --bg:#ffffff; --bar:#f6f8fb; --ink:#0f172a; --mut:#64748b; --line:#dde3ec; --hover:#e8eef7; --accent:#1f6feb; --err:#c62828 }
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){ --bg:#0b111c; --bar:#0e1624; --ink:#dbe6f4; --mut:#8aa2bf; --line:#22324a; --hover:#172640; --accent:#3b82f6; --err:#ff8a80 }
-}
-:root[data-theme="dark"]{ --bg:#0b111c; --bar:#0e1624; --ink:#dbe6f4; --mut:#8aa2bf; --line:#22324a; --hover:#172640; --accent:#3b82f6; --err:#ff8a80 }
-*{ box-sizing:border-box }
-html,body{ height:100%; margin:0; overflow:hidden }
-body{ background:var(--bg); color:var(--ink); font:12px/1.3 system-ui,-apple-system,"Segoe UI",sans-serif; display:flex; flex-direction:column }
-.bar{ display:flex; align-items:center; gap:2px; height:30px; padding:0 6px; background:var(--bar); border-bottom:1px solid var(--line); flex:none; overflow-x:auto }
-.bar .ttl{ font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--mut); margin:0 8px 0 4px }
-.bar button{ font:inherit; background:none; border:0; color:var(--mut); border-radius:5px; padding:3px 8px; cursor:pointer; white-space:nowrap }
-.bar button:hover{ background:var(--hover); color:var(--ink) }
-.bar .tt.on{ color:var(--ink); box-shadow:inset 0 -2px var(--accent) }
+body{ font-size:12px; display:flex; flex-direction:column }
+.bar{ gap:2px; overflow-x:auto }
+.bar .tt.on{ background:none; box-shadow:inset 0 -2px var(--accent) }
 .bar .tt.dead{ text-decoration:line-through }
-.bar .sp{ flex:1 }
-.bar .sep{ width:1px; height:16px; background:var(--line); margin:0 4px }
+.bar .sep{ width:1px; height:16px; background:var(--line); margin:0 4px; flex:none }
 #terms{ flex:1; position:relative; min-height:0 }
 .term{ position:absolute; inset:0; padding:4px 0 0 8px; visibility:hidden }
 .term.on{ visibility:visible }
@@ -32,7 +22,7 @@ body{ background:var(--bg); color:var(--ink); font:12px/1.3 system-ui,-apple-sys
 <body>
 <div class="bar">
   <span class="ttl">Terminal</span>
-  <span id="list" style="display:flex;gap:2px"></span>
+  <span id="list" style="display:flex;gap:2px;flex:none"></span>
   <button id="bNew" title="New terminal">+ new</button>
   <span class="sep"></span>
   <button data-cmd="check" title="vandorf check, in the active file's project">check</button>

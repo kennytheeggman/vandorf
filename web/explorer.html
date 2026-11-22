@@ -4,54 +4,30 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Explorer</title>
+<link rel="stylesheet" href="/ui.css">
 <style>
-:root{
-  --bg:#f6f8fb; --ink:#0f172a; --mut:#64748b; --line:#dde3ec; --hover:#e8eef7; --sel:#dbe8ff; --sel-ink:#0b3d91;
-  --accent:#1f6feb; --proc:#e07b00; --func:#1d6fd8; --type:#0e7490; --iface:#7c3aed; --err:#c62828;
-}
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    --bg:#0e1624; --ink:#dbe6f4; --mut:#8aa2bf; --line:#22324a; --hover:#172640; --sel:#1b3358; --sel-ink:#e6effb;
-    --accent:#3b82f6; --proc:#fbbf24; --func:#7cb4ff; --type:#67e8f9; --iface:#c4b5fd; --err:#ff8a80;
-  }
-}
-:root[data-theme="dark"]{
-  --bg:#0e1624; --ink:#dbe6f4; --mut:#8aa2bf; --line:#22324a; --hover:#172640; --sel:#1b3358; --sel-ink:#e6effb;
-  --accent:#3b82f6; --proc:#fbbf24; --func:#7cb4ff; --type:#67e8f9; --iface:#c4b5fd; --err:#ff8a80;
-}
-*{ box-sizing:border-box }
-html,body{ height:100%; margin:0 }
-body{ background:var(--bg); color:var(--ink); font:13px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif;
-  display:flex; flex-direction:column; user-select:none }
-.hd{ display:flex; align-items:center; gap:4px; padding:8px 8px 6px 12px; font-size:11px; font-weight:700;
-  letter-spacing:.08em; text-transform:uppercase; color:var(--mut) }
-.hd .sp{ flex:1 }
-.hd button{ font:inherit; font-size:13px; letter-spacing:0; background:none; border:0; color:var(--mut); cursor:pointer; border-radius:4px; padding:1px 6px }
-.hd button:hover, .hd button.on{ background:var(--hover); color:var(--ink) }
-#q{ margin:0 8px 6px; padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:transparent; color:var(--ink); font:inherit; outline:none }
-#q:focus{ border-color:var(--accent) }
+body{ background:var(--bar); display:flex; flex-direction:column; user-select:none; overflow:hidden }
+.bar{ border-bottom:0 }
+#q{ margin:0 8px 6px; width:calc(100% - 16px); flex:none }
 #tree{ flex:1; overflow:auto; padding-bottom:16px }
 .row{ display:flex; align-items:center; gap:5px; height:22px; padding-right:8px; cursor:pointer; white-space:nowrap }
 .row:hover{ background:var(--hover) }
 .row.sel{ background:var(--sel); color:var(--sel-ink) }
 .row .tw{ width:12px; flex:none; text-align:center; color:var(--mut); font-size:9px; transition:transform .1s }
 .row.open > .tw{ transform:rotate(90deg) }
-.row .ic{ flex:none; width:16px; height:15px; border-radius:3px; font:700 9px/15px ui-monospace,monospace; text-align:center; color:#fff }
-.ic.dir{ background:none; color:var(--mut); font-size:12px } .ic.file{ background:var(--mut) }
-.ic.proc{ background:var(--proc) } .ic.func{ background:var(--func) } .ic.type{ background:var(--type) } .ic.interface{ background:var(--iface) }
+.badge.dir{ background:none; color:var(--mut); font-size:12px }
 .row .nm{ overflow:hidden; text-overflow:ellipsis }
-.row .pj{ font-size:10.5px; color:var(--mut); margin-left:auto; padding-left:6px }
 .row .er{ color:var(--err); margin-left:auto; font-weight:700 }
 .row.minor .nm{ color:var(--mut) }
 .empty{ color:var(--mut); padding:12px }
-mark{ background:rgba(250,204,21,.45); color:inherit; border-radius:2px }
+mark{ background:rgba(250,204,21,.45); color:inherit; border-radius:var(--r-sm) }
 </style>
 </head>
 <body>
-<div class="hd"><span>Explorer</span><span class="sp"></span>
-  <button id="bAll" title="Also list funcs, types and interfaces">ƒ</button>
-  <button id="bCollapse" title="Collapse all">⊟</button>
-  <button id="bRefresh" title="Refresh">↻</button>
+<div class="bar"><span class="ttl">Explorer</span><span class="sp"></span>
+  <button class="icon" id="bAll" title="Also list funcs, types and interfaces">ƒ</button>
+  <button class="icon" id="bCollapse" title="Collapse all">⊟</button>
+  <button class="icon" id="bRefresh" title="Refresh">↻</button>
 </div>
 <input id="q" placeholder="Filter procs…" spellcheck="false" autocomplete="off">
 <div id="tree"><div class="empty">Loading…</div></div>
@@ -129,7 +105,7 @@ function render(){
         ' data-k="' + esc(key) + '" data-kind="' + it.kind + '" data-path="' + esc(file.path) + '" data-qual="' + esc(it.qual) + '" data-line="' + it.line + '"' +
         (kids.length ? ' data-tw="1"' : '') + ' title="' + esc(it.kind + ' ' + it.qual + ' — ' + file.path + ':' + (it.line + 1)) + '">' +
         '<span class="tw">' + (kids.length ? '▶' : '') + '</span>' +
-        '<span class="ic ' + it.kind + '">' + { proc: 'P', func: 'ƒ', type: 'T', interface: 'I' }[it.kind] + '</span>' +
+        '<span class="badge ' + it.kind + '">' + { proc: 'P', func: 'ƒ', type: 'T', interface: 'I' }[it.kind] + '</span>' +
         '<span class="nm">' + hl(it.name, q) + '</span></div>');
       if (kids.length && op) items(kids, file, d + 1);
     });
@@ -141,7 +117,7 @@ function render(){
       var save = h; h = inner; dir(c, d + 1); h = save;
       if (q && !inner.length) return;
       h.push('<div class="row' + (op ? ' open' : '') + '"' + pad(d) + ' data-k="' + esc(key) + '" data-tw="1">' +
-        '<span class="tw">▶</span><span class="ic dir">▣</span><span class="nm">' + esc(c.name) + '</span></div>');
+        '<span class="tw">▶</span><span class="badge dir">▣</span><span class="nm">' + esc(c.name) + '</span></div>');
       if (op) h.push.apply(h, inner);
     });
     dd.files.forEach(function(f){
@@ -153,7 +129,7 @@ function render(){
       var sel = active.path === f.path && !active.proc;
       h.push('<div class="row' + (op ? ' open' : '') + (sel ? ' sel' : '') + '"' + pad(d) + ' data-k="' + esc(key) + '" data-tw="1" data-file="' + esc(f.path) + '"' +
         ' title="' + esc(f.path + (f.project ? ' — project ' + f.project.name : '') + (f.error ? '\n' + f.error : '')) + '">' +
-        '<span class="tw">▶</span><span class="ic file">S</span><span class="nm">' + hl(f.path.split('/').pop(), q) + '</span>' +
+        '<span class="tw">▶</span><span class="badge file">S</span><span class="nm">' + hl(f.path.split('/').pop(), q) + '</span>' +
         (f.error ? '<span class="er" title="' + esc(f.error) + '">!</span>' : '') + '</div>');
       if (op) items(nameHit && !matching.length ? kids : kids, f, d + 1);
     });
