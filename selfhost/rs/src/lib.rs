@@ -1,13 +1,5 @@
-//! vcc: the vandorf compiler, written in vandorf. `vcc` (generated from
-//! ../sys by `vandorf build`) is the compiler; `leaf` holds its pure leaf
-//! functions and `io` the implementations of its I/O interfaces.
+//! vcc: the vandorf compiler, written in vandorf. `vcc` is generated from
+//! ../sys by `vcc build` (or `vandorf build`); its leaves and I/O
+//! implementations are in ../leaves, mounted by the generated mod.rs.
 
 pub mod vcc;
-mod io;
-mod leaf;
-mod sema_leaf;
-mod doc_leaf;
-mod gen_leaf;
-mod cli_leaf;
-mod ide_io;
-mod ide_leaf;

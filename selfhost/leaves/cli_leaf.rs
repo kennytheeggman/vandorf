@@ -9,32 +9,54 @@ fn s(x: &str) -> Str {
 }
 
 fn opt(v: Option<&toml::Value>) -> MaybeStr {
-    v.and_then(|v| v.as_str()).map_or(MaybeStr::None, |x| MaybeStr::Some(s(x)))
+    v.and_then(|v| v.as_str())
+        .map_or(MaybeStr::None, |x| MaybeStr::Some(s(x)))
 }
 
 /// vandorf.toml, as src/project.rs reads it.
 pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
-    let fail = |e: String| Ok(ResManifest::Err(Diag { msg: e.into(), span: Span { at: 0, end: 0, file: 0 } }));
+    let fail = |e: String| {
+        Ok(ResManifest::Err(Diag {
+            msg: e.into(),
+            span: Span {
+                at: 0,
+                end: 0,
+                file: 0,
+            },
+        }))
+    };
     let t: toml::Table = match text.parse() {
         Ok(t) => t,
         Err(e) => return fail(e.to_string()),
     };
-    let Some(project) = t.get("project").and_then(|p| p.as_table()) else { return fail("missing field `project`".into()) };
-    let Some(name) = project.get("name").and_then(|n| n.as_str()) else { return fail("missing field `name`".into()) };
+    let Some(project) = t.get("project").and_then(|p| p.as_table()) else {
+        return fail("missing field `project`".into());
+    };
+    let Some(name) = project.get("name").and_then(|n| n.as_str()) else {
+        return fail("missing field `name`".into());
+    };
     let sources: Vec<Str> = match project.get("sources").and_then(|v| v.as_array()) {
         Some(a) => a.iter().filter_map(|x| x.as_str()).map(s).collect(),
         None => vec![s(".")],
     };
     let rust = match t.get("rust").and_then(|r| r.as_table()) {
         Some(r) => match r.get("out").and_then(|o| o.as_str()) {
-            Some(out) => MaybeRust::Some(RustTarget { out: s(out), module_dir: opt(r.get("module_dir")) }),
+            Some(out) => MaybeRust::Some(RustTarget {
+                out: s(out),
+                module_dir: opt(r.get("module_dir")),
+            }),
             None => return fail("[rust]: missing field `out`".into()),
         },
         None => MaybeRust::None,
     };
     let go = match t.get("go").and_then(|g| g.as_table()) {
         Some(g) => match g.get("out").and_then(|o| o.as_str()) {
-            Some(out) => MaybeGo::Some(GoTarget { out: s(out), package: opt(g.get("package")), module: opt(g.get("module")), types_dir: opt(g.get("types_dir")) }),
+            Some(out) => MaybeGo::Some(GoTarget {
+                out: s(out),
+                package: opt(g.get("package")),
+                module: opt(g.get("module")),
+                types_dir: opt(g.get("types_dir")),
+            }),
             None => return fail("[go]: missing field `out`".into()),
         },
         None => MaybeGo::None,
@@ -43,20 +65,55 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
     if let Some(h) = t.get("http").and_then(|h| h.as_table()) {
         for (n, v) in h {
             let Some(v) = v.as_table() else { continue };
-            let Some(addr) = v.get("addr").and_then(|a| a.as_str()) else { return fail(format!("[http.{n}]: missing field `addr`")) };
-            let strs = |t: &toml::Table| -> Map<Str, Str> { t.iter().filter_map(|(k, v)| v.as_str().map(|v| (s(k), s(v)))).collect() };
-            let table = |k: &str| v.get(k).and_then(|x| x.as_table()).map(strs).unwrap_or_default();
-            http.push((s(n), ServerDecl { addr: s(addr), routes: table("routes"), raw: table("raw"), statics: table("static"), rust: opt(v.get("rust")) }));
+            let Some(addr) = v.get("addr").and_then(|a| a.as_str()) else {
+                return fail(format!("[http.{n}]: missing field `addr`"));
+            };
+            let strs = |t: &toml::Table| -> Map<Str, Str> {
+                t.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|v| (s(k), s(v))))
+                    .collect()
+            };
+            let table = |k: &str| {
+                v.get(k)
+                    .and_then(|x| x.as_table())
+                    .map(strs)
+                    .unwrap_or_default()
+            };
+            http.push((
+                s(n),
+                ServerDecl {
+                    addr: s(addr),
+                    routes: table("routes"),
+                    raw: table("raw"),
+                    statics: table("static"),
+                    rust: opt(v.get("rust")),
+                },
+            ));
         }
     }
     let mut bins = vec![];
     if let Some(b) = t.get("bin").and_then(|b| b.as_table()) {
         for (n, v) in b {
             let Some(v) = v.as_table() else { continue };
-            bins.push((s(n), Bin { entry: v.get("entry").and_then(|e| e.as_str()).map_or(s("Main"), s), go: opt(v.get("go")), rust: opt(v.get("rust")) }));
+            bins.push((
+                s(n),
+                Bin {
+                    entry: v.get("entry").and_then(|e| e.as_str()).map_or(s("Main"), s),
+                    go: opt(v.get("go")),
+                    rust: opt(v.get("rust")),
+                },
+            ));
         }
     }
-    Ok(ResManifest::Ok(Manifest { name: s(name), sources: sources.into(), rust, has_go: t.contains_key("go"), go, bins: bins.into_iter().collect(), http: http.into_iter().collect() }))
+    Ok(ResManifest::Ok(Manifest {
+        name: s(name),
+        sources: sources.into(),
+        rust,
+        has_go: t.contains_key("go"),
+        go,
+        bins: bins.into_iter().collect(),
+        http: http.into_iter().collect(),
+    }))
 }
 
 fn normalize(p: &Path) -> PathBuf {
@@ -90,7 +147,10 @@ pub fn parent(p: Str) -> Result<Str, String> {
 
 /// target relative to the directory from; both absolute and normalized.
 pub fn relative(target: Str, from: Str) -> Result<Str, String> {
-    let (t, f): (Vec<_>, Vec<_>) = (Path::new(&*target).components().collect(), Path::new(&*from).components().collect());
+    let (t, f): (Vec<_>, Vec<_>) = (
+        Path::new(&*target).components().collect(),
+        Path::new(&*from).components().collect(),
+    );
     let common = t.iter().zip(&f).take_while(|(a, b)| a == b).count();
     let mut out = PathBuf::new();
     for _ in common..f.len() {
@@ -129,7 +189,8 @@ pub fn rebase_impls(prog: Program, dirs: List<Str>, out: Str) -> Result<Program,
                     .iter()
                     .map(|i| {
                         let mut i = i.clone();
-                        let full = normalize(&Path::new(&*dirs[i.span.file as usize]).join(&*i.file));
+                        let full =
+                            normalize(&Path::new(&*dirs[i.span.file as usize]).join(&*i.file));
                         i.file = relative(slash(&full).into(), out.clone()).unwrap();
                         i
                     })
@@ -151,7 +212,11 @@ pub fn cargo_lib_name(toml_text: Str, has_lib_rs: bool) -> Result<Str, String> {
     for l in toml_text.lines().map(str::trim) {
         if l.starts_with('[') {
             section = l;
-        } else if let Some(v) = l.strip_prefix("name").map(str::trim_start).and_then(|v| v.strip_prefix('=')) {
+        } else if let Some(v) = l
+            .strip_prefix("name")
+            .map(str::trim_start)
+            .and_then(|v| v.strip_prefix('='))
+        {
             let v = Some(v.trim().trim_matches('"').replace('-', "_"));
             match section {
                 "[lib]" => lib = v,
@@ -161,14 +226,22 @@ pub fn cargo_lib_name(toml_text: Str, has_lib_rs: bool) -> Result<Str, String> {
         }
     }
     let has_lib = has_lib_rs || toml_text.lines().any(|l| l.trim() == "[lib]");
-    Ok(if has_lib { lib.or(package).unwrap_or_default().into() } else { s("") })
+    Ok(if has_lib {
+        lib.or(package).unwrap_or_default().into()
+    } else {
+        s("")
+    })
 }
 
 /// The path segments from root down to dir.
 pub fn rel_segs(root: Str, dir: Str) -> Result<List<Str>, String> {
     Ok(Path::new(&*dir)
         .strip_prefix(&*root)
-        .map(|r| r.components().map(|c| Str::from(c.as_os_str().to_string_lossy().as_ref())).collect())
+        .map(|r| {
+            r.components()
+                .map(|c| Str::from(c.as_os_str().to_string_lossy().as_ref()))
+                .collect()
+        })
         .unwrap_or_default())
 }
 
@@ -187,7 +260,14 @@ pub fn unwrap_paths(r: ResStringList) -> Result<List<Str>, String> {
 }
 
 pub fn rel_all(paths: List<Str>, root: Str) -> Result<List<Str>, String> {
-    Ok(paths.iter().map(|p| Path::new(&**p).strip_prefix(&*root).map_or(p.clone(), |r| slash(r).into())).collect())
+    Ok(paths
+        .iter()
+        .map(|p| {
+            Path::new(&**p)
+                .strip_prefix(&*root)
+                .map_or(p.clone(), |r| slash(r).into())
+        })
+        .collect())
 }
 
 pub fn unwrap_p(r: ResProject) -> Result<Project, String> {
@@ -207,7 +287,15 @@ pub fn unwrap_r(r: MaybeRust) -> Result<RustTarget, String> {
 pub fn render_errors(errors: List<Diag>, paths: List<Str>) -> Result<Str, String> {
     Ok(errors
         .iter()
-        .map(|e| format!("{}:{}..{}: {}", paths.get(e.span.file as usize).map_or("?", |p| &**p), e.span.at, e.span.end, e.msg))
+        .map(|e| {
+            format!(
+                "{}:{}..{}: {}",
+                paths.get(e.span.file as usize).map_or("?", |p| &**p),
+                e.span.at,
+                e.span.end,
+                e.msg
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n")
         .into())
@@ -223,7 +311,11 @@ pub fn out_paths(files: List<OutFile>) -> Result<List<Str>, String> {
 }
 
 pub fn dirs(root: Str, paths: List<Str>) -> Result<List<Str>, String> {
-    paths.iter().map(|p| parent(join(root.clone(), p.clone())?)).collect::<Result<Vec<_>, _>>().map(List::from)
+    paths
+        .iter()
+        .map(|p| parent(join(root.clone(), p.clone())?))
+        .collect::<Result<Vec<_>, _>>()
+        .map(List::from)
 }
 
 pub fn rebased(c: Checked) -> Result<Program, String> {
@@ -240,7 +332,13 @@ pub fn module_dir(target: RustTarget, out: Str, croot: Str) -> Result<MaybeStr, 
     }
     let segs = rel_segs(croot, out)?;
     Ok(match segs.split_first() {
-        Some((src, rest)) if &**src == "src" => MaybeStr::Some(rest.iter().map(|s| &**s).collect::<Vec<_>>().join("/").into()),
+        Some((src, rest)) if &**src == "src" => MaybeStr::Some(
+            rest.iter()
+                .map(|s| &**s)
+                .collect::<Vec<_>>()
+                .join("/")
+                .into(),
+        ),
         _ => MaybeStr::None,
     })
 }
@@ -253,7 +351,14 @@ pub fn bin_names(bins: Map<Str, Bin>, only: Str) -> Result<List<Str>, String> {
         return Ok(vec![only].into());
     }
     let known: Vec<&str> = bins.keys().map(|k| &**k).collect();
-    Err(format!("vandorf.toml: no [bin.{only}]; bins: {}", if known.is_empty() { "none".into() } else { known.join(", ") }))
+    Err(format!(
+        "vandorf.toml: no [bin.{only}]; bins: {}",
+        if known.is_empty() {
+            "none".into()
+        } else {
+            known.join(", ")
+        }
+    ))
 }
 
 pub fn bin_path(b: Bin, name: Str) -> Result<Str, String> {
@@ -294,7 +399,16 @@ pub fn unwrap_routes(r: ResRouteList) -> Result<List<Route>, String> {
 }
 
 pub fn http_file(out: Str, text: Str) -> Result<List<OutFile>, String> {
-    Ok(if text.is_empty() { List::default() } else { vec![OutFile { path: join(out, "http.rs".into())?, text, kind: "code".into() }].into() })
+    Ok(if text.is_empty() {
+        List::default()
+    } else {
+        vec![OutFile {
+            path: join(out, "http.rs".into())?,
+            text,
+            kind: "code".into(),
+        }]
+        .into()
+    })
 }
 
 pub fn server_path(d: ServerDecl, name: Str) -> Result<Str, String> {
@@ -318,11 +432,18 @@ pub fn file_dir(out: Str, module_dir: MaybeStr, path: Str) -> Result<Str, String
 }
 
 pub fn split_route(route: Str, proc: Str) -> Result<List<Route>, String> {
-    let Some((m, p)) = route.split_once(' ').map(|(m, p)| (m.trim(), p.trim())) else { return Ok(List::default()) };
+    let Some((m, p)) = route.split_once(' ').map(|(m, p)| (m.trim(), p.trim())) else {
+        return Ok(List::default());
+    };
     if m.is_empty() || !m.chars().all(|c| c.is_ascii_uppercase()) || !p.starts_with('/') {
         return Ok(List::default());
     }
-    Ok(vec![Route { method: m.into(), path: p.into(), proc }].into())
+    Ok(vec![Route {
+        method: m.into(),
+        path: p.into(),
+        proc,
+    }]
+    .into())
 }
 
 pub fn debug_quote(s: Str) -> Result<Str, String> {
@@ -330,7 +451,10 @@ pub fn debug_quote(s: Str) -> Result<Str, String> {
 }
 
 pub fn content_type(file: Str) -> Result<Str, String> {
-    let ext = Path::new(&*file).extension().and_then(|e| e.to_str()).unwrap_or("");
+    let ext = Path::new(&*file)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
     Ok(match ext {
         "html" | "htm" => "text/html; charset=utf-8",
         "js" | "mjs" => "text/javascript; charset=utf-8",

@@ -3,15 +3,15 @@
 
 type PatOut = { p: SPat, binds: []Member };
 
-func HeadIndex(arms: []Arm, kind: string): int = "../../rs/src/sema_leaf.rs:head_index";
+func HeadIndex(arms: []Arm, kind: string): int = "../../leaves/sema_leaf.rs:head_index";
 // The source text of a span, trimmed: an arm's head as written.
-func Slice(src: string, span: Span): string = "../../rs/src/sema_leaf.rs:slice";
+func Slice(src: string, span: Span): string = "../../leaves/sema_leaf.rs:slice";
 
 // The arms of a switch on `src`, whose output is sc.this. Arms are all
 // patterns or all conditions, `else` coming last; a pattern arm may lead to
 // a nested switch of conditions, which sees its bindings.
 proc Switch(At): Res<[]SArm> {
-	func At(s: { env: Env, sc: Scope, src: Path, arms: []Arm, span: Span, nested: bool }): { env: Env, sc: Scope, src: Path, arms: []Arm, span: Span, nested: bool } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { env: Env, sc: Scope, src: Path, arms: []Arm, span: Span, nested: bool }): { env: Env, sc: Scope, src: Path, arms: []Arm, span: Span, nested: bool } = "../../leaves/sema_leaf.rs:same";
 	At switch {
 		(HeadIndex(arms = this.arms, kind = "pat") >= 0 && this.nested) -> id(Err({ msg = "a nested switch has nothing new to match, so its arms are conditions: (expr) -> ..", span = this.arms[HeadIndex(arms = this.arms, kind = "pat")].span })),
 		(HeadIndex(arms = this.arms, kind = "pat") >= 0 && HeadIndex(arms = this.arms, kind = "cond") >= 0) -> id(Err({ msg = "this switch matches patterns (like " + Slice(src = this.env.srcs[this.arms[HeadIndex(arms = this.arms, kind = "pat")].span.file], span = this.arms[HeadIndex(arms = this.arms, kind = "pat")].span) + "), so its arms can't be conditions; put conditions in a switch under a pattern arm: Pat -> switch { (cond) -> .., else -> .. }", span = this.arms[HeadIndex(arms = this.arms, kind = "cond")].span })),
@@ -42,13 +42,13 @@ proc Switch(At): Res<[]SArm> {
 	Shown -> id(Err({ msg = "switch on " + ShowPath(p = At.src) + " doesn't cover " + this + "; add an arm for it, or an else", span = At.span }));
 }
 
-func EndsInElse(arms: []SArm): bool = "../../rs/src/sema_leaf.rs:ends_in_else";
-func PatsOf(arms: []SArm): []SPat = "../../rs/src/sema_leaf.rs:pats_of";
-func UnwrapArms(r: Res<[]SArm>): []SArm = "../../rs/src/sema_leaf.rs:unwrap_arms";
+func EndsInElse(arms: []SArm): bool = "../../leaves/sema_leaf.rs:ends_in_else";
+func PatsOf(arms: []SArm): []SPat = "../../leaves/sema_leaf.rs:pats_of";
+func UnwrapArms(r: Res<[]SArm>): []SArm = "../../leaves/sema_leaf.rs:unwrap_arms";
 
 proc Arms(At): Res<[]SArm> {
-	func At(s: { env: Env, sc: Scope, src: Path, arms: []Arm, i: int, acc: []SArm }): { env: Env, sc: Scope, src: Path, arms: []Arm, i: int, acc: []SArm } = "../../rs/src/sema_leaf.rs:same";
-	func H(h: Head): Head = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { env: Env, sc: Scope, src: Path, arms: []Arm, i: int, acc: []SArm }): { env: Env, sc: Scope, src: Path, arms: []Arm, i: int, acc: []SArm } = "../../leaves/sema_leaf.rs:same";
+	func H(h: Head): Head = "../../leaves/sema_leaf.rs:same";
 	At switch {
 		(this.i == this.arms.len) -> id(Ok(this.acc)),
 		else -> H(h = this.arms[this.i].head)
@@ -76,8 +76,8 @@ proc Arms(At): Res<[]SArm> {
 }
 
 proc ArmBody(At): Res<SArm> {
-	func At(s: { env: Env, sc: Scope, src: Path, arm: Arm, test: Test }): { env: Env, sc: Scope, src: Path, arm: Arm, test: Test } = "../../rs/src/sema_leaf.rs:same";
-	func B(b: Body): Body = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { env: Env, sc: Scope, src: Path, arm: Arm, test: Test }): { env: Env, sc: Scope, src: Path, arm: Arm, test: Test } = "../../leaves/sema_leaf.rs:same";
+	func B(b: Body): Body = "../../leaves/sema_leaf.rs:same";
 	At -> B(b = this.arm.body);
 	B switch {
 		Call(t) -> CallOf(s = { env = At.env, sc = At.sc, t = t }),
@@ -98,9 +98,9 @@ proc ArmBody(At): Res<SArm> {
 // Pattern p, checked against the type of the value it matches; its
 // bindings are added to `binds`.
 proc CheckPat(At): Res<PatOut> {
-	func At(s: { env: Env, p: Pat, want: Type, binds: []Member }): { env: Env, p: Pat, want: Type, binds: []Member } = "../../rs/src/sema_leaf.rs:same";
-	func K(k: PatKind): PatKind = "../../rs/src/sema_leaf.rs:same";
-	func Q(p: OptPat): OptPat = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { env: Env, p: Pat, want: Type, binds: []Member }): { env: Env, p: Pat, want: Type, binds: []Member } = "../../leaves/sema_leaf.rs:same";
+	func K(k: PatKind): PatKind = "../../leaves/sema_leaf.rs:same";
+	func Q(p: OptPat): OptPat = "../../leaves/sema_leaf.rs:same";
 	At -> Unfold(s = { t = this.want, defs = this.env.types }) as Shape;
 	Shape -> K(k = At.p.kind);
 	K switch {
@@ -149,13 +149,13 @@ proc CheckPat(At): Res<PatOut> {
 	};
 }
 
-func BindName(k: PatKind): Ident = "../../rs/src/sema_leaf.rs:bind_name";
-func VariantTag(k: PatKind): Ident = "../../rs/src/sema_leaf.rs:variant_tag";
+func BindName(k: PatKind): Ident = "../../leaves/sema_leaf.rs:bind_name";
+func VariantTag(k: PatKind): Ident = "../../leaves/sema_leaf.rs:variant_tag";
 // How to match a variant: `()` for one without payload, `(_)` otherwise.
-func VariantFix(t: Type): string = "../../rs/src/sema_leaf.rs:variant_fix";
+func VariantFix(t: Type): string = "../../leaves/sema_leaf.rs:variant_fix";
 
 proc PatFields(At): Res<PatOut> {
-	func At(s: { env: Env, want: Type, fs: []Member, fields: []PatField, i: int, given: map[string]SPat, binds: []Member, span: Span }): { env: Env, want: Type, fs: []Member, fields: []PatField, i: int, given: map[string]SPat, binds: []Member, span: Span } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { env: Env, want: Type, fs: []Member, fields: []PatField, i: int, given: map[string]SPat, binds: []Member, span: Span }): { env: Env, want: Type, fs: []Member, fields: []PatField, i: int, given: map[string]SPat, binds: []Member, span: Span } = "../../leaves/sema_leaf.rs:same";
 	At switch {
 		(this.i == this.fields.len) -> FillPatFields(s = { want = this.want, fs = this.fs, given = this.given, binds = this.binds, span = this.span, i = 0, acc = [] }),
 		else -> Member(ms = this.fs, name = this.fields[this.i].name.name)
@@ -175,7 +175,7 @@ proc PatFields(At): Res<PatOut> {
 }
 
 proc FillPatFields(At): Res<PatOut> {
-	func At(s: { want: Type, fs: []Member, given: map[string]SPat, binds: []Member, span: Span, i: int, acc: []PatMember }): { want: Type, fs: []Member, given: map[string]SPat, binds: []Member, span: Span, i: int, acc: []PatMember } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { want: Type, fs: []Member, given: map[string]SPat, binds: []Member, span: Span, i: int, acc: []PatMember }): { want: Type, fs: []Member, given: map[string]SPat, binds: []Member, span: Span, i: int, acc: []PatMember } = "../../leaves/sema_leaf.rs:same";
 	At switch {
 		(this.i == this.fs.len) -> id(Ok({ p = { kind = Struct(this.acc), ty = this.want }, binds = this.binds })),
 		(this.fs[this.i].name in this.given) -> At(s = { want = this.want, fs = this.fs, given = this.given, binds = this.binds, span = this.span, i = this.i + 1, acc = this.acc + [{ name = this.fs[this.i].name, pat = this.given[this.fs[this.i].name] }] }),
@@ -185,7 +185,7 @@ proc FillPatFields(At): Res<PatOut> {
 }
 
 proc PatAlts(At): Res<PatOut> {
-	func At(s: { env: Env, want: Type, alts: []Pat, i: int, acc: []SPat, binds: []Member }): { env: Env, want: Type, alts: []Pat, i: int, acc: []SPat, binds: []Member } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { env: Env, want: Type, alts: []Pat, i: int, acc: []SPat, binds: []Member }): { env: Env, want: Type, alts: []Pat, i: int, acc: []SPat, binds: []Member } = "../../leaves/sema_leaf.rs:same";
 	At switch {
 		(this.i == this.alts.len) -> id(Ok({ p = { kind = Or(this.acc), ty = this.want }, binds = this.binds })),
 		else -> CheckPat(s = { env = this.env, p = this.alts[this.i], want = this.want, binds = [] })
@@ -214,25 +214,25 @@ type W = enum { Wild, Ctor({ c: string, args: []W }) };
 type MaybeW = enum { None, Some([]W) };
 type Ctor = { c: string, args: []Type };
 
-func RowsOf(pats: []SPat): [][]P = "../../rs/src/sema_leaf.rs:rows_of";
+func RowsOf(pats: []SPat): [][]P = "../../leaves/sema_leaf.rs:rows_of";
 // Rows matching constructor c with `arity` arguments, the first column
 // replaced by its arguments.
-func Specialize(rows: [][]P, c: string, arity: int): [][]P = "../../rs/src/sema_leaf.rs:specialize";
+func Specialize(rows: [][]P, c: string, arity: int): [][]P = "../../leaves/sema_leaf.rs:specialize";
 // Rows whose first column is a wildcard, without it.
-func Default(rows: [][]P): [][]P = "../../rs/src/sema_leaf.rs:default_rows";
+func Default(rows: [][]P): [][]P = "../../leaves/sema_leaf.rs:default_rows";
 // The constructors the first column names.
-func Used(rows: [][]P): []string = "../../rs/src/sema_leaf.rs:used";
+func Used(rows: [][]P): []string = "../../leaves/sema_leaf.rs:used";
 // The constructors of an unfolded type and their argument types; none for
 // types patterns can't take apart.
-func Ctors(t: Type): []Ctor = "../../rs/src/sema_leaf.rs:ctors";
-func AllUsed(cs: []Ctor, used: []string): bool = "../../rs/src/sema_leaf.rs:all_used";
-func Wilds(n: int): []P = "../../rs/src/sema_leaf.rs:wilds";
-func RestP(ps: []P): []P = "../../rs/src/sema_leaf.rs:rest_p";
-func RestT(ts: []Type): []Type = "../../rs/src/sema_leaf.rs:rest";
+func Ctors(t: Type): []Ctor = "../../leaves/sema_leaf.rs:ctors";
+func AllUsed(cs: []Ctor, used: []string): bool = "../../leaves/sema_leaf.rs:all_used";
+func Wilds(n: int): []P = "../../leaves/sema_leaf.rs:wilds";
+func RestP(ps: []P): []P = "../../leaves/sema_leaf.rs:rest_p";
+func RestT(ts: []Type): []Type = "../../leaves/sema_leaf.rs:rest";
 
 // The first arm that can never match because the arms above cover it, or -1.
 proc Unreachable(At): int {
-	func At(s: { env: Env, pats: []SPat, ty: Type, i: int, rows: [][]P }): { env: Env, pats: []SPat, ty: Type, i: int, rows: [][]P } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { env: Env, pats: []SPat, ty: Type, i: int, rows: [][]P }): { env: Env, pats: []SPat, ty: Type, i: int, rows: [][]P } = "../../leaves/sema_leaf.rs:same";
 	At switch {
 		(this.i == this.pats.len) -> id(-1),
 		else -> Useful(s = { types = this.env.types, rows = this.rows, q = RowsOf(pats = [this.pats[this.i]])[0], tys = [this.ty] })
@@ -247,8 +247,8 @@ type UsefulIn = { types: []TypeDef, rows: [][]P, q: []P, tys: []Type };
 
 // Is there a value matching q but no row?
 proc Useful(At): bool {
-	func At(s: UsefulIn): UsefulIn = "../../rs/src/sema_leaf.rs:same";
-	func First(p: P): P = "../../rs/src/sema_leaf.rs:same";
+	func At(s: UsefulIn): UsefulIn = "../../leaves/sema_leaf.rs:same";
+	func First(p: P): P = "../../leaves/sema_leaf.rs:same";
 	At switch {
 		(this.q.len == 0) -> id(this.rows.len == 0),
 		else -> First(p = this.q[0])
@@ -265,11 +265,11 @@ proc Useful(At): bool {
 	};
 }
 
-func CtorOf(p: P): { c: string, args: []P } = "../../rs/src/sema_leaf.rs:ctor_of";
-func CtorArgs(cs: []Ctor, c: string): []Type = "../../rs/src/sema_leaf.rs:ctor_args";
+func CtorOf(p: P): { c: string, args: []P } = "../../leaves/sema_leaf.rs:ctor_of";
+func CtorArgs(cs: []Ctor, c: string): []Type = "../../leaves/sema_leaf.rs:ctor_args";
 
 proc AnyUseful(At): bool {
-	func At(s: { types: []TypeDef, rows: [][]P, alts: []P, rest: []P, tys: []Type, i: int }): { types: []TypeDef, rows: [][]P, alts: []P, rest: []P, tys: []Type, i: int } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { types: []TypeDef, rows: [][]P, alts: []P, rest: []P, tys: []Type, i: int }): { types: []TypeDef, rows: [][]P, alts: []P, rest: []P, tys: []Type, i: int } = "../../leaves/sema_leaf.rs:same";
 	At switch {
 		(this.i == this.alts.len) -> id(false),
 		else -> Useful(s = { types = this.types, rows = this.rows, q = [this.alts[this.i]] + this.rest, tys = this.tys })
@@ -281,7 +281,7 @@ proc AnyUseful(At): bool {
 }
 
 proc AnyCtorUseful(At): bool {
-	func At(s: { types: []TypeDef, rows: [][]P, cs: []Ctor, rest: []P, tys: []Type, i: int }): { types: []TypeDef, rows: [][]P, cs: []Ctor, rest: []P, tys: []Type, i: int } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { types: []TypeDef, rows: [][]P, cs: []Ctor, rest: []P, tys: []Type, i: int }): { types: []TypeDef, rows: [][]P, cs: []Ctor, rest: []P, tys: []Type, i: int } = "../../leaves/sema_leaf.rs:same";
 	At switch {
 		(this.i == this.cs.len) -> id(false),
 		else -> Useful(s = { types = this.types, rows = Specialize(rows = this.rows, c = this.cs[this.i].c, arity = this.cs[this.i].args.len), q = Wilds(n = this.cs[this.i].args.len) + this.rest, tys = this.cs[this.i].args + RestT(ts = this.tys) })
@@ -296,7 +296,7 @@ type MissingIn = { types: []TypeDef, rows: [][]P, tys: []Type };
 
 // Values (one per column) that no row matches, if any.
 proc Missing(At): MaybeW {
-	func At(s: MissingIn): MissingIn = "../../rs/src/sema_leaf.rs:same";
+	func At(s: MissingIn): MissingIn = "../../leaves/sema_leaf.rs:same";
 	At switch {
 		(this.tys.len == 0 && this.rows.len == 0) -> id(Some([])),
 		(this.tys.len == 0) -> id(None()),
@@ -314,11 +314,11 @@ proc Missing(At): MaybeW {
 	};
 }
 
-func UnnamedCtor(cs: []Ctor, used: []string): W = "../../rs/src/sema_leaf.rs:unnamed_ctor";
+func UnnamedCtor(cs: []Ctor, used: []string): W = "../../leaves/sema_leaf.rs:unnamed_ctor";
 
 proc FirstMissing(At): MaybeW {
-	func At(s: { types: []TypeDef, rows: [][]P, cs: []Ctor, tys: []Type, i: int }): { types: []TypeDef, rows: [][]P, cs: []Ctor, tys: []Type, i: int } = "../../rs/src/sema_leaf.rs:same";
-	func Regroup(c: string, n: int, ws: []W): []W = "../../rs/src/sema_leaf.rs:regroup";
+	func At(s: { types: []TypeDef, rows: [][]P, cs: []Ctor, tys: []Type, i: int }): { types: []TypeDef, rows: [][]P, cs: []Ctor, tys: []Type, i: int } = "../../leaves/sema_leaf.rs:same";
+	func Regroup(c: string, n: int, ws: []W): []W = "../../leaves/sema_leaf.rs:regroup";
 	At switch {
 		(this.i == this.cs.len) -> id(None()),
 		else -> Missing(s = { types = this.types, rows = Specialize(rows = this.rows, c = this.cs[this.i].c, arity = this.cs[this.i].args.len), tys = this.cs[this.i].args + RestT(ts = this.tys) })
@@ -331,8 +331,8 @@ proc FirstMissing(At): MaybeW {
 
 // A missing value as a pattern: `_`, `{ a = _, b = Lit(_) }`, `Neg(_)`.
 proc Render(At): string {
-	func At(s: { types: []TypeDef, w: W, t: Type }): { types: []TypeDef, w: W, t: Type } = "../../rs/src/sema_leaf.rs:same";
-	func V(w: W): W = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { types: []TypeDef, w: W, t: Type }): { types: []TypeDef, w: W, t: Type } = "../../leaves/sema_leaf.rs:same";
+	func V(w: W): W = "../../leaves/sema_leaf.rs:same";
 	At -> Unfold(s = { t = this.t, defs = this.types });
 	Unfold -> V(w = At.w);
 	V switch {
@@ -347,10 +347,10 @@ proc Render(At): string {
 	Payload -> id(CtorName(w = V) + "(" + this + ")");
 }
 
-func CtorName(w: W): string = "../../rs/src/sema_leaf.rs:ctor_name";
+func CtorName(w: W): string = "../../leaves/sema_leaf.rs:ctor_name";
 
 proc RenderFields(At): string {
-	func At(s: { types: []TypeDef, fs: []Member, args: []W, i: int, acc: string }): { types: []TypeDef, fs: []Member, args: []W, i: int, acc: string } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { types: []TypeDef, fs: []Member, args: []W, i: int, acc: string }): { types: []TypeDef, fs: []Member, args: []W, i: int, acc: string } = "../../leaves/sema_leaf.rs:same";
 	At switch {
 		(this.i == this.fs.len || this.i == this.args.len) -> id(this.acc),
 		else -> Render(s = { types = this.types, w = this.args[this.i], t = this.fs[this.i].ty })

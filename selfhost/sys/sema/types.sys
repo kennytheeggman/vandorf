@@ -19,17 +19,17 @@ type MaybeType = enum { None, Some(Type) };
 type Pair = { x: int, y: int };
 type OptPair = enum { None, Some(Pair) };
 
-func IsVoid(t: Type): bool = "../../rs/src/sema_leaf.rs:is_void";
+func IsVoid(t: Type): bool = "../../leaves/sema_leaf.rs:is_void";
 // The member called `name`.
-func Member(ms: []Member, name: string): MaybeType = "../../rs/src/sema_leaf.rs:member";
+func Member(ms: []Member, name: string): MaybeType = "../../leaves/sema_leaf.rs:member";
 // ", " before every list item but the first.
-func Sep(i: int): string = "../../rs/src/sema_leaf.rs:sep";
+func Sep(i: int): string = "../../leaves/sema_leaf.rs:sep";
 
 // The structure behind any typedef names. Sema rejects name cycles that
 // never reach a structure, so this ends.
 proc Unfold(At): Type {
-	func At(s: { t: Type, defs: []TypeDef }): { t: Type, defs: []TypeDef } = "../../rs/src/sema_leaf.rs:same";
-	func T(t: Type): Type = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { t: Type, defs: []TypeDef }): { t: Type, defs: []TypeDef } = "../../leaves/sema_leaf.rs:same";
+	func T(t: Type): Type = "../../leaves/sema_leaf.rs:same";
 	At -> T(t = this.t);
 	T switch {
 		Named(n) -> At(s = { t = At.defs[n.id].ty, defs = At.defs }),
@@ -40,7 +40,7 @@ proc Unfold(At): Type {
 // A type as written: `[]int`, `map[string]R<int>`, `{ x: int, y: E }`,
 // `enum { A, B(int) }`.
 proc ShowType(T): string {
-	func T(t: Type): Type = "../../rs/src/sema_leaf.rs:same";
+	func T(t: Type): Type = "../../leaves/sema_leaf.rs:same";
 	T switch {
 		Prim(p) -> id(p),
 		Named(n) -> id(n.name),
@@ -55,7 +55,7 @@ proc ShowType(T): string {
 }
 
 proc ShowMap(K): string {
-	func K(s: { key: Type, value: Type }): { key: Type, value: Type } = "../../rs/src/sema_leaf.rs:same";
+	func K(s: { key: Type, value: Type }): { key: Type, value: Type } = "../../leaves/sema_leaf.rs:same";
 	K -> ShowType(t = this.key) as Key;
 	Key -> ShowType(t = K.value) as Val;
 	Val -> id("map[" + Key + "]" + this);
@@ -63,7 +63,7 @@ proc ShowMap(K): string {
 
 // `n: t` for fields; `n` or `n(t)` for variants. Joined with ", ".
 proc ShowMembers(At): string {
-	func At(s: { ms: []Member, variants: bool, i: int, acc: string }): { ms: []Member, variants: bool, i: int, acc: string } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { ms: []Member, variants: bool, i: int, acc: string }): { ms: []Member, variants: bool, i: int, acc: string } = "../../leaves/sema_leaf.rs:same";
 	At switch {
 		(this.i == this.ms.len) -> id(this.acc),
 		else -> ShowType(t = this.ms[this.i].ty)
@@ -82,9 +82,9 @@ proc ShowMembers(At): string {
 type AcceptsIn = { a: Type, b: Type, defs: []TypeDef, assumed: []Pair };
 
 proc Accepts(At): bool {
-	func At(s: AcceptsIn): AcceptsIn = "../../rs/src/sema_leaf.rs:same";
-	func Names(a: Type, b: Type): OptPair = "../../rs/src/sema_leaf.rs:named_pair";
-	func HasPair(ps: []Pair, p: Pair): bool = "../../rs/src/sema_leaf.rs:has_pair";
+	func At(s: AcceptsIn): AcceptsIn = "../../leaves/sema_leaf.rs:same";
+	func Names(a: Type, b: Type): OptPair = "../../leaves/sema_leaf.rs:named_pair";
+	func HasPair(ps: []Pair, p: Pair): bool = "../../leaves/sema_leaf.rs:has_pair";
 	At -> Names(a = this.a, b = this.b);
 	Names switch {
 		Some(p) -> switch {
@@ -98,12 +98,12 @@ proc Accepts(At): bool {
 }
 
 // The pair to assume while comparing two typedef names' structures.
-func NewPair(o: OptPair): []Pair = "../../rs/src/sema_leaf.rs:new_pair";
+func NewPair(o: OptPair): []Pair = "../../leaves/sema_leaf.rs:new_pair";
 
 // Accepts, on unfolded types.
 proc AcceptsShapes(At): bool {
-	func At(s: AcceptsIn): AcceptsIn = "../../rs/src/sema_leaf.rs:same";
-	func Both(s: { a: Type, b: Type }): { a: Type, b: Type } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: AcceptsIn): AcceptsIn = "../../leaves/sema_leaf.rs:same";
+	func Both(s: { a: Type, b: Type }): { a: Type, b: Type } = "../../leaves/sema_leaf.rs:same";
 	At -> Both(s = { a = this.a, b = this.b });
 	Both switch {
 		{ a = Prim(x), b = Prim(y) } -> id(x == y),
@@ -119,7 +119,7 @@ proc AcceptsShapes(At): bool {
 }
 
 proc AcceptsMap(At): bool {
-	func At(s: { a: { key: Type, value: Type }, b: { key: Type, value: Type }, defs: []TypeDef, assumed: []Pair }): { a: { key: Type, value: Type }, b: { key: Type, value: Type }, defs: []TypeDef, assumed: []Pair } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { a: { key: Type, value: Type }, b: { key: Type, value: Type }, defs: []TypeDef, assumed: []Pair }): { a: { key: Type, value: Type }, b: { key: Type, value: Type }, defs: []TypeDef, assumed: []Pair } = "../../leaves/sema_leaf.rs:same";
 	At -> Accepts(s = { a = this.a.key, b = this.b.key, defs = this.defs, assumed = this.assumed }) as Keys;
 	Keys switch {
 		(this) -> Accepts(s = { a = At.a.value, b = At.b.value, defs = At.defs, assumed = At.assumed }) as Values,
@@ -131,7 +131,7 @@ proc AcceptsMap(At): bool {
 // whose type is accepted: Accepts(each's, other's), or with `flip`,
 // Accepts(other's, each's).
 proc AllAccepted(At): bool {
-	func At(s: { each: []Member, other: []Member, flip: bool, defs: []TypeDef, assumed: []Pair, i: int }): { each: []Member, other: []Member, flip: bool, defs: []TypeDef, assumed: []Pair, i: int } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { each: []Member, other: []Member, flip: bool, defs: []TypeDef, assumed: []Pair, i: int }): { each: []Member, other: []Member, flip: bool, defs: []TypeDef, assumed: []Pair, i: int } = "../../leaves/sema_leaf.rs:same";
 	At switch {
 		(this.i == this.each.len) -> id(true),
 		else -> Member(ms = this.other, name = this.each[this.i].name) as Found

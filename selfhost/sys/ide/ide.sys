@@ -12,55 +12,55 @@ type TermChunk = { ok: bool, data: string, next: int, closed: bool };
 
 interface Session {
 	// A random token for this run.
-	func Token(n: int): string = "../../rs/src/ide_io.rs:token";
+	func Token(n: int): string = "../../leaves/ide_io.rs:token";
 	// The source directory: the working directory, canonical.
-	func Base(n: int): string = "../../rs/src/ide_io.rs:base";
+	func Base(n: int): string = "../../leaves/ide_io.rs:base";
 }
 
 interface Pages {
 	// An IDE page by name, or "".
-	func Get(name: string): string = "../../rs/src/ide_io.rs:page";
+	func Get(name: string): string = "../../leaves/ide_io.rs:page";
 }
 
 interface Files {
-	func Canon(path: string): Res<string> = "../../rs/src/ide_io.rs:canon";
-	func Read(path: string): Res<string> = "../../rs/src/ide_io.rs:try_read";
-	func Write(path: string, text: string): Res<string> = "../../rs/src/ide_io.rs:try_write";
+	func Canon(path: string): Res<string> = "../../leaves/ide_io.rs:canon";
+	func Read(path: string): Res<string> = "../../leaves/ide_io.rs:try_read";
+	func Write(path: string, text: string): Res<string> = "../../leaves/ide_io.rs:try_write";
 	// The .sys files under base, relative to it, sorted.
-	func Walk(base: string): []string = "../../rs/src/ide_io.rs:walk_rel";
+	func Walk(base: string): []string = "../../leaves/ide_io.rs:walk_rel";
 }
 
 interface Term {
 	// A shell on a pty in cwd; its id.
-	func Spawn(cwd: string): Res<int> = "../../rs/src/ide_io.rs:term_spawn";
-	func List(n: int): []int = "../../rs/src/ide_io.rs:term_list";
+	func Spawn(cwd: string): Res<int> = "../../leaves/ide_io.rs:term_spawn";
+	func List(n: int): []int = "../../leaves/ide_io.rs:term_list";
 	// Output from offset `from`, waiting a while for some.
-	func Read(id: int, from: int): TermChunk = "../../rs/src/ide_io.rs:term_read";
-	func Input(id: int, data: string): Res<string> = "../../rs/src/ide_io.rs:term_input";
-	func Resize(id: int, cols: int, rows: int): Res<string> = "../../rs/src/ide_io.rs:term_resize";
-	func Kill(id: int): bool = "../../rs/src/ide_io.rs:term_kill";
+	func Read(id: int, from: int): TermChunk = "../../leaves/ide_io.rs:term_read";
+	func Input(id: int, data: string): Res<string> = "../../leaves/ide_io.rs:term_input";
+	func Resize(id: int, cols: int, rows: int): Res<string> = "../../leaves/ide_io.rs:term_resize";
+	func Kill(id: int): bool = "../../leaves/ide_io.rs:term_kill";
 }
 
 // Parses a file, a failure being a value.
-func TryParse(src: string, file: int): Res<File> = "../../rs/src/ide_io.rs:try_parse";
-func Compact(j: Json): string = "../../rs/src/doc_leaf.rs:compact";
-func ParseJson(text: string): Res<Json> = "../../rs/src/doc_leaf.rs:parse_json";
-func JsonStr(j: Json, key: string): MaybeStr = "../../rs/src/doc_leaf.rs:json_str";
+func TryParse(src: string, file: int): Res<File> = "../../leaves/ide_io.rs:try_parse";
+func Compact(j: Json): string = "../../leaves/doc_leaf.rs:compact";
+func ParseJson(text: string): Res<Json> = "../../leaves/doc_leaf.rs:parse_json";
+func JsonStr(j: Json, key: string): MaybeStr = "../../leaves/doc_leaf.rs:json_str";
 // The page served at a path ("" if none), and one carrying the token.
-func PageName(path: string): string = "../../rs/src/ide_leaf.rs:page_name";
-func PageResponse(text: string, token: string): HttpResponse = "../../rs/src/ide_leaf.rs:page_response";
-func CssResponse(text: string): HttpResponse = "../../rs/src/ide_leaf.rs:css_response";
+func PageName(path: string): string = "../../leaves/ide_leaf.rs:page_name";
+func PageResponse(text: string, token: string): HttpResponse = "../../leaves/ide_leaf.rs:page_response";
+func CssResponse(text: string): HttpResponse = "../../leaves/ide_leaf.rs:css_response";
 // 200 and the JSON; 400 and {"ok": false, "error": msg}; 403; 404.
-func Api(j: Json): HttpResponse = "../../rs/src/ide_leaf.rs:api";
-func ApiErr(msg: string): HttpResponse = "../../rs/src/ide_leaf.rs:api_err";
-func Forbidden(n: int): HttpResponse = "../../rs/src/ide_leaf.rs:forbidden";
-func NotFound(n: int): HttpResponse = "../../rs/src/ide_leaf.rs:not_found";
+func Api(j: Json): HttpResponse = "../../leaves/ide_leaf.rs:api";
+func ApiErr(msg: string): HttpResponse = "../../leaves/ide_leaf.rs:api_err";
+func Forbidden(n: int): HttpResponse = "../../leaves/ide_leaf.rs:forbidden";
+func NotFound(n: int): HttpResponse = "../../leaves/ide_leaf.rs:not_found";
 // A loopback Host and the session's token.
-func Authorized(headers: map[string]string, token: string): bool = "../../rs/src/ide_leaf.rs:authorized";
-func HasPrefix(s: string, prefix: string): bool = "../../rs/src/cli_leaf.rs:starts_with";
+func Authorized(headers: map[string]string, token: string): bool = "../../leaves/ide_leaf.rs:authorized";
+func HasPrefix(s: string, prefix: string): bool = "../../leaves/cli_leaf.rs:starts_with";
 
 proc Ide(At): HttpResponse {
-	func At(req: HttpRequest): HttpRequest = "../../rs/src/sema_leaf.rs:same";
+	func At(req: HttpRequest): HttpRequest = "../../leaves/sema_leaf.rs:same";
 	At -> Session.Token(n = 0);
 	Session.Token -> Session.Base(n = 0);
 	Session.Base switch {
@@ -82,12 +82,12 @@ proc Ide(At): HttpResponse {
 	Sources -> id(Api(j = Obj([{ key = "ok", value = Bool(true) }, { key = "root", value = Str(Session.Base) }, { key = "files", value = Arr(Strs(xs = this)) }])));
 }
 
-func Strs(xs: []string): []Json = "../../rs/src/ide_leaf.rs:strs";
+func Strs(xs: []string): []Json = "../../leaves/ide_leaf.rs:strs";
 
 // Resolves p under base, refusing paths that escape it.
 proc ResolvePath(At): Res<string> {
-	func At(s: { base: string, p: string }): { base: string, p: string } = "../../rs/src/sema_leaf.rs:same";
-	func Bad(p: string): bool = "../../rs/src/ide_leaf.rs:bad_path";
+	func At(s: { base: string, p: string }): { base: string, p: string } = "../../leaves/sema_leaf.rs:same";
+	func Bad(p: string): bool = "../../leaves/ide_leaf.rs:bad_path";
 	At switch {
 		(Bad(p = this.p)) -> id(Err({ msg = "invalid path", span = { at = 0, end = 0, file = 0 } })),
 		else -> Files.Canon(path = JoinP(a = this.base, b = this.p))
@@ -102,7 +102,7 @@ proc ResolvePath(At): Res<string> {
 }
 
 proc ReadSource(At): Res<string> {
-	func At(s: { base: string, p: string }): { base: string, p: string } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { base: string, p: string }): { base: string, p: string } = "../../leaves/sema_leaf.rs:same";
 	At -> ResolvePath(s = this);
 	ResolvePath switch {
 		Ok(full) -> Files.Read(path = full),
@@ -116,7 +116,7 @@ proc ReadSource(At): Res<string> {
 
 // GET /api/source?path=..
 proc SourceRoute(At): HttpResponse {
-	func At(s: { base: string, query: map[string]string }): { base: string, query: map[string]string } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { base: string, query: map[string]string }): { base: string, query: map[string]string } = "../../leaves/sema_leaf.rs:same";
 	At switch {
 		("path" in this.query) -> ReadSource(s = { base = this.base, p = this.query["path"] }),
 		else -> id(ApiErr(msg = "missing ?path="))
@@ -129,9 +129,9 @@ proc SourceRoute(At): HttpResponse {
 
 // POST /api/save {path, source}: writes an existing .sys file.
 proc Save(At): HttpResponse {
-	func At(s: { base: string, body: string }): { base: string, body: string } = "../../rs/src/sema_leaf.rs:same";
-	func IsSys(p: string): bool = "../../rs/src/ide_leaf.rs:is_sys";
-	func Len(s: string): int = "../../rs/src/ide_leaf.rs:byte_len";
+	func At(s: { base: string, body: string }): { base: string, body: string } = "../../leaves/sema_leaf.rs:same";
+	func IsSys(p: string): bool = "../../leaves/ide_leaf.rs:is_sys";
+	func Len(s: string): int = "../../leaves/ide_leaf.rs:byte_len";
 	At -> ParseJson(text = this.body);
 	ParseJson switch {
 		Ok(j) -> switch {
@@ -154,4 +154,4 @@ proc Save(At): HttpResponse {
 	};
 }
 
-func UnwrapJ(r: Res<Json>): Json = "../../rs/src/ide_leaf.rs:unwrap_j";
+func UnwrapJ(r: Res<Json>): Json = "../../leaves/ide_leaf.rs:unwrap_j";

@@ -5,7 +5,9 @@ use crate::vcc::types::{List, Str};
 use std::path::{Path, PathBuf};
 
 pub fn read(path: Str) -> Result<Str, String> {
-    std::fs::read_to_string(&*path).map(Str::from).map_err(|e| format!("cannot read {path}: {e}"))
+    std::fs::read_to_string(&*path)
+        .map(Str::from)
+        .map_err(|e| format!("cannot read {path}: {e}"))
 }
 
 /// Writes text to path, creating its directory.
@@ -26,13 +28,17 @@ pub fn is_dir(path: Str) -> Result<bool, String> {
 }
 
 pub fn cwd(_n: i64) -> Result<Str, String> {
-    std::env::current_dir().map(|d| Str::from(d.to_string_lossy().as_ref())).map_err(|e| e.to_string())
+    std::env::current_dir()
+        .map(|d| Str::from(d.to_string_lossy().as_ref()))
+        .map_err(|e| e.to_string())
 }
 
 /// The .sys files under dir, skipping hidden directories and build output.
 pub fn walk(dir: Str) -> Result<List<Str>, String> {
     fn go(dir: &Path, out: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
         for e in entries.flatten() {
             let p = e.path();
             let name = e.file_name().to_string_lossy().into_owned();
@@ -47,13 +53,20 @@ pub fn walk(dir: Str) -> Result<List<Str>, String> {
     }
     let mut out = vec![];
     go(Path::new(&*dir), &mut out);
-    Ok(out.iter().map(|p| Str::from(p.to_string_lossy().as_ref())).collect())
+    Ok(out
+        .iter()
+        .map(|p| Str::from(p.to_string_lossy().as_ref()))
+        .collect())
 }
 
 /// Runs rustfmt over the files if it's installed.
 pub fn rustfmt(files: List<Str>) -> Result<bool, String> {
     let paths: Vec<&str> = files.iter().map(|f| &**f).collect();
-    match std::process::Command::new("rustfmt").args(["--edition", "2024"]).args(&paths).status() {
+    match std::process::Command::new("rustfmt")
+        .args(["--edition", "2024"])
+        .args(&paths)
+        .status()
+    {
         Ok(s) if !s.success() => eprintln!("note: rustfmt failed ({s})"),
         Ok(_) => {}
         Err(e) => eprintln!("note: rustfmt not run ({e})"),

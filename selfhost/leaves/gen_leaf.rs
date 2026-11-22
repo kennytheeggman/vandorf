@@ -9,7 +9,9 @@ fn err<T>(what: &str) -> Result<T, String> {
 
 fn cap(s: &str) -> String {
     let mut c = s.chars();
-    c.next().map_or(String::new(), |f| f.to_ascii_uppercase().to_string() + c.as_str())
+    c.next().map_or(String::new(), |f| {
+        f.to_ascii_uppercase().to_string() + c.as_str()
+    })
 }
 
 // ---- The type table ----
@@ -31,15 +33,18 @@ pub fn with_key(mut t: Table, key: Str, i: i64) -> Result<Table, String> {
     Ok(t)
 }
 
-
-
 pub fn reserved(types: List<TypeDef>) -> Result<Map<Str, bool>, String> {
-    Ok(types.iter().map(|d| (Str::from(cap(&d.ident)), true)).collect())
+    Ok(types
+        .iter()
+        .map(|d| (Str::from(cap(&d.ident)), true))
+        .collect())
 }
 
 pub fn unique(t: Table, hint: Str, typedef: Str) -> Result<Str, String> {
     let taken = |n: &str| {
-        t.types.iter().any(|x| &*x.name == n) || t.aliases.iter().any(|a| &*a.name == n) || (t.reserved.contains_key(n) && &*typedef != n)
+        t.types.iter().any(|x| &*x.name == n)
+            || t.aliases.iter().any(|a| &*a.name == n)
+            || (t.reserved.contains_key(n) && &*typedef != n)
     };
     let mut name = hint.to_string();
     let mut i = 2;
@@ -62,9 +67,16 @@ fn key(ty: &Type, defs: &[TypeDef]) -> String {
         Type::Named(n) if defs[n.id as usize].recursive => format!("#{}", n.id),
         Type::Named(n) => key(&defs[n.id as usize].ty, defs),
         Type::Struct(fs) | Type::Enum(fs) => {
-            let mut parts: Vec<String> = fs.iter().map(|m| format!("{}:{}", m.name, key(&m.ty, defs))).collect();
+            let mut parts: Vec<String> = fs
+                .iter()
+                .map(|m| format!("{}:{}", m.name, key(&m.ty, defs)))
+                .collect();
             parts.sort();
-            let kind = if matches!(ty, Type::Struct(_)) { "struct" } else { "enum" };
+            let kind = if matches!(ty, Type::Struct(_)) {
+                "struct"
+            } else {
+                "enum"
+            };
             format!("{kind}{{{}}}", parts.join(","))
         }
     }
@@ -79,17 +91,23 @@ pub fn get(t: Table, ty: Type) -> Result<TyRef, String> {
         Ok(match ty {
             Type::Prim(p) => TyRef::Prim(p.clone()),
             Type::Array(e) => TyRef::Array(std::sync::Arc::new(go(t, e)?)),
-            Type::Map(m) => TyRef::Map(std::sync::Arc::new(TyRefMap { key: std::sync::Arc::new(go(t, &m.key)?), value: std::sync::Arc::new(go(t, &m.value)?) })),
+            Type::Map(m) => TyRef::Map(std::sync::Arc::new(TyRefMap {
+                key: std::sync::Arc::new(go(t, &m.key)?),
+                value: std::sync::Arc::new(go(t, &m.value)?),
+            })),
             Type::Named(n) if !t.defs[n.id as usize].recursive => go(t, &t.defs[n.id as usize].ty)?,
             _ => {
                 let k = key(ty, &t.defs);
-                TyRef::Named(*t.by_key.get(&Str::from(k.as_str())).ok_or_else(|| format!("unregistered type {k}"))?)
+                TyRef::Named(
+                    *t.by_key
+                        .get(&Str::from(k.as_str()))
+                        .ok_or_else(|| format!("unregistered type {k}"))?,
+                )
             }
         })
     }
     go(&t, &ty)
 }
-
 
 pub fn find_boxed(t: Table) -> Result<Map<Str, bool>, String> {
     let edges: Vec<Vec<(Str, usize)>> = t
@@ -97,10 +115,12 @@ pub fn find_boxed(t: Table) -> Result<Map<Str, bool>, String> {
         .iter()
         .map(|n| {
             let (Shape::Struct(fs) | Shape::Enum(fs)) = &n.shape;
-            fs.iter().filter_map(|m| match &m.r {
-                TyRef::Named(j) => Some((m.name.clone(), *j as usize)),
-                _ => None,
-            }).collect()
+            fs.iter()
+                .filter_map(|m| match &m.r {
+                    TyRef::Named(j) => Some((m.name.clone(), *j as usize)),
+                    _ => None,
+                })
+                .collect()
         })
         .collect();
     let reaches = |from: usize, to: usize| {
@@ -387,7 +407,6 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
 
 "##;
 
-
 pub fn rust_shared(_n: i64) -> Result<Str, String> {
     Ok(RUST_SHARED.into())
 }
@@ -417,7 +436,13 @@ pub fn rust_ident(s: Str) -> Result<Str, String> {
 
 /// A parameter or local, kept clear of the generated locals.
 pub fn rust_local(s: Str) -> Result<Str, String> {
-    Ok(if ["env", "pc", "this", "input", "results", "elem", "dim"].contains(&&*s) { format!("{s}_").into() } else { rust_ident_of(&s).into() })
+    Ok(
+        if ["env", "pc", "this", "input", "results", "elem", "dim"].contains(&&*s) {
+            format!("{s}_").into()
+        } else {
+            rust_ident_of(&s).into()
+        },
+    )
 }
 
 /// `BarStart` -> `bar_start`
@@ -472,7 +497,11 @@ pub fn rust_render(t: Table, r: TyRef, qual: Str) -> Result<Str, String> {
 }
 
 pub fn rust_doc(n: NamedType) -> Result<Line, String> {
-    Ok(Line::L(if *n.origin == *format!("typedef {}", n.name) { "/// A typedef.".into() } else { format!("/// The type of the {}.", n.origin).into() }))
+    Ok(Line::L(if *n.origin == *format!("typedef {}", n.name) {
+        "/// A typedef.".into()
+    } else {
+        format!("/// The type of the {}.", n.origin).into()
+    }))
 }
 
 pub fn is_void_ref(r: TyRef) -> Result<bool, String> {
@@ -481,7 +510,13 @@ pub fn is_void_ref(r: TyRef) -> Result<bool, String> {
 
 pub fn rust_field_type(t: Table, i: i64, m: RefMember) -> Result<Str, String> {
     let s = rust_render(t.clone(), m.r, "".into())?;
-    Ok(if t.boxed.contains_key(&Str::from(format!("{i}:{}", m.name))) { format!("std::sync::Arc<{s}>").into() } else { s })
+    Ok(
+        if t.boxed.contains_key(&Str::from(format!("{i}:{}", m.name))) {
+            format!("std::sync::Arc<{s}>").into()
+        } else {
+            s
+        },
+    )
 }
 
 // ---- Rust procs: pure helpers ----
@@ -502,7 +537,9 @@ fn member<'a>(t: &'a Type, defs: &'a [TypeDef], name: &str) -> Option<&'a Type> 
 
 /// A field or variant payload's type.
 pub fn member_of(defs: List<TypeDef>, t: Type, name: Str) -> Result<Type, String> {
-    member(&t, &defs, &name).cloned().ok_or_else(|| format!("member_of: no {name}"))
+    member(&t, &defs, &name)
+        .cloned()
+        .ok_or_else(|| format!("member_of: no {name}"))
 }
 
 pub fn unfolded(defs: List<TypeDef>, t: Type) -> Result<Type, String> {
@@ -536,11 +573,17 @@ pub fn ref_path(t: Table, r: Ref) -> Result<RefPathOut, String> {
     for f in r.fields.iter() {
         through |= is_boxed;
         is_boxed = boxed(&t, &ty, f);
-        ty = member(&ty, &t.defs, f).cloned().ok_or("ref_path: no field")?;
+        ty = member(&ty, &t.defs, f)
+            .cloned()
+            .ok_or("ref_path: no field")?;
         path.push('.');
         path.push_str(&rust_ident_of(f));
     }
-    Ok(RefPathOut { path: path.into(), boxed: is_boxed, through })
+    Ok(RefPathOut {
+        path: path.into(),
+        boxed: is_boxed,
+        through,
+    })
 }
 
 pub fn float_lit(f: f64) -> Result<Str, String> {
@@ -549,7 +592,9 @@ pub fn float_lit(f: f64) -> Result<Str, String> {
 
 pub fn in_type(nodes: List<NodeDecl>, n: i64) -> Result<Str, String> {
     match &nodes[n as usize].kind {
-        NodeKind::Func(_) | NodeKind::Id(_) => Ok(format!("In{}", gname(nodes[n as usize].clone())?).into()),
+        NodeKind::Func(_) | NodeKind::Id(_) => {
+            Ok(format!("In{}", gname(nodes[n as usize].clone())?).into())
+        }
         NodeKind::Proc(p) => in_type(nodes.clone(), p.entry),
         NodeKind::Alias(b) => in_type(nodes.clone(), *b),
     }
@@ -564,7 +609,9 @@ pub fn base_of(nodes: List<NodeDecl>, n: i64) -> Result<i64, String> {
 
 /// The func's implementation in a `.rs` file, if any.
 pub fn rs_impl(n: NodeDecl, ext: Str) -> Result<MaybeImpl, String> {
-    let NodeKind::Func(f) = &n.kind else { return err("rs_impl: not a func") };
+    let NodeKind::Func(f) = &n.kind else {
+        return err("rs_impl: not a func");
+    };
     Ok(f.imps
         .iter()
         .find(|i| i.file.rsplit_once('.').is_some_and(|(_, e)| *e == *ext))
@@ -572,7 +619,10 @@ pub fn rs_impl(n: NodeDecl, ext: Str) -> Result<MaybeImpl, String> {
 }
 
 pub fn join_path(base: Str, rel: Str) -> Result<MaybeStr, String> {
-    let mut segs: Vec<&str> = base.split('/').filter(|s| !s.is_empty() && *s != ".").collect();
+    let mut segs: Vec<&str> = base
+        .split('/')
+        .filter(|s| !s.is_empty() && *s != ".")
+        .collect();
     for s in rel.split('/') {
         match s {
             "" | "." => {}
@@ -597,7 +647,11 @@ pub fn module_path(file: Str) -> Result<MaybeStr, String> {
     if segs == ["lib"] || segs == ["main"] {
         segs.clear();
     }
-    let valid = |s: &str| s.chars().enumerate().all(|(i, c)| c == '_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit()));
+    let valid = |s: &str| {
+        s.chars()
+            .enumerate()
+            .all(|(i, c)| c == '_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit()))
+    };
     if !segs.iter().all(|s| valid(s)) {
         return Ok(MaybeStr::None);
     }
@@ -615,7 +669,9 @@ pub fn all_procs_ordered(nodes: List<NodeDecl>, top: List<i64>) -> Result<List<i
     let mut stack: Vec<i64> = top.iter().rev().copied().collect();
     while let Some(p) = stack.pop() {
         out.push(p);
-        let NodeKind::Proc(d) = &nodes[p as usize].kind else { continue };
+        let NodeKind::Proc(d) = &nodes[p as usize].kind else {
+            continue;
+        };
         for &l in d.locals.iter().rev() {
             if matches!(nodes[l as usize].kind, NodeKind::Proc(_)) {
                 stack.push(l);
@@ -626,7 +682,11 @@ pub fn all_procs_ordered(nodes: List<NodeDecl>, top: List<i64>) -> Result<List<i
 }
 
 fn field_ref(t: &Table, ty: &Type, x: &str, f: &str) -> String {
-    if boxed(t, ty, f) { format!("(&*{x}.{})", rust_ident_of(f)) } else { format!("(&{x}.{})", rust_ident_of(f)) }
+    if boxed(t, ty, f) {
+        format!("(&*{x}.{})", rust_ident_of(f))
+    } else {
+        format!("(&{x}.{})", rust_ident_of(f))
+    }
 }
 
 fn pat_test_of(t: &Table, p: &SPat, x: &str) -> Result<Option<String>, String> {
@@ -634,7 +694,9 @@ fn pat_test_of(t: &Table, p: &SPat, x: &str) -> Result<Option<String>, String> {
         SPatKind::Wild | SPatKind::Bind(_) => None,
         SPatKind::Variant(v) => {
             let path = format!("{}::{}", rtype(t, &p.ty)?, rust_ident_of(&v.tag));
-            let MaybePat::Some(q) = &*v.payload else { return Ok(Some(format!("matches!({x}, {path})"))) };
+            let MaybePat::Some(q) = &*v.payload else {
+                return Ok(Some(format!("matches!({x}, {path})")));
+            };
             let inner = if boxed(t, &p.ty, &v.tag) { "&**p" } else { "p" };
             Some(match pat_test_of(t, q, &format!("({inner})"))? {
                 None => format!("matches!({x}, {path}(..))"),
@@ -672,12 +734,20 @@ pub fn pat_test(t: Table, p: SPat, x: Str) -> Result<MaybeStr, String> {
 fn pat_binds_of(t: &Table, p: &SPat, x: String, out: &mut Vec<PatBind>) -> Result<(), String> {
     match &*p.kind {
         SPatKind::Wild | SPatKind::Or(_) => {}
-        SPatKind::Bind(b) => out.push(PatBind { name: b.clone(), expr: x.into() }),
+        SPatKind::Bind(b) => out.push(PatBind {
+            name: b.clone(),
+            expr: x.into(),
+        }),
         SPatKind::Variant(v) => {
             if let MaybePat::Some(q) = &*v.payload {
                 let path = format!("{}::{}", rtype(t, &p.ty)?, rust_ident_of(&v.tag));
                 let inner = if boxed(t, &p.ty, &v.tag) { "&**p" } else { "p" };
-                pat_binds_of(t, q, format!("(match {x} {{ {path}(p) => {inner}, _ => unreachable!() }})"), out)?;
+                pat_binds_of(
+                    t,
+                    q,
+                    format!("(match {x} {{ {path}(p) => {inner}, _ => unreachable!() }})"),
+                    out,
+                )?;
             }
         }
         SPatKind::Struct(fs) => {
@@ -713,7 +783,7 @@ fn conds_of(a: &SArm, out: &mut Vec<Expr>) {
 }
 
 fn refs_of(e: &Expr, out: &mut Vec<i64>) {
-    let parts = crate::sema_leaf::expr_parts(e.clone()).unwrap_or_default();
+    let parts = super::sema_leaf::expr_parts(e.clone()).unwrap_or_default();
     if let Expr::Ref(r) = e {
         if let Root::Node(n) = &r.root {
             out.push(*n);
@@ -754,7 +824,11 @@ fn edge_reads(g: &Graph, n: i64) -> Vec<i64> {
 
 /// Nodes whose output some edge reads.
 pub fn read_nodes(g: Graph) -> Result<Map<i64, bool>, String> {
-    Ok(g.edges.keys().flat_map(|&n| edge_reads(&g, n)).map(|n| (n, true)).collect())
+    Ok(g.edges
+        .keys()
+        .flat_map(|&n| edge_reads(&g, n))
+        .map(|n| (n, true))
+        .collect())
 }
 
 fn succs(g: &Graph, n: i64) -> Vec<i64> {
@@ -805,7 +879,11 @@ pub fn moved_reads(seen: List<Seen>, taken: Map<i64, bool>) -> Result<Map<i64, b
             n if n >= 0 => taken.contains_key(&n),
             _ => true,
         };
-        if movable && !seen[i + 1..].iter().any(|o| o.owner == s.owner && overlaps(&s.path, &o.path)) {
+        if movable
+            && !seen[i + 1..]
+                .iter()
+                .any(|o| o.owner == s.owner && overlaps(&s.path, &o.path))
+        {
             out.push((i as i64, true));
         }
     }
@@ -814,13 +892,10 @@ pub fn moved_reads(seen: List<Seen>, taken: Map<i64, bool>) -> Result<Map<i64, b
 
 // ---- Rust procs: state and text ----
 
-
 pub fn g_coercion(mut g: RGen, key: Str, name: Str) -> Result<RGen, String> {
     g.coercions = g.coercions.merge(&Map::from_iter([(key, name)]));
     Ok(g)
 }
-
-
 
 pub fn g_failed(mut g: RGen, msg: Str) -> Result<RGen, String> {
     if matches!(g.failed, MaybeStr::None) {
@@ -836,7 +911,6 @@ pub fn g_fatal(mut g: RGen, msg: Str) -> Result<RGen, String> {
     Ok(g)
 }
 
-
 pub fn first_error(g: RGen) -> Result<MaybeStr, String> {
     Ok(match (g.fatal, g.failed) {
         (MaybeStr::Some(e), _) | (MaybeStr::None, MaybeStr::Some(e)) => MaybeStr::Some(e),
@@ -845,15 +919,32 @@ pub fn first_error(g: RGen) -> Result<MaybeStr, String> {
 }
 
 pub fn no_moves(_n: i64) -> Result<Moves, String> {
-    Ok(Moves { active: false, recording: false, seen: List::default(), moved: Map::default(), taken: Map::default(), next: 0 })
+    Ok(Moves {
+        active: false,
+        recording: false,
+        seen: List::default(),
+        moved: Map::default(),
+        taken: Map::default(),
+        next: 0,
+    })
 }
 
 pub fn recording(_n: i64) -> Result<Moves, String> {
-    Ok(Moves { active: true, recording: true, ..no_moves(0)? })
+    Ok(Moves {
+        active: true,
+        recording: true,
+        ..no_moves(0)?
+    })
 }
 
 pub fn moving(moved: Map<i64, bool>, taken: Map<i64, bool>) -> Result<Moves, String> {
-    Ok(Moves { active: true, recording: false, moved, taken, ..no_moves(0)? })
+    Ok(Moves {
+        active: true,
+        recording: false,
+        moved,
+        taken,
+        ..no_moves(0)?
+    })
 }
 
 pub fn move_read(mut m: Moves, owner: Str, node: i64, path: List<Str>) -> Result<MoveOut, String> {
@@ -897,7 +988,9 @@ fn gn(nodes: &List<NodeDecl>, n: i64) -> String {
 }
 
 fn qn(nodes: &List<NodeDecl>, n: i64) -> String {
-    crate::sema_leaf::qual_name(nodes[n as usize].clone()).unwrap().to_string()
+    super::sema_leaf::qual_name(nodes[n as usize].clone())
+        .unwrap()
+        .to_string()
 }
 
 fn q(s: &str) -> String {
@@ -909,13 +1002,22 @@ pub fn slot_lines(g: RGen, taken: List<i64>) -> Result<List<Line>, String> {
         .iter()
         .map(|&n| {
             let id = sn(&g.prog.nodes, n);
-            Line::L(format!("let slot_{id} = take_slot(&mut env.out_{id}, {})?;", q(&qn(&g.prog.nodes, n))).into())
+            Line::L(
+                format!(
+                    "let slot_{id} = take_slot(&mut env.out_{id}, {})?;",
+                    q(&qn(&g.prog.nodes, n))
+                )
+                .into(),
+            )
         })
         .collect())
 }
 
 pub fn bind_lines(bs: List<PatBind>) -> Result<List<Line>, String> {
-    Ok(bs.iter().map(|b| Line::L(format!("let b_{} = {}.clone();", b.name, b.expr).into())).collect())
+    Ok(bs
+        .iter()
+        .map(|b| Line::L(format!("let b_{} = {}.clone();", b.name, b.expr).into()))
+        .collect())
 }
 
 pub fn coercion_name(at: RCoerceAtS) -> Result<Str, String> {
@@ -923,7 +1025,11 @@ pub fn coercion_name(at: RCoerceAtS) -> Result<Str, String> {
 }
 
 pub fn new_coercion(at: RCoerceAtS) -> Result<RGen, String> {
-    let key = format!("{} -> {}", rtype(&at.g.table, &at.from)?, rtype(&at.g.table, &at.to)?);
+    let key = format!(
+        "{} -> {}",
+        rtype(&at.g.table, &at.from)?,
+        rtype(&at.g.table, &at.to)?
+    );
     let name = coercion_name(at.clone())?;
     g_coercion(at.g, key.into(), name)
 }
@@ -1078,15 +1184,20 @@ pub fn in_key_e(e: Expr) -> Result<Expr, String> {
 }
 
 fn params_of(nodes: &List<NodeDecl>, n: i64) -> List<Member> {
-    crate::sema_leaf::node_params(nodes.clone(), n).unwrap()
+    super::sema_leaf::node_params(nodes.clone(), n).unwrap()
 }
 
 pub fn input_args(nodes: List<NodeDecl>, n: i64) -> Result<Str, String> {
-    Ok(params_of(&nodes, n).iter().map(|p| format!("input.{}", rust_ident_of(&p.name))).collect::<Vec<_>>().join(", ").into())
+    Ok(params_of(&nodes, n)
+        .iter()
+        .map(|p| format!("input.{}", rust_ident_of(&p.name)))
+        .collect::<Vec<_>>()
+        .join(", ")
+        .into())
 }
 
 fn graph(nodes: &List<NodeDecl>, pid: i64) -> Graph {
-    crate::doc_leaf::graph_of(nodes[pid as usize].clone()).unwrap()
+    super::doc_leaf::graph_of(nodes[pid as usize].clone()).unwrap()
 }
 
 pub fn node_head(g: RGen, pid: i64, n: i64, run: Str) -> Result<List<Line>, String> {
@@ -1094,11 +1205,19 @@ pub fn node_head(g: RGen, pid: i64, n: i64, run: Str) -> Result<List<Line>, Stri
     let id = sn(nodes, n);
     let mut out = vec![
         Line::L(format!("Pc{}::{} => {{", gn(nodes, pid), gn(nodes, n)).into()),
-        Line::L(format!("let input = take_slot(&mut env.in_{id}, {})?;", q(&qn(nodes, n))).into()),
+        Line::L(
+            format!(
+                "let input = take_slot(&mut env.in_{id}, {})?;",
+                q(&qn(nodes, n))
+            )
+            .into(),
+        ),
         Line::L(run),
     ];
     if read_nodes(graph(nodes, pid))?.contains_key(&n) {
-        out.push(Line::L(format!("env.out_{id} = Some(this.clone());").into()));
+        out.push(Line::L(
+            format!("env.out_{id} = Some(this.clone());").into(),
+        ));
     }
     Ok(out.into())
 }
@@ -1129,34 +1248,77 @@ pub fn opens_by_region(g: Graph) -> Result<List<i64>, String> {
 }
 
 fn ret_of(nodes: &List<NodeDecl>, n: i64) -> Type {
-    crate::sema_leaf::node_ret(nodes.clone(), n).unwrap()
+    super::sema_leaf::node_ret(nodes.clone(), n).unwrap()
 }
 
 pub fn proc_prelude(g: RGen, pid: i64) -> Result<List<Line>, String> {
     let nodes = &g.prog.nodes;
     let gr = graph(nodes, pid);
-    let NodeKind::Proc(p) = &nodes[pid as usize].kind else { return err("proc_prelude") };
+    let NodeKind::Proc(p) = &nodes[pid as usize].kind else {
+        return err("proc_prelude");
+    };
     let name = gn(nodes, pid);
     let (env, pc) = (format!("Env{name}"), format!("Pc{name}"));
     let order: Vec<i64> = gr.regions.iter().flat_map(|r| r.nodes.to_vec()).collect();
-    let mut out: Vec<String> = vec![format!("// ---- proc {} ----", qn(nodes, pid)), "".into(), "#[derive(Debug, Clone, Default)]".into(), format!("struct {env} {{")];
+    let mut out: Vec<String> = vec![
+        format!("// ---- proc {} ----", qn(nodes, pid)),
+        "".into(),
+        "#[derive(Debug, Clone, Default)]".into(),
+        format!("struct {env} {{"),
+    ];
     for &n in &order {
         let id = sn(nodes, n);
         out.push(format!("in_{id}: Option<{}>,", in_type(nodes.clone(), n)?));
-        out.push(format!("out_{id}: Option<{}>,", rtype(&g.table, &ret_of(nodes, n))?));
+        out.push(format!(
+            "out_{id}: Option<{}>,",
+            rtype(&g.table, &ret_of(nodes, n))?
+        ));
     }
-    out.extend(["}".into(), "".into(), "#[derive(Debug, Clone, Copy, PartialEq, Eq)]".into(), format!("enum {pc} {{")]);
+    out.extend([
+        "}".into(),
+        "".into(),
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]".into(),
+        format!("enum {pc} {{"),
+    ]);
     for &n in &order {
         out.push(format!("{},", gn(nodes, n)));
     }
     out.extend(["}".into(), "".into()]);
     let params = params_of(nodes, pid);
-    let sig: Vec<String> = params.iter().map(|m| Ok(format!("{}: {}", rust_local(m.name.clone())?, rtype(&g.table, &m.ty)?))).collect::<Result<_, String>>()?;
+    let sig: Vec<String> = params
+        .iter()
+        .map(|m| {
+            Ok(format!(
+                "{}: {}",
+                rust_local(m.name.clone())?,
+                rtype(&g.table, &m.ty)?
+            ))
+        })
+        .collect::<Result<_, String>>()?;
     out.push(format!("/// Runs proc {}.", qn(nodes, pid)));
-    out.push(format!("pub fn run_{}({}) -> Result<{}, Error> {{", snake(name.clone().into())?, sig.join(", "), rtype(&g.table, &p.ret)?));
+    out.push(format!(
+        "pub fn run_{}({}) -> Result<{}, Error> {{",
+        snake(name.clone().into())?,
+        sig.join(", "),
+        rtype(&g.table, &p.ret)?
+    ));
     out.push(format!("let mut env = {env}::default();"));
-    let fields: Vec<String> = params.iter().map(|m| Ok(format!("{}: {}", rust_ident_of(&m.name), rust_local(m.name.clone())?))).collect::<Result<_, String>>()?;
-    out.push(format!("env.in_{} = Some({} {{ {} }});", sn(nodes, p.entry), in_type(nodes.clone(), p.entry)?, fields.join(", ")));
+    let fields: Vec<String> = params
+        .iter()
+        .map(|m| {
+            Ok(format!(
+                "{}: {}",
+                rust_ident_of(&m.name),
+                rust_local(m.name.clone())?
+            ))
+        })
+        .collect::<Result<_, String>>()?;
+    out.push(format!(
+        "env.in_{} = Some({} {{ {} }});",
+        sn(nodes, p.entry),
+        in_type(nodes.clone(), p.entry)?,
+        fields.join(", ")
+    ));
     out.push(format!("let mut pc = {pc}::{};", gn(nodes, p.entry)));
     Ok(out.into_iter().map(|s| Line::L(s.into())).collect())
 }
@@ -1168,8 +1330,22 @@ pub fn region_head(g: RGen, pid: i64, opener: i64) -> Result<List<Line>, String>
     let region = &gr.regions[r as usize];
     let sink = rtype(&g.table, &ret_of(nodes, region.sink))?;
     Ok(vec![
-        Line::L(format!("/// One element of the for each from {}.", qn(nodes, opener)).into()),
-        Line::L(format!("fn {}(mut env: Env{}, elem: {}) -> Result<{sink}, Error> {{", region_fn(g.clone(), pid, r)?, gn(nodes, pid), rtype(&g.table, &region.elem)?).into()),
+        Line::L(
+            format!(
+                "/// One element of the for each from {}.",
+                qn(nodes, opener)
+            )
+            .into(),
+        ),
+        Line::L(
+            format!(
+                "fn {}(mut env: Env{}, elem: {}) -> Result<{sink}, Error> {{",
+                region_fn(g.clone(), pid, r)?,
+                gn(nodes, pid),
+                rtype(&g.table, &region.elem)?
+            )
+            .into(),
+        ),
         Line::L("let this = elem;".into()),
     ]
     .into())
@@ -1182,7 +1358,9 @@ pub fn name_clash(prog: Program) -> Result<MaybeStr, String> {
         let qual = qn(&prog.nodes, id as i64);
         if let Some(prev) = seen.insert(s.clone(), qual.clone()) {
             let _ = n;
-            return Ok(MaybeStr::Some(format!("{prev} and {qual} both map to the Rust name {s}").into()));
+            return Ok(MaybeStr::Some(
+                format!("{prev} and {qual} both map to the Rust name {s}").into(),
+            ));
         }
     }
     Ok(MaybeStr::None)
@@ -1198,7 +1376,9 @@ pub fn trim_dir(d: MaybeStr) -> Result<MaybeStr, String> {
 pub fn bad_module_dir(d: MaybeStr) -> Result<MaybeStr, String> {
     Ok(match d {
         MaybeStr::Some(s) => match module_path(s.clone())? {
-            MaybeStr::None => MaybeStr::Some(format!("module dir {s} is not a valid module path").into()),
+            MaybeStr::None => {
+                MaybeStr::Some(format!("module dir {s} is not a valid module path").into())
+            }
             MaybeStr::Some(_) => MaybeStr::None,
         },
         MaybeStr::None => MaybeStr::None,
@@ -1223,10 +1403,27 @@ fn signature(g: &RGen, n: i64, name: &str, types_path: &str) -> Result<String, S
     let qual = format!("{types_path}::");
     let params: Vec<String> = params_of(&g.prog.nodes, n)
         .iter()
-        .map(|m| Ok(format!("{}: {}", rust_local(m.name.clone())?, rust_render(g.table.clone(), get(g.table.clone(), m.ty.clone())?, qual.as_str().into())?)))
+        .map(|m| {
+            Ok(format!(
+                "{}: {}",
+                rust_local(m.name.clone())?,
+                rust_render(
+                    g.table.clone(),
+                    get(g.table.clone(), m.ty.clone())?,
+                    qual.as_str().into()
+                )?
+            ))
+        })
         .collect::<Result<_, String>>()?;
-    let ret = rust_render(g.table.clone(), get(g.table.clone(), ret_of(&g.prog.nodes, n))?, qual.as_str().into())?;
-    Ok(format!("pub fn {name}({}) -> Result<{ret}, E>", params.join(", ")))
+    let ret = rust_render(
+        g.table.clone(),
+        get(g.table.clone(), ret_of(&g.prog.nodes, n))?,
+        qual.as_str().into(),
+    )?;
+    Ok(format!(
+        "pub fn {name}({}) -> Result<{ret}, E>",
+        params.join(", ")
+    ))
 }
 
 pub fn procs_file(g: RGen, body: Str) -> Result<Str, String> {
@@ -1247,7 +1444,11 @@ pub fn procs_file(g: RGen, body: Str) -> Result<Str, String> {
             ls.push(l("#[derive(Debug, Clone)]".into()));
             ls.push(l(format!("struct {} {{", in_type(nodes.clone(), id)?)));
             for m in params_of(nodes, id).iter() {
-                ls.push(l(format!("{}: {},", rust_ident_of(&m.name), rtype(&g.table, &m.ty)?)));
+                ls.push(l(format!(
+                    "{}: {},",
+                    rust_ident_of(&m.name),
+                    rtype(&g.table, &m.ty)?
+                )));
             }
             ls.push(l("}".into()));
             ls.push(l("".into()));
@@ -1255,12 +1456,27 @@ pub fn procs_file(g: RGen, body: Str) -> Result<Str, String> {
     }
     for &n in g.stubs.keys() {
         let qual = qn(nodes, n);
-        ls.push(l(format!("/// Stands in for {qual}, which names no .rs implementation. Write")));
+        ls.push(l(format!(
+            "/// Stands in for {qual}, which names no .rs implementation. Write"
+        )));
         ls.push(l(format!("/// `{}`", signature(&g, n, "name", "types")?)));
-        ls.push(l("/// and add `= \"file.rs:name\"` to its declaration.".into()));
-        let params: Vec<String> = params_of(nodes, n).iter().map(|m| Ok(format!("_: {}", rtype(&g.table, &m.ty)?))).collect::<Result<_, String>>()?;
-        ls.push(l(format!("fn unimplemented_{}({}) -> Result<{}, Error> {{", sn(nodes, n), params.join(", "), rtype(&g.table, &ret_of(nodes, n))?)));
-        ls.push(l(format!("Err({}.into())", q(&format!("{qual} is not implemented")))));
+        ls.push(l(
+            "/// and add `= \"file.rs:name\"` to its declaration.".into()
+        ));
+        let params: Vec<String> = params_of(nodes, n)
+            .iter()
+            .map(|m| Ok(format!("_: {}", rtype(&g.table, &m.ty)?)))
+            .collect::<Result<_, String>>()?;
+        ls.push(l(format!(
+            "fn unimplemented_{}({}) -> Result<{}, Error> {{",
+            sn(nodes, n),
+            params.join(", "),
+            rtype(&g.table, &ret_of(nodes, n))?
+        )));
+        ls.push(l(format!(
+            "Err({}.into())",
+            q(&format!("{qual} is not implemented"))
+        )));
         ls.push(l("}".into()));
         ls.push(l("".into()));
     }
@@ -1275,22 +1491,47 @@ pub fn procs_file(g: RGen, body: Str) -> Result<Str, String> {
 
 /// An executable running proc `entry` (src/codegen/rust.rs: main_artifact):
 /// its directory relative to the output module, file name and text.
-pub fn rust_main(prog: Program, t: Table, name: Str, entry: Str, path: Str, module_dir: MaybeStr, krate: Str) -> Result<MainsRustMainOut, String> {
-    let fail = |e: String| Ok(MainsRustMainOut { dir: "".into(), file: "".into(), text: "".into(), err: MaybeStr::Some(e.into()) });
+pub fn rust_main(
+    prog: Program,
+    t: Table,
+    name: Str,
+    entry: Str,
+    path: Str,
+    module_dir: MaybeStr,
+    krate: Str,
+) -> Result<MainsRustMainOut, String> {
+    let fail = |e: String| {
+        Ok(MainsRustMainOut {
+            dir: "".into(),
+            file: "".into(),
+            text: "".into(),
+            err: MaybeStr::Some(e.into()),
+        })
+    };
     let nodes = &prog.nodes;
-    let Some(pid) = prog.top.iter().copied().find(|&p| nodes[p as usize].qual.last() == Some(&entry) && matches!(nodes[p as usize].kind, NodeKind::Proc(_))) else {
-        return fail(format!("{name} runs proc {entry}, but there is no top-level proc {entry}"));
+    let Some(pid) = prog.top.iter().copied().find(|&p| {
+        nodes[p as usize].qual.last() == Some(&entry)
+            && matches!(nodes[p as usize].kind, NodeKind::Proc(_))
+    }) else {
+        return fail(format!(
+            "{name} runs proc {entry}, but there is no top-level proc {entry}"
+        ));
     };
     let params = params_of(nodes, pid);
-    let argv = params.len() == 1 && matches!(unfold(&params[0].ty, &prog.types), Type::Array(e) if matches!(unfold(e, &prog.types), Type::Prim(p) if &**p == "string"));
+    let argv = params.len() == 1
+        && matches!(unfold(&params[0].ty, &prog.types), Type::Array(e) if matches!(unfold(e, &prog.types), Type::Prim(p) if &**p == "string"));
     let mut typed = vec![];
     if !argv {
         for m in params.iter() {
             match unfold(&m.ty, &prog.types) {
                 Type::Prim(p) if &**p != "void" => typed.push((m.name.to_string(), p.to_string())),
                 _ => {
-                    let shown = crate::vcc::run_show_type(m.ty.clone()).map_err(|e| e.to_string())?;
-                    return fail(format!("{entry}'s parameter {} has type {shown}; {name} reads its parameters from the command line, so they must be int, float, bool or string (or a single []string, for all the arguments)", m.name));
+                    let shown =
+                        crate::vcc::run_show_type(m.ty.clone()).map_err(|e| e.to_string())?;
+                    return fail(format!(
+                        "{entry}'s parameter {} has type {shown}; {name} reads its parameters from the command line, so they must be int, float, bool or string (or a single []string, for all the arguments)",
+                        m.name
+                    ));
                 }
             }
         }
@@ -1298,13 +1539,26 @@ pub fn rust_main(prog: Program, t: Table, name: Str, entry: Str, path: Str, modu
     let usage = if argv {
         format!("usage: {name} <{}...>", params[0].name)
     } else {
-        format!("usage: {name}{}", typed.iter().map(|(n, p)| format!(" <{n}: {p}>")).collect::<String>())
+        format!(
+            "usage: {name}{}",
+            typed
+                .iter()
+                .map(|(n, p)| format!(" <{n}: {p}>"))
+                .collect::<String>()
+        )
     };
-    let (MaybeStr::Some(dir), MaybeStr::Some(mpath)) = (&module_dir, module_path(module_dir.clone().map_or(s_(""), |d| d))?) else {
-        return fail(format!("{path} goes in the crate's src/, so the output's place under it must be known: run inside a crate or pass --module-dir"));
+    let (MaybeStr::Some(dir), MaybeStr::Some(mpath)) = (
+        &module_dir,
+        module_path(module_dir.clone().map_or(s_(""), |d| d))?,
+    ) else {
+        return fail(format!(
+            "{path} goes in the crate's src/, so the output's place under it must be known: run inside a crate or pass --module-dir"
+        ));
     };
     if krate.is_empty() {
-        return fail(format!("{path} calls the procs through the library crate, whose name is unknown: run inside a crate with a src/lib.rs"));
+        return fail(format!(
+            "{path} calls the procs through the library crate, whose name is unknown: run inside a crate with a src/lib.rs"
+        ));
     }
     let lib = mpath.replacen("crate", &krate, 1);
     let run = format!("{lib}::run_{}", sn(nodes, pid));
@@ -1338,9 +1592,15 @@ pub fn rust_main(prog: Program, t: Table, name: Str, entry: Str, path: Str, modu
     for (i, (n, p)) in typed.iter().enumerate() {
         let var = rust_local(format!("arg_{n}").into())?.to_string();
         if p == "string" {
-            w.push(format!("let {var} = {types}::Str::from(args[{i}].as_str());"));
+            w.push(format!(
+                "let {var} = {types}::Str::from(args[{i}].as_str());"
+            ));
         } else {
-            let rt = match p.as_str() { "int" => "i64", "float" => "f64", _ => "bool" };
+            let rt = match p.as_str() {
+                "int" => "i64",
+                "float" => "f64",
+                _ => "bool",
+            };
             w.push(format!("let {var} = match args[{i}].parse::<{rt}>() {{"));
             w.push("Ok(v) => v,".into());
             w.push("Err(e) => {".into());
@@ -1357,22 +1617,45 @@ pub fn rust_main(prog: Program, t: Table, name: Str, entry: Str, path: Str, modu
         Type::Prim(p) if &**p == "void" => w.push("Ok(()) => ExitCode::SUCCESS,".into()),
         r => {
             w.push("Ok(result) => {".into());
-            w.push(if matches!(r, Type::Prim(_)) { "println!(\"{result}\");".into() } else { "println!(\"{result:?}\");".into() });
+            w.push(if matches!(r, Type::Prim(_)) {
+                "println!(\"{result}\");".into()
+            } else {
+                "println!(\"{result:?}\");".into()
+            });
             w.push("ExitCode::SUCCESS".into());
             w.push("}".into());
         }
     }
-    for l in ["Err(e) => {", "eprintln!(\"error: {e}\");", "ExitCode::FAILURE", "}", "}", "}"] {
+    for l in [
+        "Err(e) => {",
+        "eprintln!(\"error: {e}\");",
+        "ExitCode::FAILURE",
+        "}",
+        "}",
+        "}",
+    ] {
         w.push(l.into());
     }
     let _ = &t;
-    let text = render_lines(w.into_iter().map(|l| Line::L(l.into())).collect(), "    ".into())?;
+    let text = render_lines(
+        w.into_iter().map(|l| Line::L(l.into())).collect(),
+        "    ".into(),
+    )?;
     // src/ is `dir` levels above the module.
     let up = vec![".."; dir.split('/').filter(|x| !x.is_empty()).count()];
     let p = path.trim_matches('/');
     let (sub, file) = p.rsplit_once('/').unwrap_or(("", p));
-    let out_dir = up.into_iter().chain((!sub.is_empty()).then_some(sub)).collect::<Vec<_>>().join("/");
-    Ok(MainsRustMainOut { dir: out_dir.into(), file: file.into(), text, err: MaybeStr::None })
+    let out_dir = up
+        .into_iter()
+        .chain((!sub.is_empty()).then_some(sub))
+        .collect::<Vec<_>>()
+        .join("/");
+    Ok(MainsRustMainOut {
+        dir: out_dir.into(),
+        file: file.into(),
+        text,
+        err: MaybeStr::None,
+    })
 }
 
 fn s_(x: &str) -> Str {
@@ -1903,12 +2186,24 @@ pub fn http_runtime(_n: i64) -> Result<Str, String> {
 
 /// A server's name as part of a Rust identifier: `web-api` -> `web_api`.
 pub fn server_ident(name: Str) -> Result<Str, String> {
-    Ok(snake(cap_(&name).into())?.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' }).collect::<String>().into())
+    Ok(snake(cap_(&name).into())?
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .into())
 }
 
 fn cap_(s: &str) -> String {
     let mut c = s.chars();
-    c.next().map_or(String::new(), |f| f.to_ascii_uppercase().to_string() + c.as_str())
+    c.next().map_or(String::new(), |f| {
+        f.to_ascii_uppercase().to_string() + c.as_str()
+    })
 }
 
 pub fn sort_strs(xs: List<Str>) -> Result<List<Str>, String> {
@@ -1927,35 +2222,71 @@ pub fn comma(i: i64) -> Result<Str, String> {
 }
 
 pub fn find_top(prog: Program, name: Str) -> Result<i64, String> {
-    Ok(prog.top.iter().copied().find(|&p| prog.nodes[p as usize].qual.last() == Some(&name) && matches!(prog.nodes[p as usize].kind, NodeKind::Proc(_))).unwrap_or(-1))
+    Ok(prog
+        .top
+        .iter()
+        .copied()
+        .find(|&p| {
+            prog.nodes[p as usize].qual.last() == Some(&name)
+                && matches!(prog.nodes[p as usize].kind, NodeKind::Proc(_))
+        })
+        .unwrap_or(-1))
 }
 
 pub fn route_procs(servers: List<ServerSpec>) -> Result<List<Str>, String> {
-    Ok(servers.iter().flat_map(|s| s.routes.iter().map(|r| r.proc.clone()).collect::<Vec<_>>()).collect())
+    Ok(servers
+        .iter()
+        .flat_map(|s| s.routes.iter().map(|r| r.proc.clone()).collect::<Vec<_>>())
+        .collect())
 }
 
 pub fn server_of(servers: List<ServerSpec>, proc: Str) -> Result<Str, String> {
-    Ok(servers.iter().find(|s| s.routes.iter().any(|r| r.proc == proc)).map_or("".into(), |s| s.name.clone()))
+    Ok(servers
+        .iter()
+        .find(|s| s.routes.iter().any(|r| r.proc == proc))
+        .map_or("".into(), |s| s.name.clone()))
 }
 
 pub fn http_decodes(g: RGen, pid: i64) -> Result<List<Line>, String> {
     params_of(&g.prog.nodes, pid)
         .iter()
-        .map(|m| Ok(Line::L(format!("let {}: {} = arg(params, {})?;", rust_local(m.name.clone())?, rtype(&g.table, &m.ty)?, q(&m.name)).into())))
+        .map(|m| {
+            Ok(Line::L(
+                format!(
+                    "let {}: {} = arg(params, {})?;",
+                    rust_local(m.name.clone())?,
+                    rtype(&g.table, &m.ty)?,
+                    q(&m.name)
+                )
+                .into(),
+            ))
+        })
         .collect::<Result<Vec<_>, String>>()
         .map(List::from)
 }
 
 pub fn http_args(g: RGen, pid: i64) -> Result<Str, String> {
-    Ok(params_of(&g.prog.nodes, pid).iter().map(|m| rust_local(m.name.clone()).map(|s| s.to_string())).collect::<Result<Vec<_>, _>>()?.join(", ").into())
+    Ok(params_of(&g.prog.nodes, pid)
+        .iter()
+        .map(|m| rust_local(m.name.clone()).map(|s| s.to_string()))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ")
+        .into())
 }
 
 pub fn main_dir(module_dir: Str, path: Str) -> Result<RustServerMainDirOut, String> {
     let up = vec![".."; module_dir.split('/').filter(|x| !x.is_empty()).count()];
     let p = path.trim_matches('/');
     let (sub, file) = p.rsplit_once('/').unwrap_or(("", p));
-    let dir = up.into_iter().chain((!sub.is_empty()).then_some(sub)).collect::<Vec<_>>().join("/");
-    Ok(RustServerMainDirOut { dir: dir.into(), file: file.into() })
+    let dir = up
+        .into_iter()
+        .chain((!sub.is_empty()).then_some(sub))
+        .collect::<Vec<_>>()
+        .join("/");
+    Ok(RustServerMainDirOut {
+        dir: dir.into(),
+        file: file.into(),
+    })
 }
 
 pub fn replace_crate(path: Str, krate: Str) -> Result<Str, String> {
@@ -1963,42 +2294,109 @@ pub fn replace_crate(path: Str, krate: Str) -> Result<Str, String> {
 }
 
 pub fn route_docs(srv: ServerSpec) -> Result<List<Line>, String> {
-    let mut out: Vec<Line> = srv.routes.iter().map(|r| Line::L(format!("//! - `{} {}` runs proc {}", r.method, r.path, r.proc).into())).collect();
-    out.extend(srv.raw.iter().map(|r| Line::L(format!("//! - `{} {}` runs proc {} on the raw request", r.method, r.path, r.proc).into())));
-    out.extend(srv.statics.iter().map(|s| Line::L(format!("//! - `GET {}` serves {}", s.url, s.file).into())));
+    let mut out: Vec<Line> = srv
+        .routes
+        .iter()
+        .map(|r| Line::L(format!("//! - `{} {}` runs proc {}", r.method, r.path, r.proc).into()))
+        .collect();
+    out.extend(srv.raw.iter().map(|r| {
+        Line::L(
+            format!(
+                "//! - `{} {}` runs proc {} on the raw request",
+                r.method, r.path, r.proc
+            )
+            .into(),
+        )
+    }));
+    out.extend(
+        srv.statics
+            .iter()
+            .map(|s| Line::L(format!("//! - `GET {}` serves {}", s.url, s.file).into())),
+    );
     Ok(out.into())
 }
 
-const RAW_REQUEST: &[(&str, &str)] =
-    &[("method", "string"), ("path", "string"), ("query", "map[string]string"), ("headers", "map[string]string"), ("body", "string")];
-const RAW_RESPONSE: &[(&str, &str)] = &[("status", "int"), ("headers", "map[string]string"), ("body", "string")];
+const RAW_REQUEST: &[(&str, &str)] = &[
+    ("method", "string"),
+    ("path", "string"),
+    ("query", "map[string]string"),
+    ("headers", "map[string]string"),
+    ("body", "string"),
+];
+const RAW_RESPONSE: &[(&str, &str)] = &[
+    ("status", "int"),
+    ("headers", "map[string]string"),
+    ("body", "string"),
+];
 
 fn show_type(t: &Type) -> String {
-    crate::vcc::run_show_type(t.clone()).map(|s| s.to_string()).unwrap_or_default()
+    crate::vcc::run_show_type(t.clone())
+        .map(|s| s.to_string())
+        .unwrap_or_default()
 }
 
 /// Whether proc pid takes a raw request and returns a raw response; or the
 /// error saying what it must.
-pub fn raw_shape_error(prog: Program, pid: i64, server: Str, name: Str) -> Result<MaybeStr, String> {
+pub fn raw_shape_error(
+    prog: Program,
+    pid: i64,
+    server: Str,
+    name: Str,
+) -> Result<MaybeStr, String> {
     let defs = &prog.types;
     let shape = |t: &Type, want: &[(&str, &str)]| -> bool {
         match unfold(t, defs) {
-            Type::Struct(fs) => fs.len() == want.len() && want.iter().all(|(n, w)| fs.iter().any(|f| &*f.name == *n && (show_type(&f.ty) == *w || show_type(unfold(&f.ty, defs)) == *w))),
+            Type::Struct(fs) => {
+                fs.len() == want.len()
+                    && want.iter().all(|(n, w)| {
+                        fs.iter().any(|f| {
+                            &*f.name == *n
+                                && (show_type(&f.ty) == *w || show_type(unfold(&f.ty, defs)) == *w)
+                        })
+                    })
+            }
             _ => false,
         }
     };
     let params = params_of(&prog.nodes, pid);
-    let ok = params.len() == 1 && shape(&params[0].ty, RAW_REQUEST) && shape(&ret_of(&prog.nodes, pid), RAW_RESPONSE);
-    let show = |fs: &[(&str, &str)]| format!("{{ {} }}", fs.iter().map(|(n, t)| format!("{n}: {t}")).collect::<Vec<_>>().join(", "));
-    Ok(if ok { MaybeStr::None } else { MaybeStr::Some(format!("http server {server}: raw route proc {name} must take one {} and return {}", show(RAW_REQUEST), show(RAW_RESPONSE)).into()) })
+    let ok = params.len() == 1
+        && shape(&params[0].ty, RAW_REQUEST)
+        && shape(&ret_of(&prog.nodes, pid), RAW_RESPONSE);
+    let show = |fs: &[(&str, &str)]| {
+        format!(
+            "{{ {} }}",
+            fs.iter()
+                .map(|(n, t)| format!("{n}: {t}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
+    Ok(if ok {
+        MaybeStr::None
+    } else {
+        MaybeStr::Some(
+            format!(
+                "http server {server}: raw route proc {name} must take one {} and return {}",
+                show(RAW_REQUEST),
+                show(RAW_RESPONSE)
+            )
+            .into(),
+        )
+    })
 }
 
 pub fn raw_procs(servers: List<ServerSpec>) -> Result<List<Str>, String> {
-    Ok(servers.iter().flat_map(|s| s.raw.iter().map(|r| r.proc.clone()).collect::<Vec<_>>()).collect())
+    Ok(servers
+        .iter()
+        .flat_map(|s| s.raw.iter().map(|r| r.proc.clone()).collect::<Vec<_>>())
+        .collect())
 }
 
 pub fn raw_server_of(servers: List<ServerSpec>, proc: Str) -> Result<Str, String> {
-    Ok(servers.iter().find(|s| s.raw.iter().any(|r| r.proc == proc)).map_or("".into(), |s| s.name.clone()))
+    Ok(servers
+        .iter()
+        .find(|s| s.raw.iter().any(|r| r.proc == proc))
+        .map_or("".into(), |s| s.name.clone()))
 }
 
 pub fn raw_param_type(g: RGen, pid: i64) -> Result<Str, String> {
@@ -2006,12 +2404,67 @@ pub fn raw_param_type(g: RGen, pid: i64) -> Result<Str, String> {
 }
 
 /// The signature an implementation must have.
-pub fn rust_signature(prog: Program, t: Table, n: i64, name: Str, types_path: Str) -> Result<Str, String> {
+pub fn rust_signature(
+    prog: Program,
+    t: Table,
+    n: i64,
+    name: Str,
+    types_path: Str,
+) -> Result<Str, String> {
     let qual = format!("{types_path}::");
     let params: Vec<String> = params_of(&prog.nodes, n)
         .iter()
-        .map(|m| Ok(format!("{}: {}", rust_local(m.name.clone())?, rust_render(t.clone(), get(t.clone(), m.ty.clone())?, qual.as_str().into())?)))
+        .map(|m| {
+            Ok(format!(
+                "{}: {}",
+                rust_local(m.name.clone())?,
+                rust_render(
+                    t.clone(),
+                    get(t.clone(), m.ty.clone())?,
+                    qual.as_str().into()
+                )?
+            ))
+        })
         .collect::<Result<_, String>>()?;
-    let ret = rust_render(t.clone(), get(t.clone(), ret_of(&prog.nodes, n))?, qual.as_str().into())?;
+    let ret = rust_render(
+        t.clone(),
+        get(t.clone(), ret_of(&prog.nodes, n))?,
+        qual.as_str().into(),
+    )?;
     Ok(format!("pub fn {name}({}) -> Result<{ret}, E>", params.join(", ")).into())
+}
+
+pub fn rs_stem(file: Str) -> Result<Str, String> {
+    Ok(file
+        .rsplit('/')
+        .next()
+        .unwrap_or("")
+        .strip_suffix(".rs")
+        .unwrap_or("")
+        .into())
+}
+
+pub fn mountable_stem(file: Str) -> Result<bool, String> {
+    let stem = rs_stem(file)?;
+    let valid = !stem.is_empty()
+        && stem
+            .chars()
+            .enumerate()
+            .all(|(i, c)| c == '_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit()));
+    Ok(valid && !["types", "procs", "http"].contains(&&*stem))
+}
+
+pub fn rs_impl_file(n: NodeDecl) -> Result<Str, String> {
+    match rs_impl(n, "rs".into())? {
+        MaybeImpl::Some(i) => Ok(i.file),
+        MaybeImpl::None => Err("rs_impl_file: no .rs implementation".into()),
+    }
+}
+
+pub fn mount_lines(mounts: Map<Str, Str>) -> Result<Str, String> {
+    Ok(mounts
+        .iter()
+        .map(|(name, path)| format!("#[path = {}]\nmod {};\n", q(path), rust_ident_of(name)))
+        .collect::<String>()
+        .into())
 }

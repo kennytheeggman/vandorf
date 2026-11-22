@@ -32,9 +32,11 @@ pub fn is_void(t: Type) -> Result<bool, String> {
 
 /// The member named `name`, if any.
 pub fn member(ms: List<Member>, name: Str) -> Result<MaybeType, String> {
-    Ok(ms.iter().find(|m| m.name == name).map_or(MaybeType::None, |m| MaybeType::Some(m.ty.clone())))
+    Ok(ms
+        .iter()
+        .find(|m| m.name == name)
+        .map_or(MaybeType::None, |m| MaybeType::Some(m.ty.clone())))
 }
-
 
 pub fn new_pair(o: OptPair) -> Result<List<Pair>, String> {
     Ok(match o {
@@ -44,8 +46,6 @@ pub fn new_pair(o: OptPair) -> Result<List<Pair>, String> {
 }
 
 // ---- Typedefs ----
-
-
 
 const PRIMS: &[&str] = &["void", "int", "float", "bool", "string"];
 
@@ -59,7 +59,11 @@ pub fn itoa(i: i64) -> Result<Str, String> {
 
 pub fn cap(s: Str) -> Result<Str, String> {
     let mut c = s.chars();
-    Ok(c.next().map_or(String::new(), |f| f.to_ascii_uppercase().to_string() + c.as_str()).into())
+    Ok(c.next()
+        .map_or(String::new(), |f| {
+            f.to_ascii_uppercase().to_string() + c.as_str()
+        })
+        .into())
 }
 
 pub fn plural(n: i64) -> Result<Str, String> {
@@ -85,9 +89,6 @@ pub fn with_types(mut cx: TyCx, types: List<TypeDef>) -> Result<TyCx, String> {
     Ok(cx)
 }
 
-
-
-
 pub fn with_recursive(mut cx: TyCx, id: i64, rec: bool) -> Result<TyCx, String> {
     let mut v: Vec<TypeDef> = cx.types.into_iter().collect();
     v[id as usize].recursive = rec;
@@ -96,7 +97,15 @@ pub fn with_recursive(mut cx: TyCx, id: i64, rec: bool) -> Result<TyCx, String> 
 }
 
 fn push_def(mut cx: TyCx, name: Str, ident: Str, span: Span) -> TyCx {
-    cx.types = cx.types.concat(&vec![TypeDef { name, ident, ty: Type::Prim("void".into()), recursive: false }].into());
+    cx.types = cx.types.concat(
+        &vec![TypeDef {
+            name,
+            ident,
+            ty: Type::Prim("void".into()),
+            recursive: false,
+        }]
+        .into(),
+    );
     cx.spans = cx.spans.concat(&vec![span].into());
     cx
 }
@@ -135,7 +144,10 @@ pub fn in_instance(errors: List<Diag>, from: i64, key: Str) -> Result<List<Diag>
 }
 
 pub fn bound(bound: List<Map<Str, Type>>, name: Str) -> Result<MaybeType, String> {
-    Ok(bound.last().and_then(|b| b.get(&name)).map_or(MaybeType::None, |t| MaybeType::Some(t.clone())))
+    Ok(bound
+        .last()
+        .and_then(|b| b.get(&name))
+        .map_or(MaybeType::None, |t| MaybeType::Some(t.clone())))
 }
 
 pub fn is_bound(bound: List<Map<Str, Type>>, name: Str) -> Result<bool, String> {
@@ -143,11 +155,20 @@ pub fn is_bound(bound: List<Map<Str, Type>>, name: Str) -> Result<bool, String> 
 }
 
 pub fn param_map(params: List<Ident>, args: List<Type>) -> Result<Map<Str, Type>, String> {
-    Ok(params.iter().map(|p| p.name.clone()).zip(args.iter().cloned()).collect())
+    Ok(params
+        .iter()
+        .map(|p| p.name.clone())
+        .zip(args.iter().cloned())
+        .collect())
 }
 
 pub fn param_names(ps: List<Ident>) -> Result<Str, String> {
-    Ok(ps.iter().map(|p| &*p.name).collect::<Vec<_>>().join(", ").into())
+    Ok(ps
+        .iter()
+        .map(|p| &*p.name)
+        .collect::<Vec<_>>()
+        .join(", ")
+        .into())
 }
 
 pub fn ident_names(ids: List<Ident>) -> Result<List<Str>, String> {
@@ -215,13 +236,20 @@ pub fn enum_of(ms: MaybeMembers) -> Result<MaybeType, String> {
 
 pub fn map_of(k: Type, v: MaybeType) -> Result<MaybeType, String> {
     Ok(match v {
-        MaybeType::Some(v) => MaybeType::Some(Type::Map(std::sync::Arc::new(TypeMap { key: std::sync::Arc::new(k), value: std::sync::Arc::new(v) }))),
+        MaybeType::Some(v) => MaybeType::Some(Type::Map(std::sync::Arc::new(TypeMap {
+            key: std::sync::Arc::new(k),
+            value: std::sync::Arc::new(v),
+        }))),
         MaybeType::None => MaybeType::None,
     })
 }
 
 pub fn members_if(ok: bool, ms: List<Member>) -> Result<MaybeMembers, String> {
-    Ok(if ok { MaybeMembers::Some(ms) } else { MaybeMembers::None })
+    Ok(if ok {
+        MaybeMembers::Some(ms)
+    } else {
+        MaybeMembers::None
+    })
 }
 
 pub fn map_value(t: Type) -> Result<Type, String> {
@@ -236,10 +264,13 @@ pub fn field_types(fs: List<Field>) -> Result<List<TypeExpr>, String> {
 }
 
 pub fn payload_types(vs: List<Variant>) -> Result<List<TypeExpr>, String> {
-    Ok(vs.iter().filter_map(|v| match &v.payload {
-        OptType::Some(p) => Some(p.clone()),
-        OptType::None => None,
-    }).collect())
+    Ok(vs
+        .iter()
+        .filter_map(|v| match &v.payload {
+            OptType::Some(p) => Some(p.clone()),
+            OptType::None => None,
+        })
+        .collect())
 }
 
 pub fn name_span(k: TypeKind) -> Result<Span, String> {
@@ -298,14 +329,10 @@ fn updated<T: Clone>(xs: List<T>, i: i64, f: impl FnOnce(&mut T)) -> List<T> {
     v.into()
 }
 
-
-
 pub fn with_node(mut cx: Cx, n: NodeDecl) -> Result<Cx, String> {
     cx.nodes = push(cx.nodes, n);
     Ok(cx)
 }
-
-
 
 pub fn span_key(s: Span) -> Result<Str, String> {
     Ok(format!("{}:{}", s.file, s.at).into())
@@ -342,15 +369,30 @@ pub fn set_alias(mut cx: Cx, lid: i64, of: i64) -> Result<Cx, String> {
 }
 
 pub fn empty_graph(_n: i64) -> Result<Graph, String> {
-    Ok(Graph { edges: Map::default(), regions: List::default(), region_of: Map::default(), opens: Map::default() })
+    Ok(Graph {
+        edges: Map::default(),
+        regions: List::default(),
+        region_of: Map::default(),
+        opens: Map::default(),
+    })
 }
 
 pub fn show_path(p: Path) -> Result<Str, String> {
-    Ok(p.segs.iter().map(|s| &*s.name).collect::<Vec<_>>().join(".").into())
+    Ok(p.segs
+        .iter()
+        .map(|s| &*s.name)
+        .collect::<Vec<_>>()
+        .join(".")
+        .into())
 }
 
 pub fn qual_name(n: NodeDecl) -> Result<Str, String> {
-    Ok(n.qual.iter().map(|s| &**s).collect::<Vec<_>>().join(".").into())
+    Ok(n.qual
+        .iter()
+        .map(|s| &**s)
+        .collect::<Vec<_>>()
+        .join(".")
+        .into())
 }
 
 pub fn proc_ret(n: NodeDecl) -> Result<Type, String> {
@@ -372,7 +414,10 @@ pub fn node_name(n: Node) -> Result<Ident, String> {
 }
 
 pub fn top_arms(stack: List<List<Arm>>) -> Result<List<Arm>, String> {
-    stack.last().cloned().ok_or_else(|| "top_arms: empty".into())
+    stack
+        .last()
+        .cloned()
+        .ok_or_else(|| "top_arms: empty".into())
 }
 
 pub fn pop_arms(stack: List<List<Arm>>) -> Result<List<List<Arm>>, String> {
@@ -396,8 +441,14 @@ pub fn alias_of(t: Target) -> Result<OptIdent, String> {
 pub fn find_local(nodes: List<NodeDecl>, pid: i64, name: Str) -> Result<i64, String> {
     let mut scope = pid;
     while scope >= 0 {
-        let NodeKind::Proc(p) = &nodes[scope as usize].kind else { return Err("find_local: not a proc".into()) };
-        if let Some(&l) = p.locals.iter().find(|&&l| nodes[l as usize].qual.last() == Some(&name)) {
+        let NodeKind::Proc(p) = &nodes[scope as usize].kind else {
+            return Err("find_local: not a proc".into());
+        };
+        if let Some(&l) = p
+            .locals
+            .iter()
+            .find(|&&l| nodes[l as usize].qual.last() == Some(&name))
+        {
             return Ok(l);
         }
         scope = p.parent;
@@ -602,7 +653,11 @@ pub fn unwrap_n(r: ResolvedNode) -> Result<i64, String> {
 }
 
 pub fn article(k: ValueKind) -> Result<Str, String> {
-    Ok(if matches!(k, ValueKind::Int(_)) { "an".into() } else { "a".into() })
+    Ok(if matches!(k, ValueKind::Int(_)) {
+        "an".into()
+    } else {
+        "a".into()
+    })
 }
 
 pub fn what(v: Value) -> Result<Str, String> {
@@ -613,17 +668,23 @@ pub fn what(v: Value) -> Result<Str, String> {
 }
 
 pub fn first_arg_name(args: List<ApplyArg>) -> Result<OptIdent, String> {
-    Ok(args.iter().find_map(|a| match &a.name {
-        OptIdent::Some(n) => Some(OptIdent::Some(n.clone())),
-        OptIdent::None => None,
-    }).unwrap_or(OptIdent::None))
+    Ok(args
+        .iter()
+        .find_map(|a| match &a.name {
+            OptIdent::Some(n) => Some(OptIdent::Some(n.clone())),
+            OptIdent::None => None,
+        })
+        .unwrap_or(OptIdent::None))
 }
 
 pub fn named_args(args: List<ApplyArg>) -> Result<MaybeArgs, String> {
     let mut out = vec![];
     for a in args.iter() {
         match &a.name {
-            OptIdent::Some(n) => out.push(Arg { name: n.clone(), value: a.value.clone() }),
+            OptIdent::Some(n) => out.push(Arg {
+                name: n.clone(),
+                value: a.value.clone(),
+            }),
             OptIdent::None => return Ok(MaybeArgs::None(a.value.span.clone())),
         }
     }
@@ -635,8 +696,14 @@ pub fn id_value(t: Target) -> Result<OptValue, String> {
 }
 
 pub fn own_local(nodes: List<NodeDecl>, pid: i64, name: Str) -> Result<i64, String> {
-    let NodeKind::Proc(p) = &nodes[pid as usize].kind else { return err("own_local") };
-    p.locals.iter().copied().find(|&l| nodes[l as usize].qual.last() == Some(&name)).ok_or_else(|| "own_local: missing".into())
+    let NodeKind::Proc(p) = &nodes[pid as usize].kind else {
+        return err("own_local");
+    };
+    p.locals
+        .iter()
+        .copied()
+        .find(|&l| nodes[l as usize].qual.last() == Some(&name))
+        .ok_or_else(|| "own_local: missing".into())
 }
 
 fn allowed_prims(op: &str) -> &'static [&'static str] {
@@ -665,7 +732,13 @@ pub fn operands(s: OperandsS) -> Result<OperandsOut, String> {
         rp = "float".into();
     }
     let ok = !lp.is_empty() && lp == rp && allowed_prims(&s.op).contains(&&*lp);
-    Ok(OperandsOut { ok, op: s.op, l, r, operand: lp })
+    Ok(OperandsOut {
+        ok,
+        op: s.op,
+        l,
+        r,
+        operand: lp,
+    })
 }
 
 pub fn op_result(op: Str, operand: Str) -> Result<Type, String> {
@@ -686,7 +759,11 @@ pub fn head_index(arms: List<Arm>, kind: Str) -> Result<i64, String> {
 }
 
 pub fn slice(src: Str, span: Span) -> Result<Str, String> {
-    Ok(src.get(span.at as usize..span.end as usize).unwrap_or("").trim().into())
+    Ok(src
+        .get(span.at as usize..span.end as usize)
+        .unwrap_or("")
+        .trim()
+        .into())
 }
 
 pub fn ends_in_else(arms: List<SArm>) -> Result<bool, String> {
@@ -694,10 +771,13 @@ pub fn ends_in_else(arms: List<SArm>) -> Result<bool, String> {
 }
 
 pub fn pats_of(arms: List<SArm>) -> Result<List<SPat>, String> {
-    Ok(arms.iter().filter_map(|a| match &a.test {
-        Test::Pat(p) => Some(p.clone()),
-        _ => None,
-    }).collect())
+    Ok(arms
+        .iter()
+        .filter_map(|a| match &a.test {
+            Test::Pat(p) => Some(p.clone()),
+            _ => None,
+        })
+        .collect())
 }
 
 pub fn unwrap_arms(r: ResSArmList) -> Result<List<SArm>, String> {
@@ -722,7 +802,11 @@ pub fn variant_tag(k: PatKind) -> Result<Ident, String> {
 }
 
 pub fn variant_fix(t: Type) -> Result<Str, String> {
-    Ok(if is_void(t)? { "()".into() } else { "(_)".into() })
+    Ok(if is_void(t)? {
+        "()".into()
+    } else {
+        "(_)".into()
+    })
 }
 
 // Exhaustiveness: the pattern matrix.
@@ -739,7 +823,10 @@ fn lower(p: &SPat) -> P {
                 MaybePat::None => List::default(),
             },
         }),
-        SPatKind::Struct(fs) => P::Ctor(PCtor { c: STRUCT.into(), args: fs.iter().map(|f| lower(&f.pat)).collect() }),
+        SPatKind::Struct(fs) => P::Ctor(PCtor {
+            c: STRUCT.into(),
+            args: fs.iter().map(|f| lower(&f.pat)).collect(),
+        }),
         SPatKind::Or(alts) => P::Or(alts.iter().map(lower).collect()),
     }
 }
@@ -753,7 +840,10 @@ fn expand_rows(rows: &[List<P>]) -> Vec<List<P>> {
     for r in rows {
         match &r[0] {
             P::Or(alts) => {
-                let split: Vec<List<P>> = alts.iter().map(|a| List::from(vec![a.clone()]).concat(&r[1..].into())).collect();
+                let split: Vec<List<P>> = alts
+                    .iter()
+                    .map(|a| List::from(vec![a.clone()]).concat(&r[1..].into()))
+                    .collect();
                 out.extend(expand_rows(&split));
             }
             _ => out.push(r.clone()),
@@ -761,7 +851,6 @@ fn expand_rows(rows: &[List<P>]) -> Vec<List<P>> {
     }
     out
 }
-
 
 pub fn specialize(rows: List<List<P>>, c: Str, arity: i64) -> Result<List<List<P>>, String> {
     Ok(expand_rows(&rows)
@@ -775,23 +864,41 @@ pub fn specialize(rows: List<List<P>>, c: Str, arity: i64) -> Result<List<List<P
 }
 
 pub fn default_rows(rows: List<List<P>>) -> Result<List<List<P>>, String> {
-    Ok(expand_rows(&rows).into_iter().filter(|r| matches!(r[0], P::Wild)).map(|r| List::from(&r[1..])).collect())
+    Ok(expand_rows(&rows)
+        .into_iter()
+        .filter(|r| matches!(r[0], P::Wild))
+        .map(|r| List::from(&r[1..]))
+        .collect())
 }
 
 pub fn used(rows: List<List<P>>) -> Result<List<Str>, String> {
-    Ok(expand_rows(&rows).iter().filter_map(|r| match &r[0] {
-        P::Ctor(c) => Some(c.c.clone()),
-        _ => None,
-    }).collect())
+    Ok(expand_rows(&rows)
+        .iter()
+        .filter_map(|r| match &r[0] {
+            P::Ctor(c) => Some(c.c.clone()),
+            _ => None,
+        })
+        .collect())
 }
 
 pub fn ctors(t: Type) -> Result<List<Ctor>, String> {
     Ok(match t {
         Type::Enum(vs) => vs
             .iter()
-            .map(|m| Ctor { c: m.name.clone(), args: if matches!(&m.ty, Type::Prim(p) if &**p == "void") { List::default() } else { vec![m.ty.clone()].into() } })
+            .map(|m| Ctor {
+                c: m.name.clone(),
+                args: if matches!(&m.ty, Type::Prim(p) if &**p == "void") {
+                    List::default()
+                } else {
+                    vec![m.ty.clone()].into()
+                },
+            })
             .collect(),
-        Type::Struct(fs) => vec![Ctor { c: STRUCT.into(), args: fs.iter().map(|m| m.ty.clone()).collect() }].into(),
+        Type::Struct(fs) => vec![Ctor {
+            c: STRUCT.into(),
+            args: fs.iter().map(|m| m.ty.clone()).collect(),
+        }]
+        .into(),
         _ => List::default(),
     })
 }
@@ -803,7 +910,6 @@ pub fn all_used(cs: List<Ctor>, used: List<Str>) -> Result<bool, String> {
 pub fn wilds(n: i64) -> Result<List<P>, String> {
     Ok(vec![P::Wild; n as usize].into())
 }
-
 
 pub fn rest_p(ps: List<P>) -> Result<List<P>, String> {
     Ok(ps[1..].into())
@@ -817,19 +923,29 @@ pub fn ctor_of(p: P) -> Result<PCtor, String> {
 }
 
 pub fn ctor_args(cs: List<Ctor>, c: Str) -> Result<List<Type>, String> {
-    cs.iter().find(|d| d.c == c).map(|d| d.args.clone()).ok_or_else(|| "ctor_args: missing".into())
+    cs.iter()
+        .find(|d| d.c == c)
+        .map(|d| d.args.clone())
+        .ok_or_else(|| "ctor_args: missing".into())
 }
 
 pub fn unnamed_ctor(cs: List<Ctor>, used: List<Str>) -> Result<W, String> {
     Ok(match cs.iter().find(|c| !used.contains(&c.c)) {
-        Some(c) => W::Ctor(WCtor { c: c.c.clone(), args: vec![W::Wild; c.args.len()].into() }),
+        Some(c) => W::Ctor(WCtor {
+            c: c.c.clone(),
+            args: vec![W::Wild; c.args.len()].into(),
+        }),
         None => W::Wild,
     })
 }
 
 pub fn regroup(c: Str, n: i64, ws: List<W>) -> Result<List<W>, String> {
     let n = n as usize;
-    Ok(List::from(vec![W::Ctor(WCtor { c, args: ws[..n].into() })]).concat(&ws[n..].into()))
+    Ok(List::from(vec![W::Ctor(WCtor {
+        c,
+        args: ws[..n].into(),
+    })])
+    .concat(&ws[n..].into()))
 }
 
 pub fn ctor_name(w: W) -> Result<Str, String> {
@@ -846,24 +962,40 @@ fn graph_of(mut g: Graph, f: impl FnOnce(&mut Graph)) -> Graph {
     g
 }
 
-
 pub fn new_region(g: Graph, parent: i64, entry: i64, elem: Type) -> Result<Graph, String> {
-    Ok(graph_of(g, |g| g.regions = push(g.regions.clone(), Region { parent, entry, elem, nodes: List::default(), sink: -1 })))
+    Ok(graph_of(g, |g| {
+        g.regions = push(
+            g.regions.clone(),
+            Region {
+                parent,
+                entry,
+                elem,
+                nodes: List::default(),
+                sink: -1,
+            },
+        )
+    }))
 }
 
 pub fn in_region(g: Graph, n: i64, r: i64) -> Result<Graph, String> {
     Ok(graph_of(g, |g| {
         g.region_of = g.region_of.clone().merge(&Map::from_iter([(n, r)]));
-        g.regions = updated(g.regions.clone(), r, |reg| reg.nodes = push(reg.nodes.clone(), n));
+        g.regions = updated(g.regions.clone(), r, |reg| {
+            reg.nodes = push(reg.nodes.clone(), n)
+        });
     }))
 }
 
 pub fn with_sink(g: Graph, r: i64, n: i64) -> Result<Graph, String> {
-    Ok(graph_of(g, |g| g.regions = updated(g.regions.clone(), r, |reg| reg.sink = n)))
+    Ok(graph_of(g, |g| {
+        g.regions = updated(g.regions.clone(), r, |reg| reg.sink = n)
+    }))
 }
 
 pub fn with_open(g: Graph, n: i64, r: i64) -> Result<Graph, String> {
-    Ok(graph_of(g, |g| g.opens = g.opens.clone().merge(&Map::from_iter([(n, r)]))))
+    Ok(graph_of(g, |g| {
+        g.opens = g.opens.clone().merge(&Map::from_iter([(n, r)]))
+    }))
 }
 
 fn arm_leaves(a: &SArm, out: &mut Vec<Call>) {
@@ -905,7 +1037,10 @@ pub fn leaf_targets(arms: List<SArm>) -> Result<List<i64>, String> {
 }
 
 pub fn arg_values(calls: List<Call>) -> Result<List<Expr>, String> {
-    Ok(calls.iter().flat_map(|c| c.args.iter().map(|a| a.value.clone()).collect::<Vec<_>>()).collect())
+    Ok(calls
+        .iter()
+        .flat_map(|c| c.args.iter().map(|a| a.value.clone()).collect::<Vec<_>>())
+        .collect())
 }
 
 pub fn arm_conds(arms: List<SArm>) -> Result<List<Expr>, String> {
@@ -920,7 +1055,11 @@ pub fn arm_reads(arms: List<SArm>) -> Result<List<Expr>, String> {
         conds(a, &mut out);
         let mut calls = vec![];
         arm_leaves(a, &mut calls);
-        out.extend(calls.iter().flat_map(|c| c.args.iter().map(|x| x.value.clone()).collect::<Vec<_>>()));
+        out.extend(
+            calls
+                .iter()
+                .flat_map(|c| c.args.iter().map(|x| x.value.clone()).collect::<Vec<_>>()),
+        );
     }
     Ok(out.into())
 }
@@ -940,7 +1079,10 @@ pub fn ancestors(g: Graph, r: i64) -> Result<Map<i64, bool>, String> {
 }
 
 pub fn opener(g: Graph, r: i64) -> Result<i64, String> {
-    Ok(g.opens.iter().find(|(_, x)| **x == r).map_or(-1, |(n, _)| *n))
+    Ok(g.opens
+        .iter()
+        .find(|(_, x)| **x == r)
+        .map_or(-1, |(n, _)| *n))
 }
 
 pub fn proc_entry(nodes: List<NodeDecl>, pid: i64) -> Result<i64, String> {
@@ -1005,7 +1147,10 @@ pub fn expr_parts(e: Expr) -> Result<List<Expr>, String> {
         Expr::Unary(u) => one(&u.e),
         Expr::Binary(b) => vec![b.l.as_ref().clone(), b.r.as_ref().clone()],
         Expr::Call(c) => c.args.iter().map(|a| a.value.clone()).collect(),
-        Expr::Map(kvs) => kvs.iter().flat_map(|kv| [kv.key.clone(), kv.value.clone()]).collect(),
+        Expr::Map(kvs) => kvs
+            .iter()
+            .flat_map(|kv| [kv.key.clone(), kv.value.clone()])
+            .collect(),
         Expr::Field(f) => one(&f.e),
         Expr::Query(q) => one(&q.e),
         Expr::Index(x) => vec![x.e.as_ref().clone(), x.key.as_ref().clone()],
@@ -1058,18 +1203,35 @@ pub fn preds(g: Graph, r: i64) -> Result<Map<i64, List<i64>>, String> {
     Ok(out.into_iter().map(|(k, v)| (k, List::from(v))).collect())
 }
 
-pub fn dom_start(g: Graph, r: i64, dom: Map<i64, Map<i64, bool>>) -> Result<Map<i64, Map<i64, bool>>, String> {
+pub fn dom_start(
+    g: Graph,
+    r: i64,
+    dom: Map<i64, Map<i64, bool>>,
+) -> Result<Map<i64, Map<i64, bool>>, String> {
     let region = &g.regions[r as usize];
     let all: Map<i64, bool> = region.nodes.iter().map(|&n| (n, true)).collect();
     let fresh: Map<i64, Map<i64, bool>> = region
         .nodes
         .iter()
-        .map(|&n| (n, if n == region.entry { Map::from_iter([(n, true)]) } else { all.clone() }))
+        .map(|&n| {
+            (
+                n,
+                if n == region.entry {
+                    Map::from_iter([(n, true)])
+                } else {
+                    all.clone()
+                },
+            )
+        })
         .collect();
     Ok(dom.merge(&fresh))
 }
 
-pub fn meet(preds: Map<i64, List<i64>>, dom: Map<i64, Map<i64, bool>>, n: i64) -> Result<Map<i64, bool>, String> {
+pub fn meet(
+    preds: Map<i64, List<i64>>,
+    dom: Map<i64, Map<i64, bool>>,
+    n: i64,
+) -> Result<Map<i64, bool>, String> {
     let mut acc: Option<std::collections::BTreeSet<i64>> = None;
     for p in preds.get(&n).map(|ps| ps.to_vec()).unwrap_or_default() {
         let d: std::collections::BTreeSet<i64> = dom[&p].keys().copied().collect();
@@ -1087,7 +1249,13 @@ pub fn same_set(a: Map<i64, bool>, b: Map<i64, bool>) -> Result<bool, String> {
     Ok(a.keys().eq(b.keys()))
 }
 
-pub fn skip(g: Graph, dom: Map<i64, Map<i64, bool>>, n: i64, r: i64, at: i64) -> Result<i64, String> {
+pub fn skip(
+    g: Graph,
+    dom: Map<i64, Map<i64, bool>>,
+    n: i64,
+    r: i64,
+    at: i64,
+) -> Result<i64, String> {
     let (mut r, mut at) = (r, at);
     loop {
         if g.region_of.get(&n) == Some(&r) {
@@ -1117,7 +1285,10 @@ pub fn pack_placed(l: Layout, _target: i64, back: bool) -> Result<RecordPlacedOu
 }
 
 pub fn extra_member(bfs: List<Member>, fs: List<Member>) -> Result<Str, String> {
-    Ok(bfs.iter().find(|b| !fs.iter().any(|f| f.name == b.name)).map_or("".into(), |b| b.name.clone()))
+    Ok(bfs
+        .iter()
+        .find(|b| !fs.iter().any(|f| f.name == b.name))
+        .map_or("".into(), |b| b.name.clone()))
 }
 
 pub fn squash(src: Str, span: Span) -> Result<Str, String> {

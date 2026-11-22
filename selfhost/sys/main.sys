@@ -4,7 +4,7 @@
 //   vcc doc            prints its visualizer document
 //   vcc build [bin]    generates its Rust (and every bin, or just bin)
 proc Vcc(Args): string {
-	func Args(argv: []string): []string = "../rs/src/leaf.rs:same_strs";
+	func Args(argv: []string): []string = "../leaves/leaf.rs:same_strs";
 	Args switch {
 		(this.len == 1 && this[0] == "check") -> CheckProject(n = 0) as ForCheck,
 		(this.len == 1 && this[0] == "doc") -> CheckProject(n = 0) as ForDoc,
@@ -29,4 +29,4 @@ proc Vcc(Args): string {
 }
 
 // Fails with msg.
-func Usage(msg: string): string = "../rs/src/leaf.rs:fail";
+func Usage(msg: string): string = "../leaves/leaf.rs:fail";

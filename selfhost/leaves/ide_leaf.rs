@@ -9,7 +9,14 @@ fn s(x: &str) -> Str {
 }
 
 fn obj(fs: Vec<(&str, Json)>) -> Json {
-    Json::Obj(fs.into_iter().map(|(k, v)| JsonField { key: k.into(), value: v }).collect())
+    Json::Obj(
+        fs.into_iter()
+            .map(|(k, v)| JsonField {
+                key: k.into(),
+                value: v,
+            })
+            .collect(),
+    )
 }
 
 fn jstr(x: &str) -> Json {
@@ -21,7 +28,11 @@ fn headers(hs: &[(&str, &str)]) -> Map<Str, Str> {
 }
 
 fn response(status: i64, hs: &[(&str, &str)], body: Str) -> HttpResponse {
-    HttpResponse { status, headers: headers(hs), body }
+    HttpResponse {
+        status,
+        headers: headers(hs),
+        body,
+    }
 }
 
 // ---- Responses ----
@@ -41,16 +52,32 @@ pub fn page_name(path: Str) -> Result<Str, String> {
 
 /// A page, carrying the session token for the requests that need it.
 pub fn page_response(text: Str, token: Str) -> Result<HttpResponse, String> {
-    Ok(response(200, &[("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "no-store")], text.replace("__VANDORF_TOKEN__", &token).into()))
+    Ok(response(
+        200,
+        &[
+            ("Content-Type", "text/html; charset=utf-8"),
+            ("Cache-Control", "no-store"),
+        ],
+        text.replace("__VANDORF_TOKEN__", &token).into(),
+    ))
 }
 
 pub fn api(j: Json) -> Result<HttpResponse, String> {
-    Ok(response(200, &[("Content-Type", "application/json")], crate::doc_leaf::compact(j)?))
+    Ok(response(
+        200,
+        &[("Content-Type", "application/json")],
+        super::doc_leaf::compact(j)?,
+    ))
 }
 
 fn api_status(status: i64, msg: &str) -> Result<HttpResponse, String> {
-    let body = crate::doc_leaf::compact(obj(vec![("ok", Json::Bool(false)), ("error", jstr(msg))]))?;
-    Ok(response(status, &[("Content-Type", "application/json")], body))
+    let body =
+        super::doc_leaf::compact(obj(vec![("ok", Json::Bool(false)), ("error", jstr(msg))]))?;
+    Ok(response(
+        status,
+        &[("Content-Type", "application/json")],
+        body,
+    ))
 }
 
 pub fn api_err(msg: Str) -> Result<HttpResponse, String> {
@@ -62,7 +89,11 @@ pub fn forbidden(_n: i64) -> Result<HttpResponse, String> {
 }
 
 pub fn not_found(_n: i64) -> Result<HttpResponse, String> {
-    Ok(response(404, &[("Content-Type", "text/plain; charset=UTF-8")], s("not found")))
+    Ok(response(
+        404,
+        &[("Content-Type", "text/plain; charset=UTF-8")],
+        s("not found"),
+    ))
 }
 
 pub fn ok_json(_n: i64) -> Result<HttpResponse, String> {
@@ -70,7 +101,10 @@ pub fn ok_json(_n: i64) -> Result<HttpResponse, String> {
 }
 
 pub fn error_json(msg: Str) -> Result<Json, String> {
-    Ok(obj(vec![("ok", Json::Bool(false)), ("error", Json::Str(msg))]))
+    Ok(obj(vec![
+        ("ok", Json::Bool(false)),
+        ("error", Json::Str(msg)),
+    ]))
 }
 
 fn is_loopback(host: &str) -> bool {
@@ -92,7 +126,15 @@ pub fn authorized(hs: Map<Str, Str>, token: Str) -> Result<bool, String> {
 
 pub fn chunk_response(c: TermChunk) -> Result<HttpResponse, String> {
     let next = c.next.to_string();
-    Ok(response(200, &[("Content-Type", "application/octet-stream"), ("X-Next", &next), ("X-Closed", if c.closed { "1" } else { "0" })], c.data))
+    Ok(response(
+        200,
+        &[
+            ("Content-Type", "application/octet-stream"),
+            ("X-Next", &next),
+            ("X-Closed", if c.closed { "1" } else { "0" }),
+        ],
+        c.data,
+    ))
 }
 
 // ---- Values ----
@@ -148,7 +190,6 @@ pub fn non_empty(m: MaybeStr) -> Result<bool, String> {
     Ok(matches!(m, MaybeStr::Some(x) if !x.is_empty()))
 }
 
-
 /// q[k] as an int, or -1.
 pub fn query_int(s_: TermRouteQS) -> Result<i64, String> {
     Ok(s_.q.get(&s_.k).and_then(|v| v.parse().ok()).unwrap_or(-1))
@@ -163,7 +204,9 @@ pub fn bad_path(p: Str) -> Result<bool, String> {
 }
 
 pub fn is_sys(p: Str) -> Result<bool, String> {
-    Ok(Path::new(&*p).extension().is_some_and(|x| x.eq_ignore_ascii_case("sys")))
+    Ok(Path::new(&*p)
+        .extension()
+        .is_some_and(|x| x.eq_ignore_ascii_case("sys")))
 }
 
 pub fn set_at(xs: List<Str>, i: i64, x: Str) -> Result<List<Str>, String> {
@@ -194,17 +237,21 @@ fn slash(p: &Path) -> String {
 
 pub fn index_of_path(paths: List<Str>, root: Str, abs: Str) -> Result<i64, String> {
     let abs = normalize(Path::new(&*abs));
-    Ok(paths.iter().position(|p| normalize(&Path::new(&*root).join(&**p)) == abs).map_or(-1, |i| i as i64))
+    Ok(paths
+        .iter()
+        .position(|p| normalize(&Path::new(&*root).join(&**p)) == abs)
+        .map_or(-1, |i| i as i64))
 }
 
 pub fn editor_name(j: Json) -> Result<Str, String> {
-    let get = |k: &str| match crate::doc_leaf::json_str(j.clone(), k.into()) {
+    let get = |k: &str| match super::doc_leaf::json_str(j.clone(), k.into()) {
         Ok(MaybeStr::Some(x)) if !(k == "path" && x.is_empty()) => Some(x),
         _ => None,
     };
-    Ok(get("path").or_else(|| get("name")).unwrap_or_else(|| s("<editor>")))
+    Ok(get("path")
+        .or_else(|| get("name"))
+        .unwrap_or_else(|| s("<editor>")))
 }
-
 
 pub fn project_name_json(p: MaybeProject) -> Result<Json, String> {
     Ok(match p {
@@ -230,7 +277,12 @@ fn line_col_of(src: &str, offset: i64) -> (i64, i64) {
     }
     let before = &src[..offset];
     let line = before.matches('\n').count() as i64;
-    let col = before.rsplit('\n').next().unwrap_or("").encode_utf16().count() as i64;
+    let col = before
+        .rsplit('\n')
+        .next()
+        .unwrap_or("")
+        .encode_utf16()
+        .count() as i64;
     (line, col)
 }
 
@@ -244,7 +296,12 @@ fn pos(src: &str, offset: i64) -> Json {
     obj(vec![("line", Json::Num(line)), ("ch", Json::Num(ch))])
 }
 
-pub fn diagnostics_json(names: List<Str>, srcs: List<Str>, here: i64, errors: List<Diag>) -> Result<Json, String> {
+pub fn diagnostics_json(
+    names: List<Str>,
+    srcs: List<Str>,
+    here: i64,
+    errors: List<Diag>,
+) -> Result<Json, String> {
     Ok(Json::Arr(
         errors
             .iter()
@@ -263,13 +320,23 @@ pub fn diagnostics_json(names: List<Str>, srcs: List<Str>, here: i64, errors: Li
     ))
 }
 
-pub fn render_diagnostics(names: List<Str>, srcs: List<Str>, errors: List<Diag>) -> Result<Str, String> {
+pub fn render_diagnostics(
+    names: List<Str>,
+    srcs: List<Str>,
+    errors: List<Diag>,
+) -> Result<Str, String> {
     Ok(errors
         .iter()
         .map(|d| {
             let f = d.span.file as usize;
             let (line, ch) = line_col_of(srcs.get(f).map_or("", |x| &**x), d.span.at);
-            format!("{}:{}:{}: {}", names.get(f).map_or("?", |x| &**x), line + 1, ch + 1, d.msg)
+            format!(
+                "{}:{}:{}: {}",
+                names.get(f).map_or("?", |x| &**x),
+                line + 1,
+                ch + 1,
+                d.msg
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -279,7 +346,11 @@ pub fn render_diagnostics(names: List<Str>, srcs: List<Str>, errors: List<Diag>)
 // ---- The outline ----
 
 pub fn qualify(prefix: Str, name: Str) -> Result<Str, String> {
-    Ok(if prefix.is_empty() { name } else { format!("{prefix}.{name}").into() })
+    Ok(if prefix.is_empty() {
+        name
+    } else {
+        format!("{prefix}.{name}").into()
+    })
 }
 
 fn item(kind: &str, name: &Ident, prefix: &str, src: &str, children: List<Item>) -> Item {
@@ -293,13 +364,27 @@ fn item(kind: &str, name: &Ident, prefix: &str, src: &str, children: List<Item>)
 }
 
 pub fn type_items(src: Str, ts: List<TypeDecl>) -> Result<List<Item>, String> {
-    Ok(ts.iter().map(|t| item("type", &t.name, "", &src, List::default())).collect())
+    Ok(ts
+        .iter()
+        .map(|t| item("type", &t.name, "", &src, List::default()))
+        .collect())
 }
 
 pub fn iface_items(src: Str, is: List<Interface>) -> Result<List<Item>, String> {
     Ok(is
         .iter()
-        .map(|i| item("interface", &i.name, "", &src, i.funcs.iter().map(|f| item("func", &f.name, &i.name.name, &src, List::default())).collect()))
+        .map(|i| {
+            item(
+                "interface",
+                &i.name,
+                "",
+                &src,
+                i.funcs
+                    .iter()
+                    .map(|f| item("func", &f.name, &i.name.name, &src, List::default()))
+                    .collect(),
+            )
+        })
         .collect())
 }
 
@@ -315,7 +400,10 @@ fn item_json(i: &Item) -> Json {
         ("name", Json::Str(i.name.clone())),
         ("qual", Json::Str(i.qual.clone())),
         ("line", Json::Num(i.line)),
-        ("children", Json::Arr(i.children.iter().map(item_json).collect())),
+        (
+            "children",
+            Json::Arr(i.children.iter().map(item_json).collect()),
+        ),
     ])
 }
 
@@ -327,7 +415,10 @@ pub fn items_json(items: List<Item>) -> Result<Json, String> {
 
 fn file_of(unit: &Unit, span: &Span) -> (PathBuf, usize) {
     let f = span.file as usize;
-    (normalize(&Path::new(&*unit.root).join(unit.names.get(f).map_or("", |x| &**x))), f)
+    (
+        normalize(&Path::new(&*unit.root).join(unit.names.get(f).map_or("", |x| &**x))),
+        f,
+    )
 }
 
 fn rel(base: &str, p: &Path) -> Json {
@@ -340,12 +431,18 @@ fn rel(base: &str, p: &Path) -> Json {
 pub fn loc_json(base: Str, unit: Unit, span: Span) -> Result<Json, String> {
     let (abs, f) = file_of(&unit, &span);
     let line = line_col_of(unit.srcs.get(f).map_or("", |x| &**x), span.at).0;
-    Ok(obj(vec![("file", rel(&base, &abs)), ("line", Json::Num(line))]))
+    Ok(obj(vec![
+        ("file", rel(&base, &abs)),
+        ("line", Json::Num(line)),
+    ]))
 }
 
 pub fn imps_json(base: Str, unit: Unit, span: Span, imps: List<ImplRef>) -> Result<Json, String> {
     let (abs, _) = file_of(&unit, &span);
-    let dir = abs.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from(&*base));
+    let dir = abs
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from(&*base));
     Ok(Json::Arr(
         imps.iter()
             .map(|i| {
@@ -370,7 +467,11 @@ pub fn func_imps(n: NodeDecl) -> Result<List<ImplRef>, String> {
 
 pub fn entry_name(prog: Program, pid: i64) -> Result<Str, String> {
     match &prog.nodes[pid as usize].kind {
-        NodeKind::Proc(p) => Ok(prog.nodes[p.entry as usize].qual.last().cloned().unwrap_or_default()),
+        NodeKind::Proc(p) => Ok(prog.nodes[p.entry as usize]
+            .qual
+            .last()
+            .cloned()
+            .unwrap_or_default()),
         _ => Err("entry_name: not a proc".into()),
     }
 }
@@ -378,30 +479,60 @@ pub fn entry_name(prog: Program, pid: i64) -> Result<Str, String> {
 // ---- The preview ----
 
 pub fn nominal_mains(prog: Program) -> Result<Map<Str, Bin>, String> {
-    Ok(if crate::gen_leaf::find_top(prog, s("Main"))? >= 0 {
-        Map::from_iter([(s("main"), Bin { entry: s("Main"), go: MaybeStr::None, rust: MaybeStr::Some(s("main.rs")) })])
+    Ok(if super::gen_leaf::find_top(prog, s("Main"))? >= 0 {
+        Map::from_iter([(
+            s("main"),
+            Bin {
+                entry: s("Main"),
+                go: MaybeStr::None,
+                rust: MaybeStr::Some(s("main.rs")),
+            },
+        )])
     } else {
         Map::default()
     })
 }
 
-pub fn output_json(types: Str, modrs: Str, procs: Str, mains: List<OutFile>, impls: Json) -> Result<Json, String> {
-    let files = |fs: Vec<(&str, Str)>| obj(fs.into_iter().map(|(k, v)| (k, Json::Str(v))).collect());
+pub fn output_json(
+    types: Str,
+    modrs: Str,
+    procs: Str,
+    mains: List<OutFile>,
+    impls: Json,
+) -> Result<Json, String> {
+    let files =
+        |fs: Vec<(&str, Str)>| obj(fs.into_iter().map(|(k, v)| (k, Json::Str(v))).collect());
     let mut artifacts = vec![
-        obj(vec![("kind", jstr("types")), ("dir", jstr("")), ("files", files(vec![("types.rs", types)]))]),
-        obj(vec![("kind", jstr("code")), ("dir", jstr("")), ("files", files(vec![("mod.rs", modrs), ("procs.rs", procs)]))]),
+        obj(vec![
+            ("kind", jstr("types")),
+            ("dir", jstr("")),
+            ("files", files(vec![("types.rs", types)])),
+        ]),
+        obj(vec![
+            ("kind", jstr("code")),
+            ("dir", jstr("")),
+            ("files", files(vec![("mod.rs", modrs), ("procs.rs", procs)])),
+        ]),
     ];
     for m in mains.iter() {
         // PreviewMains keeps the dir in path and the file name in kind.
-        artifacts.push(obj(vec![("kind", jstr("main")), ("dir", Json::Str(m.path.clone())), ("files", obj(vec![(&m.kind, Json::Str(m.text.clone()))]))]));
+        artifacts.push(obj(vec![
+            ("kind", jstr("main")),
+            ("dir", Json::Str(m.path.clone())),
+            ("files", obj(vec![(&m.kind, Json::Str(m.text.clone()))])),
+        ]));
     }
-    Ok(obj(vec![("ok", Json::Bool(true)), ("artifacts", Json::Arr(artifacts.into())), ("impls", impls)]))
+    Ok(obj(vec![
+        ("ok", Json::Bool(true)),
+        ("artifacts", Json::Arr(artifacts.into())),
+        ("impls", impls),
+    ]))
 }
 
 pub fn impls_json(prog: Program, t: Table, module_dir: MaybeStr) -> Result<Json, String> {
-    let md = crate::gen_leaf::trim_dir(module_dir)?;
+    let md = super::gen_leaf::trim_dir(module_dir)?;
     let types_path = match md {
-        MaybeStr::Some(d) => match crate::gen_leaf::module_path(d)? {
+        MaybeStr::Some(d) => match super::gen_leaf::module_path(d)? {
             MaybeStr::Some(m) => format!("{m}::types"),
             MaybeStr::None => "types".into(),
         },
@@ -410,10 +541,23 @@ pub fn impls_json(prog: Program, t: Table, module_dir: MaybeStr) -> Result<Json,
     let mut out = vec![];
     for (id, n) in prog.nodes.iter().enumerate() {
         let NodeKind::Func(_) = &n.kind else { continue };
-        let MaybeImpl::Some(i) = crate::gen_leaf::rs_impl(n.clone(), s("rs"))? else { continue };
-        let qual = crate::sema_leaf::qual_name(n.clone())?;
-        let sig = crate::gen_leaf::rust_signature(prog.clone(), t.clone(), id as i64, i.function.clone(), types_path.as_str().into())?;
-        out.push(obj(vec![("node", Json::Str(qual)), ("file", Json::Str(i.file.clone())), ("function", Json::Str(i.function.clone())), ("signature", Json::Str(sig))]));
+        let MaybeImpl::Some(i) = super::gen_leaf::rs_impl(n.clone(), s("rs"))? else {
+            continue;
+        };
+        let qual = super::sema_leaf::qual_name(n.clone())?;
+        let sig = super::gen_leaf::rust_signature(
+            prog.clone(),
+            t.clone(),
+            id as i64,
+            i.function.clone(),
+            types_path.as_str().into(),
+        )?;
+        out.push(obj(vec![
+            ("node", Json::Str(qual)),
+            ("file", Json::Str(i.file.clone())),
+            ("function", Json::Str(i.function.clone())),
+            ("signature", Json::Str(sig)),
+        ]));
     }
     Ok(Json::Arr(out.into()))
 }
@@ -421,7 +565,14 @@ pub fn impls_json(prog: Program, t: Table, module_dir: MaybeStr) -> Result<Json,
 // ---- Projects ----
 
 pub fn css_response(text: Str) -> Result<HttpResponse, String> {
-    Ok(response(200, &[("Content-Type", "text/css; charset=utf-8"), ("Cache-Control", "no-store")], text))
+    Ok(response(
+        200,
+        &[
+            ("Content-Type", "text/css; charset=utf-8"),
+            ("Cache-Control", "no-store"),
+        ],
+        text,
+    ))
 }
 
 fn some_str(m: &MaybeStr) -> Option<&Str> {
@@ -435,14 +586,20 @@ fn some_str(m: &MaybeStr) -> Option<&Str> {
 fn entry_points(m: &Manifest) -> std::collections::BTreeMap<String, Vec<String>> {
     let mut out: std::collections::BTreeMap<String, Vec<String>> = Default::default();
     for (name, b) in m.bins.iter() {
-        out.entry(b.entry.to_string()).or_default().push(format!("bin {name}"));
+        out.entry(b.entry.to_string())
+            .or_default()
+            .push(format!("bin {name}"));
     }
     for (_, srv) in m.http.iter() {
         for (route, proc) in srv.routes.iter() {
-            out.entry(proc.to_string()).or_default().push(route.to_string());
+            out.entry(proc.to_string())
+                .or_default()
+                .push(route.to_string());
         }
         for (route, proc) in srv.raw.iter() {
-            out.entry(proc.to_string()).or_default().push(format!("{route} (raw)"));
+            out.entry(proc.to_string())
+                .or_default()
+                .push(format!("{route} (raw)"));
         }
     }
     out
@@ -452,7 +609,10 @@ fn entries_json(m: &Manifest) -> Json {
     Json::Obj(
         entry_points(m)
             .into_iter()
-            .map(|(k, v)| JsonField { key: k.into(), value: Json::Arr(v.iter().map(|x| jstr(x)).collect()) })
+            .map(|(k, v)| JsonField {
+                key: k.into(),
+                value: Json::Arr(v.iter().map(|x| jstr(x)).collect()),
+            })
             .collect(),
     )
 }
@@ -461,7 +621,7 @@ fn entries_json(m: &Manifest) -> Json {
 /// manifest doesn't load.
 pub fn project_info(text: ResString, dir: Str) -> Result<Json, String> {
     let m = match text {
-        ResString::Ok(t) => match crate::cli_leaf::parse_manifest(t)? {
+        ResString::Ok(t) => match super::cli_leaf::parse_manifest(t)? {
             ResManifest::Ok(m) => Some(m),
             ResManifest::Err(_) => None,
         },
@@ -471,7 +631,11 @@ pub fn project_info(text: ResString, dir: Str) -> Result<Json, String> {
         Some(m) => (Json::Str(m.name.clone()), entries_json(m)),
         None => (jstr("?"), Json::Obj(List::default())),
     };
-    Ok(obj(vec![("name", name), ("dir", Json::Str(dir)), ("entries", entries)]))
+    Ok(obj(vec![
+        ("name", name),
+        ("dir", Json::Str(dir)),
+        ("entries", entries),
+    ]))
 }
 
 fn field_of<'a>(j: &'a Json, key: &str) -> Option<&'a Json> {
@@ -483,18 +647,33 @@ fn field_of<'a>(j: &'a Json, key: &str) -> Option<&'a Json> {
 
 /// Top-level proc items with an "entry" when something runs them.
 pub fn with_entries(items: Json, project: Json) -> Result<Json, String> {
-    let Some(Json::Obj(entries)) = field_of(&project, "entries") else { return Ok(items) };
-    let Json::Arr(xs) = items else { return Ok(items) };
+    let Some(Json::Obj(entries)) = field_of(&project, "entries") else {
+        return Ok(items);
+    };
+    let Json::Arr(xs) = items else {
+        return Ok(items);
+    };
     Ok(Json::Arr(
         xs.iter()
             .map(|it| {
                 let is_proc = matches!(field_of(it, "kind"), Some(Json::Str(k)) if &**k == "proc");
                 let by = match field_of(it, "name") {
-                    Some(Json::Str(n)) => entries.iter().find(|f| f.key == *n).map(|f| f.value.clone()),
+                    Some(Json::Str(n)) => entries
+                        .iter()
+                        .find(|f| f.key == *n)
+                        .map(|f| f.value.clone()),
                     _ => None,
                 };
                 match (it, is_proc, by) {
-                    (Json::Obj(fs), true, Some(by)) => Json::Obj(fs.clone().concat(&vec![JsonField { key: "entry".into(), value: by }].into())),
+                    (Json::Obj(fs), true, Some(by)) => Json::Obj(
+                        fs.clone().concat(
+                            &vec![JsonField {
+                                key: "entry".into(),
+                                value: by,
+                            }]
+                            .into(),
+                        ),
+                    ),
                     _ => it.clone(),
                 }
             })
@@ -518,11 +697,24 @@ fn opt_json(m: &MaybeStr) -> Json {
     some_str(m).map_or(Json::Null, |x| Json::Str(x.clone()))
 }
 
-pub fn project_json(base: Str, p: Project, text: Str, outlines: List<Outlined>) -> Result<Json, String> {
+pub fn project_json(
+    base: Str,
+    p: Project,
+    text: Str,
+    outlines: List<Outlined>,
+) -> Result<Json, String> {
     let m = &p.manifest;
-    let rel = |path: &Path| -> String { path.strip_prefix(&*base).map(slash).unwrap_or_else(|_| slash(path)) };
+    let rel = |path: &Path| -> String {
+        path.strip_prefix(&*base)
+            .map(slash)
+            .unwrap_or_else(|_| slash(path))
+    };
     let root = PathBuf::from(&*p.root);
-    let files: Vec<String> = p.paths.iter().map(|f| rel(&normalize(&root.join(&**f)))).collect();
+    let files: Vec<String> = p
+        .paths
+        .iter()
+        .map(|f| rel(&normalize(&root.join(&**f))))
+        .collect();
     let mut procs: std::collections::HashMap<String, Json> = Default::default();
     let mut n = (0, 0, 0);
     let mut unparsed = vec![];
@@ -533,7 +725,10 @@ pub fn project_json(base: Str, p: Project, text: Str, outlines: List<Outlined>) 
         }
         count(&o.items, &mut n);
         for it in o.items.iter().filter(|it| &*it.kind == "proc") {
-            procs.insert(it.name.to_string(), obj(vec![("path", jstr(path)), ("line", Json::Num(it.line))]));
+            procs.insert(
+                it.name.to_string(),
+                obj(vec![("path", jstr(path)), ("line", Json::Num(it.line))]),
+            );
         }
     }
     let at = |proc: &str| procs.get(proc).cloned().unwrap_or(Json::Null);
@@ -543,44 +738,93 @@ pub fn project_json(base: Str, p: Project, text: Str, outlines: List<Outlined>) 
         .map(|(name, b)| {
             let go = match &m.go {
                 MaybeGo::Some(g) => {
-                    let d = some_str(&b.go).map(|x| x.to_string()).unwrap_or_else(|| format!("{}/../cmd/{name}", g.out));
+                    let d = some_str(&b.go)
+                        .map(|x| x.to_string())
+                        .unwrap_or_else(|| format!("{}/../cmd/{name}", g.out));
                     let full = normalize(&root.join(d));
-                    Json::Str(crate::cli_leaf::relative(slash(&full).into(), p.root.clone()).unwrap())
+                    Json::Str(
+                        super::cli_leaf::relative(slash(&full).into(), p.root.clone()).unwrap(),
+                    )
                 }
                 MaybeGo::None => Json::Null,
             };
             let rust = match &m.rust {
-                MaybeRust::Some(_) => Json::Str(some_str(&b.rust).cloned().unwrap_or_else(|| format!("bin/{name}.rs").into())),
+                MaybeRust::Some(_) => Json::Str(
+                    some_str(&b.rust)
+                        .cloned()
+                        .unwrap_or_else(|| format!("bin/{name}.rs").into()),
+                ),
                 MaybeRust::None => Json::Null,
             };
-            obj(vec![("name", Json::Str(name.clone())), ("entry", Json::Str(b.entry.clone())), ("at", at(&b.entry)), ("go", go), ("rust", rust)])
+            obj(vec![
+                ("name", Json::Str(name.clone())),
+                ("entry", Json::Str(b.entry.clone())),
+                ("at", at(&b.entry)),
+                ("go", go),
+                ("rust", rust),
+            ])
         })
         .collect();
     let route = |r: &str, proc: &str, raw: bool| {
         let (method, path) = r.split_once(' ').unwrap_or(("", r));
-        obj(vec![("method", jstr(method)), ("path", jstr(path)), ("proc", jstr(proc)), ("raw", Json::Bool(raw)), ("at", at(proc))])
+        obj(vec![
+            ("method", jstr(method)),
+            ("path", jstr(path)),
+            ("proc", jstr(proc)),
+            ("raw", Json::Bool(raw)),
+            ("at", at(proc)),
+        ])
     };
     let servers: Vec<Json> = m
         .http
         .iter()
         .map(|(name, srv)| {
-            let mut routes: Vec<Json> = srv.routes.iter().map(|(r, p)| route(r, p, false)).collect();
+            let mut routes: Vec<Json> =
+                srv.routes.iter().map(|(r, p)| route(r, p, false)).collect();
             routes.extend(srv.raw.iter().map(|(r, p)| route(r, p, true)));
             obj(vec![
                 ("name", Json::Str(name.clone())),
                 ("addr", Json::Str(srv.addr.clone())),
-                ("rust", Json::Str(some_str(&srv.rust).cloned().unwrap_or_else(|| format!("bin/{name}.rs").into()))),
+                (
+                    "rust",
+                    Json::Str(
+                        some_str(&srv.rust)
+                            .cloned()
+                            .unwrap_or_else(|| format!("bin/{name}.rs").into()),
+                    ),
+                ),
                 ("routes", Json::Arr(routes.into())),
-                ("statics", Json::Arr(srv.statics.iter().map(|(u, f)| obj(vec![("path", Json::Str(u.clone())), ("file", Json::Str(f.clone()))])).collect())),
+                (
+                    "statics",
+                    Json::Arr(
+                        srv.statics
+                            .iter()
+                            .map(|(u, f)| {
+                                obj(vec![
+                                    ("path", Json::Str(u.clone())),
+                                    ("file", Json::Str(f.clone())),
+                                ])
+                            })
+                            .collect(),
+                    ),
+                ),
             ])
         })
         .collect();
     let go = match &m.go {
-        MaybeGo::Some(g) => obj(vec![("out", Json::Str(g.out.clone())), ("package", opt_json(&g.package)), ("module", opt_json(&g.module)), ("types_dir", opt_json(&g.types_dir))]),
+        MaybeGo::Some(g) => obj(vec![
+            ("out", Json::Str(g.out.clone())),
+            ("package", opt_json(&g.package)),
+            ("module", opt_json(&g.module)),
+            ("types_dir", opt_json(&g.types_dir)),
+        ]),
         MaybeGo::None => Json::Null,
     };
     let rust = match &m.rust {
-        MaybeRust::Some(r) => obj(vec![("out", Json::Str(r.out.clone())), ("module_dir", opt_json(&r.module_dir))]),
+        MaybeRust::Some(r) => obj(vec![
+            ("out", Json::Str(r.out.clone())),
+            ("module_dir", opt_json(&r.module_dir)),
+        ]),
         MaybeRust::None => Json::Null,
     };
     Ok(obj(vec![
@@ -589,13 +833,24 @@ pub fn project_json(base: Str, p: Project, text: Str, outlines: List<Outlined>) 
         ("dir", jstr(&rel(&root))),
         ("manifest", jstr(&rel(&root.join("vandorf.toml")))),
         ("text", Json::Str(text)),
-        ("sources", Json::Arr(m.sources.iter().map(|x| Json::Str(x.clone())).collect())),
+        (
+            "sources",
+            Json::Arr(m.sources.iter().map(|x| Json::Str(x.clone())).collect()),
+        ),
         ("go", go),
         ("rust", rust),
         ("bins", Json::Arr(bins.into())),
         ("servers", Json::Arr(servers.into())),
         ("files", Json::Arr(files.iter().map(|f| jstr(f)).collect())),
         ("unparsed", Json::Arr(unparsed.into())),
-        ("counts", obj(vec![("files", Json::Num(p.paths.len() as i64)), ("procs", Json::Num(n.0)), ("funcs", Json::Num(n.1)), ("types", Json::Num(n.2))])),
+        (
+            "counts",
+            obj(vec![
+                ("files", Json::Num(p.paths.len() as i64)),
+                ("procs", Json::Num(n.0)),
+                ("funcs", Json::Num(n.1)),
+                ("types", Json::Num(n.2)),
+            ]),
+        ),
     ]))
 }

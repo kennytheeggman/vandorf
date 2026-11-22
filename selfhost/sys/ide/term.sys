@@ -6,13 +6,13 @@
 //   POST /api/term/resize?id=&cols=&rows=
 //   POST /api/term/kill?id=
 
-func Chunk(c: TermChunk): HttpResponse = "../../rs/src/ide_leaf.rs:chunk_response";
-func Ints(xs: []int): []Json = "../../rs/src/ide_leaf.rs:ints";
+func Chunk(c: TermChunk): HttpResponse = "../../leaves/ide_leaf.rs:chunk_response";
+func Ints(xs: []int): []Json = "../../leaves/ide_leaf.rs:ints";
 
 proc TermRoute(At): HttpResponse {
-	func At(s: { base: string, req: HttpRequest }): { base: string, req: HttpRequest } = "../../rs/src/sema_leaf.rs:same";
-	func Q(s: { q: map[string]string, k: string }): int = "../../rs/src/ide_leaf.rs:query_int";
-	func OkJson(n: int): HttpResponse = "../../rs/src/ide_leaf.rs:ok_json";
+	func At(s: { base: string, req: HttpRequest }): { base: string, req: HttpRequest } = "../../leaves/sema_leaf.rs:same";
+	func Q(s: { q: map[string]string, k: string }): int = "../../leaves/ide_leaf.rs:query_int";
+	func OkJson(n: int): HttpResponse = "../../leaves/ide_leaf.rs:ok_json";
 	At switch {
 		(this.req.method == "POST" && this.req.path == "/api/term" && "cwd" in this.req.query && this.req.query["cwd"] != "") -> ResolvePath(s = { base = this.base, p = this.req.query["cwd"] }),
 		(this.req.method == "POST" && this.req.path == "/api/term") -> Term.Spawn(cwd = this.base),
@@ -46,7 +46,7 @@ proc TermRoute(At): HttpResponse {
 	};
 	Typed -> Done(r = this);
 	Resized -> Done(r = this);
-	func Done(r: Res<string>): Res<string> = "../../rs/src/sema_leaf.rs:same";
+	func Done(r: Res<string>): Res<string> = "../../leaves/sema_leaf.rs:same";
 	Done switch {
 		Ok(_) -> id(OkJson(n = 0)),
 		Err(e) -> id(ApiErr(msg = e.msg))

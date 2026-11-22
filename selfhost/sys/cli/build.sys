@@ -5,11 +5,11 @@ type Checked = { project: Project, prog: Program };
 type OutFile = { path: string, text: string, kind: string };
 
 // Errors as `path:at..end: msg` lines.
-func RenderErrors(errors: []Diag, paths: []string): string = "../../rs/src/cli_leaf.rs:render_errors";
+func RenderErrors(errors: []Diag, paths: []string): string = "../../leaves/cli_leaf.rs:render_errors";
 
 // The project around the working directory, parsed and checked.
 proc CheckProject(At): Res<Checked> {
-	func At(n: int): int = "../../rs/src/sema_leaf.rs:same";
+	func At(n: int): int = "../../leaves/sema_leaf.rs:same";
 	At -> Fs.Cwd(n = 0);
 	Fs.Cwd -> FindUp(s = { dir = this, marker = "vandorf.toml" });
 	FindUp switch {
@@ -27,11 +27,11 @@ proc CheckProject(At): Res<Checked> {
 	};
 }
 
-func UnwrapP(r: Res<Project>): Project = "../../rs/src/cli_leaf.rs:unwrap_p";
+func UnwrapP(r: Res<Project>): Project = "../../leaves/cli_leaf.rs:unwrap_p";
 
 // Each file parsed (its spans carrying its index), then merged.
 proc ParseAll(At): File {
-	func At(s: { srcs: []string, i: int, file: File }): { srcs: []string, i: int, file: File } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { srcs: []string, i: int, file: File }): { srcs: []string, i: int, file: File } = "../../leaves/sema_leaf.rs:same";
 	At switch {
 		(this.i == this.srcs.len) -> id(this.file),
 		else -> ParseFile(src = this.srcs[this.i], file = this.i)
@@ -41,9 +41,9 @@ proc ParseAll(At): File {
 
 // Rust for the project: [rust]'s module, and the bins (all, or `only`).
 proc Build(At): string {
-	func At(s: { c: Checked, only: string }): { c: Checked, only: string } = "../../rs/src/sema_leaf.rs:same";
-	func R(r: MaybeRust): MaybeRust = "../../rs/src/sema_leaf.rs:same";
-	func Dirs(root: string, paths: []string): []string = "../../rs/src/cli_leaf.rs:dirs";
+	func At(s: { c: Checked, only: string }): { c: Checked, only: string } = "../../leaves/sema_leaf.rs:same";
+	func R(r: MaybeRust): MaybeRust = "../../leaves/sema_leaf.rs:same";
+	func Dirs(root: string, paths: []string): []string = "../../leaves/cli_leaf.rs:dirs";
 	At -> R(r = this.c.project.manifest.rust);
 	R switch {
 		Some(r) -> FindUp(s = { dir = JoinP(a = At.c.project.root, b = r.out), marker = "Cargo.toml" }) as Crate,
@@ -58,10 +58,10 @@ proc Build(At): string {
 		(At.only == "") -> ServerSpecs(s = { m = At.c.project.manifest, root = At.c.project.root, out = OutDir(c = At.c), module_dir = ModuleDir(target = UnwrapR(r = R), out = OutDir(c = At.c), croot = Crate), names = At.c.project.manifest.http.keys, i = 0, acc = [] }) as Specs,
 		else -> NoSpecs(n = 0)
 	};
-	func NoSpecs(n: int): Res<[]ServerSpec> = "../../rs/src/cli_leaf.rs:no_specs";
+	func NoSpecs(n: int): Res<[]ServerSpec> = "../../leaves/cli_leaf.rs:no_specs";
 	Specs -> Servers(r = this);
 	NoSpecs -> Servers(r = this);
-	func Servers(r: Res<[]ServerSpec>): Res<[]ServerSpec> = "../../rs/src/sema_leaf.rs:same";
+	func Servers(r: Res<[]ServerSpec>): Res<[]ServerSpec> = "../../leaves/sema_leaf.rs:same";
 	Servers switch {
 		Ok(specs) -> RustGenerate(s = { prog = Rebased(c = At.c), module_dir = ModuleDir(target = UnwrapR(r = R), out = OutDir(c = At.c), croot = Crate), servers = specs }),
 		Err(e) -> Fail(msg = e.msg) as SpecFailed
@@ -86,19 +86,19 @@ proc Build(At): string {
 	Tools.Rustfmt -> id("built " + At.c.project.manifest.name);
 }
 
-func Fail(msg: string): string = "../../rs/src/leaf.rs:fail";
-func UnwrapR(r: MaybeRust): RustTarget = "../../rs/src/cli_leaf.rs:unwrap_r";
-func OutDir(c: Checked): string = "../../rs/src/cli_leaf.rs:out_dir";
-func OutPaths(files: []OutFile): []string = "../../rs/src/cli_leaf.rs:out_paths";
+func Fail(msg: string): string = "../../leaves/leaf.rs:fail";
+func UnwrapR(r: MaybeRust): RustTarget = "../../leaves/cli_leaf.rs:unwrap_r";
+func OutDir(c: Checked): string = "../../leaves/cli_leaf.rs:out_dir";
+func OutPaths(files: []OutFile): []string = "../../leaves/cli_leaf.rs:out_paths";
 // The program with implementation paths relative to [rust]'s out.
-func Rebased(c: Checked): Program = "../../rs/src/cli_leaf.rs:rebased";
+func Rebased(c: Checked): Program = "../../leaves/cli_leaf.rs:rebased";
 // [rust]'s module_dir, or out relative to the crate's src/.
-func ModuleDir(target: RustTarget, out: string, croot: string): MaybeStr = "../../rs/src/cli_leaf.rs:module_dir";
-func BinNames(bins: map[string]Bin, only: string): []string = "../../rs/src/cli_leaf.rs:bin_names";
+func ModuleDir(target: RustTarget, out: string, croot: string): MaybeStr = "../../leaves/cli_leaf.rs:module_dir";
+func BinNames(bins: map[string]Bin, only: string): []string = "../../leaves/cli_leaf.rs:bin_names";
 
 // The library crate's name, from the Cargo.toml in dir ("" if none).
 proc CrateName(At): string {
-	func At(dir: string): string = "../../rs/src/sema_leaf.rs:same";
+	func At(dir: string): string = "../../leaves/sema_leaf.rs:same";
 	At switch {
 		(this == "") -> id(""),
 		else -> Fs.Read(path = JoinP(a = this, b = "Cargo.toml"))
@@ -108,10 +108,10 @@ proc CrateName(At): string {
 }
 
 proc Mains(At): []OutFile {
-	func At(s: { prog: Program, bins: map[string]Bin, names: []string, module_dir: MaybeStr, krate: string, out: string, i: int, acc: []OutFile }): { prog: Program, bins: map[string]Bin, names: []string, module_dir: MaybeStr, krate: string, out: string, i: int, acc: []OutFile } = "../../rs/src/sema_leaf.rs:same";
-	func RustMain(prog: Program, t: Table, name: string, entry: string, path: string, module_dir: MaybeStr, krate: string): { dir: string, file: string, text: string, err: MaybeStr } = "../../rs/src/gen_leaf.rs:rust_main";
-	func BinPath(b: Bin, name: string): string = "../../rs/src/cli_leaf.rs:bin_path";
-	func FailFiles(msg: string): []OutFile = "../../rs/src/cli_leaf.rs:fail_files";
+	func At(s: { prog: Program, bins: map[string]Bin, names: []string, module_dir: MaybeStr, krate: string, out: string, i: int, acc: []OutFile }): { prog: Program, bins: map[string]Bin, names: []string, module_dir: MaybeStr, krate: string, out: string, i: int, acc: []OutFile } = "../../leaves/sema_leaf.rs:same";
+	func RustMain(prog: Program, t: Table, name: string, entry: string, path: string, module_dir: MaybeStr, krate: string): { dir: string, file: string, text: string, err: MaybeStr } = "../../leaves/gen_leaf.rs:rust_main";
+	func BinPath(b: Bin, name: string): string = "../../leaves/cli_leaf.rs:bin_path";
+	func FailFiles(msg: string): []OutFile = "../../leaves/cli_leaf.rs:fail_files";
 	At switch {
 		(this.i == this.names.len) -> id(this.acc),
 		else -> BuildTable(prog = this.prog)
@@ -126,7 +126,7 @@ proc Mains(At): []OutFile {
 // Refuses to overwrite a file vandorf didn't generate (say, a hand-written
 // src/main.rs).
 proc Guard(At): bool {
-	func At(s: { files: []OutFile, i: int }): { files: []OutFile, i: int } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { files: []OutFile, i: int }): { files: []OutFile, i: int } = "../../leaves/sema_leaf.rs:same";
 	At switch {
 		(this.i == this.files.len) -> id(true),
 		else -> Fs.IsFile(path = this.files[this.i].path)
@@ -139,12 +139,12 @@ proc Guard(At): bool {
 		(StartsWith(text = this, prefix = "// Code generated by vandorf.")) -> At(s = { files = At.files, i = At.i + 1 }),
 		else -> Refuse(msg = At.files[At.i].path + " exists and was not generated by vandorf; not overwriting it")
 	};
-	func Refuse(msg: string): bool = "../../rs/src/cli_leaf.rs:refuse";
+	func Refuse(msg: string): bool = "../../leaves/cli_leaf.rs:refuse";
 }
 
 proc WriteAll(At): bool {
-	func At(s: { files: []OutFile, i: int }): { files: []OutFile, i: int } = "../../rs/src/sema_leaf.rs:same";
-	func Pad(s: string, n: int): string = "../../rs/src/cli_leaf.rs:pad";
+	func At(s: { files: []OutFile, i: int }): { files: []OutFile, i: int } = "../../leaves/sema_leaf.rs:same";
+	func Pad(s: string, n: int): string = "../../leaves/cli_leaf.rs:pad";
 	At switch {
 		(this.i == this.files.len) -> id(true),
 		else -> Fs.Write(path = this.files[this.i].path, text = this.files[this.i].text)
@@ -153,13 +153,13 @@ proc WriteAll(At): bool {
 	Console.Err -> At(s = { files = At.files, i = At.i + 1 });
 }
 
-func HttpFile(out: string, text: string): []OutFile = "../../rs/src/cli_leaf.rs:http_file";
-func UnwrapSpecs(r: Res<[]ServerSpec>): []ServerSpec = "../../rs/src/cli_leaf.rs:unwrap_specs";
+func HttpFile(out: string, text: string): []OutFile = "../../leaves/cli_leaf.rs:http_file";
+func UnwrapSpecs(r: Res<[]ServerSpec>): []ServerSpec = "../../leaves/cli_leaf.rs:unwrap_specs";
 
 // The server executables, after the bins.
 proc ServerFiles(At): []OutFile {
-	func At(s: { specs: []ServerSpec, module_dir: MaybeStr, krate: string, out: string, i: int, acc: []OutFile }): { specs: []ServerSpec, module_dir: MaybeStr, krate: string, out: string, i: int, acc: []OutFile } = "../../rs/src/sema_leaf.rs:same";
-	func FailFiles(msg: string): []OutFile = "../../rs/src/cli_leaf.rs:fail_files";
+	func At(s: { specs: []ServerSpec, module_dir: MaybeStr, krate: string, out: string, i: int, acc: []OutFile }): { specs: []ServerSpec, module_dir: MaybeStr, krate: string, out: string, i: int, acc: []OutFile } = "../../leaves/sema_leaf.rs:same";
+	func FailFiles(msg: string): []OutFile = "../../leaves/cli_leaf.rs:fail_files";
 	At switch {
 		(this.i == this.specs.len) -> id(this.acc),
 		else -> RustServer(s = { srv = this.specs[this.i], module_dir = this.module_dir, krate = this.krate })
@@ -173,11 +173,11 @@ proc ServerFiles(At): []OutFile {
 // The servers of [http.*] as the backend takes them: routes split into
 // method and path, static files as the server's source file reaches them.
 proc ServerSpecs(At): Res<[]ServerSpec> {
-	func At(s: { m: Manifest, root: string, out: string, module_dir: MaybeStr, names: []string, i: int, acc: []ServerSpec }): { m: Manifest, root: string, out: string, module_dir: MaybeStr, names: []string, i: int, acc: []ServerSpec } = "../../rs/src/sema_leaf.rs:same";
-	func ServerPath(d: ServerDecl, name: string): string = "../../rs/src/cli_leaf.rs:server_path";
+	func At(s: { m: Manifest, root: string, out: string, module_dir: MaybeStr, names: []string, i: int, acc: []ServerSpec }): { m: Manifest, root: string, out: string, module_dir: MaybeStr, names: []string, i: int, acc: []ServerSpec } = "../../leaves/sema_leaf.rs:same";
+	func ServerPath(d: ServerDecl, name: string): string = "../../leaves/cli_leaf.rs:server_path";
 	// The directory of a file under the crate's src/, out being module_dir
 	// below src/.
-	func FileDir(out: string, module_dir: MaybeStr, path: string): string = "../../rs/src/cli_leaf.rs:file_dir";
+	func FileDir(out: string, module_dir: MaybeStr, path: string): string = "../../leaves/cli_leaf.rs:file_dir";
 	At switch {
 		(this.i == this.names.len) -> id(Ok(this.acc)),
 		else -> Routes(s = { name = this.names[this.i], routes = this.m.http[this.names[this.i]].raw, keys = this.m.http[this.names[this.i]].raw.keys, other = this.m.http[this.names[this.i]].routes, j = 0, acc = [] }) as Raws
@@ -196,14 +196,14 @@ proc ServerSpecs(At): Res<[]ServerSpec> {
 	};
 }
 
-func UnwrapRoutes(r: Res<[]Route>): []Route = "../../rs/src/cli_leaf.rs:unwrap_routes";
+func UnwrapRoutes(r: Res<[]Route>): []Route = "../../leaves/cli_leaf.rs:unwrap_routes";
 
 proc Routes(At): Res<[]Route> {
 	// other: the server's other routes, which these mustn't repeat.
-	func At(s: { name: string, routes: map[string]string, keys: []string, other: map[string]string, j: int, acc: []Route }): { name: string, routes: map[string]string, keys: []string, other: map[string]string, j: int, acc: []Route } = "../../rs/src/sema_leaf.rs:same";
+	func At(s: { name: string, routes: map[string]string, keys: []string, other: map[string]string, j: int, acc: []Route }): { name: string, routes: map[string]string, keys: []string, other: map[string]string, j: int, acc: []Route } = "../../leaves/sema_leaf.rs:same";
 	// "POST /api/calc" as a method and a path, if it is one.
-	func Split(route: string, proc: string): []Route = "../../rs/src/cli_leaf.rs:split_route";
-	func DebugQ(s: string): string = "../../rs/src/cli_leaf.rs:debug_quote";
+	func Split(route: string, proc: string): []Route = "../../leaves/cli_leaf.rs:split_route";
+	func DebugQ(s: string): string = "../../leaves/cli_leaf.rs:debug_quote";
 	At switch {
 		(this.j == this.keys.len) -> id(Ok(this.acc)),
 		(this.keys[this.j] in this.other) -> id(Err({ msg = "vandorf.toml: [http." + this.name + "] route " + DebugQ(s = this.keys[this.j]) + " is in both routes and raw", span = { at = 0, end = 0, file = 0 } })),
@@ -213,8 +213,8 @@ proc Routes(At): Res<[]Route> {
 }
 
 proc Statics(At): Res<[]StaticFile> {
-	func At(s: { name: string, root: string, dir: string, statics: map[string]string, keys: []string, j: int, acc: []StaticFile }): { name: string, root: string, dir: string, statics: map[string]string, keys: []string, j: int, acc: []StaticFile } = "../../rs/src/sema_leaf.rs:same";
-	func ContentType(file: string): string = "../../rs/src/cli_leaf.rs:content_type";
+	func At(s: { name: string, root: string, dir: string, statics: map[string]string, keys: []string, j: int, acc: []StaticFile }): { name: string, root: string, dir: string, statics: map[string]string, keys: []string, j: int, acc: []StaticFile } = "../../leaves/sema_leaf.rs:same";
+	func ContentType(file: string): string = "../../leaves/cli_leaf.rs:content_type";
 	At switch {
 		(this.j == this.keys.len) -> id(Ok(this.acc)),
 		else -> Fs.IsFile(path = JoinP(a = this.root, b = this.statics[this.keys[this.j]]))

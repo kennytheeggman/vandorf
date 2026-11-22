@@ -73,11 +73,19 @@ pub fn pretty(j: Json) -> Result<Str, String> {
 }
 
 pub fn fields(m: Map<Str, Json>) -> Result<List<JsonField>, String> {
-    Ok(m.iter().map(|(k, v)| JsonField { key: k.clone(), value: v.clone() }).collect())
+    Ok(m.iter()
+        .map(|(k, v)| JsonField {
+            key: k.clone(),
+            value: v.clone(),
+        })
+        .collect())
 }
 
 fn field(key: &str, value: Json) -> JsonField {
-    JsonField { key: key.into(), value }
+    JsonField {
+        key: key.into(),
+        value,
+    }
 }
 
 // ---- Layout ----
@@ -96,11 +104,20 @@ pub fn place(mut l: Layout, n: i64, r: i64) -> Result<Layout, String> {
 }
 
 pub fn push_down(mut l: Layout, set: Map<i64, bool>) -> Result<Layout, String> {
-    let rows: Vec<Vec<i64>> = rows_vec(&l).into_iter().map(|r| r.into_iter().filter(|n| !set.contains_key(n)).collect()).collect();
+    let rows: Vec<Vec<i64>> = rows_vec(&l)
+        .into_iter()
+        .map(|r| r.into_iter().filter(|n| !set.contains_key(n)).collect())
+        .collect();
     let mut pos = std::collections::BTreeMap::new();
     for (ri, r) in rows.iter().enumerate() {
         for (ci, &n) in r.iter().enumerate() {
-            pos.insert(n, Pos { r: ri as i64, c: ci as i64 });
+            pos.insert(
+                n,
+                Pos {
+                    r: ri as i64,
+                    c: ci as i64,
+                },
+            );
         }
     }
     l.rows = rows.into_iter().map(List::from).collect();
@@ -109,8 +126,6 @@ pub fn push_down(mut l: Layout, set: Map<i64, bool>) -> Result<Layout, String> {
     l.out = l.out.without(&keys);
     Ok(l)
 }
-
-
 
 pub fn trim_rows(mut l: Layout) -> Result<Layout, String> {
     let mut rows = rows_vec(&l);
@@ -124,12 +139,19 @@ pub fn trim_rows(mut l: Layout) -> Result<Layout, String> {
 /// Nodes in the last row with an edge out, in a region.
 pub fn frontier(l: Layout, g: Graph) -> Result<List<i64>, String> {
     let last = l.rows.last().cloned().unwrap_or_default();
-    Ok(last.iter().copied().filter(|n| g.edges.contains_key(n) && g.region_of.contains_key(n)).collect())
+    Ok(last
+        .iter()
+        .copied()
+        .filter(|n| g.edges.contains_key(n) && g.region_of.contains_key(n))
+        .collect())
 }
 
 /// Targets of n's recorded forward edges.
 pub fn forward(l: Layout, n: i64) -> Result<List<i64>, String> {
-    Ok(l.out.get(&n).map(|es| es.iter().filter(|e| !e.back).map(|e| e.target).collect()).unwrap_or_default())
+    Ok(l.out
+        .get(&n)
+        .map(|es| es.iter().filter(|e| !e.back).map(|e| e.target).collect())
+        .unwrap_or_default())
 }
 
 fn leaves(a: &SArm, path: &mut Vec<Str>, out: &mut Vec<(Vec<Str>, Call)>) {
@@ -146,11 +168,19 @@ pub fn arm_paths(arms: List<SArm>) -> Result<List<ArmPathsOutItem>, String> {
     for a in arms.iter() {
         leaves(a, &mut vec![], &mut out);
     }
-    Ok(out.into_iter().map(|(labels, call)| ArmPathsOutItem { labels: labels.into(), call }).collect())
+    Ok(out
+        .into_iter()
+        .map(|(labels, call)| ArmPathsOutItem {
+            labels: labels.into(),
+            call,
+        })
+        .collect())
 }
 
 pub fn arm_label(s: Str) -> Result<Str, String> {
-    let Some(inner) = s.strip_prefix('(').and_then(|s| s.strip_suffix(')')) else { return Ok(s) };
+    let Some(inner) = s.strip_prefix('(').and_then(|s| s.strip_suffix(')')) else {
+        return Ok(s);
+    };
     // Only if those two parentheses match each other: not `(a) || (b)`.
     let mut depth = 0i32;
     for c in inner.chars() {
@@ -167,13 +197,23 @@ pub fn arm_label(s: Str) -> Result<Str, String> {
 }
 
 pub fn join_labels(ls: List<Str>) -> Result<Str, String> {
-    let ls: Vec<Str> = ls.iter().map(|l| arm_label(l.clone())).collect::<Result<_, _>>()?;
-    Ok(ls.iter().map(|l| &**l).collect::<Vec<_>>().join(" → ").into())
+    let ls: Vec<Str> = ls
+        .iter()
+        .map(|l| arm_label(l.clone()))
+        .collect::<Result<_, _>>()?;
+    Ok(ls
+        .iter()
+        .map(|l| &**l)
+        .collect::<Vec<_>>()
+        .join(" → ")
+        .into())
 }
 
 /// All procs, nested ones included.
 pub fn all_procs(nodes: List<NodeDecl>) -> Result<List<i64>, String> {
-    Ok((0..nodes.len() as i64).filter(|&i| matches!(nodes[i as usize].kind, NodeKind::Proc(_))).collect())
+    Ok((0..nodes.len() as i64)
+        .filter(|&i| matches!(nodes[i as usize].kind, NodeKind::Proc(_)))
+        .collect())
 }
 
 pub fn graph_of(n: NodeDecl) -> Result<Graph, String> {
@@ -183,14 +223,23 @@ pub fn graph_of(n: NodeDecl) -> Result<Graph, String> {
     }
 }
 
-
 fn qual(n: &NodeDecl) -> String {
     n.qual.iter().map(|s| &**s).collect::<Vec<_>>().join(".")
 }
 
 fn display(prog: &Program, pid: i64, n: i64) -> String {
-    let NodeKind::Proc(p) = &prog.nodes[pid as usize].kind else { return String::new() };
-    if p.locals.contains(&n) { prog.nodes[n as usize].qual.last().map(|s| s.to_string()).unwrap_or_default() } else { qual(&prog.nodes[n as usize]) }
+    let NodeKind::Proc(p) = &prog.nodes[pid as usize].kind else {
+        return String::new();
+    };
+    if p.locals.contains(&n) {
+        prog.nodes[n as usize]
+            .qual
+            .last()
+            .map(|s| s.to_string())
+            .unwrap_or_default()
+    } else {
+        qual(&prog.nodes[n as usize])
+    }
 }
 
 pub fn display_label(prog: Program, pid: i64, n: i64) -> Result<Str, String> {
@@ -201,17 +250,36 @@ fn node_json(prog: &Program, pid: i64, n: i64) -> Json {
     let decl = &prog.nodes[n as usize];
     let (ty, label, sub) = match &decl.kind {
         NodeKind::Func(f) => {
-            let imps: Vec<String> = f.imps.iter().map(|i| format!("{}:{}", i.file, i.function)).collect();
-            (0, display(prog, pid, n), (!imps.is_empty()).then(|| imps.join(" · ")))
+            let imps: Vec<String> = f
+                .imps
+                .iter()
+                .map(|i| format!("{}:{}", i.file, i.function))
+                .collect();
+            (
+                0,
+                display(prog, pid, n),
+                (!imps.is_empty()).then(|| imps.join(" · ")),
+            )
         }
         NodeKind::Proc(_) => (1, qual(decl), None),
         NodeKind::Id(_) => (0, "id".to_string(), None),
         NodeKind::Alias(b) => {
-            let ty = if matches!(prog.nodes[*b as usize].kind, NodeKind::Proc(_)) { 1 } else { 0 };
-            (ty, display(prog, pid, n), Some(format!("instance of {}", display(prog, pid, *b))))
+            let ty = if matches!(prog.nodes[*b as usize].kind, NodeKind::Proc(_)) {
+                1
+            } else {
+                0
+            };
+            (
+                ty,
+                display(prog, pid, n),
+                Some(format!("instance of {}", display(prog, pid, *b))),
+            )
         }
     };
-    let mut fs = vec![field("type", Json::Num(ty)), field("label", Json::Str(label.into()))];
+    let mut fs = vec![
+        field("type", Json::Num(ty)),
+        field("label", Json::Str(label.into())),
+    ];
     if let Some(s) = sub {
         fs.push(field("sublabel", Json::Str(s.into())));
     }
@@ -222,7 +290,15 @@ pub fn rows_json(prog: Program, pid: i64, l: Layout) -> Result<Json, String> {
     Ok(Json::Arr(
         l.rows
             .iter()
-            .map(|r| Json::Obj(vec![field("nodes", Json::Arr(r.iter().map(|&n| node_json(&prog, pid, n)).collect()))].into()))
+            .map(|r| {
+                Json::Obj(
+                    vec![field(
+                        "nodes",
+                        Json::Arr(r.iter().map(|&n| node_json(&prog, pid, n)).collect()),
+                    )]
+                    .into(),
+                )
+            })
             .collect(),
     ))
 }
@@ -232,11 +308,19 @@ pub fn edges_json(l: Layout) -> Result<Json, String> {
     for (ri, r) in l.rows.iter().enumerate() {
         for (ci, n) in r.iter().enumerate() {
             for e in l.out.get(n).map(|es| es.to_vec()).unwrap_or_default() {
-                let Some(t) = l.pos.get(&e.target) else { continue };
+                let Some(t) = l.pos.get(&e.target) else {
+                    continue;
+                };
                 let mut fs = vec![
                     field("type", Json::Num(e.ty)),
-                    field("source", Json::Arr(vec![Json::Num(ri as i64), Json::Num(ci as i64)].into())),
-                    field("target", Json::Arr(vec![Json::Num(t.r), Json::Num(t.c)].into())),
+                    field(
+                        "source",
+                        Json::Arr(vec![Json::Num(ri as i64), Json::Num(ci as i64)].into()),
+                    ),
+                    field(
+                        "target",
+                        Json::Arr(vec![Json::Num(t.r), Json::Num(t.c)].into()),
+                    ),
                 ];
                 if let MaybeStr::Some(label) = &e.label {
                     fs.push(field("label", Json::Str(label.clone())));
@@ -360,7 +444,10 @@ pub fn parse_json(text: Str) -> Result<ResJson, String> {
                             return Err(format!("expected `:` at {}", self.i));
                         }
                         self.i += 1;
-                        fs.push(JsonField { key: k.into(), value: self.value()? });
+                        fs.push(JsonField {
+                            key: k.into(),
+                            value: self.value()?,
+                        });
                         self.ws();
                         match self.b.get(self.i) {
                             Some(b',') => self.i += 1,
@@ -375,11 +462,18 @@ pub fn parse_json(text: Str) -> Result<ResJson, String> {
                 Some(c) if *c == b'-' || c.is_ascii_digit() => {
                     let start = self.i;
                     self.i += 1;
-                    while self.i < self.b.len() && matches!(self.b[self.i], b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' | b'-') {
+                    while self.i < self.b.len()
+                        && matches!(
+                            self.b[self.i],
+                            b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' | b'-'
+                        )
+                    {
                         self.i += 1;
                     }
                     let t = String::from_utf8_lossy(&self.b[start..self.i]).into_owned();
-                    t.parse().map(Json::Num).map_err(|_| format!("number {t} isn't an int"))
+                    t.parse()
+                        .map(Json::Num)
+                        .map_err(|_| format!("number {t} isn't an int"))
                 }
                 Some(_) => Err(format!("expected value at {}", self.i)),
             }
@@ -407,17 +501,32 @@ pub fn parse_json(text: Str) -> Result<ResJson, String> {
                             b'b' => out.push(8),
                             b'f' => out.push(12),
                             b'u' => {
-                                let hex = std::str::from_utf8(self.b.get(self.i..self.i + 4).ok_or("bad escape")?).map_err(|e| e.to_string())?;
-                                let mut cp = u32::from_str_radix(hex, 16).map_err(|e| e.to_string())?;
+                                let hex = std::str::from_utf8(
+                                    self.b.get(self.i..self.i + 4).ok_or("bad escape")?,
+                                )
+                                .map_err(|e| e.to_string())?;
+                                let mut cp =
+                                    u32::from_str_radix(hex, 16).map_err(|e| e.to_string())?;
                                 self.i += 4;
                                 // A surrogate pair.
-                                if (0xd800..0xdc00).contains(&cp) && self.b[self.i..].starts_with(b"\\u") {
-                                    let lo = std::str::from_utf8(self.b.get(self.i + 2..self.i + 6).ok_or("bad escape")?).map_err(|e| e.to_string())?;
-                                    let lo = u32::from_str_radix(lo, 16).map_err(|e| e.to_string())?;
+                                if (0xd800..0xdc00).contains(&cp)
+                                    && self.b[self.i..].starts_with(b"\\u")
+                                {
+                                    let lo = std::str::from_utf8(
+                                        self.b.get(self.i + 2..self.i + 6).ok_or("bad escape")?,
+                                    )
+                                    .map_err(|e| e.to_string())?;
+                                    let lo =
+                                        u32::from_str_radix(lo, 16).map_err(|e| e.to_string())?;
                                     self.i += 6;
                                     cp = 0x10000 + ((cp - 0xd800) << 10) + (lo - 0xdc00);
                                 }
-                                out.extend_from_slice(char::from_u32(cp).unwrap_or('\u{fffd}').to_string().as_bytes());
+                                out.extend_from_slice(
+                                    char::from_u32(cp)
+                                        .unwrap_or('\u{fffd}')
+                                        .to_string()
+                                        .as_bytes(),
+                                );
                             }
                             c => out.push(c),
                         }
@@ -430,25 +539,42 @@ pub fn parse_json(text: Str) -> Result<ResJson, String> {
             }
         }
     }
-    let mut p = P { b: text.as_bytes(), i: 0 };
+    let mut p = P {
+        b: text.as_bytes(),
+        i: 0,
+    };
     let r = p.value().and_then(|v| {
         p.ws();
-        if p.i == p.b.len() { Ok(v) } else { Err(format!("trailing characters at {}", p.i)) }
+        if p.i == p.b.len() {
+            Ok(v)
+        } else {
+            Err(format!("trailing characters at {}", p.i))
+        }
     });
     Ok(match r {
         Ok(v) => ResJson::Ok(v),
-        Err(e) => ResJson::Err(Diag { msg: e.into(), span: Span { at: 0, end: 0, file: 0 } }),
+        Err(e) => ResJson::Err(Diag {
+            msg: e.into(),
+            span: Span {
+                at: 0,
+                end: 0,
+                file: 0,
+            },
+        }),
     })
 }
 
 /// A string field of a JSON object, if it is one.
 pub fn json_str(j: Json, key: Str) -> Result<MaybeStr, String> {
     Ok(match j {
-        Json::Obj(fs) => fs.iter().find(|f| f.key == key).and_then(|f| match &f.value {
-            Json::Str(s) => Some(MaybeStr::Some(s.clone())),
-            _ => None,
-        }).unwrap_or(MaybeStr::None),
+        Json::Obj(fs) => fs
+            .iter()
+            .find(|f| f.key == key)
+            .and_then(|f| match &f.value {
+                Json::Str(s) => Some(MaybeStr::Some(s.clone())),
+                _ => None,
+            })
+            .unwrap_or(MaybeStr::None),
         _ => MaybeStr::None,
     })
 }
-
