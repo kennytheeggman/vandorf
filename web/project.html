@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Project</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
 <link rel="stylesheet" href="/ui.css">
 <style>
 body{ display:flex; flex-direction:column }
@@ -55,14 +56,22 @@ td.a{ width:1%; color:var(--mut) }
 .files a{ cursor:pointer; color:var(--ink) } .files a:hover{ color:var(--accent); text-decoration:underline }
 
 /* manifest */
-#manifest{ height:100% } #manifest.on.editing{ display:flex; flex-direction:column }
-#medit{ display:none; flex:1; min-height:0; width:100%; box-sizing:border-box; margin:0; border:0; outline:0; resize:none; padding:14px 18px;
+/* manifest: an editor that saves as you type (valid manifests only) */
+#manifest{ height:100% } #manifest.on{ display:flex; flex-direction:column }
+#medit{ flex:1; min-height:0; width:100%; box-sizing:border-box; margin:0; border:0; outline:0; resize:none; padding:14px 18px;
   font:13px/1.6 var(--mono); background:var(--code-bg); color:var(--ink); tab-size:4 }
-#manifest.editing #medit{ display:block } #manifest.editing pre{ display:none }
+#manifest .CodeMirror{ flex:1; min-height:0; height:auto; font:13px/1.6 var(--mono); background:var(--code-bg); color:var(--ink) }
+.CodeMirror-gutters{ background:var(--bar); border-right:1px solid var(--line) }
+.CodeMirror-linenumber{ color:var(--mut) }
+.CodeMirror-cursor{ border-left-color:var(--ink) }
+.CodeMirror-selected, .CodeMirror-focused .CodeMirror-selected{ background:rgba(59,130,246,.22) }
+/* Over CodeMirror's default theme: keys, [sections], strings as the IDE colors them. */
+.CodeMirror .cm-comment{ color:var(--com); font-style:italic } .CodeMirror .cm-atom{ color:var(--kw); font-weight:600 }
+.CodeMirror .cm-property{ color:var(--fn) } .CodeMirror .cm-string, .CodeMirror .cm-number{ color:var(--str) }
+.CodeMirror .cm-property.cm-string{ color:var(--fn) } .CodeMirror .cm-bracket{ color:var(--mut) }
 .mtool{ display:none } body.manifest .mtool{ display:inline-flex }
-.mstat{ font-size:12px; color:var(--mut); padding:0 6px } .mstat.bad{ color:var(--err) } .mstat.ok{ color:var(--ok, var(--mut)) }
-#manifest pre{ margin:0; padding:14px 18px; font:13px/1.6 var(--mono); background:var(--code-bg); min-height:100%; tab-size:4; white-space:pre-wrap; word-break:break-word }
-.t-com{ color:var(--com); font-style:italic } .t-sec{ color:var(--kw); font-weight:600 } .t-key{ color:var(--fn) } .t-str{ color:var(--str) } .t-num{ color:var(--str) }
+.mstat{ font-size:12px; color:var(--mut); padding:0 6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0 }
+.mstat.bad{ color:var(--err) } .mstat.ok{ color:var(--ok, var(--mut)) }
 </style>
 </head>
 <body>
@@ -71,15 +80,14 @@ td.a{ width:1%; color:var(--mut) }
   <span class="crumb" id="crumb"></span>
   <span class="sp"></span>
   <span class="mtool mstat" id="mStat"></span>
-  <button class="mtool" id="bEdit" title="Edit the manifest">Edit</button>
-  <button class="mtool" id="bSave" title="Save (Ctrl/⌘+S)" style="display:none">Save</button>
-  <button class="mtool" id="bCancel" title="Discard the changes" style="display:none">Cancel</button>
   <button class="icon" id="bRefresh" title="Reload">&#8635;</button>
 </div>
 <div id="main">
   <section id="overview" class="on"><div class="msg">Loading&hellip;</div></section>
-  <section id="manifest"><pre id="toml"></pre><textarea id="medit" spellcheck="false" autocomplete="off"></textarea></section>
+  <section id="manifest"><textarea id="medit" spellcheck="false" autocomplete="off"></textarea></section>
 </div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/toml/toml.min.js"></script>
 <script>
 (function(){
 'use strict';
@@ -89,53 +97,82 @@ function up(m){ if (window.parent !== window) window.parent.postMessage(m, locat
 var TOKEN = '__VANDORF_TOKEN__';
 var dir = new URLSearchParams(location.search).get('dir') || '';
 var P = null;
-var editing = false;
 
 function setMode(m){
   $('mOverview').classList.toggle('on', m === 'overview'); $('mManifest').classList.toggle('on', m === 'manifest');
   $('overview').classList.toggle('on', m === 'overview'); $('manifest').classList.toggle('on', m === 'manifest');
   document.body.classList.toggle('manifest', m === 'manifest');
+  if (m === 'manifest' && cm) setTimeout(function(){ cm.refresh(); }, 0);
 }
 
-/* Editing the manifest: a plain textarea; a save that doesn't parse as a
-   manifest is refused by the server, and the text stays here to fix. */
-function mstat(text, cls){ var s = $('mStat'); s.textContent = text || ''; s.className = 'mtool mstat' + (cls ? ' ' + cls : ''); }
-function dirty(){ return editing && P && $('medit').value !== P.text; }
-function setEditing(on){
-  editing = on;
-  $('manifest').classList.toggle('editing', on);
-  $('bEdit').style.display = on ? 'none' : ''; $('bSave').style.display = on ? '' : 'none'; $('bCancel').style.display = on ? '' : 'none';
-  if (on){ $('medit').value = P ? P.text : ''; $('medit').focus(); mstat(''); }
+/* The manifest, edited in place and saved as you type: after a pause, or
+   at once on Ctrl/⌘+S. The server refuses text that isn't a valid manifest;
+   it stays here, marked unsaved, until it is. */
+var cm = null, quiet = false, saved = null, timer = null, saving = false, again = false;
+if (window.CodeMirror){
+  cm = CodeMirror.fromTextArea($('medit'), {
+    mode: 'toml', lineNumbers: true, indentWithTabs: true, tabSize: 4, indentUnit: 4,
+    extraKeys: { 'Ctrl-S': saveNow, 'Cmd-S': saveNow },
+  });
 }
-$('bEdit').onclick = function(){ if (P) setEditing(true); };
-$('bCancel').onclick = function(){ if (!dirty() || confirm('Discard the changes to the manifest?')){ setEditing(false); mstat(''); } };
-$('bSave').onclick = saveManifest;
-$('medit').addEventListener('input', function(){ mstat(dirty() ? 'Modified' : ''); });
+var editor = {
+  get: function(){ return cm ? cm.getValue() : $('medit').value; },
+  set: function(s){
+    quiet = true;
+    if (cm){ var c = cm.getCursor(), sc = cm.getScrollInfo(); cm.setValue(s); cm.setCursor(c); cm.scrollTo(sc.left, sc.top); cm.clearHistory(); }
+    else $('medit').value = s;
+    quiet = false;
+  },
+};
+function mstat(text, cls){ var s = $('mStat'); s.textContent = text || ''; s.title = text || ''; s.className = 'mtool mstat' + (cls ? ' ' + cls : ''); }
+function dirty(){ return saved != null && editor.get() !== saved; }
+/* The manifest as it is on disk; the editor follows it unless it has
+   changes of its own. */
+function showManifest(text){
+  if (!dirty()){ saved = text; if (editor.get() !== text) editor.set(text); }
+  else saved = text;
+}
+function changed(){
+  if (quiet) return;
+  var d = dirty();
+  mstat(d ? 'Unsaved changes' : 'Saved', d ? '' : 'ok');
+  clearTimeout(timer);
+  if (d) timer = setTimeout(save, 800);
+}
+if (cm) cm.on('change', changed); else $('medit').addEventListener('input', changed);
 $('medit').addEventListener('keydown', function(e){
   if (e.key === 'Tab' && !e.shiftKey){ e.preventDefault(); document.execCommand('insertText', false, '\t'); }
 });
 document.addEventListener('keydown', function(e){
-  if (editing && (e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')){ e.preventDefault(); saveManifest(); }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')){ e.preventDefault(); saveNow(); }
 });
+function saveNow(){ clearTimeout(timer); save(); }
 window.addEventListener('beforeunload', function(e){ if (dirty()){ e.preventDefault(); e.returnValue = ''; } });
-function saveManifest(){
-  if (!P || !editing) return;
-  var text = $('medit').value;
-  mstat('Saving…');
+function save(){
+  if (!P || !dirty()) return;
+  if (saving){ again = true; return; }
+  var text = editor.get();
+  saving = true; mstat('Saving…');
   fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Vandorf-Token': TOKEN },
     body: JSON.stringify({ path: P.manifest, source: text }) })
     .then(function(r){ return r.json(); })
     .then(function(res){
-      if (!res.ok){ mstat(res.error, 'bad'); return; }
-      P.text = text; setEditing(false); mstat('Saved', 'ok');
+      if (!res.ok){ if (editor.get() === text) mstat(res.error, 'bad'); return; }
+      saved = text; P.text = text;
+      if (!dirty()) mstat('Saved', 'ok');
       up({ type: 'ide-saved', path: P.manifest, text: text });
       load();
     })
-    .catch(function(e){ mstat('Not saved: ' + e, 'bad'); });
+    .catch(function(e){ mstat('Not saved: ' + e, 'bad'); })
+    .then(function(){ saving = false; if (again){ again = false; save(); } });
 }
 $('mOverview').onclick = function(){ setMode('overview'); };
 $('mManifest').onclick = function(){ setMode('manifest'); };
-$('bRefresh').onclick = function(){ if (!dirty() || confirm('Discard the changes to the manifest?')){ setEditing(false); load(); } };
+$('bRefresh').onclick = function(){
+  if (dirty() && !confirm('Discard the unsaved changes to the manifest?')) return;
+  if (dirty()){ clearTimeout(timer); editor.set(saved); mstat(''); }
+  load();
+};
 
 function load(){
   fetch('/api/project?dir=' + encodeURIComponent(dir)).then(function(r){ return r.json(); }).then(function(p){
@@ -154,7 +191,7 @@ function broken(error){
   fetch('/api/source?path=' + encodeURIComponent(path)).then(function(r){ return r.json(); }).then(function(r){
     if (!r.ok){ P = null; return; }
     P = { manifest: path, text: r.source };
-    $('crumb').textContent = path; $('toml').innerHTML = toml(r.source);
+    $('crumb').textContent = path; showManifest(r.source);
     $('overview').innerHTML = '<div class="msg bad">' + esc(error) + '<br><br>Fix it in the <a href="#" id="toManifest">manifest</a>.</div>';
     $('toManifest').onclick = function(e){ e.preventDefault(); setMode('manifest'); };
   });
@@ -171,7 +208,7 @@ function procRef(name, at){
 function render(){
   var p = P, h = [];
   $('crumb').textContent = p.manifest;
-  $('toml').innerHTML = toml(p.text);
+  showManifest(p.text);
   h.push('<div class="wrap">');
   h.push('<div class="head"><span class="badge project"></span><h1>' + esc(p.name) + '</h1><span class="dir">' + esc(p.dir || '.') + '/</span></div>');
   var c = p.counts;
@@ -246,33 +283,12 @@ $('overview').addEventListener('click', function(e){
   if (f) up({ type: 'ide-open', path: f.dataset.file, mode: 'text', newTab: e.ctrlKey || e.metaKey });
 });
 
-/* TOML, lightly: comments, [sections], keys, strings and numbers. */
-function toml(src){
-  return src.split('\n').map(function(line){
-    var m = /^(\s*)(\[[^\]]*\])(.*)$/.exec(line);
-    if (m) return esc(m[1]) + '<span class="t-sec">' + esc(m[2]) + '</span>' + rest(m[3]);
-    m = /^(\s*)([\w.-]+)(\s*=)(.*)$/.exec(line);
-    if (m) return esc(m[1]) + '<span class="t-key">' + esc(m[2]) + '</span>' + esc(m[3]) + rest(m[4]);
-    return rest(line);
-  }).join('\n');
-  function rest(s){
-    var re = /("(?:[^"\\]|\\.)*")|(#.*$)|\b(\d+(?:\.\d+)?)\b|(\b[\w-]+\b)(?=\s*=)/g, out = '', last = 0, m;
-    while ((m = re.exec(s))){
-      out += esc(s.slice(last, m.index));
-      var cls = m[1] ? 't-str' : m[2] ? 't-com' : m[3] ? 't-num' : 't-key';
-      out += '<span class="' + cls + '">' + esc(m[0]) + '</span>';
-      last = m.index + m[0].length;
-    }
-    return out + esc(s.slice(last));
-  }
-}
-
 window.addEventListener('message', function(e){
   if (e.origin !== location.origin || !e.data) return;
   var m = e.data;
   if (m.type === 'vandorf-theme') document.documentElement.setAttribute('data-theme', m.theme);
   if (m.type === 'ide-activate' && P && P.name) up({ type: 'ide-status', text: 'Project ' + P.name, cls: '' });
-  if (m.type === 'ide-refresh' && !editing) load();
+  if (m.type === 'ide-refresh') load();
 });
 up({ type: 'project-ready' });
 load();
