@@ -9,9 +9,13 @@
 <style>
 body{ font-size:12px; display:flex; flex-direction:column }
 .bar{ gap:2px; overflow-x:auto }
+.bar .tt{ display:inline-flex; align-items:center; gap:2px; height:var(--h); padding:0 2px 0 8px; border-radius:var(--r); cursor:pointer; flex:none }
+.bar .tt:hover{ background:var(--hover) }
 .bar .tt.on{ background:none; box-shadow:inset 0 -2px var(--accent) }
-.bar .tt.dead{ text-decoration:line-through }
-.bar .sep{ width:1px; height:16px; background:var(--line); margin:0 4px; flex:none }
+.bar .tt.dead .l{ text-decoration:line-through }
+.bar .tt .x{ width:18px; height:18px; padding:0; font-size:14px; color:var(--mut) }
+.bar .tt .x:hover{ background:var(--line); color:var(--ink) }
+.bar button.icon svg{ width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round }
 #terms{ flex:1; position:relative; min-height:0 }
 .term{ position:absolute; inset:0; padding:4px 0 0 8px; visibility:hidden }
 .term.on{ visibility:visible }
@@ -23,14 +27,10 @@ body{ font-size:12px; display:flex; flex-direction:column }
 <div class="bar">
   <span class="ttl">Terminal</span>
   <span id="list" style="display:flex;gap:2px;flex:none"></span>
-  <button id="bNew" title="New terminal">+ new</button>
-  <span class="sep"></span>
-  <button data-cmd="check" title="vandorf check, in the active file's project">check</button>
-  <button data-cmd="build" title="vandorf build, in the active file's project">build</button>
-  <button data-cmd="doc -o doc.json" title="vandorf doc -o doc.json">doc</button>
+  <button class="icon" id="bNew" title="New terminal">+</button>
   <span class="sp"></span>
-  <button id="bClear" title="Clear">clear</button>
-  <button id="bKill" title="Kill this terminal">kill</button>
+  <button class="icon" data-cmd="check" title="vandorf check, in the active file's project"><svg viewBox="0 0 16 16"><path d="M3 8.5l3.2 3.2L13 4.8"/></svg></button>
+  <button class="icon" data-cmd="build" title="vandorf build, in the active file's project"><svg viewBox="0 0 16 16"><path d="M9.5 2.5l4 4-2 2-4-4zM7.5 4.5L2.5 9.5v4h4l5-5"/></svg></button>
 </div>
 <div id="terms"></div>
 <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
@@ -69,8 +69,10 @@ function saveIds(){ try { sessionStorage.setItem('vandorf.term.cur', cur ? Strin
 function attach(id){
   var t = { id: id, from: 0, alive: true, queue: Promise.resolve() };
   t.el = document.createElement('div'); t.el.className = 'term'; $('terms').appendChild(t.el);
-  t.tab = document.createElement('button'); t.tab.className = 'tt'; t.tab.textContent = 'shell ' + id;
-  t.tab.onclick = function(){ show(t); };
+  t.tab = document.createElement('span'); t.tab.className = 'tt'; t.tab.title = 'shell ' + id;
+  t.tab.innerHTML = '<span class="l"></span><button class="x" title="Kill this terminal">&times;</button>';
+  t.tab.querySelector('.l').textContent = 'shell ' + id;
+  t.tab.onclick = function(e){ if (e.target.closest('.x')) kill(t); else show(t); };
   $('list').appendChild(t.tab);
   terms.push(t);
   if (!window.Terminal){
@@ -157,15 +159,13 @@ function vandorf(sub){
 }
 
 $('bNew').onclick = create;
-$('bClear').onclick = function(){ if (cur && cur.xt) cur.xt.clear(); };
-$('bKill').onclick = function(){
-  if (!cur) return;
-  var t = cur;
-  api('/api/term/kill?id=' + t.id, { method: 'POST' });
+function kill(t){
+  if (t.alive) api('/api/term/kill?id=' + t.id, { method: 'POST' });
   dead(t, 'killed'); t.el.remove(); t.tab.remove();
   terms.splice(terms.indexOf(t), 1);
+  if (cur !== t) return;
   if (terms.length) show(terms[terms.length - 1]); else { cur = null; saveIds(); }
-};
+}
 Array.prototype.forEach.call(document.querySelectorAll('[data-cmd]'), function(b){
   b.onclick = function(){ run(vandorf(b.dataset.cmd)); };
 });

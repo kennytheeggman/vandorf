@@ -105,14 +105,14 @@ function setMode(m){
   if (m === 'manifest' && cm) setTimeout(function(){ cm.refresh(); }, 0);
 }
 
-/* The manifest, edited in place and saved as you type: after a pause, or
-   at once on Ctrl/⌘+S. The server refuses text that isn't a valid manifest;
-   it stays here, marked unsaved, until it is. */
-var cm = null, quiet = false, saved = null, timer = null, saving = false, again = false;
+/* The manifest, edited in place and saved on Ctrl/⌘+S, like .sys files.
+   The server refuses text that isn't a valid manifest; it stays here,
+   marked unsaved, until it is. */
+var cm = null, quiet = false, saved = null, saving = false, again = false;
 if (window.CodeMirror){
   cm = CodeMirror.fromTextArea($('medit'), {
     mode: 'toml', lineNumbers: true, indentWithTabs: true, tabSize: 4, indentUnit: 4,
-    extraKeys: { 'Ctrl-S': saveNow, 'Cmd-S': saveNow },
+    extraKeys: { 'Ctrl-S': save, 'Cmd-S': save },
   });
 }
 var editor = {
@@ -135,18 +135,15 @@ function showManifest(text){
 function changed(){
   if (quiet) return;
   var d = dirty();
-  mstat(d ? 'Unsaved changes' : 'Saved', d ? '' : 'ok');
-  clearTimeout(timer);
-  if (d) timer = setTimeout(save, 800);
+  mstat(d ? 'Unsaved changes (Ctrl/⌘+S to save)' : 'Saved', d ? '' : 'ok');
 }
 if (cm) cm.on('change', changed); else $('medit').addEventListener('input', changed);
 $('medit').addEventListener('keydown', function(e){
   if (e.key === 'Tab' && !e.shiftKey){ e.preventDefault(); document.execCommand('insertText', false, '\t'); }
 });
 document.addEventListener('keydown', function(e){
-  if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')){ e.preventDefault(); saveNow(); }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')){ e.preventDefault(); save(); }
 });
-function saveNow(){ clearTimeout(timer); save(); }
 window.addEventListener('beforeunload', function(e){ if (dirty()){ e.preventDefault(); e.returnValue = ''; } });
 function save(){
   if (!P || !dirty()) return;
@@ -170,7 +167,7 @@ $('mOverview').onclick = function(){ setMode('overview'); };
 $('mManifest').onclick = function(){ setMode('manifest'); };
 $('bRefresh').onclick = function(){
   if (dirty() && !confirm('Discard the unsaved changes to the manifest?')) return;
-  if (dirty()){ clearTimeout(timer); editor.set(saved); mstat(''); }
+  if (dirty()){ editor.set(saved); mstat(''); }
   load();
 };
 

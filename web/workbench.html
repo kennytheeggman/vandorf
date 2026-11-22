@@ -47,8 +47,9 @@ main{ flex:1; display:grid; grid-template-columns:minmax(320px,42%) 1fr; min-hei
 .CodeMirror-linenumber{ color:var(--mut) }
 .CodeMirror-cursor{ border-left-color:var(--ink) }
 .CodeMirror-selected, .CodeMirror-focused .CodeMirror-selected{ background:rgba(59,130,246,.22) }
-.cm-keyword{ color:var(--kw); font-weight:600 } .cm-string, .cm-number{ color:var(--str) }
-.cm-comment{ color:var(--com); font-style:italic } .cm-type{ color:var(--type) }
+/* Scoped under .CodeMirror to win over its default theme (.cm-s-default). */
+.CodeMirror .cm-keyword{ color:var(--kw); font-weight:600 } .CodeMirror .cm-string, .CodeMirror .cm-number{ color:var(--str) }
+.CodeMirror .cm-comment{ color:var(--com); font-style:italic } .CodeMirror .cm-type{ color:var(--tyc) }
 .cm-errmark{ text-decoration:wavy underline var(--err); background:var(--err-bg) }
 
 #diags{ max-height:34%; overflow:auto; border-top:1px solid var(--line); background:var(--surface); display:none }

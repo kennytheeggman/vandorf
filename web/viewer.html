@@ -27,8 +27,9 @@ body.text-mode #bFit{ display:none }
 .CodeMirror-linenumber{ color:var(--mut) }
 .CodeMirror-cursor{ border-left-color:var(--ink) }
 .CodeMirror-selected, .CodeMirror-focused .CodeMirror-selected{ background:rgba(59,130,246,.22) }
-.cm-keyword{ color:var(--kw); font-weight:600 } .cm-string, .cm-number{ color:var(--str) }
-.cm-comment{ color:var(--com); font-style:italic } .cm-type{ color:var(--tyc) }
+/* Scoped under .CodeMirror to win over its default theme (.cm-s-default). */
+.CodeMirror .cm-keyword{ color:var(--kw); font-weight:600 } .CodeMirror .cm-string, .CodeMirror .cm-number{ color:var(--str) }
+.CodeMirror .cm-comment{ color:var(--com); font-style:italic } .CodeMirror .cm-type{ color:var(--tyc) }
 .cm-errmark{ text-decoration:wavy underline var(--err); background:var(--err-bg) }
 .cm-flash{ background:rgba(250,204,21,.35) }
 #diags{ max-height:30%; overflow:auto; border-top:1px solid var(--line); background:var(--bar); display:none; flex:none }
