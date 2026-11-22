@@ -1,0 +1,150 @@
+// Types as sema resolves them (src/types.rs in the reference). A typedef,
+// or an instance of a generic one, is named by its index into the
+// program's []TypeDef.
+
+type Type = enum {
+	// "void", "int", "float", "bool" or "string".
+	Prim(string),
+	Array(Type),
+	Map({ key: Type, value: Type }),
+	Struct([]Member),
+	Enum([]Member),
+	Named({ id: int, name: string })
+};
+// A struct field or an enum variant (void for no payload).
+type Member = { name: string, ty: Type };
+type TypeDef = { name: string, ident: string, ty: Type, recursive: bool };
+type MaybeType = enum { None, Some(Type) };
+
+type Pair = { x: int, y: int };
+type OptPair = enum { None, Some(Pair) };
+
+func IsVoid(t: Type): bool = "sema_leaf.rs:is_void";
+// The member called `name`.
+func Member(ms: []Member, name: string): MaybeType = "sema_leaf.rs:member";
+// ", " before every list item but the first.
+func Sep(i: int): string = "sema_leaf.rs:sep";
+
+// The structure behind any typedef names. Sema rejects name cycles that
+// never reach a structure, so this ends.
+proc Unfold(At): Type {
+	func At(s: { t: Type, defs: []TypeDef }): { t: Type, defs: []TypeDef } = "../leaf.rs:same";
+	func T(t: Type): Type = "../leaf.rs:same";
+	At -> T(t = this.t);
+	T switch {
+		Named(n) -> At(s = { t = At.defs[n.id].ty, defs = At.defs }),
+		else -> id(this)
+	};
+}
+
+// A type as written: `[]int`, `map[string]R<int>`, `{ x: int, y: E }`,
+// `enum { A, B(int) }`.
+proc ShowType(T): string {
+	func T(t: Type): Type = "../leaf.rs:same";
+	T switch {
+		Prim(p) -> id(p),
+		Named(n) -> id(n.name),
+		Array(e) -> ShowType(t = e) as Elem,
+		Map(m) -> ShowMap(s = m),
+		Struct(ms) -> ShowMembers(s = { ms = ms, variants = false, i = 0, acc = "" }) as Fields,
+		Enum(ms) -> ShowMembers(s = { ms = ms, variants = true, i = 0, acc = "" }) as Variants
+	};
+	Elem -> id("[]" + this);
+	Fields -> id("{ " + this + " }");
+	Variants -> id("enum { " + this + " }");
+}
+
+proc ShowMap(K): string {
+	func K(s: { key: Type, value: Type }): { key: Type, value: Type } = "../leaf.rs:same";
+	K -> ShowType(t = this.key) as Key;
+	Key -> ShowType(t = K.value) as Val;
+	Val -> id("map[" + Key + "]" + this);
+}
+
+// `n: t` for fields; `n` or `n(t)` for variants. Joined with ", ".
+proc ShowMembers(At): string {
+	func At(s: { ms: []Member, variants: bool, i: int, acc: string }): { ms: []Member, variants: bool, i: int, acc: string } = "../leaf.rs:same";
+	At switch {
+		(this.i == this.ms.len) -> id(this.acc),
+		else -> ShowType(t = this.ms[this.i].ty)
+	};
+	ShowType switch {
+		(At.variants && IsVoid(t = At.ms[At.i].ty)) -> At(s = { ms = At.ms, variants = At.variants, i = At.i + 1, acc = At.acc + Sep(i = At.i) + At.ms[At.i].name }),
+		(At.variants) -> At(s = { ms = At.ms, variants = At.variants, i = At.i + 1, acc = At.acc + Sep(i = At.i) + At.ms[At.i].name + "(" + this + ")" }),
+		else -> At(s = { ms = At.ms, variants = At.variants, i = At.i + 1, acc = At.acc + Sep(i = At.i) + At.ms[At.i].name + ": " + this })
+	};
+}
+
+// Whether a value of type `b` can be passed where `a` is expected. Structs
+// need the same fields; an enum accepts any enum whose variants are among
+// its own. `assumed` holds typedef pairs being compared further up: meeting
+// one again means the comparison came full circle with no mismatch.
+type AcceptsIn = { a: Type, b: Type, defs: []TypeDef, assumed: []Pair };
+
+proc Accepts(At): bool {
+	func At(s: AcceptsIn): AcceptsIn = "../leaf.rs:same";
+	func Names(a: Type, b: Type): OptPair = "sema_leaf.rs:named_pair";
+	func HasPair(ps: []Pair, p: Pair): bool = "sema_leaf.rs:has_pair";
+	At -> Names(a = this.a, b = this.b);
+	Names switch {
+		Some(p) -> switch {
+			(p.x == p.y || HasPair(ps = At.assumed, p = p)) -> id(true),
+			else -> Unfold(s = { t = At.a, defs = At.defs }) as UA
+		},
+		else -> Unfold(s = { t = At.a, defs = At.defs }) as UA
+	};
+	UA -> Unfold(s = { t = At.b, defs = At.defs }) as UB;
+	UB -> AcceptsShapes(s = { a = UA, b = this, defs = At.defs, assumed = At.assumed + NewPair(o = Names) });
+}
+
+// The pair to assume while comparing two typedef names' structures.
+func NewPair(o: OptPair): []Pair = "sema_leaf.rs:new_pair";
+
+// Accepts, on unfolded types.
+proc AcceptsShapes(At): bool {
+	func At(s: AcceptsIn): AcceptsIn = "../leaf.rs:same";
+	func Both(s: { a: Type, b: Type }): { a: Type, b: Type } = "../leaf.rs:same";
+	At -> Both(s = { a = this.a, b = this.b });
+	Both switch {
+		{ a = Prim(x), b = Prim(y) } -> id(x == y),
+		{ a = Array(x), b = Array(y) } -> Accepts(s = { a = x, b = y, defs = At.defs, assumed = At.assumed }) as Elems,
+		{ a = Map(x), b = Map(y) } -> AcceptsMap(s = { a = x, b = y, defs = At.defs, assumed = At.assumed }),
+		{ a = Struct(x), b = Struct(y) } -> switch {
+			(x.len == y.len) -> AllAccepted(s = { each = x, other = y, flip = false, defs = At.defs, assumed = At.assumed, i = 0 }) as Fields,
+			else -> id(false)
+		},
+		{ a = Enum(x), b = Enum(y) } -> AllAccepted(s = { each = y, other = x, flip = true, defs = At.defs, assumed = At.assumed, i = 0 }) as Variants,
+		else -> id(false)
+	};
+}
+
+proc AcceptsMap(At): bool {
+	func At(s: { a: { key: Type, value: Type }, b: { key: Type, value: Type }, defs: []TypeDef, assumed: []Pair }): { a: { key: Type, value: Type }, b: { key: Type, value: Type }, defs: []TypeDef, assumed: []Pair } = "../leaf.rs:same";
+	At -> Accepts(s = { a = this.a.key, b = this.b.key, defs = this.defs, assumed = this.assumed }) as Keys;
+	Keys switch {
+		(this) -> Accepts(s = { a = At.a.value, b = At.b.value, defs = At.defs, assumed = At.assumed }) as Values,
+		else -> id(false)
+	};
+}
+
+// Whether every member of `each` has a member of the same name in `other`
+// whose type is accepted: Accepts(each's, other's), or with `flip`,
+// Accepts(other's, each's).
+proc AllAccepted(At): bool {
+	func At(s: { each: []Member, other: []Member, flip: bool, defs: []TypeDef, assumed: []Pair, i: int }): { each: []Member, other: []Member, flip: bool, defs: []TypeDef, assumed: []Pair, i: int } = "../leaf.rs:same";
+	At switch {
+		(this.i == this.each.len) -> id(true),
+		else -> Member(ms = this.other, name = this.each[this.i].name) as Found
+	};
+	Found switch {
+		Some(t) -> switch {
+			(At.flip) -> Accepts(s = { a = t, b = At.each[At.i].ty, defs = At.defs, assumed = At.assumed }) as One,
+			else -> Accepts(s = { a = At.each[At.i].ty, b = t, defs = At.defs, assumed = At.assumed }) as One
+		},
+		else -> id(false)
+	};
+	One switch {
+		(this) -> At(s = { each = At.each, other = At.other, flip = At.flip, defs = At.defs, assumed = At.assumed, i = At.i + 1 }),
+		else -> id(false)
+	};
+}

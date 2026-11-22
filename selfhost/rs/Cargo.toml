@@ -1,0 +1,16 @@
+[package]
+name = "vcc"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Standalone: not part of the vandorf crate's build.
+[workspace]
+
+[dev-dependencies]
+# The reference implementation, to compare against.
+vandorf = { path = "../.." }
+serde_json = "1"
+
+[dependencies]
+toml = { version = "0.8", default-features = false, features = ["parse"] }

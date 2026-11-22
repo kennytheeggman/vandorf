@@ -1,0 +1,1623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vandorf &mdash; dataflow viewer</title>
+<script>try{if(/[?&]embed=1(&|$)/.test(location.search)||window.parent!==window)document.documentElement.classList.add('embed')}catch(e){}</script>
+<style>
+:root{
+  --ink:#0f172a; --mut:#475569; --line:#cbd5e1; --bg:#eef2f7;
+  --call:#64748b; --match:#c026d3; --loop:#d32f2f;
+  --expand:#00897b; --cont:#7e57c2; --collect:#00838f;
+  --func-bd:#1d6fd8; --func-bg:#eef4ff;
+  --proc-bd:#e07b00; --proc-bg:#fff4e2;
+  --badge-proc:#e07b00; --badge-func:#1d6fd8;
+
+  --cbg:#ffffff;         --dot:#cbd5e1;
+  --bar-bg:#ffffff;      --bar-tx:#0f172a; --bar-mut:#64748b; --bar-bd:#e2e8f0;
+  --surf-bg:#ffffff;     --surf-tx:#0f172a; --surf-mut:#64748b; --surf-bd:#cbd5e1;
+  --in-bg:#ffffff;       --in-tx:#0f172a; --in-bd:#cbd5e1;
+  --menu-bg:#ffffff;     --menu-tx:#0f172a; --menu-hl:#eaf1fb;
+  --accent:#1f6feb;      --accent-tx:#ffffff; --accent-dk:#1c63d2;
+  --btn-bg:#f1f5f9;      --btn-bd:#cbd5e1; --btn-tx:#0f172a; --btn-hover:#e2e8f0;
+}
+html.dark{
+  --cbg:#0e1420;         --dot:rgba(148,163,184,.38);
+  --bar-bg:#0b1526;      --bar-tx:#ffffff; --bar-mut:#8aa2bf; --bar-bd:#22324a;
+  --surf-bg:#0e1a2f;     --surf-tx:#dbe6f4; --surf-mut:#8aa2bf; --surf-bd:#2c4a6e;
+  --in-bg:#0e1a2f;       --in-tx:#dbe6f4; --in-bd:#2c4a6e;
+  --menu-bg:#0e1a2f;     --menu-tx:#dbe6f4; --menu-hl:#122442;
+  --accent:#1f6feb;      --accent-tx:#ffffff; --accent-dk:#1c63d2;
+  --btn-bg:#122442;      --btn-bd:#2c4a6e; --btn-tx:#e6effb; --btn-hover:#183256;
+  --badge-proc:#d97706;  --badge-func:#3b82f6;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:Arial,Helvetica,sans-serif;
+  color:var(--ink); background:var(--bg);
+}
+.brand{font-size:19px; font-weight:800; letter-spacing:.5px; color:var(--bar-tx); margin-bottom:2px}
+.brand .logo{color:#6fb6ff}
+.brand .sub{font-size:12px; font-weight:600; color:var(--bar-mut); margin-left:6px; letter-spacing:0}
+.lbl{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.8px; color:var(--surf-mut); margin:16px 0 6px}
+.seg{display:flex; gap:6px; margin-bottom:8px}
+.seg button{
+  flex:1; padding:7px; border-radius:7px; border:1px solid var(--btn-bd); background:var(--btn-bg);
+  color:var(--surf-mut); font-size:12px; font-weight:600; cursor:pointer;
+}
+.seg button.on{background:var(--accent); border-color:var(--accent); color:var(--accent-tx)}
+.panel{display:none}
+.panel.on{display:block}
+input#path{
+  width:100%; padding:9px 10px; border-radius:8px; border:1px solid var(--in-bd); background:var(--in-bg);
+  color:var(--in-tx); font-size:13px;
+}
+textarea#srcText{
+  width:100%; height:150px; resize:vertical; background:var(--in-bg); color:var(--in-tx);
+  border:1px solid var(--in-bd); border-radius:8px; padding:10px;
+  font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+.row{display:flex; gap:8px; margin-top:10px; align-items:center}
+.row > *{flex:1 1 auto}
+.btn{
+  padding:9px 12px; border-radius:8px; border:1px solid var(--btn-bd); background:var(--btn-bg);
+  color:var(--btn-tx); font-size:13px; font-weight:600; cursor:pointer;
+}
+.btn:hover{background:var(--btn-hover)}
+.btn.primary{background:var(--accent); border-color:var(--accent); color:var(--accent-tx)}
+.btn.primary:hover{background:var(--accent-dk)}
+#status{font-size:12px; color:var(--surf-mut); margin-top:10px; min-height:14px; word-break:break-all}
+#err{
+  font-size:12px; color:#ffb4a8; background:#3a1520; border:1px solid #6d2b38;
+  padding:8px 10px; border-radius:8px; margin-top:12px; display:none; white-space:pre-wrap;
+}
+body{overflow:hidden}
+.topbar{
+  position:fixed; top:0; left:0; right:0; height:56px; z-index:50;
+  display:flex; align-items:center; gap:14px; padding:0 18px;
+  background:var(--bar-bg); color:var(--bar-tx); border-bottom:1px solid var(--bar-bd);
+  box-shadow:0 2px 10px rgba(15,23,42,.12);
+}
+.brand{display:flex; align-items:baseline; gap:8px; white-space:nowrap}
+.sel{position:relative}
+.sel input{
+  width:100%; padding:8px 12px; border-radius:8px; border:1px solid var(--in-bd);
+  background:var(--in-bg); color:var(--in-tx); font-size:13px; outline:none;
+}
+.sel input:focus{border-color:var(--accent)}
+.menu{
+  position:absolute; top:calc(100% + 6px); left:0; right:0; max-height:264px; overflow:auto;
+  background:var(--menu-bg); border:1px solid var(--surf-bd); border-radius:10px; margin:0; padding:4px 0;
+  list-style:none; box-shadow:0 10px 30px rgba(0,0,0,.35); z-index:70; display:none;
+}
+.menu li{padding:8px 12px; font-size:13px; color:var(--menu-tx); cursor:pointer; border-radius:6px; margin:1px 4px}
+.menu li:hover{background:var(--menu-hl)}
+.menu li.hid{display:none}
+.menu li.hl{background:var(--accent); color:var(--accent-tx)}
+.spacer{flex:1}
+.sbtn{
+  padding:8px 14px; border-radius:8px; border:1px solid var(--btn-bd); background:var(--btn-bg);
+  color:var(--btn-tx); font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap;
+}
+.sbtn:hover,.sbtn.on{background:var(--accent); border-color:var(--accent); color:var(--accent-tx)}
+.hidden{display:none!important}
+#fg{position:fixed; top:56px; left:0; right:0; bottom:0}
+#procPanel{
+  position:absolute; top:14px; left:14px; z-index:48; width:300px;
+  background:var(--surf-bg); border:1px solid var(--surf-bd); border-radius:12px;
+  padding:10px 12px 8px; box-shadow:0 10px 30px rgba(0,0,0,.25);
+}
+#procPanel .flbl{
+  display:block; font-size:10px; text-transform:uppercase; letter-spacing:.8px;
+  color:var(--surf-mut); margin:0 2px 6px;
+}
+main#main{position:absolute; inset:0; overflow:hidden; padding:0; min-width:0}
+#viewport{
+  position:absolute; inset:0; overflow:hidden; touch-action:none; user-select:none; cursor:grab;
+  background-color:var(--cbg);
+}
+#viewport.panning{cursor:grabbing}
+#stage{position:absolute; top:0; left:0; transform-origin:0 0}
+#stage svg{display:block}
+#stage .notice{position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); min-width:360px}
+#zoomctl{
+  position:absolute; right:18px; bottom:18px; display:flex; align-items:center; gap:6px;
+  background:var(--bar-bg); color:var(--bar-tx); border:1px solid var(--bar-bd); border-radius:10px;
+  padding:5px 8px; z-index:40; box-shadow:0 6px 20px rgba(0,0,0,.2);
+}
+#zLevel{font-size:11px; min-width:42px; text-align:center; color:var(--bar-mut)}
+.zbtn{
+  width:28px; height:28px; border-radius:7px; border:1px solid var(--btn-bd); background:var(--btn-bg);
+  color:var(--btn-tx); font-size:15px; font-weight:700; cursor:pointer; line-height:1;
+}
+.zbtn:hover{background:var(--accent); border-color:var(--accent); color:var(--accent-tx)}
+.settings{
+  position:absolute; top:12px; right:12px; width:370px; max-height:calc(100% - 24px); overflow:auto;
+  background:var(--surf-bg); color:var(--surf-tx); border:1px solid var(--surf-bd); border-radius:14px;
+  padding:16px; box-shadow:0 14px 44px rgba(0,0,0,.4); z-index:45;
+}
+.notice{
+  background:var(--surf-bg); border:1px dashed var(--surf-bd); border-radius:12px; padding:22px;
+  color:var(--surf-mut); font-size:14px;
+}
+svg text{font-family:Arial,Helvetica,sans-serif}
+.node{cursor:default}
+.node rect{fill:#fff; stroke-width:1.4}
+.node-func rect{fill:var(--func-bg); stroke:var(--func-bd)}
+.node.node-proc > rect{fill:var(--proc-bg); stroke:var(--proc-bd); cursor:pointer}
+.node.node-proc > rect:hover{filter:brightness(.97); stroke-width:2}
+.node-ell rect{fill:#f1f5f9; stroke:#94a3b8; stroke-dasharray:5 4}
+.node text.lab{font-size:12.5px; font-weight:600; fill:var(--ink)}
+.node text.sub{font-size:10.5px; fill:#64748b}
+.node text.sub.ell{font-size:16px; font-weight:700; fill:#94a3b8}
+.hdiam{fill:#fce9fb; stroke:var(--match); stroke-width:1.4; stroke-linejoin:round; cursor:pointer}
+.hdiam:hover{stroke-width:2.2}
+.hdiam.sel{stroke-width:3; filter:drop-shadow(0 0 4px rgba(31,111,235,.6))}
+.nbadge rect{stroke:none}
+.nbadge.b-proc rect{fill:var(--badge-proc)}
+.nbadge.b-func rect{fill:var(--badge-func)}
+.nbadge text{font:700 9px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; fill:#fff; text-anchor:middle; pointer-events:none}
+.node.node-proc rect.wpanel{fill:transparent; stroke:var(--proc-bd); stroke-width:1.6}
+.panel-hd{cursor:pointer}
+.panel-bg{fill:var(--proc-bg)}
+.pt{font-size:12px; font-weight:700; fill:var(--ink)}
+.pn-min rect{fill:#fff; stroke:var(--proc-bd); stroke-width:1}
+.pn-min text{font-size:13px; font-weight:800; fill:var(--proc-bd)}
+.e{fill:none; stroke-linejoin:round; stroke-linecap:round; stroke-width:1.8}
+.e-call{stroke:var(--call)}
+.e-match{stroke:var(--match); stroke-dasharray:6 5}
+.e-expand{stroke:var(--expand)}
+.e-cont{stroke:var(--cont); stroke-dasharray:2 5}
+.e-collect{stroke:var(--collect)}
+.elabel rect{fill:#fff; fill-opacity:.92; stroke:#d7dee8; stroke-width:1}
+.elabel text{font-size:11px; font-weight:600; fill:#334155; text-anchor:middle}
+/* .sys syntax colors: labels sit on white; the tooltip follows the theme. */
+:root, .elabel{--hl-kw:#7c3aed; --hl-str:#b45309; --hl-num:#b45309; --hl-fn:#1d4ed8; --hl-ty:#0e7490; --hl-op:#94a3b8}
+html.dark #etip{--hl-kw:#c4b5fd; --hl-str:#fbbf24; --hl-num:#fbbf24; --hl-fn:#93c5fd; --hl-ty:#67e8f9; --hl-op:#8aa2bf}
+.hl-kw{color:var(--hl-kw); fill:var(--hl-kw)} .hl-str{color:var(--hl-str); fill:var(--hl-str)} .hl-num{color:var(--hl-num); fill:var(--hl-num)}
+.hl-fn{color:var(--hl-fn); fill:var(--hl-fn)} .hl-ty{color:var(--hl-ty); fill:var(--hl-ty)} .hl-op{color:var(--hl-op); fill:var(--hl-op)}
+/* Edge hover: a wide invisible stroke makes thin edges easy to hit. */
+.ehit{fill:none; stroke:transparent; stroke-width:14; pointer-events:stroke; cursor:pointer}
+.eg .elabel{cursor:pointer}
+.eg.hot .e{stroke-width:3}
+.node.node-func, .node.node-proc, .node.node-id{cursor:pointer}
+.node-id .ring{fill:var(--func-bg); stroke:var(--func-bd); stroke-width:1.6}
+.node-id .dot{fill:var(--func-bd); pointer-events:none}
+.node .node-id rect.pad, .node-id rect.pad{fill:transparent; stroke:none}
+.node-id:hover .ring{stroke-width:2.2}
+.node.sel > circle.ring{stroke-width:3; filter:drop-shadow(0 0 4px rgba(31,111,235,.55))}
+.node.sel > rect{stroke-width:3.4; filter:drop-shadow(0 0 4px rgba(31,111,235,.55))}
+.node.selbox > rect.wpanel{stroke-width:3.4; filter:drop-shadow(0 0 5px rgba(31,111,235,.5))}
+.node.node-proc.nogrid > rect{cursor:default; stroke-dasharray:4 3}
+.eg.sel .e{stroke-width:3.4}
+.eg.sel .elabel rect{stroke:var(--accent); stroke-width:1.6}
+.eg.sel .e{filter:drop-shadow(0 0 2.5px rgba(31,111,235,.65))}
+html.embed .topbar, html.embed #settings, html.embed #procPanel{display:none!important}
+html.embed #fg{top:0}
+#etip{
+  position:fixed; z-index:60; pointer-events:none; display:none; max-width:420px;
+  background:var(--surf-bg); color:var(--surf-tx); border:1px solid var(--surf-bd); border-radius:10px;
+  padding:8px 10px; font-size:12px; line-height:1.45; box-shadow:0 8px 24px rgba(0,0,0,.25);
+}
+#etip .k{color:var(--surf-mut); font-size:10px; text-transform:uppercase; letter-spacing:.6px; margin-right:6px}
+#etip code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:11.5px; word-break:break-word}
+#etip .row{display:block; margin:0}
+#etip .row + .row{margin-top:3px}
+.eg.hot .e{stroke-width:3.8; filter:drop-shadow(0 0 3px rgba(31,111,235,.75))}
+.eg.hot .elabel rect{stroke:var(--accent); stroke-width:1.8}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo">Vandorf</span><span class="sub">dataflow viewer</span></div>
+  <div class="spacer"></div>
+  <button id="settingsBtn" class="sbtn" title="Source / compile settings">&#9881;&nbsp;Settings</button>
+</header>
+
+<div id="fg">
+  <div id="procPanel">
+    <span class="flbl">Procedure</span>
+    <div class="sel">
+      <input id="procSel" placeholder="Search procedure…" autocomplete="off" spellcheck="false">
+      <ul class="menu" id="procMenu"></ul>
+    </div>
+  </div>
+
+  <main id="main">
+    <div id="viewport">
+      <div id="stage"><div class="notice">No document yet. Open <b>Settings</b> (top right) to compile a source file.</div></div>
+    </div>
+    <div id="zoomctl">
+      <button id="zMinus" class="zbtn" title="Zoom out">&minus;</button>
+      <span id="zLevel">100%</span>
+      <button id="zPlus" class="zbtn" title="Zoom in">+</button>
+      <button id="zFit" class="zbtn" title="Fit to window">&#128470;</button>
+    </div>
+  </main>
+
+  <div id="settings" class="settings hidden">
+    <span class="lbl">Source</span>
+    <div class="seg">
+      <button id="modeFile" class="on">File</button>
+      <button id="modeText">Text</button>
+    </div>
+    <div class="panel on" id="panelFile">
+      <input id="path" list="srcList" placeholder="test/fixtures/test1.sys" spellcheck="false">
+      <datalist id="srcList"></datalist>
+    </div>
+    <div class="panel" id="panelText">
+      <textarea id="srcText" placeholder="interface Foo {&#10;  func Call(s: string): int;&#10;}&#10;&#10;proc Bar(Start): string {&#10;  func Start(): string;&#10;  ...&#10;}"></textarea>
+    </div>
+    <div class="row">
+      <button class="btn" id="refresh" title="Refresh file list">&#8635;</button>
+      <button class="btn primary" id="compile">Compile &#9656;</button>
+    </div>
+    <div id="status"></div>
+    <div id="err"></div>
+
+    <span class="lbl">Theme</span>
+    <div class="seg">
+      <button id="themeLight" class="on">Light</button>
+      <button id="themeDark">Dark</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+var FONT = 'Arial,Helvetica,sans-serif';
+var EMBEDDED = window.parent !== window;
+var EMBED = EMBEDDED || /[?&]embed=1(&|$)/.test(location.search);
+if (EMBED) document.documentElement.classList.add('embed');
+var pathInput = document.getElementById('path');
+var srcText = document.getElementById('srcText');
+var statusEl = document.getElementById('status');
+var errEl = document.getElementById('err');
+var main = document.getElementById('main');
+var stageEl = document.getElementById('stage');
+var viewport = document.getElementById('viewport');
+var procSel = document.getElementById('procSel');
+var procMenu = document.getElementById('procMenu');
+var settingsBtn = document.getElementById('settingsBtn');
+var settingsEl = document.getElementById('settings');
+var zoomctl = document.getElementById('zoomctl');
+var zPlus = document.getElementById('zPlus');
+var zMinus = document.getElementById('zMinus');
+var zFit = document.getElementById('zFit');
+var zLevel = document.getElementById('zLevel');
+var currentProc = '';
+var pendingProc = null;     // a proc asked for before the document holding it arrived
+var rendered = false;       // the stage shows currentProc's grid
+
+if (EMBED) stageEl.innerHTML = '<div class="notice">Waiting for the editor\u2026</div>';
+
+function storeGet(key){
+  try { if (typeof localStorage !== 'undefined') return localStorage.getItem(key); } catch (e) {}
+  return null;
+}
+function storeSet(key, val){
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem(key, val); } catch (e) {}
+}
+
+var measure = (function(){
+  var c = document.createElement('canvas').getContext('2d');
+  return function(t, size, weight){
+    c.font = (weight || 400) + ' ' + size + 'px ' + FONT;
+    return c.measureText(t || '').width;
+  };
+})();
+
+function esc(s){ return String(s).replace(/[&<>"']/g, function(ch){
+  return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch];
+});}
+
+function setErr(msg){
+  if (msg){ errEl.style.display = 'block'; errEl.textContent = msg; }
+  else { errEl.style.display = 'none'; errEl.textContent = ''; }
+}
+function setStatus(msg){ statusEl.textContent = msg; }
+
+/* ---------- messages to the embedding IDE ---------- */
+function post(msg){
+  if (!EMBEDDED) return;
+  try { window.parent.postMessage(msg, location.origin); } catch (e) {}
+}
+
+/* ---------- mode switching ---------- */
+function setMode(m){
+  document.getElementById('modeFile').classList.toggle('on', m === 'file');
+  document.getElementById('modeText').classList.toggle('on', m === 'text');
+  document.getElementById('panelFile').classList.toggle('on', m === 'file');
+  document.getElementById('panelText').classList.toggle('on', m === 'text');
+}
+document.getElementById('modeFile').addEventListener('click', function(){ setMode('file'); });
+document.getElementById('modeText').addEventListener('click', function(){ setMode('text'); });
+
+pathInput.addEventListener('keydown', function(e){ if (e.key === 'Enter') compile(); });
+document.getElementById('compile').addEventListener('click', compile);
+
+/* ---------- theme ---------- */
+function applyTheme(m, persist){
+  document.documentElement.classList.toggle('dark', m === 'dark');
+  document.getElementById('themeLight').classList.toggle('on', m !== 'dark');
+  document.getElementById('themeDark').classList.toggle('on', m === 'dark');
+  if (persist) storeSet('vandorf.theme', m);
+  applyGrid();
+}
+document.getElementById('themeLight').addEventListener('click', function(){ applyTheme('light', true); });
+document.getElementById('themeDark').addEventListener('click', function(){ applyTheme('dark', true); });
+
+/* ---------- source list (standalone only: embedded, the IDE pushes documents) ---------- */
+if (!EMBED){
+  fetch('/api/sources').then(function(r){ return r.json(); }).then(function(res){
+    var root = res.root || '';
+    (res.files || []).forEach(function(f){
+      var o = document.createElement('option');
+      o.value = f; o.label = root.replace(/\/?$/, '/') + f;
+      document.getElementById('srcList').appendChild(o);
+    });
+    if (res.files && res.files.length){
+      var saved = storeGet('vandorf.source');
+      if (saved && res.files.indexOf(saved) >= 0 && DOC === null){
+        pathInput.value = saved;
+        compile();
+      } else if (!pathInput.value){
+        pathInput.value = res.files[0];
+      }
+    }
+  }).catch(function(){});
+}
+
+document.getElementById('refresh').addEventListener('click', function(){ location.reload(); });
+
+/* ---------- compile ---------- */
+function compile(){
+  setErr(null);
+  var fileMode = document.getElementById('panelFile').classList.contains('on');
+  var body;
+  if (fileMode){
+    if (!pathInput.value.trim()){ setErr('Enter a source file path.'); return; }
+    body = JSON.stringify({ path: pathInput.value.trim() });
+  } else {
+    if (!srcText.value.trim()){ setErr('Paste some source text.'); return; }
+    body = JSON.stringify({ source: srcText.value });
+  }
+  setStatus('Compiling\u2026');
+  fetch('/api/compile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      if (!res.ok){ setErr(res.error || 'compilation failed'); setStatus(''); return; }
+      setStatus('compiled ' + res.name + ' \u2014 ' + res.grids + ' proc grid' + (res.grids === 1 ? '' : 's'));
+      if (fileMode && pathInput.value.trim()) storeSet('vandorf.source', pathInput.value.trim());
+      renderDoc(res.document);
+    })
+    .catch(function(e){ setErr('Network error: ' + e); setStatus(''); });
+}
+
+/* =====================================================================
+   LAYOUT (pure: no DOM; needs measure(), DOC and expanded)
+   ===================================================================== */
+/* LAYOUT-BEGIN */
+var DOC = null;
+// Expanded proc panels of the current root proc, keyed by node path from the
+// root grid: "3,1" is row 3 col 1 of the root, "3,1/0,2" is row 0 col 2 of
+// the grid shown in that panel.
+var expanded = {};
+var MAXDEPTH = 5;
+var GAP_H = 48, PAD_X = 46, PAD_Y = 44, NODE_W = 160, PANEL_HD = 30;
+var GAP_MIN = 64;     // smallest band between two rows
+var EXIT_MERGE = 14;  // a panel's exits join this far above its bottom
+var LANE_STEP = 10;   // spacing between parallel horizontal runs in a band
+var LBL_STEP = 20;    // spacing between stacked arm labels above one target
+var BACK_DROP = 18;   // straight run below a back edge's tail before it turns
+var RAIL_GAP = 30;    // side rail: this far outside the rows it passes
+var RAIL_STEP = 14;   // spacing between neighbouring rails
+var FAN_OFF = 10;     // fan stroke spacing unit from the center line
+
+var ETYPE = { CALL: 0, MATCH: 1, EXPAND: 2, CONTINUE: 3, COLLECT: 4 };
+function isFan(t){ return t === ETYPE.EXPAND || t === ETYPE.CONTINUE || t === ETYPE.COLLECT; }
+// An edge whose target lies not below its source (self-reference, a node of
+// the same row, or a row above) is rendered as a loop back along a side rail.
+function isBackEdge(e){
+  if (!e || !e.source || !e.target) return false;
+  return e.target[0] <= e.source[0];
+}
+function hasOwn(o, k){ return !!o && Object.prototype.hasOwnProperty.call(o, k); }
+function getGrid(name){ return DOC && DOC.grids && hasOwn(DOC.grids, name) ? DOC.grids[name] : null; }
+function rc(r, c){ return r + ',' + c; }
+
+// Truncate a text to fit maxW px, appending an ellipsis when it overflows.
+function truncate(t, fs, maxW, weight){
+  if (!t) return '';
+  weight = weight || 600;
+  if (measure(t, fs, weight) <= maxW) return t;
+  var e = '…', ew = measure(e, fs, weight), budget = maxW - ew;
+  var lo = 0, hi = t.length;
+  while (lo < hi){
+    var mid = (lo + hi + 1) >> 1;
+    if (measure(t.slice(0, mid), fs, weight) <= budget) lo = mid; else hi = mid - 1;
+  }
+  return t.slice(0, lo) + e;
+}
+
+/* ---- proc node -> grid key ----
+   A proc node's label is its grid key, except for an `as` alias: label `UA`,
+   sublabel `instance of Unfold`, where Unfold is written as seen from the
+   enclosing proc. Try the name as is, then qualified by the enclosing grid
+   and each of its ancestors, then a unique grid ending in `.Name`. */
+var RESOLVED = {};
+function resolveProc(n, owner){
+  if (!n || n.type !== 1 || !DOC || !DOC.grids) return null;
+  var ck = owner + '\u0001' + (n.label || '') + '\u0001' + (n.sublabel || '');
+  if (hasOwn(RESOLVED, ck)) return RESOLVED[ck];
+  return (RESOLVED[ck] = resolveName(n, owner || ''));
+}
+function resolveName(n, owner){
+  var G = DOC.grids;
+  if (n.label && hasOwn(G, n.label)) return n.label;
+  var cands = [];
+  var m = /^instance of (.+)$/.exec(n.sublabel || '');
+  if (m) cands.push(m[1].trim());
+  if (n.label) cands.push(n.label);
+  var parts = owner ? owner.split('.') : [];
+  for (var a = 0; a < cands.length; a++){
+    var x = cands[a];
+    if (hasOwn(G, x)) return x;
+    for (var i = parts.length; i > 0; i--){
+      var q = parts.slice(0, i).join('.') + '.' + x;
+      if (hasOwn(G, q)) return q;
+    }
+    var hit = null, cnt = 0, suf = '.' + x;
+    for (var k in G){
+      if (hasOwn(G, k) && k.length > suf.length && k.slice(-suf.length) === suf){ hit = k; cnt++; }
+    }
+    if (cnt === 1) return hit;
+  }
+  return null;
+}
+
+/* ---- geometry ----
+   Every row is laid out on its own: its nodes sit side by side, GAP_H apart,
+   in source order, the group centered on the diagram's vertical axis. There
+   is no alignment between rows. An expanded proc is a wider and taller node
+   (a panel holding its own grid, laid out the same way); a row is as tall as
+   its tallest node, nodes are top-aligned in it.
+
+   Edges are orthogonal: down out of the source's bottom center (or the tip
+   of a match half-diamond), across in the band below the source row, down
+   into the target's top center. An edge skipping rows runs down a channel
+   that is clear of the rows in between (the source's or target's own
+   center line, a gap between two nodes, or a side rail) with a run across
+   in the band below the source and the band above the target. Back edges
+   drop out of the source, run to a side rail, up, and across the band above
+   the target. Each band stacks its horizontal runs in lanes so that runs of
+   different edges never overlap; runs leaving one source (or, for single
+   runs, arriving at one target) share a lane, drawing a tree. Bands grow to
+   hold their lanes and the arm labels stacked above the targets below. */
+// The builtin id (a keyword, so no func can share the name) ends its proc:
+// drawn as a small terminal circle centered in an ordinary node's slot, so
+// the layout is the same as for any func; edges run on to the circle.
+var ID_D = 24;
+function isId(n){ return !!n && n.type === 0 && n.label === 'id' && !n.sublabel; }
+// An edge's label on the diagram: its arm, for match edges. What it passes
+// shows in the tooltip and the details panel instead.
+// Tokens of a .sys expression for highlighting: [[text, class|null], ..].
+function sysTokens(s){
+  var re = /("(?:[^"\\]|\\.)*")|\b(else|in|id|this|true|false|as|switch)\b|\b(\d+(?:\.\d+)?)\b|\b([A-Z]\w*)(?=\s*\()|\b([A-Z]\w*)\b|(→|⇒|==|!=|<=|>=|&&|\|\||[=!<>+\-*\/|])/g;
+  var out = [], last = 0, m;
+  while ((m = re.exec(s))){
+    if (m.index > last) out.push([s.slice(last, m.index), null]);
+    out.push([m[0], m[1] ? 'str' : m[2] ? 'kw' : m[3] ? 'num' : m[4] ? 'fn' : m[5] ? 'ty' : 'op']);
+    last = m.index + m[0].length;
+  }
+  if (last < s.length) out.push([s.slice(last), null]);
+  return out;
+}
+function hlHTML(s){
+  return sysTokens(s).map(function(t){ return t[1] ? '<span class="hl-' + t[1] + '">' + esc(t[0]) + '</span>' : esc(t[0]); }).join('');
+}
+function hlSVG(s){
+  return sysTokens(s).map(function(t){ return t[1] ? '<tspan class="hl-' + t[1] + '">' + esc(t[0]) + '</tspan>' : esc(t[0]); }).join('');
+}
+function edgeText(e){ return e.label || ''; }
+// The edge's call as it reads in the source: `Names(a = this.a)`,
+// `Unfold(s = ..) as UA` for an instance, `id(true)`.
+function calleeName(e, t){
+  if (isId(t)) return 'id';
+  var inst = /^instance of (.+)$/.exec(t.sublabel || '');
+  return inst ? inst[1] : ((e.call || '').split('(')[0] || t.label || '?');
+}
+function callText(e, t){
+  t = t || {};
+  var inst = !isId(t) && /^instance of /.test(t.sublabel || '');
+  return calleeName(e, t) + '(' + (e.args || '') + ')' + (inst ? ' as ' + t.label : '');
+}
+// The callee's parameters, under the callee's own name (not an alias's).
+function sigText(e, t){
+  t = t || {};
+  return e.call ? calleeName(e, t) + e.call.slice(e.call.indexOf('(')) : null;
+}
+function nodeH(n){ return 44 + (n && n.sublabel ? 18 : 0); }
+function diamondH(p){ return Math.min(p.w, 32) / 2; }
+
+function layoutGrid(name, prefix, depth){
+  var grid = getGrid(name) || { rows: [], edges: [] };
+  var rows = grid.rows || [], edges = grid.edges || [], R = rows.length;
+  var pos = {}, byRow = [], rowH = [], rowL = [], rowR = [];
+
+  // 1. Sizes; x within each row, centered on x = 0 (shifted at the end).
+  rows.forEach(function(row, r){
+    var list = [], tw = 0, mh = 0;
+    (row.nodes || []).forEach(function(n, c){
+      var k = rc(r, c), path = prefix + k, w = NODE_W, h = nodeH(n), lay = null;
+      var gk = n.type === 1 ? resolveProc(n, name) : null;
+      if (gk && depth < MAXDEPTH && expanded[path]){
+        lay = layoutGrid(gk, path + '/', depth + 1);
+        w = lay.w; h = lay.h + PANEL_HD;
+      }
+      var p = { x: 0, y: 0, w: w, h: h, row: r, col: c, grid: gk, lay: lay, path: path, key: k, pad: !lay && isId(n) ? (h - ID_D) / 2 : 0 };
+      if (lay) p.panel = gk;
+      pos[k] = p; list.push(p); tw += w;
+      if (h > mh) mh = h;
+    });
+    tw += Math.max(0, list.length - 1) * GAP_H;
+    var x = -tw / 2;
+    list.forEach(function(p){
+      p.x = x; p.cx = x + p.w / 2; x += p.w + GAP_H;
+      var e0 = p.lay ? p.lay.pos['0,0'] : null;
+      if (p.lay) p.in = e0 ? { x: p.x + e0.cx, dy: PANEL_HD + e0.y } : null;
+    });
+    byRow[r] = list; rowH[r] = mh; rowL[r] = -tw / 2; rowR[r] = tw / 2;
+  });
+
+  var matchSrc = {};
+  edges.forEach(function(e){
+    if (e.type === ETYPE.MATCH && e.source) matchSrc[rc(e.source[0], e.source[1])] = true;
+  });
+  // Tail of an edge, relative to the source row's top.
+  function tailOff(s, e){
+    if (e && e.type === ETYPE.MATCH && matchSrc[s.key]) return s.h + 1 + diamondH(s);
+    return s.h - s.pad;
+  }
+  function inX(t){ return t.in ? t.in.x : t.cx; }
+  function clearX(r0, r1, x, m){
+    for (var r = Math.max(0, r0); r <= Math.min(R - 1, r1); r++){
+      var ps = byRow[r];
+      for (var i = 0; i < ps.length; i++) if (x > ps[i].x - m && x < ps[i].x + ps[i].w + m) return false;
+    }
+    return true;
+  }
+
+  // Vertical channels in use: {x, lo, hi, tag}, lo/hi in row units (a band
+  // between rows r and r+1 is r + 0.5).
+  var vert = [], rails = [], gapSeq = 0;
+  function vConflict(x, lo, hi, tag){
+    for (var i = 0; i < vert.length; i++){
+      var v = vert[i];
+      if (Math.abs(v.x - x) < 6 && v.lo <= hi && lo <= v.hi && (tag === null || v.tag !== tag)) return true;
+    }
+    return false;
+  }
+  // A rail on one side (+1 right, -1 left) clear of rows r0..r1 and of the
+  // rails beside it.
+  function railX(side, r0, r1, lo, hi, lw){
+    var ext = 0;
+    for (var r = Math.max(0, r0); r <= Math.min(R - 1, r1); r++) ext = side > 0 ? Math.max(ext, rowR[r]) : Math.min(ext, rowL[r]);
+    // A rail's label is centered on it: keep it clear of the arm labels
+    // that may stick out of the rows by up to half a gap.
+    var x = ext + side * Math.max(RAIL_GAP, lw ? lw / 2 + GAP_H / 2 + 6 : 0);
+    for (var moved = true, guard = 0; moved && guard < 200; guard++){
+      moved = false;
+      for (var i = 0; i < rails.length; i++){
+        var q = rails[i];
+        if (q.side !== side || q.hi < lo || hi < q.lo) continue;
+        var d = Math.max(RAIL_STEP, q.lw / 2 + lw / 2 + 6);
+        if (Math.abs(x - q.x) < d - 0.01){ x = q.x + side * d; moved = true; }
+      }
+    }
+    return x;
+  }
+  function addRail(side, x, lo, hi, lw, tag){
+    rails.push({ side: side, x: x, lo: lo, hi: hi, lw: lw });
+    vert.push({ x: x, lo: lo, hi: hi, tag: tag });
+  }
+  // The channel for a run from row rs down to row rt (rt may be R: a panel's
+  // exit) passing rows rs+1..rt-1: the cheapest clear x.
+  function channel(rs, rt, ox, tx, fan, stag, ttag){
+    var r0 = rs + 1, r1 = rt - 1, lo = rs + 0.5, hi = rt - 0.5, m = fan ? 22 : 8;
+    var best = null;
+    function consider(x, kind, tag){
+      var cost = Math.abs(x - ox) + Math.abs(x - tx) + (kind.indexOf('rail') === 0 ? 40 : 0);
+      if (best && cost >= best.cost - 0.01) return;
+      if (kind.indexOf('rail') !== 0 && (!clearX(r0, r1, x, m) || vConflict(x, lo, hi, tag))) return;
+      best = { x: x, kind: kind, cost: cost, tag: tag };
+    }
+    consider(ox, 'src', stag);
+    consider(tx, 'tgt', ttag);
+    for (var r = r0; r <= r1; r++){
+      var ps = byRow[r];
+      for (var i = 0; i + 1 < ps.length; i++){
+        var g = (ps[i].x + ps[i].w + ps[i + 1].x) / 2;
+        [0, -8, 8, -16, 16].forEach(function(o){ consider(g + o, 'gap', 'g' + (++gapSeq)); });
+      }
+    }
+    [1, -1].forEach(function(side){ consider(railX(side, r0, r1, lo, hi, 0), 'rail' + side, null); });
+    if (best.kind.indexOf('rail') === 0){
+      var side = best.kind === 'rail1' ? 1 : -1;
+      best.kind = 'rail';
+      addRail(side, best.x, lo, hi, 0, null);
+    } else {
+      vert.push({ x: best.x, lo: lo, hi: hi, tag: best.tag });
+    }
+    return best;
+  }
+
+  // 2. Plan every route in x; collect horizontal runs per band. Band b lies
+  // below row b; band -1 is above row 0.
+  var plans = {}, runs = [], lblCnt = {}, lblRow = [];
+  // A horizontal run in a band; `up` are the x where its route comes in or
+  // leaves upward, `down` where it goes on (or comes from) below.
+  function run(band, x0, x1, key, minOff, plan, slot, up, down){
+    var r = { band: band, a: Math.min(x0, x1), b: Math.max(x0, x1), key: key, minOff: minOff || 0, plan: plan, slot: slot, lane: 0,
+              up: up, down: down };
+    if (r.b - r.a > 0.5) runs.push(r);
+    plan[slot] = r;
+  }
+  var backs = [], multis = [], singles = [];
+  edges.forEach(function(e, i){
+    if (!e || !e.source || !e.target) return;
+    var s = pos[rc(e.source[0], e.source[1])], t = pos[rc(e.target[0], e.target[1])];
+    if (!s || !t) return;
+    var it = { i: i, e: e, s: s, t: t, type: e.type !== undefined ? e.type : ETYPE.CALL };
+    if (isBackEdge(e)) backs.push(it);
+    else if (t.row === s.row + 1) singles.push(it);
+    else multis.push(it);
+  });
+
+  // Back edges: inner (shorter) loops first so outer ones go around them.
+  backs.sort(function(a, b){ return (a.s.row - a.t.row) - (b.s.row - b.t.row) || a.s.row - b.s.row || a.i - b.i; });
+  backs.forEach(function(it){
+    var lo = it.t.row, hi = it.s.row, ox = it.s.cx, tx = inX(it.t);
+    var ltxt = edgeText(it.e) ? truncate(edgeText(it.e), 11, 184) : '';
+    var lw = ltxt ? measure(ltxt, 11, 600) + 16 : 0;
+    var xr = railX(1, lo, hi, lo - 0.5, hi + 0.5, lw), xl = railX(-1, lo, hi, lo - 0.5, hi + 0.5, lw);
+    var cr = Math.abs(xr - ox) + Math.abs(xr - tx), cl = Math.abs(xl - ox) + Math.abs(xl - tx);
+    var side = cl < cr - 0.5 ? -1 : 1, rx = side > 0 ? xr : xl;
+    addRail(side, rx, lo - 0.5, hi + 0.5, lw, null);
+    var plan = plans[it.i] = { kind: 'back', it: it, ox: ox, tx: tx, rail: rx, ltxt: ltxt, lw: lw };
+    run(hi, ox, rx, 'b' + it.i + 'a', tailOff(it.s, it.e) - rowH[hi] + BACK_DROP, plan, 'A', [ox, rx], []);
+    run(lo - 1, rx, tx, 'b' + it.i + 'b', 0, plan, 'B', [], [rx, tx]);
+  });
+
+  // Multi-row forward edges: shorter spans first get the inner channels.
+  multis.sort(function(a, b){ return (a.t.row - a.s.row) - (b.t.row - b.s.row) || a.i - b.i; });
+  multis.forEach(function(it){
+    var ox = it.s.cx, tx = inX(it.t), sk = it.s.key, tk = it.t.key;
+    var ch = channel(it.s.row, it.t.row, ox, tx, isFan(it.type), 's:' + sk, 't:' + tk);
+    var plan = plans[it.i] = { kind: 'multi', it: it, ox: ox, tx: tx, vx: ch.x, ck: ch.kind };
+    if (ch.kind !== 'src') run(it.s.row, ox, ch.x, 's:' + sk + ':' + it.type, 0, plan, 'A', [ox], [ch.x]);
+    else plan.A = null;
+    if (ch.kind !== 'tgt') run(it.t.row - 1, ch.x, tx, 't:' + tk, 0, plan, 'B', [ch.x], [tx]);
+    else plan.B = null;
+  });
+
+  // Adjacent rows: one run. It shares the lane of its source's other runs,
+  // or of its target's when it is the source's only run there.
+  var srcN = {}, tgtN = {};
+  singles.forEach(function(it){
+    var sk = it.s.key + ':' + it.type, tk = it.t.key;
+    srcN[sk] = (srcN[sk] || 0) + 1; tgtN[tk] = (tgtN[tk] || 0) + 1;
+  });
+  multis.forEach(function(it){ if (plans[it.i].B) tgtN[it.t.key] = (tgtN[it.t.key] || 0) + 1; });
+  singles.forEach(function(it){
+    var ox = it.s.cx, tx = inX(it.t), sk = it.s.key + ':' + it.type;
+    var key = srcN[sk] === 1 && tgtN[it.t.key] > 1 ? 't:' + it.t.key : 's:' + sk;
+    var plan = plans[it.i] = { kind: 'single', it: it, ox: ox, tx: tx };
+    run(it.s.row, ox, tx, key, 0, plan, 'A', [ox], [tx]);
+  });
+
+  // Arm labels stack above their target.
+  singles.concat(multis).sort(function(a, b){ return a.i - b.i; }).forEach(function(it){
+    if (!edgeText(it.e)) return;
+    var plan = plans[it.i], tk = it.t.key;
+    plan.nth = lblCnt[tk] = (lblCnt[tk] || 0) + 1;
+    lblRow[it.t.row] = Math.max(lblRow[it.t.row] || 0, plan.nth);
+    var maxW = it.t.lay ? NODE_W + GAP_H - 12 : it.t.w + GAP_H - 12;
+    plan.ltxt = truncate(edgeText(it.e), 11, maxW - 16);
+    plan.lw = measure(plan.ltxt, 11, 600) + 16;
+  });
+
+  // Panel exits: nodes with no outgoing edge point down out of the panel.
+  var exits = [];
+  if (depth > 0){
+    var hasSrc = {};
+    edges.forEach(function(e){ if (e && e.source) hasSrc[rc(e.source[0], e.source[1])] = true; });
+    rows.forEach(function(row, r){
+      byRow[r].forEach(function(q){
+        if (hasSrc[q.key]) return;
+        var plan = { kind: 'exit', ox: q.cx, s: q };
+        if (r < R - 1 && !clearX(r + 1, R - 1, q.cx, 8)){
+          var ch = channel(r, R, q.cx, q.cx, false, 'x:' + q.key, 'x:' + q.key);
+          plan.vx = ch.x;
+          run(r, q.cx, ch.x, 's:' + q.key + ':x', 0, plan, 'A', [q.cx], [ch.x]);
+        }
+        exits.push(plan);
+      });
+    });
+  }
+
+  // 3. Lanes: in each band, the lowest free lane at or below a run's minimum.
+  var laneTop = {}, bands = {};
+  for (var r = 0; r < R; r++){
+    var ex = 0;
+    byRow[r].forEach(function(p){ ex = Math.max(ex, (matchSrc[p.key] ? p.h + 1 + diamondH(p) : p.h) - rowH[r]); });
+    laneTop[r] = Math.max(16, ex + 10);
+  }
+  laneTop[-1] = 0;
+  runs.forEach(function(u){
+    var g = (bands[u.band] = bands[u.band] || {}), k = u.key;
+    if (!g[k]) g[k] = { a: u.a, b: u.b, min: 0, runs: [], up: [], down: [] };
+    var G = g[k];
+    G.a = Math.min(G.a, u.a); G.b = Math.max(G.b, u.b); G.runs.push(u);
+    G.up = G.up.concat(u.up); G.down = G.down.concat(u.down);
+    if (u.minOff) G.min = Math.max(G.min, Math.ceil((u.minOff - laneTop[u.band]) / LANE_STEP));
+  });
+  var nLanes = {};
+  // Crossings when group u lies above group v: u's verticals going down
+  // through v's run, v's verticals coming from above through u's; a vertical
+  // of u landing on one of v (they would overlap) weighs much more.
+  function inside(x, G){ return x > G.a - 0.5 && x < G.b + 0.5; }
+  function above(u, v){
+    var c = 0, i, j;
+    for (i = 0; i < u.down.length; i++){
+      if (inside(u.down[i], v)) c++;
+      for (j = 0; j < v.up.length; j++) if (Math.abs(u.down[i] - v.up[j]) < 1) c += 100;
+    }
+    for (i = 0; i < v.up.length; i++) if (inside(v.up[i], u)) c++;
+    return c;
+  }
+  function overlaps(P, G){ return P.a < G.b + 6 && G.a < P.b + 6; }
+  var nLanes = {};
+  Object.keys(bands).forEach(function(b){
+    var gs = Object.keys(bands[b]).map(function(k){ return bands[b][k]; });
+    // Order: groups that would rather sit above their neighbours first.
+    gs.forEach(function(G){
+      G.score = 0;
+      gs.forEach(function(H2){ if (H2 !== G && overlaps(H2, G)) G.score += above(G, H2) - above(H2, G); });
+    });
+    gs.sort(function(p, q){ return p.score - q.score || (p.b - p.a) - (q.b - q.a) || p.a - q.a; });
+    // Groups that must sit above another (else two verticals would overlap)
+    // come before it; cycles are broken by score.
+    gs.forEach(function(G){ G.pre = 0; G.post = []; });
+    gs.forEach(function(G){
+      gs.forEach(function(P){
+        if (P !== G && overlaps(P, G) && above(G, P) >= 100 && above(P, G) < 100){ G.pre++; P.post.push(G); }
+      });
+    });
+    var order = [];
+    while (order.length < gs.length){
+      var pick = null;
+      for (var q = 0; q < gs.length; q++) if (!gs[q].done && gs[q].pre === 0){ pick = gs[q]; break; }
+      if (!pick) for (var q2 = 0; q2 < gs.length; q2++) if (!gs[q2].done){ pick = gs[q2]; break; }
+      pick.done = true; order.push(pick);
+      pick.post.forEach(function(G){ G.pre--; });
+    }
+    var placed = [], n = 0;
+    order.forEach(function(G){
+      // Below every overlapping placed group that should be above it.
+      var lane = Math.max(0, G.min);
+      placed.forEach(function(P){ if (overlaps(P, G) && above(P, G) < above(G, P)) lane = Math.max(lane, P.lane + 1); });
+      for (;;){
+        var clash = false;
+        for (var j = 0; j < placed.length; j++){
+          var P = placed[j];
+          if (P.lane === lane && overlaps(P, G)){ clash = true; break; }
+        }
+        if (!clash) break;
+        lane++;
+      }
+      G.lane = lane; placed.push(G); n = Math.max(n, lane + 1);
+      G.runs.forEach(function(u){ u.lane = lane; });
+    });
+    nLanes[b] = n;
+  });
+
+  // 4. y: rows and bands.
+  function bottomAir(r){ return Math.max(22, (lblRow[r] || 0) * LBL_STEP + 17); }
+  var rowY = [], laneY0 = {}, nTop = nLanes[-1] || 0;
+  var y = Math.max(PAD_Y, nTop ? 24 + (nTop - 1) * LANE_STEP + 16 : 0);
+  laneY0[-1] = y - 24 - (nTop ? (nTop - 1) * LANE_STEP : 0);
+  for (var r2 = 0; r2 < R; r2++){
+    rowY[r2] = y;
+    var bot = y + rowH[r2], nl = nLanes[r2] || 0;
+    laneY0[r2] = bot + laneTop[r2];
+    if (r2 < R - 1){
+      y = bot + Math.max(GAP_MIN, laneTop[r2] + Math.max(0, nl - 1) * LANE_STEP + bottomAir(r2 + 1));
+    } else {
+      y = bot + Math.max(PAD_Y, nl ? laneTop[r2] + (nl - 1) * LANE_STEP + 18 : 0);
+    }
+  }
+  var H = R ? y : 2 * PAD_Y;
+  function laneY(b, lane){ return laneY0[b] + lane * LANE_STEP; }
+  function runY(plan, slot, band){ var u = plan[slot]; return laneY(band, u ? u.lane : 0); }
+  Object.keys(pos).forEach(function(k){
+    var p = pos[k];
+    p.y = rowY[p.row]; p.cy = p.y + p.h / 2;
+    if (p.in) p.in.y = p.y + p.in.dy;
+  });
+
+  // 5. Routes.
+  var routes = {};
+  function tyOf(t){ return t.in ? t.in.y : t.y + t.pad; }
+  Object.keys(plans).forEach(function(i){
+    var P = plans[i], it = P.it, s = it.s, t = it.t, oy = s.y + tailOff(s, it.e), ty = tyOf(t), Rt;
+    if (P.kind === 'back'){
+      var yB = runY(P, 'A', s.row), yT = runY(P, 'B', t.row - 1);
+      Rt = { back: true, pts: [[P.ox, oy], [P.ox, yB], [P.rail, yB], [P.rail, yT], [P.tx, yT], [P.tx, ty]],
+             lx: P.rail, ly: (yB + yT) / 2 };
+    } else if (P.kind === 'single'){
+      var ya = runY(P, 'A', s.row);
+      Rt = { back: false, pts: [[P.ox, oy], [P.ox, ya], [P.tx, ya], [P.tx, ty]] };
+    } else {
+      var y1 = P.A !== null ? runY(P, 'A', s.row) : null, y2 = P.B !== null ? runY(P, 'B', t.row - 1) : null;
+      var pts;
+      if (P.ck === 'src') pts = [[P.ox, oy], [P.ox, y2], [P.tx, y2], [P.tx, ty]];
+      else if (P.ck === 'tgt') pts = [[P.ox, oy], [P.ox, y1], [P.tx, y1], [P.tx, ty]];
+      else pts = [[P.ox, oy], [P.ox, y1], [P.vx, y1], [P.vx, y2], [P.tx, y2], [P.tx, ty]];
+      Rt = { back: false, pts: pts };
+    }
+    if (!Rt.back){ Rt.lx = P.tx; Rt.ly = t.y - 16 - LBL_STEP * ((P.nth || 1) - 1); }
+    Rt.pts = dedupe(Rt.pts);
+    Rt.ltxt = P.ltxt || ''; Rt.lw = P.lw || 0;
+    routes[i] = Rt;
+  });
+  // Exits converge: each drops to a shared run just above the panel's bottom
+  // and bends back to the axis (x = 0 before the shift below), where the
+  // proc's own outgoing arrow leaves the panel.
+  var yM = H - EXIT_MERGE;
+  var exitPts = exits.map(function(P){
+    var q = P.s, oy = q.y + q.h - q.pad, pts = [[P.ox, oy]], x = P.ox;
+    if (P.vx !== undefined){
+      var ya = runY(P, 'A', q.row);
+      pts.push([P.ox, ya], [P.vx, ya]); x = P.vx;
+    }
+    if (Math.abs(x) > 0.5) pts.push([x, yM], [0, yM]);
+    pts.push([0, H]);
+    return dedupe(pts);
+  });
+
+  // 6. Shift x so the leftmost thing sits PAD_X from the left.
+  var minX = Infinity, maxX = -Infinity;
+  function ext(a, b){ if (a < minX) minX = a; if (b > maxX) maxX = b; }
+  Object.keys(pos).forEach(function(k){ ext(pos[k].x, pos[k].x + pos[k].w); });
+  Object.keys(routes).forEach(function(i){
+    var Rt = routes[i];
+    Rt.pts.forEach(function(p){ ext(p[0], p[0]); });
+    if (Rt.lw) ext(Rt.lx - Rt.lw / 2, Rt.lx + Rt.lw / 2);
+  });
+  exitPts.forEach(function(pts){ pts.forEach(function(p){ ext(p[0], p[0]); }); });
+  if (minX === Infinity){ minX = 0; maxX = 0; }
+  // Keep the rows' axis in the middle of the grid's box.
+  maxX = Math.max(maxX, -minX); minX = -maxX;
+  var sx = PAD_X - minX;
+  Object.keys(pos).forEach(function(k){
+    var p = pos[k];
+    p.x += sx; p.cx += sx;
+    if (p.in) p.in.x += sx;
+  });
+  Object.keys(routes).forEach(function(i){
+    var Rt = routes[i];
+    Rt.pts.forEach(function(p){ p[0] += sx; });
+    Rt.lx += sx;
+  });
+  exitPts.forEach(function(pts){ pts.forEach(function(p){ p[0] += sx; }); });
+
+  return { name: name, prefix: prefix, depth: depth, grid: grid, pos: pos, byRow: byRow,
+           rowY: rowY, rowH: rowH, matchSrc: matchSrc, routes: routes, exits: exitPts,
+           w: maxX - minX + 2 * PAD_X, h: H };
+}
+
+// Vertical origin of an edge's tail: the node's bottom center, or the tip of
+// the match half-diamond for match edges leaving a match-source node.
+function tailY(s, e, matchSrc){
+  if (e.type === ETYPE.MATCH && matchSrc && matchSrc[rc(e.source[0], e.source[1])]) return s.y + s.h + 1 + diamondH(s);
+  return s.y + s.h;
+}
+
+function dedupe(pts){
+  var out = [];
+  pts.forEach(function(p){
+    var q = out[out.length - 1];
+    if (!q || Math.abs(q[0] - p[0]) > 0.01 || Math.abs(q[1] - p[1]) > 0.01) out.push(p);
+  });
+  return out;
+}
+
+// Route of edge i of the laid-out grid: { pts, back, lx, ly, ltxt, lw } or null.
+function edgeRoute(L, e, i){ return hasOwn(L.routes, i) ? L.routes[i] : null; }
+
+// Exit arrows of a panel's grid: sinks point down out of the panel.
+function exitRoutes(L){ return L.exits || []; }
+/* LAYOUT-END */
+
+/* ---------- edge types (document.EdgeType) ---------- */
+var EDGE_META = {
+  0: { cls: 'e-call',    color: '#64748b' },
+  1: { cls: 'e-match',   color: '#c026d3' },
+  2: { cls: 'e-expand',  color: '#00897b' },
+  3: { cls: 'e-cont',    color: '#7e57c2' },
+  4: { cls: 'e-collect', color: '#00838f' }
+};
+var EDGE_NAME = { 0: 'call', 1: 'match', 2: 'expand', 3: 'continue', 4: 'collect' };
+function edgeType(v){ return EDGE_META[v] || EDGE_META[0]; }
+
+/* ---------- rendering ---------- */
+function renderDoc(doc, proc){
+  DOC = doc || { grids: {} };
+  if (!DOC.grids) DOC.grids = {};
+  RESOLVED = {};
+  buildProcMenu();
+  var names = Object.keys(DOC.grids).sort();
+  if (!names.length){
+    stageEl.innerHTML = '<div class="notice">Compiled, but the document has no procedure grids.</div>';
+    procSel.value = '';
+    rendered = false;
+    return;
+  }
+  var want = null;
+  if (proc){
+    if (getGrid(proc)) want = proc; else pendingProc = proc;
+  }
+  if (!want && pendingProc && getGrid(pendingProc)){ want = pendingProc; }
+  if (want === pendingProc) pendingProc = null;
+  if (!want) want = getGrid(currentProc) ? currentProc : names[0];
+  // Same proc as on screen (a recompile): keep pan/zoom, expansion and selection.
+  if (want === currentProc && rendered) rerenderProc();
+  else renderProc(want);
+}
+
+function buildProcMenu(){
+  procMenu.innerHTML = '';
+  Object.keys(DOC.grids || {}).sort().forEach(function(n){
+    var li = document.createElement('li');
+    li.textContent = n;
+    li.setAttribute('data-g', n);
+    procMenu.appendChild(li);
+  });
+}
+
+function selectProc(name){
+  if (!getGrid(name)) return;
+  procSel.value = name;
+  closeMenu();
+  if (name === currentProc && rendered) return;
+  renderProc(name);
+}
+
+function renderProc(name){
+  if (!getGrid(name)) return;
+  currentProc = name;
+  procSel.value = name;
+  expanded = loadExpanded(name);
+  selected = null;
+  draw();
+  rendered = true;
+  centerView();
+}
+
+function rerenderProc(){
+  if (!DOC || !getGrid(currentProc)) return;
+  draw();
+  applyView();
+}
+
+function draw(){
+  INFO = {};
+  stageEl.innerHTML = renderSvg(currentProc);
+  applySelection();
+}
+
+/* -------- svg drawing -------- */
+var EDGE_R = 6;                          // corner radius of rounded-rectilinear arrow routes
+var MK = 'vmk';                          // marker id prefix (markers are defined once, in the root svg)
+var INFO = {};                           // data-sel id -> what a click on it reports
+var selected = null;                     // data-sel id of the selected element
+
+// Orthogonal polyline turned into a rounded-rectilinear path: straight runs
+// joined by quadratic fillet corners of radius r (clamped to half of either
+// segment). Points are [x,y] pairs.
+function roundPath(pts, r){
+  var d = 'M' + pts[0][0] + ' ' + pts[0][1];
+  for (var i = 1; i < pts.length - 1; i++){
+    var a = pts[i - 1], b = pts[i], c = pts[i + 1];
+    var dx1 = b[0] - a[0], dy1 = b[1] - a[1];
+    var dx2 = c[0] - b[0], dy2 = c[1] - b[1];
+    var n1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+    var n2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+    if (dx1 * dx2 + dy1 * dy2 === 0 && n1 > 0 && n2 > 0){
+      var rr = Math.min(r, n1 / 2, n2 / 2);
+      d += ' L' + (b[0] - dx1 / n1 * rr) + ' ' + (b[1] - dy1 / n1 * rr) +
+           ' Q' + b[0] + ' ' + b[1] + ' ' + (b[0] + dx2 / n2 * rr) + ' ' + (b[1] + dy2 / n2 * rr);
+    } else {
+      d += ' L' + b[0] + ' ' + b[1];
+    }
+  }
+  var z = pts[pts.length - 1];
+  d += ' L' + z[0] + ' ' + z[1];
+  return d;
+}
+
+function defs(){
+  var s = '<defs>';
+  for (var t in EDGE_META){
+    s += '<marker id="' + MK + '-' + EDGE_NAME[t] + '" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">' +
+         '<path d="M0 0L10 5L0 10z" fill="' + EDGE_META[t].color + '" stroke="' + EDGE_META[t].color + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></marker>';
+  }
+  return s + '</defs>';
+}
+
+function nodeKind(n){ return !n ? null : n.type === 1 ? 'proc' : (n.type === 2 ? 'ellipsis' : 'func'); }
+function nodeRef(n){ return { label: (n && n.label) || '', kind: nodeKind(n), sublabel: (n && n.sublabel) || null }; }
+function nodeAt(L, p){ return p && L.grid.rows[p[0]] ? (L.grid.rows[p[0]].nodes || [])[p[1]] || null : null; }
+
+// What a click on a node reports: the value and call of an edge into it.
+function nodeInfo(L, k, n){
+  var inE = null;
+  (L.grid.edges || []).forEach(function(e){
+    if (!inE && e.target && rc(e.target[0], e.target[1]) === k) inE = e;
+  });
+  return {
+    kind: n.type === 1 ? 'proc' : 'func', label: n.label || '', sublabel: n.sublabel || null,
+    grid: n.type === 1 ? resolveProc(n, L.name) : null, owner: L.name,
+    valueType: inE ? (inE.valueType || null) : null, call: inE ? (inE.call || null) : null, edgeLabel: null
+  };
+}
+
+// The switch under a match-source node: its arms, left to right.
+function switchInfo(L, k, n, id){
+  var arms = [], vt = null;
+  (L.grid.edges || []).forEach(function(e, i){
+    if (e.type !== ETYPE.MATCH || !e.source || rc(e.source[0], e.source[1]) !== k) return;
+    var R = edgeRoute(L, e, i);
+    if (!vt && e.valueType) vt = e.valueType;
+    arms.push({ x: R ? R.pts[R.pts.length - 1][0] : 0, i: i, arm: {
+      id: 'e:' + L.prefix + i, edgeLabel: e.label || null, args: e.args || null, callText: callText(e, nodeAt(L, e.target)), valueType: e.valueType || null,
+      call: e.call || null, to: nodeRef(nodeAt(L, e.target)) } });
+  });
+  arms.sort(function(a, b){ return a.x - b.x || a.i - b.i; });
+  return { kind: 'switch', id: id, owner: L.name, from: nodeRef(n), valueType: vt,
+           arms: arms.map(function(a){ return a.arm; }) };
+}
+
+function badgeSVG(x, y, n){
+  var proc = n.type === 1;
+  return '<g class="nbadge ' + (proc ? 'b-proc' : 'b-func') + '"><rect x="' + x + '" y="' + y + '" width="16" height="15" rx="3"></rect>' +
+         '<text x="' + (x + 8) + '" y="' + (y + 11) + '">' + (proc ? 'P' : 'ƒ') + '</text></g>';
+}
+
+function diamondSVG(L, k, n, p){
+  if (!L.matchSrc[k]) return '';
+  var id = 's:' + p.path;
+  INFO[id] = switchInfo(L, k, n, id);
+  return '<path class="hdiam" data-sel="' + esc(id) + '" d="' + halfDiamondPath(p.cx, p.y + p.h + 1, diamondH(p)) + '">' +
+         '<title>switch on ' + esc(n.label || '') + (INFO[id].valueType ? ': ' + esc(INFO[id].valueType) : '') + '</title></path>';
+}
+
+function nodeSVG(L, k, n){
+  var p = L.pos[k];
+  if (p.lay) return panelSVG(L, k, n);
+  var cls = n.type === 1 ? 'node-proc' : (n.type === 2 ? 'node-ell' : 'node-func');
+  if (n.type === 1 && !p.grid) cls += ' nogrid';
+  var id = 'n:' + p.path, attr = '';
+  if (n.type !== 2){
+    INFO[id] = nodeInfo(L, k, n);
+    INFO[id].path = p.path;
+    INFO[id].canExpand = !!(p.grid && L.depth < MAXDEPTH);
+    attr = ' data-sel="' + esc(id) + '"';
+  }
+  if (isId(n)){
+    var r0 = ID_D / 2;
+    return '<g class="node node-id"' + attr + '><title>id: ends the proc with the value it receives</title>' +
+      // The padding around the circle is clickable too.
+      '<rect class="pad" x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '"></rect>' +
+      '<circle class="ring" cx="' + p.cx + '" cy="' + (p.y + p.h / 2) + '" r="' + (r0 - 1) + '"></circle>' +
+      '<circle class="dot" cx="' + p.cx + '" cy="' + (p.y + p.h / 2) + '" r="' + (r0 - 7) + '"></circle></g>';
+  }
+  var s = '<g class="node ' + cls + '"' + attr + '>';
+  s += '<rect x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '" rx="6"></rect>';
+  var full = (n.type === 2 ? 'ellipsis' : (n.type === 1 ? 'procedure: ' : 'function: ') + (n.label || ''));
+  if (n.sublabel) full += ' — ' + n.sublabel;
+  if (n.type === 1) full += p.grid ? '\nclick: expand · ctrl/⌘-click: open' : '\n(no grid found)';
+  s += '<title>' + esc(full) + '</title>';
+  // Badge at the left; the text is centered in the room right of it.
+  var tx = p.cx + 10, tw = p.w - 44;
+  if (n.type === 2){
+    s += '<text class="sub ell" x="' + p.cx + '" y="' + (p.y + p.h / 2 + 6) + '" text-anchor="middle">………</text>';
+  } else if (n.sublabel){
+    s += badgeSVG(p.x + 9, p.y + 9, n);
+    s += '<text class="lab" x="' + tx + '" y="' + (p.y + 21) + '" text-anchor="middle">' + esc(truncate(n.label, 12.5, tw, 1000)) + '</text>';
+    s += '<text class="sub" x="' + tx + '" y="' + (p.y + 38) + '" text-anchor="middle">' + esc(truncate(n.sublabel, 10.5, tw, 1000)) + '</text>';
+  } else {
+    s += badgeSVG(p.x + 9, p.y + p.h / 2 - 7.5, n);
+    s += '<text class="lab" x="' + tx + '" y="' + (p.y + p.h / 2 + 4.5) + '" text-anchor="middle">' + esc(truncate(n.label, 12.5, tw, 1000)) + '</text>';
+  }
+  s += diamondSVG(L, k, n, p);
+  return s + '</g>';
+}
+
+// Drill-in panel: replaces a compact proc node with the proc's own grid
+// rendered as a nested SVG, headed by a bar with a minimize handle. Incoming
+// arrows land on the proc's topmost node; nodes with no outgoing edge get an
+// exit arrow down to the bottom of the window.
+function panelSVG(L, k, n){
+  var p = L.pos[k], CL = p.lay, name = p.grid, id = 'n:' + p.path;
+  INFO[id] = nodeInfo(L, k, n);
+  INFO[id].path = p.path;
+  INFO[id].expanded = true;
+  var s = '<g class="node node-proc" data-selbox="' + esc(id) + '">';
+  s += '<rect class="wpanel" x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '" rx="6"></rect>';
+  var b = 2, hw = p.w - 2 * b, ht = PANEL_HD - b, r = 4;
+  var title = n.label === name ? name : (n.label + ' — ' + name);
+  s += '<g class="panel-hd" data-sel="' + esc(id) + '">' +
+       '<title>' + esc('procedure: ' + title + '\nctrl/⌘-click: open') + '</title>' +
+       '<path class="panel-bg" d="M' + (p.x + b + r) + ' ' + (p.y + b) + ' L' + (p.x + b + hw - r) + ' ' + (p.y + b) + ' A' + r + ' ' + r + ' 0 0 1 ' + (p.x + b + hw) + ' ' + (p.y + b + r) + ' L' + (p.x + b + hw) + ' ' + (p.y + ht) + ' L' + (p.x + b) + ' ' + (p.y + ht) + ' L' + (p.x + b) + ' ' + (p.y + b + r) + ' A' + r + ' ' + r + ' 0 0 1 ' + (p.x + b + r) + ' ' + (p.y + b) + ' Z"></path>' +
+       badgeSVG(p.x + 10, p.y + (PANEL_HD - 15) / 2 + 1, n) +
+       '<text class="pt" x="' + (p.x + 33) + '" y="' + (p.y + PANEL_HD / 2 + 5) + '">' + esc(truncate(title, 12, Math.max(40, p.w - 96), 700)) + '</text>' +
+       '<g class="pn-min" data-min="' + esc(p.path) + '" transform="translate(' + (p.x + p.w - 46) + ' ' + (p.y + 5) + ')">' +
+         '<title>collapse</title><rect width="36" height="20" rx="6"></rect>' +
+         '<text x="18" y="14" text-anchor="middle">–</text>' +
+       '</g></g>';
+  var body = renderLayout(CL);
+  exitRoutes(CL).forEach(function(pts){
+    body += '<path class="e e-call" d="' + roundPath(pts, EDGE_R) + '" marker-end="url(#' + MK + '-call)"></path>';
+  });
+  s += '<svg data-gname="' + esc(name) + '" x="' + p.x + '" y="' + (p.y + PANEL_HD) + '" width="' + CL.w + '" height="' + CL.h + '" viewBox="0 0 ' + CL.w + ' ' + CL.h + '" style="overflow:visible">' + body + '</svg>';
+  s += diamondSVG(L, k, n, p);
+  return s + '</g>';
+}
+
+// Rounded lower half of a diamond: flat top edge, two rounded upper corners,
+// a gently rounded bottom point. Width = 2*dh, height = dh.
+function halfDiamondPath(cx, ytop, dh){
+  var r = Math.max(2, dh * 0.35);
+  var x1 = cx - dh, x2 = cx + dh;
+  return 'M' + (x1 + r) + ' ' + ytop +
+         ' L' + (x2 - r) + ' ' + ytop +
+         ' A' + r + ' ' + r + ' 0 0 1 ' + x2 + ' ' + (ytop + r) +
+         ' L' + cx + ' ' + (ytop + dh) +
+         ' L' + x1 + ' ' + (ytop + r) +
+         ' A' + r + ' ' + r + ' 0 0 1 ' + (x1 + r) + ' ' + ytop + ' Z';
+}
+
+// An edge as [its paths, its label]; the label goes in a later layer so no
+// other edge runs over it. Both carry the edge's data-sel.
+function edgeSVG(L, e, i){
+  var R = edgeRoute(L, e, i);
+  if (!R) return ['', ''];
+  var type = e.type !== undefined ? e.type : ETYPE.CALL;
+  var cls = edgeType(type).cls;
+  var ah = MK + '-' + (EDGE_NAME[type] || 'call');
+  var d = roundPath(R.pts, EDGE_R);
+  var id = 'e:' + L.prefix + i;
+  var s = nodeAt(L, e.source), t = nodeAt(L, e.target) || {};
+  INFO[id] = {
+    kind: 'edge', id: id, edgeType: EDGE_NAME[type] || 'call', owner: L.name,
+    edgeLabel: e.label || null, args: e.args || null, callText: callText(e, t), valueType: e.valueType || null, call: sigText(e, t),
+    from: nodeRef(s), to: nodeRef(t),
+    // the target, as before
+    label: t.label || '', sublabel: t.sublabel || null, grid: t.type === 1 ? resolveProc(t, L.name) : null
+  };
+  // A match arm also lights up with its switch.
+  var sw = type === ETYPE.MATCH && L.matchSrc[rc(e.source[0], e.source[1])]
+    ? ' data-sw="' + esc('s:' + L.prefix + rc(e.source[0], e.source[1])) + '"' : '';
+  // The group carries what the edge passes (valueType and call) for the
+  // hover tooltip.
+  var gopen = '<g class="eg" data-sel="' + esc(id) + '"' + sw + ' data-when="' + esc(e.label || '') + '" data-call="' + esc(callText(e, t)) + '">';
+  var out = gopen +
+    '<path class="e ' + cls + '" d="' + d + '" marker-end="url(#' + ah + ')" data-type="' + type + '"></path>';
+  if (!R.back){
+    if (type === ETYPE.EXPAND) out += fanTail(R.pts, FAN_OFF, cls, ah, 2);
+    else if (type === ETYPE.CONTINUE) out += fanTail(R.pts, FAN_OFF, cls, ah, 1) + fanHead(R.pts, FAN_OFF, cls, 1);
+    else if (type === ETYPE.COLLECT) out += fanHead(R.pts, FAN_OFF, cls, 2);
+  }
+  out += '<path class="ehit" d="' + d + '"></path></g>';
+  var lab = '';
+  if (R.ltxt){
+    var lx = R.lx, ly = R.ly, tw = R.lw;
+    lab = gopen + '<g class="elabel">' +
+      '<rect x="' + (lx - tw / 2) + '" y="' + (ly - 11) + '" width="' + tw + '" height="18" rx="6"/>' +
+      '<text x="' + lx + '" y="' + (ly + 4) + '">' + hlSVG(R.ltxt) + '</text></g></g>';
+  }
+  return [out, lab];
+}
+
+// Fan leaves that land on the target with their own arrowheads: the "many"
+// side of a one-to-many / many-to-many. Each leaf leaves the source center
+// along the main stem, elbows out just below the source, then follows the
+// main route shifted sideways and drops onto the target beside its center.
+function fanTail(pts, off, cls, ah, pairs){
+  var sx = pts[0][0], sy = pts[0][1];
+  var y0 = Math.min(sy + 14, pts[1][1] - 6);
+  var s = '';
+  for (var k = 1; k <= pairs; k++){
+    [-1, 1].forEach(function(sg){
+      var o = sg * off * k;
+      var pl = [[sx, sy], [sx, y0], [sx + o, y0]];
+      for (var i = 1; i < pts.length; i++) pl.push([pts[i][0] + o, pts[i][1]]);
+      s += '<path class="e ' + cls + '" d="' + roundPath(dedupe(pl), EDGE_R) + '" marker-end="url(#' + ah + ')"></path>';
+    });
+  }
+  return s;
+}
+
+// Fan leaves leaving the source: the "many" side of a many-to-one /
+// many-to-many. These tails originate spread across the source's bottom
+// edge and merge into the main stem at its first lane.
+function fanHead(pts, off, cls, pairs){
+  var sx = pts[0][0], sy = pts[0][1], ym = pts[1][1], mx = pts.length > 2 ? pts[2][0] : sx;
+  var s = '';
+  for (var k = 1; k <= pairs; k++){
+    [-1, 1].forEach(function(sg){
+      var o = sg * off * k;
+      s += '<path class="e ' + cls + '" d="' + roundPath(dedupe([[sx + o, sy], [sx + o, ym], [mx, ym]]), EDGE_R) + '"></path>';
+    });
+  }
+  return s;
+}
+
+function renderLayout(L){
+  var s = '', labs = '';
+  (L.grid.edges || []).forEach(function(e, i){ var x = edgeSVG(L, e, i); s += x[0]; labs += x[1]; });
+  (L.grid.rows || []).forEach(function(row, r){
+    (row.nodes || []).forEach(function(n, c){ s += nodeSVG(L, rc(r, c), n); });
+  });
+  return s + labs;
+}
+
+function renderSvg(name){
+  var L = layoutGrid(name, '', 0);
+  return '<svg data-gname="' + esc(name) + '" width="' + L.w + '" height="' + L.h + '" viewBox="0 0 ' + L.w + ' ' + L.h + '">' + defs() + renderLayout(L) + '</svg>';
+}
+
+/* ---------- selection ---------- */
+function selQ(id){ return '"' + String(id).replace(/["\\]/g, '\\$&') + '"'; }
+function applySelection(){
+  Array.prototype.forEach.call(stageEl.querySelectorAll('.sel, .selbox'), function(el){
+    el.classList.remove('sel'); el.classList.remove('selbox');
+  });
+  if (!selected) return;
+  var q = selQ(selected);
+  Array.prototype.forEach.call(stageEl.querySelectorAll('[data-sel=' + q + ']'), function(el){
+    // A panel header highlights its whole panel instead.
+    if (!el.classList.contains('panel-hd')) el.classList.add('sel');
+  });
+  Array.prototype.forEach.call(stageEl.querySelectorAll('[data-selbox=' + q + ']'), function(el){ el.classList.add('selbox'); });
+  // A selected switch lights up its arms.
+  Array.prototype.forEach.call(stageEl.querySelectorAll('[data-sw=' + q + ']'), function(el){ el.classList.add('sel'); });
+}
+function selectMsg(i){
+  if (i.kind === 'edge'){
+    return { type: 'vandorf-select', kind: 'edge', id: i.id, edgeType: i.edgeType, edgeLabel: i.edgeLabel, args: i.args, callText: i.callText,
+             valueType: i.valueType, call: i.call, owner: i.owner, from: i.from, to: i.to,
+             label: i.label, sublabel: i.sublabel, grid: i.grid };
+  }
+  if (i.kind === 'switch'){
+    return { type: 'vandorf-select', kind: 'switch', id: i.id, owner: i.owner, from: i.from,
+             valueType: i.valueType, arms: i.arms };
+  }
+  return { type: 'vandorf-select', kind: i.kind, label: i.label, sublabel: i.sublabel, grid: i.grid,
+           owner: i.owner, valueType: i.valueType, call: i.call, edgeLabel: i.edgeLabel };
+}
+function select(id){
+  selected = id && INFO[id] ? id : null;
+  applySelection();
+  var i = selected ? INFO[selected] : null;
+  post(i ? selectMsg(i) : { type: 'vandorf-select', kind: null });
+}
+
+/* ---------- proc selector (searchable) ---------- */
+function closestEl(el, attr){
+  while (el && el !== document && el !== main){
+    if (el.getAttribute && el.getAttribute(attr) !== null) return el;
+    el = el.parentNode;
+  }
+  return null;
+}
+function closestAttr(el, attr){
+  var e = closestEl(el, attr);
+  return e ? e.getAttribute(attr) : null;
+}
+function menuItems(){ return Array.prototype.slice.call(procMenu.children); }
+function openMenu(){ menuItems().forEach(function(li){ li.classList.remove('hid'); }); procMenu.style.display = 'block'; }
+function closeMenu(){ procMenu.style.display = 'none'; }
+function highlight(li){
+  menuItems().forEach(function(x){ x.classList.toggle('hl', x === li); });
+}
+
+procSel.addEventListener('focus', function(){ openMenu(); highlight(null); });
+procSel.addEventListener('input', function(){
+  var q = (procSel.value || '').toLowerCase();
+  var m = menuItems(), first = null;
+  m.forEach(function(li){
+    var hit = li.textContent.toLowerCase().indexOf(q) >= 0;
+    li.classList.toggle('hid', !hit);
+    if (hit && !first) first = li;
+  });
+  openMenu();
+  highlight(first);
+});
+procSel.addEventListener('keydown', function(e){
+  if (e.key === 'Escape'){ closeMenu(); procSel.blur(); return; }
+  if (e.key === 'Enter'){
+    e.preventDefault();
+    var m = menuItems().filter(function(li){ return !li.classList.contains('hid'); });
+    var exact = getGrid(procSel.value);
+    var pick = exact ? procSel.value : (m.length ? m[0].getAttribute('data-g') : null);
+    if (pick) selectProc(pick);
+    else closeMenu();
+  }
+});
+procSel.addEventListener('blur', function(){ setTimeout(closeMenu, 150); });
+procMenu.addEventListener('click', function(ev){
+  var g = closestAttr(ev.target, 'data-g');
+  if (g) selectProc(g);
+});
+
+/* ---------- settings panel ---------- */
+function toggleSettings(show){
+  var isOpen = !settingsEl.classList.contains('hidden');
+  var open = show === undefined ? !isOpen : show;
+  settingsEl.classList.toggle('hidden', !open);
+  settingsBtn.classList.toggle('on', open);
+}
+settingsBtn.addEventListener('click', function(ev){
+  ev.stopPropagation();
+  toggleSettings();
+});
+document.addEventListener('click', function(ev){
+  if (settingsEl.classList.contains('hidden')) return;
+  if (settingsEl.contains(ev.target) || settingsBtn.contains(ev.target)) return;
+  toggleSettings(false);
+});
+document.addEventListener('keydown', function(ev){
+  if (ev.key === 'Escape' && !settingsEl.classList.contains('hidden')) toggleSettings(false);
+});
+
+/* ---------- pan & zoom ---------- */
+var view = { x: 0, y: 0, k: 1 };
+function clampK(k){ return Math.max(0.05, Math.min(4, k)); }
+function dotColor(){
+  try {
+    if (typeof getComputedStyle === 'function'){
+      var c = getComputedStyle(document.documentElement).getPropertyValue('--dot').trim();
+      if (c) return c;
+    }
+  } catch (e) {}
+  return '#cbd5e1';
+}
+function applyGrid(){
+  var tile = Math.max(8, 24 * view.k);
+  var d = Math.max(0.6, 1.2 * view.k);
+  var vs = viewport.style;
+  vs.backgroundSize = tile + 'px ' + tile + 'px';
+  vs.backgroundPosition = view.x + 'px ' + view.y + 'px';
+  vs.backgroundImage = 'radial-gradient(' + dotColor() + ' ' + d + 'px, transparent ' + (d + 0.3) + 'px)';
+}
+function applyView(){
+  stageEl.style.transform = 'translate(' + view.x + 'px,' + view.y + 'px) scale(' + view.k + ')';
+  zLevel.textContent = Math.round(view.k * 100) + '%';
+  applyGrid();
+}
+function zoomAt(cx, cy, nk){
+  nk = clampK(nk);
+  view.x = cx - (cx - view.x) * (nk / view.k);
+  view.y = cy - (cy - view.y) * (nk / view.k);
+  view.k = nk;
+  applyView();
+}
+function stageSize(){
+  var svg = stageEl.querySelector('svg');
+  return {
+    w: svg ? (parseFloat(svg.getAttribute('width')) || 300) : 300,
+    h: svg ? (parseFloat(svg.getAttribute('height')) || 200) : 200
+  };
+}
+function centerView(){
+  var vw = viewport.clientWidth || 900, vh = viewport.clientHeight || 700, s = stageSize();
+  view = { x: Math.max(0, (vw - s.w) / 2), y: Math.max(0, (vh - s.h) / 2), k: 1 };
+  applyView();
+}
+function fitView(){
+  var vw = viewport.clientWidth || 900, vh = viewport.clientHeight || 700;
+  if (!stageEl.querySelector('svg')){ view = { x: 0, y: 0, k: 1 }; applyView(); return; }
+  var s = stageSize();
+  var k = clampK(Math.min(vw / Math.max(1, s.w), vh / Math.max(1, s.h), 1));
+  view = { x: Math.max(0, (vw - s.w * k) / 2), y: Math.max(0, (vh - s.h * k) / 2), k: k };
+  applyView();
+}
+
+/* ---------- edge tooltip: the value along an edge and the call it feeds ---------- */
+var etip = document.createElement('div');
+etip.id = 'etip';
+document.body.appendChild(etip);
+var hotEdge = null;
+function edgeGroup(el){
+  while (el && el !== document){
+    if (el.classList && el.classList.contains('eg')) return el;
+    el = el.parentNode;
+  }
+  return null;
+}
+function edgeParts(g){ return stageEl.querySelectorAll('.eg[data-sel=' + selQ(g.getAttribute('data-sel')) + ']'); }
+function setHot(g, on){ Array.prototype.forEach.call(edgeParts(g), function(x){ x.classList.toggle('hot', on); }); }
+function hideTip(){
+  etip.style.display = 'none';
+  if (hotEdge){ setHot(hotEdge, false); hotEdge = null; }
+}
+function hasTip(g){ return !!(g && (g.dataset.when || g.dataset.call)); }
+// Light up an edge group and fill the tooltip with what it passes.
+function heat(g){
+  if (hotEdge && g.getAttribute('data-sel') === hotEdge.getAttribute('data-sel')) return;
+  if (hotEdge) setHot(hotEdge, false);
+  hotEdge = g; setHot(g, true);
+  var rows = [];
+  if (g.dataset.when) rows.push('<div class="row"><span class="k">when</span><code>' + hlHTML(g.dataset.when) + '</code></div>');
+  if (g.dataset.call) rows.push('<div class="row"><span class="k">call</span><code>' + hlHTML(g.dataset.call) + '</code></div>');
+  etip.innerHTML = rows.join('');
+  etip.style.display = rows.length ? 'block' : 'none';
+}
+// Put the tooltip beside the point (x, y) (viewport coords), inside the window.
+function placeTip(cx, cy, gap){
+  var x = cx + gap, y = cy + gap;
+  var w = etip.offsetWidth, h = etip.offsetHeight;
+  if (x + w > window.innerWidth - 8) x = cx - w - gap;
+  if (y + h > window.innerHeight - 8) y = cy - h - gap;
+  etip.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 8)) + 'px';
+  etip.style.top = Math.max(8, Math.min(y, window.innerHeight - h - 8)) + 'px';
+}
+viewport.addEventListener('pointermove', function(ev){
+  var g = panning ? null : edgeGroup(ev.target);
+  if (!hasTip(g)){ hideTip(); return; }
+  heat(g);
+  placeTip(ev.clientX, ev.clientY, 14);
+});
+// Highlight an edge from outside (the viewer's arm list): hot as on hover,
+// with the tooltip next to its label, else the middle of its path.
+function highlightEdge(id){
+  hideTip();
+  if (!id) return;
+  var g = stageEl.querySelector('.eg[data-sel=' + selQ(id) + ']');
+  if (!g) return;
+  heat(g);
+  var anchor = null, x, y;
+  Array.prototype.forEach.call(edgeParts(g), function(p){ anchor = anchor || p.querySelector('.elabel rect'); });
+  if (anchor){
+    var r = anchor.getBoundingClientRect();
+    x = r.right; y = r.top + r.height / 2;
+  } else {
+    var path = g.querySelector('path.e'), m = path && path.getScreenCTM();
+    if (!path || !m) return;
+    var pt = path.getPointAtLength(path.getTotalLength() / 2);
+    x = m.a * pt.x + m.c * pt.y + m.e; y = m.b * pt.x + m.d * pt.y + m.f;
+  }
+  if (etip.style.display === 'block'){
+    placeTip(x, y - etip.offsetHeight / 2, 0);
+    // Shift right of the anchor.
+    var left = x + 10, w = etip.offsetWidth;
+    if (left + w > window.innerWidth - 8) left = (anchor ? anchor.getBoundingClientRect().left : x) - w - 10;
+    etip.style.left = Math.max(8, Math.min(left, window.innerWidth - w - 8)) + 'px';
+  }
+}
+viewport.addEventListener('pointerleave', hideTip);
+
+var panning = false, panMoved = false, panX = 0, panY = 0, panOX = 0, panOY = 0;
+viewport.addEventListener('pointerdown', function(ev){
+  if (ev.button !== 0) return;
+  hideTip();
+  panning = true; panMoved = false;
+  panX = ev.clientX; panY = ev.clientY;
+  panOX = view.x; panOY = view.y;
+  viewport.classList.add('panning');
+  ev.preventDefault();
+});
+window.addEventListener('pointermove', function(ev){
+  if (!panning) return;
+  var dx = ev.clientX - panX, dy = ev.clientY - panY;
+  if (Math.abs(dx) + Math.abs(dy) > 3) panMoved = true;
+  if (!panMoved) return;
+  view.x = panOX + dx; view.y = panOY + dy;
+  applyView();
+});
+window.addEventListener('pointerup', function(){ panning = false; viewport.classList.remove('panning'); });
+window.addEventListener('pointercancel', function(){ panning = false; viewport.classList.remove('panning'); });
+viewport.addEventListener('wheel', function(ev){
+  ev.preventDefault();
+  var r = viewport.getBoundingClientRect();
+  zoomAt(ev.clientX - r.left, ev.clientY - r.top, view.k * Math.exp(-ev.deltaY * 0.0012));
+}, { passive: false });
+zPlus.addEventListener('click', function(){ var r = viewport.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, view.k * 1.25); });
+zMinus.addEventListener('click', function(){ var r = viewport.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, view.k / 1.25); });
+zFit.addEventListener('click', fitView);
+
+/* ---------- clicks: expand, collapse, open, select ---------- */
+function openProc(key){
+  if (!key || !getGrid(key)) return;
+  if (EMBEDDED) post({ type: 'vandorf-open-proc', proc: key });
+  else selectProc(key);
+}
+main.addEventListener('click', function(ev){
+  if (zoomctl.contains(ev.target)) return;
+  if (panMoved){ panMoved = false; return; }
+  if (!DOC || !rendered) return;
+  var min = closestAttr(ev.target, 'data-min');
+  if (min !== null){
+    // Collapse the panel and everything expanded inside it.
+    Object.keys(expanded).forEach(function(p){
+      if (p === min || p.indexOf(min + '/') === 0) delete expanded[p];
+    });
+    saveExpanded();
+    if (selected && /^[nes]:/.test(selected) && selected.slice(2).indexOf(min + '/') === 0) selected = null;
+    rerenderProc();
+    return;
+  }
+  var id = closestAttr(ev.target, 'data-sel');
+  var info = id ? INFO[id] : null;
+  if (!info){ select(null); return; }
+  if (info.kind === 'proc' && (ev.ctrlKey || ev.metaKey)){ openProc(info.grid); return; }
+  if (info.kind === 'proc' && !info.expanded && info.canExpand){
+    expanded[info.path] = true;
+    saveExpanded();
+    rerenderProc();
+  }
+  select(id);
+});
+
+/* ---------- localStorage persistence: expanded panels per root proc ---------- */
+function expKey(root){ return 'vandorf.expanded.' + root; }
+function saveExpanded(){
+  if (!currentProc) return;
+  var keys = Object.keys(expanded);
+  if (keys.length) storeSet(expKey(currentProc), JSON.stringify(expanded));
+  else { try { if (typeof localStorage !== 'undefined') localStorage.removeItem(expKey(currentProc)); } catch (e) {} }
+}
+function loadExpanded(root){
+  var raw = storeGet(expKey(root));
+  if (!raw) return {};
+  try {
+    var o = JSON.parse(raw), out = {};
+    if (o && typeof o === 'object') for (var k in o) if (hasOwn(o, k) && o[k] === true) out[k] = true;
+    return out;
+  } catch (e) { return {}; }
+}
+
+/* ---------- embedding: the IDE (same origin) drives this page ---------- */
+window.addEventListener('message', function(e){
+  if (e.origin !== location.origin || !e.data || typeof e.data !== 'object') return;
+  var m = e.data;
+  if (m.type === 'vandorf-document'){
+    setErr(null);
+    setStatus('compiled ' + (m.name || 'editor') + ' \u2014 from workbench');
+    renderDoc(m.document, m.proc);
+  } else if (m.type === 'vandorf-show-proc'){
+    if (getGrid(m.proc)) selectProc(m.proc);
+    else pendingProc = m.proc || null;
+  } else if (m.type === 'vandorf-theme'){
+    applyTheme(m.theme === 'dark' ? 'dark' : 'light', false);
+  } else if (m.type === 'vandorf-fit'){
+    fitView();
+  } else if (m.type === 'vandorf-highlight'){
+    highlightEdge(m.id || null);
+  } else if (m.type === 'vandorf-clear-selection'){
+    selected = null;
+    applySelection();
+  }
+});
+if (EMBEDDED) window.parent.postMessage({ type: 'vandorf-viz-ready' }, location.origin);
+
+applyView();
+applyTheme(storeGet('vandorf.theme') === 'dark' ? 'dark' : 'light', false);
+</script>
+</body>
+</html>

@@ -1,0 +1,152 @@
+// The type table shared by the backends (src/codegen/types.rs in the
+// reference): one name for every distinct struct or enum shape, so
+// backends can emit a named type per shape. Shapes compare structurally
+// (field and variant order ignored) and are named after where they first
+// appear; a typedef's shape is named after it.
+
+// A type as backends see it: primitives, arrays and maps inline, structs and
+// enums by index into the table.
+type TyRef = enum { Prim(string), Array(TyRef), Map({ key: TyRef, value: TyRef }), Named(int) };
+type RefMember = { name: string, r: TyRef };
+type Shape = enum { Struct([]RefMember), Enum([]RefMember) };
+// origin: where it was first seen, for doc comments ("return of Bar.Start").
+type NamedType = { name: string, shape: Shape, origin: string };
+type Alias = { name: string, r: TyRef };
+
+type Table = {
+	types: []NamedType,
+	// Typedefs without a type of their own: their name and what it names.
+	aliases: []Alias,
+	by_key: map[string]int,
+	// "type:field" stored behind a pointer.
+	boxed: map[string]bool,
+	// Typedef names, kept for the typedefs themselves.
+	reserved: map[string]bool,
+	defs: []TypeDef
+};
+
+type Registered = { t: Table, r: TyRef };
+
+func Exported(s: string): string = "../sema/sema_leaf.rs:cap";
+func WithType(t: Table, n: NamedType): Table = "gen_leaf.rs:with_type";
+func WithShape(t: Table, i: int, s: Shape): Table = "gen_leaf.rs:with_shape";
+func WithKey(t: Table, key: string, i: int): Table = "gen_leaf.rs:with_key";
+// A fresh name based on hint; typedef names are reserved for the typedef
+// itself (typedef: the name of the typedef being registered, or "").
+func Unique(t: Table, hint: string, typedef: string): string = "gen_leaf.rs:unique";
+// The canonical structural key: fields and variants sorted; non-recursive
+// typedefs expanded, a recursive one `#id` (except at the top).
+func Key(t: Type, defs: []TypeDef): string = "gen_leaf.rs:shape_key";
+// Gname: a node's name in generated code (`Bar.Start` -> `BarStart`).
+func Gname(n: NodeDecl): string = "gen_leaf.rs:gname";
+func IsAliasNode(n: NodeDecl): bool = "../sema/sema_leaf.rs:is_alias";
+// Boxes every field i -> j where j leads back to i through fields that hold
+// their type directly.
+func FindBoxed(t: Table): map[string]bool = "gen_leaf.rs:find_boxed";
+
+// The table for a program: its typedefs first, then every func parameter
+// and every node's return.
+proc BuildTable(At): Table {
+	func At(prog: Program): Program = "../leaf.rs:same";
+	func Reserved(types: []TypeDef): map[string]bool = "gen_leaf.rs:reserved";
+	At -> TypedefTypes(s = { t = { types = [], aliases = [], by_key = [:], boxed = [:], reserved = Reserved(types = this.types), defs = this.types }, i = 0 });
+	TypedefTypes -> NodeTypes(s = { t = this, prog = At, i = 0 });
+	NodeTypes -> id({ ..this, boxed = FindBoxed(t = this) });
+}
+
+proc TypedefTypes(At): Table {
+	func At(s: { t: Table, i: int }): { t: Table, i: int } = "../leaf.rs:same";
+	At switch {
+		(this.i == this.t.defs.len) -> id(this.t),
+		else -> Register(s = { t = this.t, ty = Named({ id = this.i, name = this.t.defs[this.i].name }), hint = Exported(s = this.t.defs[this.i].ident), origin = "typedef " + this.t.defs[this.i].name })
+	};
+	Register switch {
+		{ t = _, r = Named(i) } -> switch {
+			(this.t.types[i].name == Exported(s = At.t.defs[At.i].ident)) -> At(s = { t = this.t, i = At.i + 1 }),
+			else -> At(s = { t = { ..this.t, aliases = this.t.aliases + [{ name = Exported(s = At.t.defs[At.i].ident), r = this.r }] }, i = At.i + 1 })
+		},
+		else -> At(s = { t = { ..this.t, aliases = this.t.aliases + [{ name = Exported(s = At.t.defs[At.i].ident), r = this.r }] }, i = At.i + 1 })
+	};
+}
+
+proc NodeTypes(At): Table {
+	func At(s: { t: Table, prog: Program, i: int }): { t: Table, prog: Program, i: int } = "../leaf.rs:same";
+	func ParamsIfFunc(n: NodeDecl): []Member = "gen_leaf.rs:func_params";
+	At switch {
+		(this.i == this.prog.nodes.len) -> id(this.t),
+		else -> RegisterParams(s = { t = this.t, ps = ParamsIfFunc(n = this.prog.nodes[this.i]), g = Gname(n = this.prog.nodes[this.i]), q = QualName(n = this.prog.nodes[this.i]), j = 0 })
+	};
+	RegisterParams switch {
+		(IsAliasNode(n = At.prog.nodes[At.i])) -> At(s = { t = this, prog = At.prog, i = At.i + 1 }),
+		else -> Register(s = { t = this, ty = NodeRet(nodes = At.prog.nodes, n = At.i), hint = Gname(n = At.prog.nodes[At.i]) + "Out", origin = "return of " + QualName(n = At.prog.nodes[At.i]) })
+	};
+	Register -> At(s = { t = this.t, prog = At.prog, i = At.i + 1 });
+}
+
+proc RegisterParams(At): Table {
+	func At(s: { t: Table, ps: []Member, g: string, q: string, j: int }): { t: Table, ps: []Member, g: string, q: string, j: int } = "../leaf.rs:same";
+	At switch {
+		(this.j == this.ps.len) -> id(this.t),
+		else -> Register(s = { t = this.t, ty = this.ps[this.j].ty, hint = this.g + Exported(s = this.ps[this.j].name), origin = "parameter " + this.ps[this.j].name + " of " + this.q })
+	};
+	Register -> At(s = { t = this.t, ps = At.ps, g = At.g, q = At.q, j = At.j + 1 });
+}
+
+type RegisterIn = { t: Table, ty: Type, hint: string, origin: string };
+
+// Registers ty and its parts, naming new shapes after hint.
+proc Register(At): Registered {
+	func At(s: RegisterIn): RegisterIn = "../leaf.rs:same";
+	func T(t: Type): Type = "../leaf.rs:same";
+	At -> T(t = this.ty);
+	T switch {
+		Prim(p) -> id({ t = At.t, r = Prim(p) }),
+		Array(e) -> Register(s = { t = At.t, ty = e, hint = At.hint + "Item", origin = At.origin }) as Elem,
+		Map(m) -> Register(s = { t = At.t, ty = m.key, hint = At.hint + "Key", origin = At.origin }) as Key,
+		Named(n) -> switch {
+			(!At.t.defs[n.id].recursive && IsStructOrEnum(t = At.t.defs[n.id].ty)) -> RegShape(s = { t = At.t, ty = At.t.defs[n.id].ty, hint = Exported(s = At.t.defs[n.id].ident), origin = "typedef " + n.name, typedef = Exported(s = At.t.defs[n.id].ident), rec = -1 }),
+			(!At.t.defs[n.id].recursive) -> Register(s = { t = At.t, ty = At.t.defs[n.id].ty, hint = Exported(s = At.t.defs[n.id].ident), origin = "typedef " + n.name }) as Def,
+			(("#" + Itoa(i = n.id)) in At.t.by_key) -> id({ t = At.t, r = Named(At.t.by_key["#" + Itoa(i = n.id)]) }),
+			else -> RegShape(s = { t = At.t, ty = At.t.defs[n.id].ty, hint = Exported(s = At.t.defs[n.id].ident), origin = "typedef " + n.name, typedef = Exported(s = At.t.defs[n.id].ident), rec = n.id })
+		},
+		else -> RegShape(s = { t = At.t, ty = At.ty, hint = At.hint, origin = At.origin, typedef = "", rec = -1 })
+	};
+	Elem -> id({ t = this.t, r = Array(this.r) });
+	Key -> Register(s = { t = this.t, ty = MapValue(t = T), hint = At.hint + "Value", origin = At.origin }) as Val;
+	Val -> id({ t = this.t, r = Map({ key = Key.r, value = this.r }) });
+	Def -> id(this);
+}
+
+func IsStructOrEnum(t: Type): bool = "../sema/sema_leaf.rs:is_struct_or_enum";
+
+// Registers a struct or enum. typedef: the name of the typedef it defines,
+// which may use that reserved name (or ""); rec: that typedef's id if its
+// references (`#id`) should point here (or -1).
+proc RegShape(At): Registered {
+	func At(s: { t: Table, ty: Type, hint: string, origin: string, typedef: string, rec: int }): { t: Table, ty: Type, hint: string, origin: string, typedef: string, rec: int } = "../leaf.rs:same";
+	func K(k: string): string = "../leaf.rs:same";
+	At -> K(k = Key(t = this.ty, defs = this.t.defs));
+	K switch {
+		(this in At.t.by_key && At.rec >= 0) -> id({ t = { ..At.t, by_key = At.t.by_key + ["#" + Itoa(i = At.rec): At.t.by_key[this]] }, r = Named(At.t.by_key[this]) }),
+		(this in At.t.by_key) -> id({ t = At.t, r = Named(At.t.by_key[this]) }),
+		(At.rec >= 0) -> Parts(s = { t = WithType(t = WithKey(t = { ..At.t, by_key = At.t.by_key + ["#" + Itoa(i = At.rec): At.t.types.len] }, key = this, i = At.t.types.len), n = { name = Unique(t = At.t, hint = At.hint, typedef = At.typedef), shape = Struct([]), origin = At.origin }), ms = MembersOf(t = At.ty), hint = At.hint, origin = At.origin, i = 0, acc = [] }),
+		// Reserve the slot so the parent is listed before its parts.
+		else -> Parts(s = { t = WithType(t = { ..At.t, by_key = At.t.by_key + [this: At.t.types.len] }, n = { name = Unique(t = At.t, hint = At.hint, typedef = At.typedef), shape = Struct([]), origin = At.origin }), ms = MembersOf(t = At.ty), hint = At.hint, origin = At.origin, i = 0, acc = [] })
+	};
+	Parts switch {
+		(IsStruct(t = At.ty)) -> id({ t = WithShape(t = this.t, i = At.t.types.len, s = Struct(this.ms)), r = Named(At.t.types.len) }),
+		else -> id({ t = WithShape(t = this.t, i = At.t.types.len, s = Enum(this.ms)), r = Named(At.t.types.len) })
+	};
+}
+
+proc Parts(At): { t: Table, ms: []RefMember } {
+	func At(s: { t: Table, ms: []Member, hint: string, origin: string, i: int, acc: []RefMember }): { t: Table, ms: []Member, hint: string, origin: string, i: int, acc: []RefMember } = "../leaf.rs:same";
+	At switch {
+		(this.i == this.ms.len) -> id({ t = this.t, ms = this.acc }),
+		else -> Register(s = { t = this.t, ty = this.ms[this.i].ty, hint = this.hint + Exported(s = this.ms[this.i].name), origin = this.origin })
+	};
+	Register -> At(s = { t = this.t, ms = At.ms, hint = At.hint, origin = At.origin, i = At.i + 1, acc = At.acc + [{ name = At.ms[At.i].name, r = this.r }] });
+}
+
+// The backend view of a type: every struct and enum of a checked program is
+// in the table.

@@ -1,0 +1,99 @@
+// The checked program (src/sema.rs: Program .. Ref in the reference): every
+// func and proc declaration is a node, by index into Program.nodes, and
+// every proc has a graph of typed edges. Sema's edges, arms, bodies and
+// patterns are SEdge, SArm, SBody and SPat (the AST has Edge, Arm, ...).
+
+type Program = { types: []TypeDef, nodes: []NodeDecl, globals: map[string]Global, top: []int };
+
+type Global = enum { Interface(map[string]int), Node(int) };
+
+// `qual`: ["Iface", "F"] for an interface func, ["P", "F"] for a func local
+// to proc P, ["P"] for a top-level proc.
+type NodeDecl = { qual: []string, span: Span, kind: NodeKind };
+
+type NodeKind = enum {
+	Func(FuncDecl),
+	Proc(ProcDecl),
+	// `-> B(..) as B2`: another instance of node B (its id).
+	Alias(int),
+	// `-> id(value)`: ends the proc; its one parameter, `value`, has the
+	// proc's return type.
+	Id([]Member)
+};
+
+type FuncDecl = { params: []Member, ret: Type, imps: []ImplRef };
+// parent: the enclosing proc, or -1.
+type ProcDecl = { parent: int, entry: int, ret: Type, locals: []int, graph: Graph };
+
+type Graph = {
+	// The outgoing edge of each source node.
+	edges: map[int]SEdge,
+	// regions[0] is the proc's body; the rest are for each regions.
+	regions: []Region,
+	region_of: map[int]int,
+	// For each source node -> the region it opens.
+	opens: map[int]int
+};
+
+// sink: the node whose collect closes the region, or -1.
+type Region = { parent: int, entry: int, elem: Type, nodes: []int, sink: int };
+
+type SEdge = enum {
+	Call(Call),
+	Match([]SArm),
+	ForEach({ dim: Expr, elem: Type, call: Call }),
+	Collect(Call)
+};
+
+type SArm = { test: Test, label: string, body: SBody };
+type Test = enum { Pat(SPat), Cond(Expr), Else };
+type SBody = enum { Call(Call), Switch([]SArm) };
+
+type SPat = { kind: SPatKind, ty: Type };
+type SPatKind = enum {
+	Wild,
+	Bind(string),
+	Variant({ tag: string, payload: MaybePat }),
+	// Every field, in the type's order.
+	Struct([]PatMember),
+	Or([]SPat)
+};
+type MaybePat = enum { None, Some(SPat) };
+type PatMember = { name: string, pat: SPat };
+
+// text: the arguments as written, whitespace collapsed (empty for calls in
+// expressions).
+type Call = { target: int, args: []CallArg, span: Span, text: string };
+type CallArg = { name: string, param: Type, value: Expr };
+
+type Expr = enum {
+	Ref(Ref),
+	Int(int),
+	Float(float),
+	Str(string),
+	Bool(bool),
+	Variant({ tag: string, payload: MaybeExpr }),
+	Struct([]ExprMember),
+	Array([]Expr),
+	Unary({ op: string, e: Expr }),
+	// operand: the operands' primitive type.
+	Binary({ op: string, l: Expr, r: Expr, operand: string }),
+	Call(Call),
+	Map([]ExprEntry),
+	// m[k] or xs[i]; ty is e's type.
+	Index({ e: Expr, key: Expr, ty: Type }),
+	// A field of a value that isn't a Ref; ty is the struct's type.
+	Field({ e: Expr, ty: Type, name: string }),
+	In({ key: Expr, map: Expr }),
+	// q: "len", "keys" or "values"; ty is e's type.
+	Query({ e: Expr, ty: Type, q: string }),
+	Merge({ l: Expr, r: Expr, ty: Type }),
+	Remove({ m: Expr, keys: Expr, ty: Type })
+};
+type MaybeExpr = enum { None, Some(Expr) };
+type ExprMember = { name: string, e: Expr };
+type ExprEntry = { key: Expr, value: Expr };
+
+// root: This, Node(id) or Bind (named `bind`).
+type Ref = { root: Root, root_ty: Type, bind: string, fields: []string, ty: Type, span: Span };
+type Root = enum { This, Node(int), Bind };

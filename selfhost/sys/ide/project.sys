@@ -1,0 +1,49 @@
+// GET /api/project?dir=..: a project's overview: its manifest's settings,
+// entry points (each with where its proc is declared), files and counts.
+
+proc ProjectRoute(At): HttpResponse {
+	func At(s: { base: string, query: map[string]string }): { base: string, query: map[string]string } = "../leaf.rs:same";
+	func Root(r: Res<string>): Res<string> = "../leaf.rs:same";
+	At switch {
+		(!("dir" in this.query)) -> id(ApiErr(msg = "missing ?dir=")),
+		(this.query["dir"] == "" || this.query["dir"] == ".") -> Root(r = Ok(this.base)),
+		else -> ResolvePath(s = { base = this.base, p = this.query["dir"] })
+	};
+	ResolvePath -> Root(r = this);
+	Root switch {
+		Ok(root) -> Fs.IsFile(path = JoinP(a = root, b = "vandorf.toml")),
+		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+	Fs.IsFile switch {
+		(this) -> Files.Read(path = JoinP(a = UnwrapR2(r = Root), b = "vandorf.toml")),
+		else -> id(ApiErr(msg = "no vandorf.toml in " + At.query["dir"]))
+	};
+	Files.Read switch {
+		Ok(text) -> LoadProject(path = JoinP(a = UnwrapR2(r = Root), b = "vandorf.toml")),
+		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+	LoadProject switch {
+		Ok(p) -> Outlines(s = { p = p, i = 0, acc = [] }),
+		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+	Outlines -> id(Api(j = ProjectJson(base = At.base, p = UnwrapP(r = LoadProject), text = UnwrapR2(r = Files.Read), outlines = this)));
+}
+
+// The project's overview from its files' outlines.
+func ProjectJson(base: string, p: Project, text: string, outlines: []Outlined): Json = "ide_leaf.rs:project_json";
+
+// A file's outline, or that it doesn't parse.
+type Outlined = { ok: bool, items: []Item };
+
+proc Outlines(At): []Outlined {
+	func At(s: { p: Project, i: int, acc: []Outlined }): { p: Project, i: int, acc: []Outlined } = "../leaf.rs:same";
+	At switch {
+		(this.i == this.p.srcs.len) -> id(this.acc),
+		else -> TryParse(src = this.p.srcs[this.i], file = 0)
+	};
+	TryParse switch {
+		Ok(f) -> Outline(s = { src = At.p.srcs[At.i], f = f }),
+		Err(_) -> At(s = { ..At, i = At.i + 1, acc = At.acc + [{ ok = false, items = [] }] })
+	};
+	Outline -> At(s = { ..At, i = At.i + 1, acc = At.acc + [{ ok = true, items = this }] });
+}

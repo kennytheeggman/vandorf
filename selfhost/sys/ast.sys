@@ -1,0 +1,86 @@
+// The surface syntax, as the parser produces it: what was written, with
+// spans. Not name-resolved or typed.
+
+// `file`: the index of the file it's in, among a program's files.
+type Span = { at: int, end: int, file: int };
+type Ident = { name: string, span: Span };
+type Path = { segs: []Ident, span: Span };
+
+type OptIdent = enum { None, Some(Ident) };
+
+type File = { types: []TypeDecl, interfaces: []Interface, nodes: []Node };
+// `params` is empty unless the typedef is generic: `type R<T> = ..`.
+type TypeDecl = { name: Ident, params: []Ident, ty: TypeExpr };
+type Interface = { name: Ident, funcs: []Func };
+type Node = enum { Func(Func), Proc(Proc) };
+
+type Func = { name: Ident, params: []Field, ret: OptType, imps: []ImplRef };
+// `file:function`, `file` relative to the .sys file.
+type ImplRef = { file: string, function: string, span: Span };
+type Proc = { name: Ident, entry: Ident, ret: TypeExpr, nodes: []Node, edges: []Edge };
+
+type Field = { name: Ident, ty: TypeExpr };
+type TypeExpr = { kind: TypeKind, span: Span };
+type TypeKind = enum {
+	Named(Ident),
+	// `R<A, B>`: a generic typedef with type arguments.
+	Inst({ name: Ident, args: []TypeExpr }),
+	Array(TypeExpr),
+	Map({ key: TypeExpr, value: TypeExpr }),
+	Struct([]Field),
+	Enum([]Variant)
+};
+type Variant = { name: Ident, payload: OptType };
+type OptType = enum { None, Some(TypeExpr) };
+
+type Edge = { source: Path, kind: EdgeKind, span: Span };
+type EdgeKind = enum {
+	Call(Target),
+	Match([]Arm),
+	Collect({ dim: Ident, target: Target }),
+	ForEach({ dim: Value, target: Target })
+};
+
+// `head` spans the arm's head, for diagram labels.
+type Arm = { head: Head, span: Span, body: Body };
+type Head = enum { Pat(Pat), Cond(Value), Else };
+type Body = enum { Call(Target), Switch({ arms: []Arm, span: Span }) };
+
+type Pat = { kind: PatKind, span: Span };
+type PatKind = enum {
+	Wild,
+	Bind(Ident),
+	Variant({ tag: Ident, payload: OptPat }),
+	Struct([]PatField),
+	Or([]Pat)
+};
+type PatField = { name: Ident, pat: Pat };
+type OptPat = enum { None, Some(Pat) };
+
+// `id(value)` has `node` = id and an `id` value; other targets have args.
+// inner: what's inside the parentheses (empty if nothing), for its text.
+type Target = { node: Path, args: []Arg, alias: OptIdent, id: OptValue, inner: Span };
+type Arg = { name: Ident, value: Value };
+type OptValue = enum { None, Some(Value) };
+
+type Value = { kind: ValueKind, span: Span };
+type ValueKind = enum {
+	Ref(Path),
+	Int(int),
+	Float(float),
+	Str(string),
+	Bool(bool),
+	Apply({ name: Path, args: []ApplyArg }),
+	Struct([]Arg),
+	// `{ ..base, field = value }`
+	Update({ base: Value, args: []Arg }),
+	Array([]Value),
+	Map([]Entry),
+	Unary({ op: string, e: Value }),
+	Binary({ op: string, l: Value, r: Value }),
+	Index({ e: Value, key: Value }),
+	Field({ e: Value, name: Ident }),
+	In({ key: Value, map: Value })
+};
+type ApplyArg = { name: OptIdent, value: Value };
+type Entry = { key: Value, value: Value };
