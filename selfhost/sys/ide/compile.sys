@@ -15,14 +15,15 @@ func NonEmpty(m: MaybeStr): bool = "ide_leaf.rs:non_empty";
 func PathIndex(paths: []string, root: string, abs: string): int = "ide_leaf.rs:index_of_path";
 func SetAt(xs: []string, i: int, x: string): []string = "ide_leaf.rs:set_at";
 
-proc Compile(At): HttpResponse {
-	func At(s: { base: string, body: string }): { base: string, body: string } = "../leaf.rs:same";
+proc CompileRoute(At): HttpResponse {
+	func At(req: HttpRequest): HttpRequest = "../leaf.rs:same";
 	func Text(s: string): string = "../leaf.rs:same";
-	At -> ParseJson(text = this.body);
+	At -> Session.Base(n = 0);
+	Session.Base -> ParseJson(text = At.body);
 	ParseJson switch {
 		Ok(j) -> switch {
 			(NonBlank(m = JsonStr(j = j, key = "source"))) -> Text(s = UnwrapS(m = JsonStr(j = j, key = "source"))),
-			(NonEmpty(m = JsonStr(j = j, key = "path"))) -> ReadSource(s = { base = At.base, p = UnwrapS(m = JsonStr(j = j, key = "path")) }),
+			(NonEmpty(m = JsonStr(j = j, key = "path"))) -> ReadSource(s = { base = Session.Base, p = UnwrapS(m = JsonStr(j = j, key = "path")) }),
 			else -> id(ApiErr(msg = "provide either \"path\" or \"source\""))
 		},
 		Err(e) -> id(ApiErr(msg = "bad request: " + e.msg))
@@ -32,21 +33,21 @@ proc Compile(At): HttpResponse {
 		Err(e) -> id(ApiErr(msg = e.msg))
 	};
 	Text switch {
-		(NonEmpty(m = JsonStr(j = UnwrapJ(r = ParseJson), key = "path"))) -> ResolvePath(s = { base = At.base, p = UnwrapS(m = JsonStr(j = UnwrapJ(r = ParseJson), key = "path")) }),
-		else -> CompileUnit(s = { base = At.base, unit = { names = [EditorName(j = UnwrapJ(r = ParseJson))], srcs = [this], root = At.base, here = 0, project = None() } }) as Single
+		(NonEmpty(m = JsonStr(j = UnwrapJ(r = ParseJson), key = "path"))) -> ResolvePath(s = { base = Session.Base, p = UnwrapS(m = JsonStr(j = UnwrapJ(r = ParseJson), key = "path")) }),
+		else -> CompileUnit(s = { base = Session.Base, unit = { names = [EditorName(j = UnwrapJ(r = ParseJson))], srcs = [this], root = Session.Base, here = 0, project = None() } }) as Single
 	};
 	ResolvePath switch {
 		Ok(abs) -> FindUp(s = { dir = Parent(p = abs), marker = "vandorf.toml" }),
 		Err(e) -> id(ApiErr(msg = e.msg))
 	};
 	FindUp switch {
-		(this != "" && (this == At.base || HasPrefix(s = this, prefix = At.base + "/"))) -> LoadProject(path = JoinP(a = this, b = "vandorf.toml")),
-		else -> CompileUnit(s = { base = At.base, unit = { names = [EditorName(j = UnwrapJ(r = ParseJson))], srcs = [Text], root = At.base, here = 0, project = None() } }) as Alone
+		(this != "" && (this == Session.Base || HasPrefix(s = this, prefix = Session.Base + "/"))) -> LoadProject(path = JoinP(a = this, b = "vandorf.toml")),
+		else -> CompileUnit(s = { base = Session.Base, unit = { names = [EditorName(j = UnwrapJ(r = ParseJson))], srcs = [Text], root = Session.Base, here = 0, project = None() } }) as Alone
 	};
 	LoadProject switch {
 		Ok(p) -> switch {
 			(PathIndex(paths = p.paths, root = p.root, abs = UnwrapR2(r = ResolvePath)) < 0) -> id(ApiErr(msg = UnwrapR2(r = ResolvePath) + " is not under the sources of " + JoinP(a = FindUp, b = "vandorf.toml"))),
-			else -> CompileUnit(s = { base = At.base, unit = { names = p.paths, srcs = SetAt(xs = p.srcs, i = PathIndex(paths = p.paths, root = p.root, abs = UnwrapR2(r = ResolvePath)), x = Text), root = p.root, here = PathIndex(paths = p.paths, root = p.root, abs = UnwrapR2(r = ResolvePath)), project = Some({ ..p, srcs = SetAt(xs = p.srcs, i = PathIndex(paths = p.paths, root = p.root, abs = UnwrapR2(r = ResolvePath)), x = Text) }) } }) as InProject
+			else -> CompileUnit(s = { base = Session.Base, unit = { names = p.paths, srcs = SetAt(xs = p.srcs, i = PathIndex(paths = p.paths, root = p.root, abs = UnwrapR2(r = ResolvePath)), x = Text), root = p.root, here = PathIndex(paths = p.paths, root = p.root, abs = UnwrapR2(r = ResolvePath)), project = Some({ ..p, srcs = SetAt(xs = p.srcs, i = PathIndex(paths = p.paths, root = p.root, abs = UnwrapR2(r = ResolvePath)), x = Text) }) } }) as InProject
 		},
 		Err(e) -> id(ApiErr(msg = e.msg))
 	};

@@ -1,11 +1,34 @@
-//! vcc's IDE (../sys/ide), called directly: routes, auth, compile.
+//! vcc's IDE (../sys/ide), through its server's routes: each to its own
+//! proc. Routes, auth, compile.
 
-use vcc::vcc::types as v;
+use vcc::vcc::http;
 
-fn req(method: &str, path: &str, query: &[(&str, &str)], headers: &[(&str, &str)], body: &str) -> v::HttpResponse {
-    let m = |kv: &[(&str, &str)]| kv.iter().map(|(k, x)| (v::Str::from(*k), v::Str::from(*x))).collect();
-    let r = v::HttpRequest { method: method.into(), path: path.into(), query: m(query), headers: m(headers), body: body.into() };
-    vcc::vcc::run_ide(r).unwrap()
+struct Res {
+    status: u16,
+    headers: Vec<(String, String)>,
+    body: String,
+}
+
+impl Res {
+    fn header(&self, name: &str) -> Option<&str> {
+        self.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+    }
+}
+
+/// The response for a request, as the server routes it; 404 for a route it
+/// doesn't have, as the server answers.
+fn req(method: &str, path: &str, query: &[(&str, &str)], headers: &[(&str, &str)], body: &str) -> Res {
+    let r = http::Request {
+        method: method.into(),
+        path: path.into(),
+        query: query.iter().map(|(k, x)| format!("{k}={x}")).collect::<Vec<_>>().join("&"),
+        headers: headers.iter().map(|(k, x)| (k.to_lowercase(), x.to_string())).collect(),
+        body: body.into(),
+    };
+    match http::handle_ide(&r) {
+        Some(r) => Res { status: r.status, headers: r.headers, body: String::from_utf8(r.body).unwrap() },
+        None => Res { status: 404, headers: vec![], body: String::new() },
+    }
 }
 
 #[test]
@@ -13,13 +36,13 @@ fn serves_pages_with_the_token_and_guards_writes() {
     // The source directory is the working directory: the crate's.
     let page = req("GET", "/viewer", &[], &[], "");
     assert_eq!(page.status, 200);
-    assert!(!page.body.contains("__VANDORF_TOKEN__") && page.headers.get(&v::Str::from("Cache-Control")).map(|s| &**s) == Some("no-store"));
+    assert!(!page.body.contains("__VANDORF_TOKEN__") && page.header("Cache-Control") == Some("no-store"));
     let save = req("POST", "/api/save", &[], &[("host", "127.0.0.1:8080")], r#"{"path": "x.sys", "source": ""}"#);
-    assert_eq!((save.status, &*save.body), (403, r#"{"error":"forbidden: missing or wrong session token","ok":false}"#));
+    assert_eq!((save.status, save.body.as_str()), (403, r#"{"error":"forbidden: missing or wrong session token","ok":false}"#));
     // Called in-process, not listening anywhere: not on a loopback address,
     // so no terminals.
     let term = req("GET", "/api/term/list", &[], &[("host", "127.0.0.1")], "");
-    assert_eq!((term.status, &*term.body), (400, r#"{"error":"terminals are off: the IDE isn't listening on a loopback address","ok":false}"#));
+    assert_eq!((term.status, term.body.as_str()), (400, r#"{"error":"terminals are off: the IDE isn't listening on a loopback address","ok":false}"#));
     assert_eq!(req("GET", "/nope", &[], &[], "").status, 404);
 }
 
