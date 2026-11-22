@@ -7,10 +7,9 @@ From the repo root, start both on the same directory, then run this:
     target/release/vandorf serve --addr 127.0.0.1:8081 &
     python3 selfhost/scripts/ide-parity.py
 
-Known differences: the Go preview (vcc has no Go backend yet) and the
-wording of parse errors (vcc's parser has its own messages); positions and
-the rendering agree. Pages are
-embedded when each server is built, so rebuild both after editing web/.
+Known differences: the wording of parse errors (vcc's parser has its own
+messages); positions and the rendering agree. Pages are embedded when
+each server is built, so rebuild both after editing web/.
 """
 import json, urllib.request
 

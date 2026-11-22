@@ -69,7 +69,8 @@ proc CompileUnit(At): HttpResponse {
 		else -> Symbols(s = { base = At.base, unit = At.unit, prog = this.prog })
 	};
 	Symbols -> RustPreview(s = { unit = At.unit, prog = Analyze.prog });
-	RustPreview -> DocumentJson(prog = Analyze.prog);
+	RustPreview -> GoPreview(s = { unit = At.unit, prog = Analyze.prog });
+	GoPreview -> DocumentJson(prog = Analyze.prog);
 	DocumentJson -> id(Api(j = Obj([
 		{ key = "ok", value = Bool(true) },
 		{ key = "name", value = Str(At.unit.names[At.unit.here]) },
@@ -77,14 +78,12 @@ proc CompileUnit(At): HttpResponse {
 		{ key = "grids", value = Num(Procs(nodes = Analyze.prog.nodes).len) },
 		{ key = "document", value = this },
 		{ key = "symbols", value = Symbols },
-		{ key = "go", value = GoPreview(p = At.unit.project) },
+		{ key = "go", value = GoPreview },
 		{ key = "rust", value = RustPreview }
 	])));
 }
 
 func ProjectName(p: MaybeProject): Json = "ide_leaf.rs:project_name_json";
-// vcc doesn't generate Go yet; or [go] isn't configured.
-func GoPreview(p: MaybeProject): Json = "ide_leaf.rs:go_preview";
 
 // Each file parsed, its errors kept (they're diagnostics, not failures).
 proc ParseUnit(At): { file: File, errors: []Diag } {
@@ -198,6 +197,49 @@ proc RustPreview(At): Json {
 }
 
 func UnwrapPr(p: MaybeProject): Project = "ide_leaf.rs:unwrap_project";
+
+// What vcc build would generate in Go: with [go]'s settings, or nominal
+// ones (package app in example.com/app) for a file outside a project.
+proc GoPreview(At): Json {
+	func At(s: { unit: Unit, prog: Program }): { unit: Unit, prog: Program } = "../leaf.rs:same";
+	func P(p: MaybeProject): MaybeProject = "../leaf.rs:same";
+	func G(g: MaybeGo): MaybeGo = "../leaf.rs:same";
+	func Base(b: MaybeStr): MaybeStr = "../leaf.rs:same";
+	func NominalGoMains(prog: Program): []GoMainSpec = "ide_leaf.rs:nominal_go_mains";
+	func UnwrapG(g: MaybeGo): GoTarget = "ide_leaf.rs:unwrap_go";
+	func Dirs(root: string, paths: []string): []string = "../cli/cli_leaf.rs:dirs";
+	At -> P(p = this.unit.project);
+	P switch {
+		Some(p) -> G(g = p.manifest.go),
+		else -> GoPreviewJson(s = { prog = At.prog, package = "app", import_base = Some("example.com/app"), types_dir = "types", mains = NominalGoMains(prog = At.prog) }) as Nominal
+	};
+	G switch {
+		Some(g) -> FindUp(s = { dir = JoinP(a = At.unit.root, b = g.out), marker = "go.mod" }),
+		else -> id(Obj([{ key = "ok", value = Bool(false) }, { key = "error", value = Str("not configured in vandorf.toml") }]))
+	};
+	FindUp switch {
+		(this == "") -> Base(b = GoImportBase(g = UnwrapG(g = G), root = "", gomod = "", out = JoinP(a = At.unit.root, b = UnwrapG(g = G).out))),
+		else -> Fs.Read(path = JoinP(a = this, b = "go.mod"))
+	};
+	Fs.Read -> Base(b = GoImportBase(g = UnwrapG(g = G), root = FindUp, gomod = this, out = JoinP(a = At.unit.root, b = UnwrapG(g = G).out)));
+	Base -> GoPreviewJson(s = {
+		prog = RebaseImpls(prog = At.prog, dirs = Dirs(root = At.unit.root, paths = At.unit.names), out = JoinP(a = At.unit.root, b = UnwrapG(g = G).out)),
+		package = GoPackage(g = UnwrapG(g = G), out = JoinP(a = At.unit.root, b = UnwrapG(g = G).out)),
+		import_base = this,
+		types_dir = UnwrapOr(m = UnwrapG(g = G).types_dir, d = "types"),
+		mains = GoMainSpecs(c = { project = UnwrapPr(p = P), prog = At.prog }, g = UnwrapG(g = G), names = UnwrapPr(p = P).manifest.bins.keys)
+	}) as Configured;
+}
+
+// The generated files as JSON (artifacts: types, code, mains) and the
+// implementations they call; or the error.
+proc GoPreviewJson(At): Json {
+	func At(s: GoGenIn): GoGenIn = "../leaf.rs:same";
+	func Output(o: GoOut, prog: Program, t: Table, setup: GoSetup): Json = "ide_leaf.rs:go_output_json";
+	At -> GoGenerate(s = this);
+	GoGenerate -> BuildTable(prog = At.prog);
+	BuildTable -> id(Output(o = GoGenerate, prog = At.prog, t = this, setup = GoSetupOf(package = At.package, import_base = At.import_base, types_dir = At.types_dir)));
+}
 
 // The generated files as JSON: artifacts (types, code, mains) and the
 // implementations they call; or the error.

@@ -46,18 +46,80 @@ proc ParseAll(At): { file: File, errors: []Diag } {
 	};
 }
 
-// Rust for the project: [rust]'s module, and the bins (all, or `only`).
+func HasRust(m: Manifest): bool = "cli_leaf.rs:has_rust";
+
+// What the manifest configures, Go then Rust: each language's library and
+// the bins (all, or `only`).
 proc Build(At): string {
+	func At(s: { c: Checked, only: string }): { c: Checked, only: string } = "../leaf.rs:same";
+	func G(g: MaybeGo): MaybeGo = "../leaf.rs:same";
+	func R(r: MaybeRust): MaybeRust = "../leaf.rs:same";
+	func GoOutDir(root: string, g: GoTarget): string = "cli_leaf.rs:go_out_dir";
+	At switch {
+		(!this.c.project.manifest.has_go && !HasRust(m = this.c.project.manifest)) -> Fail(msg = "vandorf.toml: configure [go] and/or [rust] to build") as Neither,
+		else -> BinNames(bins = this.c.project.manifest.bins, only = this.only)
+	};
+	BinNames switch {
+		(At.c.project.manifest.http.len > 0 && !HasRust(m = At.c.project.manifest)) -> Fail(msg = "vandorf.toml: [http.*] servers are generated in Rust: configure [rust]") as NoRustHttp,
+		else -> G(g = At.c.project.manifest.go)
+	};
+	G switch {
+		Some(g) -> GoBuild(s = { c = At.c, g = g, names = BinNames, out = GoOutDir(root = At.c.project.root, g = g) }),
+		else -> R(r = At.c.project.manifest.rust)
+	};
+	GoBuild -> R(r = At.c.project.manifest.rust);
+	R switch {
+		Some(_) -> RustBuild(s = At),
+		else -> id("built " + At.c.project.manifest.name)
+	};
+	RustBuild -> id("built " + At.c.project.manifest.name);
+}
+
+func RebasedTo(c: Checked, out: string): Program = "cli_leaf.rs:rebased_to";
+// [go]'s package, or the output directory's name.
+func GoPackage(g: GoTarget, out: string): string = "cli_leaf.rs:go_package";
+// [go]'s module, or the import path of out in the go.mod at root (text).
+func GoImportBase(g: GoTarget, root: string, gomod: string, out: string): MaybeStr = "cli_leaf.rs:go_import_base";
+// Each bin's main package: [bin.*]'s go, by default <go.out>/../cmd/<name>,
+// relative to go.out.
+func GoMainSpecs(c: Checked, g: GoTarget, names: []string): []GoMainSpec = "cli_leaf.rs:go_main_specs";
+func GoOutFiles(out: string, files: []GoFile): []OutFile = "cli_leaf.rs:go_out_files";
+func GoImplChecks(prog: Program, t: Table, g: GoTarget, out: string, import_base: MaybeStr, root: string, paths: []string, srcs: []string): []ImplCheck = "cli_leaf.rs:go_impl_checks";
+
+// Go for the project: [go]'s packages and the bins' mains.
+proc GoBuild(At): string {
+	func At(s: { c: Checked, g: GoTarget, names: []string, out: string }): { c: Checked, g: GoTarget, names: []string, out: string } = "../leaf.rs:same";
+	func Base(b: MaybeStr): MaybeStr = "../leaf.rs:same";
+	At -> FindUp(s = { dir = this.out, marker = "go.mod" });
+	FindUp switch {
+		(this == "") -> Base(b = GoImportBase(g = At.g, root = "", gomod = "", out = At.out)),
+		else -> Fs.Read(path = JoinP(a = this, b = "go.mod"))
+	};
+	Fs.Read -> Base(b = GoImportBase(g = At.g, root = FindUp, gomod = this, out = At.out));
+	Base -> GoGenerate(s = { prog = RebasedTo(c = At.c, out = At.out), package = GoPackage(g = At.g, out = At.out), import_base = this, types_dir = UnwrapOr(m = At.g.types_dir, d = "types"), mains = GoMainSpecs(c = At.c, g = At.g, names = At.names) });
+	GoGenerate switch {
+		(IsSomeS(m = this.err)) -> Fail(msg = UnwrapS(m = this.err)) as GenFailed,
+		else -> Guard(s = { files = GoOutFiles(out = At.out, files = this.files), i = 0 })
+	};
+	Guard -> WriteAll(s = { files = GoOutFiles(out = At.out, files = GoGenerate.files), i = 0 });
+	// Generated code is already indented; gofmt only aligns it.
+	WriteAll -> Tools.Gofmt(files = OutPaths(files = GoOutFiles(out = At.out, files = GoGenerate.files)));
+	Tools.Gofmt -> BuildTable(prog = RebasedTo(c = At.c, out = At.out));
+	BuildTable -> ImplWarnings(s = { checks = GoImplChecks(prog = RebasedTo(c = At.c, out = At.out), t = this, g = At.g, out = At.out, import_base = Base, root = At.c.project.root, paths = At.c.project.paths, srcs = At.c.project.srcs), i = 0 });
+	ImplWarnings -> Commands(s = { what = "post-build", cmds = At.g.post, dir = At.c.project.root, i = 0 });
+}
+
+func UnwrapOr(m: MaybeStr, d: string): string = "cli_leaf.rs:unwrap_or";
+
+// Rust for the project: [rust]'s module, and the bins (all, or `only`).
+proc RustBuild(At): string {
 	func At(s: { c: Checked, only: string }): { c: Checked, only: string } = "../leaf.rs:same";
 	func R(r: MaybeRust): MaybeRust = "../leaf.rs:same";
 	func Dirs(root: string, paths: []string): []string = "cli_leaf.rs:dirs";
 	At -> R(r = this.c.project.manifest.rust);
 	R switch {
 		Some(r) -> FindUp(s = { dir = JoinP(a = At.c.project.root, b = r.out), marker = "Cargo.toml" }) as Crate,
-		else -> switch {
-			(At.c.project.manifest.http.len > 0) -> Fail(msg = "vandorf.toml: [http.*] servers are generated in Rust: configure [rust]") as NoRustHttp,
-			else -> Fail(msg = "vandorf.toml: configure [rust] to build (vcc builds Rust only so far)") as NoRust
-		}
+		else -> Fail(msg = "vandorf.toml: no [rust]") as NoRust
 	};
 	Crate -> CrateName(dir = this);
 	// `vcc build <bin>` builds no servers.
@@ -94,20 +156,21 @@ proc Build(At): string {
 	// Warnings for implementations that aren't where the .sys says.
 	BuildTable -> ImplWarnings(s = { checks = ImplChecks(prog = Rebased(c = At.c), t = this, module_dir = ModuleDir(target = UnwrapR(r = R), out = OutDir(c = At.c), croot = Crate), out = OutDir(c = At.c), root = At.c.project.root, paths = At.c.project.paths, srcs = At.c.project.srcs), i = 0 });
 	ImplWarnings -> Commands(s = { what = "post-build", cmds = UnwrapR(r = R).post, dir = At.c.project.root, i = 0 });
-	Commands -> id("built " + At.c.project.manifest.name);
 }
 
-// vcc test: builds everything, then runs [rust]'s test commands.
+// vcc test: builds everything, then runs each language's test commands,
+// Go's then Rust's.
 proc Test(At): string {
 	func At(s: Checked): Checked = "../leaf.rs:same";
+	func GoTests(m: Manifest): []string = "cli_leaf.rs:go_tests";
+	func RustTests(m: Manifest): []string = "cli_leaf.rs:rust_tests";
 	At -> Build(s = { c = this, only = "" });
-	Build -> R(r = At.project.manifest.rust);
-	func R(r: MaybeRust): MaybeRust = "../leaf.rs:same";
-	R switch {
-		(UnwrapR(r = this).test.len == 0) -> Fail(msg = "vandorf.toml: no tests: add test = [..] to [rust] (vcc builds Rust only so far)") as NoTests,
-		else -> Commands(s = { what = "test", cmds = UnwrapR(r = this).test, dir = At.project.root, i = 0 })
+	Build switch {
+		(GoTests(m = At.project.manifest).len == 0 && RustTests(m = At.project.manifest).len == 0) -> Fail(msg = "vandorf.toml: no tests: add test = [..] to [go] or [rust]") as NoTests,
+		else -> Commands(s = { what = "test", cmds = GoTests(m = At.project.manifest), dir = At.project.root, i = 0 }) as GoRun
 	};
-	Commands -> id("tested " + At.project.manifest.name);
+	GoRun -> Commands(s = { what = "test", cmds = RustTests(m = At.project.manifest), dir = At.project.root, i = 0 }) as RustRun;
+	RustRun -> id("tested " + At.project.manifest.name);
 }
 
 // Shell commands, in order, in dir; the first that fails fails the proc
@@ -125,12 +188,13 @@ proc Commands(At): string {
 	};
 }
 
-type ImplCheck = { path: string, function: string, missing: string, undefined: string };
+// keyword: what defines the function (fn, func).
+type ImplCheck = { path: string, function: string, keyword: string, missing: string, undefined: string };
 func ImplChecks(prog: Program, t: Table, module_dir: MaybeStr, out: string, root: string, paths: []string, srcs: []string): []ImplCheck = "cli_leaf.rs:impl_checks";
 
 proc ImplWarnings(At): bool {
 	func At(s: { checks: []ImplCheck, i: int }): { checks: []ImplCheck, i: int } = "../leaf.rs:same";
-	func Defines(src: string, function: string): bool = "cli_leaf.rs:defines_fn";
+	func Defines(src: string, function: string, keyword: string): bool = "cli_leaf.rs:defines_fn";
 	At switch {
 		(this.i == this.checks.len) -> id(true),
 		else -> Fs.IsFile(path = this.checks[this.i].path)
@@ -140,7 +204,7 @@ proc ImplWarnings(At): bool {
 		else -> Console.Err(line = At.checks[At.i].missing + "\n") as Missing
 	};
 	Fs.Read switch {
-		(Defines(src = this, function = At.checks[At.i].function)) -> At(s = { ..At, i = At.i + 1 }),
+		(Defines(src = this, function = At.checks[At.i].function, keyword = At.checks[At.i].keyword)) -> At(s = { ..At, i = At.i + 1 }),
 		else -> Console.Err(line = At.checks[At.i].undefined + "\n") as Undefined
 	};
 	Missing -> At(s = { ..At, i = At.i + 1 });

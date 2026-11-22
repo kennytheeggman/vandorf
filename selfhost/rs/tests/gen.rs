@@ -216,3 +216,87 @@ fn generates_http_like_the_reference() {
     assert!(n > 15, "{n}");
     assert!(with_setup > 0, "no server with a setup generated");
 }
+
+/// The Go backend's files as (directory, name) -> text, or its error.
+fn go_files(out: Result<vandorf::codegen::Output, String>) -> Result<std::collections::BTreeMap<(String, String), String>, String> {
+    let out = out?;
+    let mut files = std::collections::BTreeMap::new();
+    for art in std::iter::once(&out.types).chain([&out.code]).chain(&out.mains) {
+        for (name, text) in &art.files {
+            files.insert((art.dir.clone(), name.clone()), text.clone());
+        }
+    }
+    Ok(files)
+}
+
+fn vcc_go_files(out: v::GoOut) -> Result<std::collections::BTreeMap<(String, String), String>, String> {
+    if let v::MaybeStr::Some(e) = out.err {
+        return Err(e.to_string());
+    }
+    Ok(out.files.iter().map(|f| ((f.dir.to_string(), f.name.to_string()), f.text.to_string())).collect())
+}
+
+#[test]
+fn generates_go_like_the_reference() {
+    use vandorf::codegen::{MainSpec, go::GoOptions};
+    let (mut files, mut errors, mut mains) = (0, 0, 0);
+    for (name, prog, srcs) in &programs() {
+        let srcs: Vec<&str> = srcs.iter().map(|s| s.as_str()).collect();
+        let vprog = analyze(&srcs);
+        let base = Some("example.com/app".to_string());
+        // Types in their own package; in the code package without an import
+        // path; a separate types package without one (an error); then each
+        // top-level procs (the first few) as mains.
+        let mut cases: Vec<(String, Option<String>, String, Vec<MainSpec>)> = vec![
+            ("app".into(), base.clone(), "types".into(), vec![]),
+            ("app".into(), None, ".".into(), vec![]),
+            ("app".into(), None, "types/".into(), vec![]),
+        ];
+        for &p in prog.top_procs.iter().take(8) {
+            let entry = prog.node(p).name().to_string();
+            let main = MainSpec { name: "bin".into(), entry, path: "../cmd/bin".into() };
+            cases.push(("main".into(), base.clone(), "types".into(), vec![main]));
+        }
+        cases.push(("app".into(), base.clone(), "types".into(), vec![MainSpec { name: "bin".into(), entry: "Missing".into(), path: "cmd".into() }]));
+        for (package, import_base, types_dir, ms) in cases {
+            let mut opts = GoOptions::new(package.as_str(), import_base.clone());
+            opts.types_dir = types_dir.clone();
+            opts.mains = ms.clone();
+            let want = go_files(vandorf::codegen::go::generate(prog, &opts));
+            let got = vcc_go_files(
+                vcc::vcc::run_go_generate(v::GoGenIn {
+                    prog: vprog.clone(),
+                    package: package.as_str().into(),
+                    import_base: import_base.as_deref().map_or(v::MaybeStr::None, |b| v::MaybeStr::Some(b.into())),
+                    types_dir: types_dir.as_str().into(),
+                    mains: ms.iter().map(|m| v::GoMainSpec { name: m.name.as_str().into(), entry: m.entry.as_str().into(), path: m.path.as_str().into() }).collect(),
+                })
+                .unwrap(),
+            );
+            let case = format!("{name} (package {package}, import {import_base:?}, types {types_dir}, mains {:?})", ms.iter().map(|m| &m.entry).collect::<Vec<_>>());
+            match (want, got) {
+                (Ok(want), Ok(got)) => {
+                    assert_eq!(want.keys().collect::<Vec<_>>(), got.keys().collect::<Vec<_>>(), "{case}");
+                    for (file, text) in &want {
+                        if *text != got[file] {
+                            let line = text.lines().zip(got[file].lines()).position(|(a, b)| a != b);
+                            panic!(
+                                "{case}: {file:?} differs at line {line:?}:\n  reference: {:?}\n  vcc:       {:?}",
+                                line.and_then(|l| text.lines().nth(l)),
+                                line.and_then(|l| got[file].lines().nth(l))
+                            );
+                        }
+                    }
+                    files += want.len();
+                    mains += ms.len();
+                }
+                (Err(w), Err(g)) => {
+                    assert_eq!(w, g, "{case}");
+                    errors += 1;
+                }
+                (w, g) => panic!("{case}: reference {:?}, vcc {:?}", w.map(|_| ()), g.map(|_| ())),
+            }
+        }
+    }
+    assert!(files > 100 && errors > 15 && mains > 10, "{files} files, {errors} errors, {mains} mains");
+}
