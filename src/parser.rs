@@ -411,13 +411,23 @@ fn target<'a>() -> impl Parser<'a, In<'a>, Target, Extra<'a>> + Clone {
     let id = text::ascii::keyword("id")
         .map_with(|_, e| Path { segs: vec![Ident { name: "id".into(), span: e.span() }], span: e.span() })
         .then_ignore(ws())
-        .then(value().delimited_by(sym("("), sym(")")))
+        .then(value().map_with(|v, e| (v, squash(e.slice()))).delimited_by(sym("("), sym(")")))
         .then(kw("as").ignore_then(ident()).or_not())
-        .map(|((node, v), alias)| Target { node, args: vec![], alias, id: Some(v) });
+        .map(|((node, (v, text)), alias)| Target { node, args: vec![], alias, id: Some(v), text });
     id.or(path()
-        .then(arg.separated_by(sym(",")).collect().delimited_by(sym("("), sym(")")))
+        .then(
+            arg.separated_by(sym(","))
+                .collect::<Vec<_>>()
+                .map_with(|a, e| (a, squash(e.slice())))
+                .delimited_by(sym("("), sym(")")),
+        )
         .then(kw("as").ignore_then(ident()).or_not())
-        .map(|((node, args), alias)| Target { node, args, alias, id: None }))
+        .map(|((node, (args, text)), alias)| Target { node, args, alias, id: None, text }))
+}
+
+/// Source text on one line: whitespace runs (newlines too) become one space.
+fn squash(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn pattern<'a>() -> impl Parser<'a, In<'a>, Pat, Extra<'a>> + Clone {

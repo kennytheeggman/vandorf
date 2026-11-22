@@ -75,6 +75,9 @@ pub struct Edge {
     /// What the target receives: its name and parameters, `B(i: int)`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub call: Option<String>,
+    /// The arguments as written, `a = this.a, b = 1`, or id's value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub args: Option<String>,
 }
 
 impl From<NodeType> for u8 {
@@ -105,6 +108,7 @@ struct Pending {
     label: Option<String>,
     value: String,
     call: String,
+    args: String,
     back: bool,
 }
 
@@ -115,6 +119,7 @@ struct Out {
     label: Option<String>,
     /// Type of `this` along the edge.
     value: String,
+    args: String,
 }
 
 #[derive(Default)]
@@ -170,7 +175,7 @@ fn edge_targets(prog: &Program, g: &Graph, src: NodeId) -> Vec<Out> {
     match &g.edges[&src] {
         SEdge::Call(c) => {
             let ty = if in_region { EdgeType::ForEachContinue } else { EdgeType::Call };
-            vec![Out { ty, target: c.target, label: None, value: ret }]
+            vec![Out { ty, target: c.target, label: None, value: ret, args: c.text.clone() }]
         }
         SEdge::Match(arms) => arms
             .iter()
@@ -178,13 +183,13 @@ fn edge_targets(prog: &Program, g: &Graph, src: NodeId) -> Vec<Out> {
             .map(|(path, c)| {
                 // A nested switch's arms are flattened into one edge per call.
                 let label: Vec<String> = path.iter().map(|l| arm_label(l)).collect();
-                Out { ty: EdgeType::Match, target: c.target, label: Some(label.join(" → ")), value: ret.clone() }
+                Out { ty: EdgeType::Match, target: c.target, label: Some(label.join(" → ")), value: ret.clone(), args: c.text.clone() }
             })
             .collect(),
         SEdge::ForEach { call, elem, .. } => {
-            vec![Out { ty: EdgeType::ForEachExpand, target: call.target, label: None, value: elem.to_string() }]
+            vec![Out { ty: EdgeType::ForEachExpand, target: call.target, label: None, value: elem.to_string(), args: call.text.clone() }]
         }
-        SEdge::Collect(c) => vec![Out { ty: EdgeType::ForEachCollect, target: c.target, label: None, value: format!("[]{ret}") }],
+        SEdge::Collect(c) => vec![Out { ty: EdgeType::ForEachCollect, target: c.target, label: None, value: format!("[]{ret}"), args: c.text.clone() }],
     }
 }
 
@@ -238,7 +243,7 @@ fn layout(prog: &Program, pid: NodeId) -> Grid {
                 continue;
             }
             let mut recorded = vec![];
-            for Out { ty, target, label, value } in edge_targets(prog, g, src) {
+            for Out { ty, target, label, value, args } in edge_targets(prog, g, src) {
                 let back = match l.pos.get(&target) {
                     None => {
                         l.place(target, row);
@@ -257,7 +262,7 @@ fn layout(prog: &Program, pid: NodeId) -> Grid {
                     }
                 };
                 let call = call_sig(prog, pid, target);
-                recorded.push(Pending { ty, target, label, value, call, back });
+                recorded.push(Pending { ty, target, label, value, call, args, back });
             }
             l.out.insert(src, recorded);
         }
@@ -300,6 +305,7 @@ fn layout(prog: &Program, pid: NodeId) -> Grid {
                     label: e.label.clone(),
                     value_type: Some(e.value.clone()),
                     call: Some(e.call.clone()),
+                    args: (!e.args.is_empty()).then(|| e.args.clone()),
                 });
             }
         }

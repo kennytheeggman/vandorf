@@ -73,7 +73,9 @@ body.text-mode #drawer{ display:none }
 #drawer .arm:hover{ background:var(--sel); color:var(--sel-ink) }
 #drawer .arm .to{ display:flex; align-items:center; gap:6px; min-width:0; padding-left:12px; color:var(--mut) }
 #drawer .arm .to code{ color:var(--ink) }
+#drawer .arm .to code.args{ color:var(--fn); margin-left:-4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0 }
 #drawer .arm .ty{ color:var(--mut); margin-left:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.tk-fn{ color:var(--fn) } .tk-op{ color:var(--com) }
 .tk-kw{ color:var(--kw); font-weight:600 } .tk-str{ color:var(--str) } .tk-com{ color:var(--com); font-style:italic } .tk-num{ color:var(--str) } .tk-ty{ color:var(--tyc) }
 </style>
 </head>
@@ -430,20 +432,16 @@ function renderDrawer(){
     }
   } else if (kind === 'edge'){
     name = (sel.from && sel.from.label || '?') + ' → ' + (sel.to && sel.to.label || '?');
-    body = '<table>' +
-      row('kind', esc(EDGE_KIND[sel.edgeType] || sel.edgeType || 'edge')) +
-      row('from', nodeRef(sel.from)) + row('to', nodeRef(sel.to)) +
-      row('arm', sel.edgeLabel ? '<code>' + esc(sel.edgeLabel) + '</code>' : '') +
-      row('this', sel.valueType ? '<code>' + linkTypes(sel.valueType) + '</code>' : '') +
-      row('calls', sel.call ? '<code>' + linkTypes(sel.call) + '</code>' : '') + '</table>';
+    body = (sel.edgeLabel ? '<h4>When</h4><div class="sig">' + hlSys(sel.edgeLabel) + '</div>' : '') +
+      '<h4>Call</h4><div class="sig">' + hlSys(sel.callText || sel.call || '') + '</div>';
   } else if (kind === 'switch'){
     var arms = sel.arms || [];
     name = 'switch on ' + (sel.from && sel.from.label || '?');
     body = (sel.valueType ? '<div class="sig">' + linkTypes(sel.valueType) + '</div>' : '') +
       '<h4>' + arms.length + ' arm' + (arms.length === 1 ? '' : 's') + '</h4>' +
       '<div class="arms">' + arms.map(function(a, i){
-        return '<div class="arm" data-arm="' + i + '"><code>' + esc(a.edgeLabel || '_') + '</code>' +
-          '<span class="to">→ ' + nodeRef(a.to) + '<span class="ty">' + esc(a.valueType || '') + '</span></span></div>';
+        return '<div class="arm" data-arm="' + i + '"><code>' + hlSys(a.edgeLabel || '_') + '</code>' +
+          '<span class="to"><span class="tk-op">\u2192</span> <code>' + hlSys(a.callText || (a.to && a.to.label) || '?') + '</code></span></div>';
       }).join('') + '</div>';
   } else {
     kind = 'none'; name = 'Preview';
@@ -467,7 +465,7 @@ $('dBody').addEventListener('click', function(e){
   if (arm && drawerSel && drawerSel.arms){
     var x = drawerSel.arms[+arm.dataset.arm];
     toViz({ type: 'vandorf-highlight', id: null });
-    openDrawer({ kind: 'edge', id: x.id, edgeType: 'match', edgeLabel: x.edgeLabel, valueType: x.valueType, call: x.call,
+    openDrawer({ kind: 'edge', id: x.id, edgeType: 'match', edgeLabel: x.edgeLabel, args: x.args, callText: x.callText, valueType: x.valueType, call: x.call,
                  owner: drawerSel.owner, from: drawerSel.from, to: x.to }, true);
   }
 });
@@ -564,6 +562,22 @@ function extract(src, fn, lang){
     if (c === '}' && --depth === 0) break;
   }
   return { text: src.slice(start, i + 1), line: src.slice(0, start).split('\n').length - 1 };
+}
+// Tokens of a .sys expression for highlighting: [[text, class|null], ..].
+function sysTokens(s){
+  var re = /("(?:[^"\\]|\\.)*")|\b(else|in|id|this|true|false|as|switch)\b|\b(\d+(?:\.\d+)?)\b|\b([A-Z]\w*)(?=\s*\()|\b([A-Z]\w*)\b|(→|⇒|==|!=|<=|>=|&&|\|\||[=!<>+\-*\/|])/g;
+  var out = [], last = 0, m;
+  while ((m = re.exec(s))){
+    if (m.index > last) out.push([s.slice(last, m.index), null]);
+    out.push([m[0], m[1] ? 'str' : m[2] ? 'kw' : m[3] ? 'num' : m[4] ? 'fn' : m[5] ? 'ty' : 'op']);
+    last = m.index + m[0].length;
+  }
+  if (last < s.length) out.push([s.slice(last), null]);
+  return out;
+}
+// A .sys expression with syntax colors.
+function hlSys(s){
+  return sysTokens(s).map(function(t){ return t[1] ? '<span class="tk-' + t[1] + '">' + esc(t[0]) + '</span>' : esc(t[0]); }).join('');
 }
 function highlight(s, lang){
   var kw = lang === 'sys'

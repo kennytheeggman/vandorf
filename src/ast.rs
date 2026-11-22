@@ -198,6 +198,9 @@ pub struct Target {
     /// `id(value)`: end the proc with `value` (then `node` is `id`, and
     /// `args` is empty).
     pub id: Option<Value>,
+    /// What's inside the parentheses as written, whitespace collapsed: the
+    /// arguments (or id's value) for diagram labels.
+    pub text: String,
 }
 
 /// `name = value`, in a call or a struct literal.

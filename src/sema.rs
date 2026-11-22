@@ -215,6 +215,8 @@ pub struct Call {
     /// Arguments in the target's parameter order.
     pub args: Vec<CallArg>,
     pub span: Span,
+    /// The arguments as written (empty for calls inside expressions).
+    pub text: String,
 }
 
 #[derive(Debug, Clone)]
@@ -1365,11 +1367,14 @@ impl<'a> Cx<'a> {
                 e.msg = format!("id: {}", e.msg);
                 e
             })?;
-            return Ok(Call { target, args: vec![CallArg { name: "value".into(), param: ret.clone(), value }], span: t.node.span });
+            let args = vec![CallArg { name: "value".into(), param: ret.clone(), value }];
+            return Ok(Call { target, args, span: t.node.span, text: t.text.clone() });
         }
         let target = self.target(pid, t)?;
         let named: Vec<(&ast::Ident, &ast::Value)> = t.args.iter().map(|a| (&a.name, &a.value)).collect();
-        self.args(pid, target, &named, t.node.span, sc)
+        let mut c = self.args(pid, target, &named, t.node.span, sc)?;
+        c.text = t.text.clone();
+        Ok(c)
     }
 
     /// Checks named arguments against `target`'s parameters.
@@ -1396,7 +1401,7 @@ impl<'a> Cx<'a> {
                 None => return err(span, format!("call to {tname} is missing argument {name}")),
             }
         }
-        Ok(Call { target, args, span })
+        Ok(Call { target, args, span, text: String::new() })
     }
 
     /// A switch: arms in order, the first that matches taken. Its arms are
