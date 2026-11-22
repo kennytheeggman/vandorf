@@ -5,7 +5,8 @@ Proof-of-concept Rust rewrite of the vandorf compiler.
 ```
 cd examples/demo
 cargo run -- check                   # the project in vandorf.toml
-cargo run -- build                   # both backends and both bins (or: build calc)
+cargo run -- build                   # both backends and both bins (or: build calc);
+                                     # generated code isn't checked in, so this comes first
 cargo run -- doc > doc.json          # visualizer document
 cargo run -- serve                   # IDE on :8080 (explorer, diagram/text tabs, terminal)
 
