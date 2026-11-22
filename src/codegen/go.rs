@@ -181,6 +181,7 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<Output, String> {
         .enumerate()
         .filter_map(|(id, n)| match &n.kind {
             NodeKind::Func(f) => f.imp("go").map(|i| ImplUse {
+                id,
                 node: n.qual_name(),
                 file: i.file.clone(),
                 function: i.function.clone(),

@@ -1,5 +1,5 @@
-//! Demo of the Rust backend: `app` is generated from ../demo.sys by
-//! `vandorf rust ../demo.sys -o src/app`.
+//! Demo of the Rust backend: `app` is generated from ../sys by
+//! `vandorf build` (see ../../vandorf.toml).
 
 pub mod app;
 mod effects;

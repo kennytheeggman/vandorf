@@ -53,8 +53,6 @@ const UI_CSS: &str = include_str!("../web/ui.css");
 pub struct Options {
     pub addr: String,
     pub dir: PathBuf,
-    /// Whether to offer terminals. Defaults to on for loopback addresses only.
-    pub term: Option<bool>,
 }
 
 struct State {
@@ -72,7 +70,8 @@ pub fn serve(opts: Options) -> Result<(), String> {
     let server = Server::http(&opts.addr).map_err(|e| format!("cannot listen on {}: {e}", opts.addr))?;
     let host = opts.addr.rsplit_once(':').map(|(h, _)| h).unwrap_or(&opts.addr);
     let loopback = is_loopback(host);
-    let term = opts.term.unwrap_or(loopback);
+    // Terminals run shells: only for this machine.
+    let term = loopback;
     if term && !loopback {
         eprintln!("warning: terminals are enabled on a non-loopback address; anyone who can load the page gets a shell");
     }
@@ -160,7 +159,7 @@ fn handle(mut req: Request, st: &State) {
         (Method::Post, "/api/save") => forbidden(),
         (_, p) if p.starts_with("/api/term") => {
             if !st.term {
-                api(Err("terminals are off (start `vandorf serve --term` to enable them)".into()))
+                api(Err("terminals are off: the IDE isn't listening on a loopback address".into()))
             } else if !authorized(&req, st) {
                 forbidden()
             } else {
@@ -704,7 +703,7 @@ fn compile(base: &Path, body: &str) -> Result<Value, String> {
                     })
                 })
                 .collect();
-            return Ok(json!({ "ok": false, "error": vandorf::render(&files, &diags, false), "diagnostics": list }));
+            return Ok(json!({ "ok": false, "error": vandorf::render(&files, &diags), "diagnostics": list }));
         }
     };
 

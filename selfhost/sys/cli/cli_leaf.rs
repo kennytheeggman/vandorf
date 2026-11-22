@@ -284,23 +284,6 @@ pub fn unwrap_r(r: MaybeRust) -> Result<RustTarget, String> {
     }
 }
 
-pub fn render_errors(errors: List<Diag>, paths: List<Str>) -> Result<Str, String> {
-    Ok(errors
-        .iter()
-        .map(|e| {
-            format!(
-                "{}:{}..{}: {}",
-                paths.get(e.span.file as usize).map_or("?", |p| &**p),
-                e.span.at,
-                e.span.end,
-                e.msg
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-        .into())
-}
-
 pub fn out_dir(c: Checked) -> Result<Str, String> {
     let r = unwrap_r(c.project.manifest.rust)?;
     join(c.project.root, r.out)
@@ -592,4 +575,160 @@ pub fn split_c(argv: List<Str>) -> Result<CliOpts, String> {
         rest: rest.into(),
         err: err.into(),
     })
+}
+
+// ---- Diagnostics, as the reference's vandorf::report::snippet ----
+
+/// The nearest char boundary at or before `i`.
+fn floor(text: &str, mut i: usize) -> usize {
+    while !text.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+/// One diagnostic: the message, `path:line:col`, and the line with the span
+/// underlined; notes follow as `= note` lines.
+pub fn snippet(
+    level: Str,
+    msg: Str,
+    path: Str,
+    text: Str,
+    at: i64,
+    end: i64,
+    notes: List<Str>,
+) -> Result<Str, String> {
+    let text = &*text;
+    let at = floor(text, (at.max(0) as usize).min(text.len()));
+    let end = floor(text, (end.max(0) as usize).clamp(at, text.len()));
+    let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
+    let line_end = text[at..].find('\n').map_or(text.len(), |i| at + i);
+    let line_no = text[..at].matches('\n').count() + 1;
+    let col = text[line_start..at].chars().count() + 1;
+    let line = text[line_start..line_end].trim_end_matches('\r');
+    // Tabs shown as four spaces; the underline follows the shown text.
+    let width = |s: &str| {
+        s.chars()
+            .map(|c| if c == '\t' { 4 } else { 1 })
+            .sum::<usize>()
+    };
+    let shown = line.replace('\t', "    ");
+    let lead = width(&line[..(at - line_start).min(line.len())]);
+    let marked = width(
+        &line[(at - line_start).min(line.len())..(end.min(line_end) - line_start).min(line.len())],
+    )
+    .max(1);
+    let pad = " ".repeat(line_no.to_string().len());
+    let mut out = format!(
+        "{level}: {msg}\n{pad}--> {path}:{line_no}:{col}\n{pad} |\n{line_no} | {shown}\n{pad} | {}{}",
+        " ".repeat(lead),
+        "^".repeat(marked)
+    );
+    for n in notes.iter() {
+        out.push_str(&format!("\n{pad} = {n}"));
+    }
+    Ok(out.into())
+}
+
+/// Errors as snippets, a blank line apart (each once).
+pub fn render_errors(errors: List<Diag>, paths: List<Str>, srcs: List<Str>) -> Result<Str, String> {
+    let mut out = vec![];
+    let mut seen = std::collections::HashSet::new();
+    for e in errors.iter() {
+        if !seen.insert((e.span.file, e.span.at, e.span.end, e.msg.clone())) {
+            continue;
+        }
+        let f = e.span.file as usize;
+        let path = paths.get(f).cloned().unwrap_or_else(|| "?".into());
+        let text = srcs.get(f).cloned().unwrap_or_default();
+        out.push(
+            snippet(
+                "error".into(),
+                e.msg.clone(),
+                path,
+                text,
+                e.span.at,
+                e.span.end,
+                List::default(),
+            )?
+            .to_string(),
+        );
+    }
+    Ok(out.join("\n\n").into())
+}
+
+/// Fails with msg; rendered diagnostics lose their first `error: `, which
+/// the executable prints anyway.
+pub fn fail_report(msg: Str) -> Result<Str, String> {
+    Err(msg.strip_prefix("error: ").unwrap_or(&msg).to_string())
+}
+
+/// For each func implemented in Rust: its file (absolute), function, and
+/// the warning to print if the file is missing or doesn't define it.
+pub fn impl_checks(
+    prog: Program,
+    t: Table,
+    module_dir: MaybeStr,
+    out: Str,
+    root: Str,
+    paths: List<Str>,
+    srcs: List<Str>,
+) -> Result<List<ImplCheck>, String> {
+    let md = super::gen_leaf::trim_dir(module_dir)?;
+    let types_path = match md {
+        MaybeStr::Some(d) => match super::gen_leaf::module_path(d)? {
+            MaybeStr::Some(m) => format!("{m}::types"),
+            MaybeStr::None => "types".into(),
+        },
+        MaybeStr::None => "types".into(),
+    };
+    let out_dir = normalize(Path::new(&*out));
+    let mut checks = vec![];
+    for (id, n) in prog.nodes.iter().enumerate() {
+        let NodeKind::Func(_) = &n.kind else { continue };
+        let MaybeImpl::Some(i) = super::gen_leaf::rs_impl(n.clone(), "rs".into())? else {
+            continue;
+        };
+        let path = normalize(&out_dir.join(&*i.file));
+        let shown = relative(slash(&path).into(), root.clone())?;
+        let qual = super::sema_leaf::qual_name(n.clone())?;
+        let sig = super::gen_leaf::rust_signature(
+            prog.clone(),
+            t.clone(),
+            id as i64,
+            i.function.clone(),
+            types_path.as_str().into(),
+        )?;
+        let f = n.span.file as usize;
+        let warn = |msg: String| -> Result<Str, String> {
+            snippet(
+                "warning".into(),
+                msg.into(),
+                paths.get(f).cloned().unwrap_or_else(|| "?".into()),
+                srcs.get(f).cloned().unwrap_or_default(),
+                n.span.at,
+                n.span.end,
+                vec![Str::from(format!("expected: {sig}").as_str())].into(),
+            )
+        };
+        checks.push(ImplCheck {
+            path: slash(&path).into(),
+            function: i.function.clone(),
+            missing: warn(format!(
+                "{qual} is implemented in {shown}, which does not exist"
+            ))?,
+            undefined: warn(format!(
+                "{qual} is implemented by fn {} in {shown}, which does not define it",
+                i.function
+            ))?,
+        });
+    }
+    Ok(checks.into())
+}
+
+/// Whether src defines `fn function` (or a generic `fn function<`).
+pub fn defines_fn(src: Str, function: Str) -> Result<bool, String> {
+    Ok(["(", "<", "["]
+        .iter()
+        .any(|open| src.contains(&format!("fn {function}{open}"))))
 }

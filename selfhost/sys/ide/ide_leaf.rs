@@ -107,20 +107,21 @@ pub fn error_json(msg: Str) -> Result<Json, String> {
     ]))
 }
 
-fn is_loopback(host: &str) -> bool {
+pub(super) fn is_loopback(host: &str) -> bool {
     let h = host.trim_start_matches('[').trim_end_matches(']');
     h == "localhost" || h == "::1" || h.starts_with("127.")
 }
 
-/// A loopback Host, and the session's token.
-pub fn authorized(hs: Map<Str, Str>, token: Str) -> Result<bool, String> {
-    let host_ok = hs.get(&s("host")).is_some_and(|h| {
-        let name = match h.rsplit_once(':') {
-            Some((n, p)) if p.chars().all(|c| c.is_ascii_digit()) => n,
-            _ => h,
-        };
-        is_loopback(name)
-    });
+/// The session's token, and (on a loopback address) a loopback Host.
+pub fn authorized(hs: Map<Str, Str>, token: Str, loopback: bool) -> Result<bool, String> {
+    let host_ok = !loopback
+        || hs.get(&s("host")).is_some_and(|h| {
+            let name = match h.rsplit_once(':') {
+                Some((n, p)) if p.chars().all(|c| c.is_ascii_digit()) => n,
+                _ => h,
+            };
+            is_loopback(name)
+        });
     Ok(host_ok && hs.get(&s("x-vandorf-token")) == Some(&token))
 }
 
@@ -331,22 +332,7 @@ pub fn render_diagnostics(
     srcs: List<Str>,
     errors: List<Diag>,
 ) -> Result<Str, String> {
-    Ok(errors
-        .iter()
-        .map(|d| {
-            let f = d.span.file as usize;
-            let (line, ch) = line_col_of(srcs.get(f).map_or("", |x| &**x), d.span.at);
-            format!(
-                "{}:{}:{}: {}",
-                names.get(f).map_or("?", |x| &**x),
-                line + 1,
-                ch + 1,
-                d.msg
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-        .into())
+    super::cli_leaf::render_errors(errors, names, srcs)
 }
 
 // ---- The outline ----

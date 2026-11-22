@@ -3,8 +3,9 @@
 // vandorf.toml: every path is a raw route to Ide.
 //
 // Writes and terminals need the per-run token the pages are served with
-// (X-Vandorf-Token), so other sites can't drive them, and a loopback Host,
-// against DNS rebinding: the server listens on a loopback address.
+// (X-Vandorf-Token), so other sites can't drive them, and, on a loopback
+// address, a loopback Host, against DNS rebinding. Terminals are offered
+// only on a loopback address.
 
 type HttpRequest = { method: string, path: string, query: map[string]string, headers: map[string]string, body: string };
 type HttpResponse = { status: int, headers: map[string]string, body: string };
@@ -15,6 +16,9 @@ interface Session {
 	func Token(n: int): string = "ide_io.rs:token";
 	// The source directory: the working directory, canonical.
 	func Base(n: int): string = "ide_io.rs:base";
+	// Whether the server listens on a loopback address: terminals are
+	// offered only then.
+	func Loopback(n: int): bool = "ide_io.rs:loopback";
 }
 
 interface Pages {
@@ -55,25 +59,27 @@ func Api(j: Json): HttpResponse = "ide_leaf.rs:api";
 func ApiErr(msg: string): HttpResponse = "ide_leaf.rs:api_err";
 func Forbidden(n: int): HttpResponse = "ide_leaf.rs:forbidden";
 func NotFound(n: int): HttpResponse = "ide_leaf.rs:not_found";
-// A loopback Host and the session's token.
-func Authorized(headers: map[string]string, token: string): bool = "ide_leaf.rs:authorized";
+// The session's token, and (on a loopback address) a loopback Host.
+func Authorized(headers: map[string]string, token: string, loopback: bool): bool = "ide_leaf.rs:authorized";
 func HasPrefix(s: string, prefix: string): bool = "../cli/cli_leaf.rs:starts_with";
 
 proc Ide(At): HttpResponse {
 	func At(req: HttpRequest): HttpRequest = "../leaf.rs:same";
 	At -> Session.Token(n = 0);
 	Session.Token -> Session.Base(n = 0);
-	Session.Base switch {
+	Session.Base -> Session.Loopback(n = 0);
+	Session.Loopback switch {
 		(At.method == "GET" && PageName(path = At.path) != "") -> Pages.Get(name = PageName(path = At.path)),
 		(At.method == "GET" && At.path == "/ui.css") -> Pages.Get(name = "ui.css") as Css,
-		(At.method == "GET" && At.path == "/api/project") -> ProjectRoute(s = { base = this, query = At.query }),
-		(At.method == "GET" && At.path == "/api/sources") -> Files.Walk(base = this) as Sources,
-		(At.method == "GET" && At.path == "/api/tree") -> Tree(base = this),
-		(At.method == "GET" && At.path == "/api/source") -> SourceRoute(s = { base = this, query = At.query }),
-		(At.method == "POST" && At.path == "/api/compile") -> Compile(s = { base = this, body = At.body }),
-		(At.method == "POST" && At.path == "/api/save" && Authorized(headers = At.headers, token = Session.Token)) -> Save(s = { base = this, body = At.body }),
+		(At.method == "GET" && At.path == "/api/project") -> ProjectRoute(s = { base = Session.Base, query = At.query }),
+		(At.method == "GET" && At.path == "/api/sources") -> Files.Walk(base = Session.Base) as Sources,
+		(At.method == "GET" && At.path == "/api/tree") -> Tree(base = Session.Base),
+		(At.method == "GET" && At.path == "/api/source") -> SourceRoute(s = { base = Session.Base, query = At.query }),
+		(At.method == "POST" && At.path == "/api/compile") -> Compile(s = { base = Session.Base, body = At.body }),
+		(At.method == "POST" && At.path == "/api/save" && Authorized(headers = At.headers, token = Session.Token, loopback = Session.Loopback)) -> Save(s = { base = Session.Base, body = At.body }),
 		(At.method == "POST" && At.path == "/api/save") -> id(Forbidden(n = 0)),
-		(HasPrefix(s = At.path, prefix = "/api/term") && Authorized(headers = At.headers, token = Session.Token)) -> TermRoute(s = { base = this, req = At }),
+		(HasPrefix(s = At.path, prefix = "/api/term") && !Session.Loopback) -> id(ApiErr(msg = "terminals are off: the IDE isn't listening on a loopback address")),
+		(HasPrefix(s = At.path, prefix = "/api/term") && Authorized(headers = At.headers, token = Session.Token, loopback = Session.Loopback)) -> TermRoute(s = { base = Session.Base, req = At }),
 		(HasPrefix(s = At.path, prefix = "/api/term")) -> id(Forbidden(n = 0)),
 		else -> id(NotFound(n = 0))
 	};

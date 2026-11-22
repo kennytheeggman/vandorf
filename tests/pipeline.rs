@@ -521,13 +521,13 @@ fn files_share_one_namespace() {
         src("a.sys", "proc A(S): int { func S(t: T): int; S -> B(i = this); }"),
         src("b.sys", "type T = { x: int };\nproc B(Q): int { func Q(i: int): int; }"),
     ];
-    let prog = vandorf::check_files(&files).unwrap_or_else(|d| panic!("{}", vandorf::render(&files, &d, false)));
+    let prog = vandorf::check_files(&files).unwrap_or_else(|d| panic!("{}", vandorf::render(&files, &d)));
     assert_eq!(prog.top_procs.len(), 2);
 
     let files = [src("a.sys", "proc A(S): int { func S(): int; }"), src("b.sys", "\n\nproc A(S): int { func S(): int; }")];
     let d = vandorf::check_files(&files).unwrap_err();
     assert_eq!((d[0].file, d[0].msg.as_str()), (1, "duplicate name A"));
-    let shown = vandorf::render(&files, &d, false);
+    let shown = vandorf::render(&files, &d);
     assert!(shown.contains("b.sys:3:6"), "{shown}");
 
     // Parse errors name their file too.
@@ -574,7 +574,7 @@ fn projects_load_and_rebase_impl_paths() {
 
 #[test]
 fn rebase_impls_accepts_relative_sys_dirs() {
-    // `vandorf rust f.sys -o rs/src/app`: the .sys file's directory is "".
+    // A project at the working directory: the .sys file's directory is "".
     let mut prog = vandorf::check_files(&[src("f.sys", r#"proc A(S): int { func S(): int = "rs/src/impls.rs:s"; }"#)]).unwrap();
     vandorf::project::rebase_impls(&mut prog, &[std::path::PathBuf::new()], std::path::Path::new("rs/src/app"));
     let files: Vec<String> = prog
@@ -676,7 +676,19 @@ fn id_ends_a_proc_with_a_value() {
 #[test]
 fn parse_errors_are_rendered() {
     let e = compile_err("proc P(A): int { func A(: int; }");
-    assert!(e.contains("Error"), "{e}");
+    let want = "error: expected a name or ')', found ':'\n --> test.sys:1:25\n  |\n1 | proc P(A): int { func A(: int; }\n  |                         ^";
+    assert_eq!(e, want);
+}
+
+#[test]
+fn snippets_show_tabs_and_notes() {
+    let text = "a\n\tfunc B(): int;\n";
+    // B is byte 8, char 7 of its line, shown after a tab as four spaces.
+    let s = vandorf::report::snippet("warning", "B is missing", "x.sys", text, 8..9, &["expected: pub fn b()".into()]);
+    assert_eq!(s, "warning: B is missing\n --> x.sys:2:7\n  |\n2 |     func B(): int;\n  |          ^\n  = expected: pub fn b()");
+    // Spans past the end, or over a multi-byte char, stay in bounds.
+    let s = vandorf::report::snippet("error", "eof", "x.sys", "é", 1..9, &[]);
+    assert!(s.contains("1:1") || s.contains("1:2"), "{s}");
 }
 
 mod codegen {
@@ -875,7 +887,7 @@ mod codegen {
         let bin = &out.mains[0];
         assert_eq!((bin.dir.as_str(), bin.files.keys().next().unwrap().as_str()), ("../bin", "web.rs"));
         let bin = &bin.files["web.rs"];
-        assert!(bin.contains("include_str!(\"../../index.html\")") && bin.contains("demo::app::http::serve(\"127.0.0.1:9\", demo::app::http::handle_web_api, STATICS);"), "{bin}");
+        assert!(bin.contains("include_str!(\"../../index.html\")") && bin.contains("demo::app::http::run(\"127.0.0.1:9\", demo::app::http::handle_web_api, STATICS);"), "{bin}");
         // No servers: no http.rs.
         assert!(!rust::generate(&prog, &rust::RustOptions { module_dir: Some("app".into()), ..Default::default() }).unwrap().code.files.contains_key("http.rs"));
         // A raw route to a proc of the wrong shape.

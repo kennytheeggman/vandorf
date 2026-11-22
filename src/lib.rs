@@ -13,8 +13,8 @@ pub mod sema;
 pub mod types;
 
 pub mod project;
+pub mod report;
 
-use ariadne::{Color, Config, IndexType, Label, Report, ReportKind};
 use std::ops::Range;
 
 /// A source file: its path (for messages and relative impl paths) and text.
@@ -46,7 +46,7 @@ pub fn check_files(files: &[Source]) -> Result<sema::Program, Vec<Diagnostic>> {
                 all.nodes.extend(file.nodes);
             }
             Err(errs) => diags.extend(errs.iter().map(|e| Diagnostic {
-                msg: e.to_string(),
+                msg: parse_message(e),
                 file: e.span().context,
                 span: e.span().into_range(),
             })),
@@ -58,6 +58,38 @@ pub fn check_files(files: &[Source]) -> Result<sema::Program, Vec<Diagnostic>> {
     sema::analyze(&all).map_err(|errs| {
         errs.into_iter().map(|e| Diagnostic { msg: e.msg, file: e.span.context, span: e.span.into_range() }).collect()
     })
+}
+
+/// A parse error as `expected a, b or c, found x`.
+fn parse_message(e: &parser::ParseError) -> String {
+    use chumsky::error::{RichPattern, RichReason};
+    match e.reason() {
+        RichReason::ExpectedFound { expected, found } => {
+            let mut want: Vec<String> = vec![];
+            for p in expected {
+                let s = match p {
+                    // A comment could start anywhere whitespace can: not news.
+                    RichPattern::Token(t) if **t == '/' => continue,
+                    RichPattern::Token(t) => format!("{:?}", &**t),
+                    RichPattern::Label(l) if l.starts_with(['a', 'e', 'i', 'o', 'u']) => format!("an {l}"),
+                    RichPattern::Label(l) => format!("a {l}"),
+                    RichPattern::Identifier(k) => k.clone(),
+                    RichPattern::EndOfInput => "the end of the file".into(),
+                    _ => continue,
+                };
+                if !want.contains(&s) {
+                    want.push(s);
+                }
+            }
+            let found = found.as_ref().map_or("the end of the file".to_string(), |t| format!("{:?}", &**t));
+            match want.as_slice() {
+                [] => format!("unexpected {found}"),
+                [one] => format!("expected {one}, found {found}"),
+                [init @ .., last] => format!("expected {} or {last}, found {found}", init.join(", ")),
+            }
+        }
+        RichReason::Custom(m) => m.to_string(),
+    }
 }
 
 /// Parses and checks one file.
@@ -72,22 +104,19 @@ pub fn compile(name: &str, src: &str) -> Result<sema::Program, String> {
 
 /// Like [`check_files`], rendering any diagnostics for a terminal.
 pub fn compile_files(files: &[Source]) -> Result<sema::Program, String> {
-    check_files(files).map_err(|d| render(files, &d, true))
+    check_files(files).map_err(|d| render(files, &d))
 }
 
-pub fn render(files: &[Source], diags: &[Diagnostic], color: bool) -> String {
-    let config = Config::default().with_color(color).with_index_type(IndexType::Byte);
-    let mut cache = ariadne::sources(files.iter().map(|f| (f.path.clone(), f.text.clone())));
-    let mut out = Vec::new();
-    for d in diags {
-        let name = files[d.file].path.clone();
-        Report::build(ReportKind::Error, (name.clone(), d.span.clone()))
-            .with_config(config)
-            .with_message(&d.msg)
-            .with_label(Label::new((name, d.span.clone())).with_message(&d.msg).with_color(Color::Red))
-            .finish()
-            .write(&mut cache, &mut out)
-            .unwrap();
-    }
-    String::from_utf8_lossy(&out).into_owned()
+/// Diagnostics as [`report::snippet`]s, a blank line apart (each once).
+pub fn render(files: &[Source], diags: &[Diagnostic]) -> String {
+    let mut seen = std::collections::HashSet::new();
+    diags
+        .iter()
+        .filter(|d| seen.insert((d.file, d.span.clone(), d.msg.clone())))
+        .map(|d| {
+            let f = &files[d.file];
+            report::snippet("error", &d.msg, &f.path, &f.text, d.span.clone(), &[])
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }

@@ -6,16 +6,15 @@ Proof-of-concept Rust rewrite of the vandorf compiler.
 cd examples/demo
 cargo run -- check                   # the project in vandorf.toml
 cargo run -- build                   # both backends and both bins (or: build calc)
-cargo run -- doc -o doc.json         # visualizer document
+cargo run -- doc > doc.json          # visualizer document
 cargo run -- serve                   # IDE on :8080 (explorer, diagram/text tabs, terminal)
 
 (cd go && go test ./... && go run ./cmd/demo 1 ab && go run ./cmd/calc 3)        # end:S, 115
 (cd rs && cargo test && cargo run --bin demo -- 1 ab && cargo run --bin calc -- 3)  # end:S, 115
 ```
 
-Single files work too: `vandorf check f.sys`, `vandorf go f.sys -o dir`,
-`vandorf rust f.sys -o dir` (see `vandorf --help`).
-`-C <dir>`, anywhere in a command, runs it as if started in `<dir>`:
+Every command works on a project (a `vandorf.toml`, below). `-C <dir>`,
+anywhere in a command, runs it as if started in `<dir>`:
 `vandorf check -C examples/demo`.
 
 Pipeline: `parser` (chumsky, source → `ast`) → `sema` (name resolution,
@@ -175,9 +174,11 @@ compiles a project file together with the rest of its project.
 
 ## Workbench
 
-`vandorf serve [--addr 127.0.0.1:8080] [--dir .]` serves an editor with live
-compile, the visualizer (in an iframe, or standalone at `/viz`), the generated
-Go and Rust, and the implementation signatures each backend expects.
+`vandorf serve [--addr 127.0.0.1:8080]` serves an IDE on the working
+directory: an explorer, diagram and text tabs with live compile, the
+visualizer (also standalone at `/viz`), the generated Go and Rust and the
+implementation signatures each backend expects, and terminals, which are
+offered only when it listens on a loopback address.
 
 ## Typegen and codegen
 
@@ -222,8 +223,8 @@ against its output directory.
   `E: Into<Box<dyn Error + Send + Sync>>`; void is `()`.
 
 Funcs without a reference for a backend call a generated stub that returns an
-error. `vandorf go`/`rust` warn when a referenced file or function is missing,
-printing the expected signature.
+error. `vandorf build` warns when a referenced file or function is missing,
+naming where the func is declared and printing the expected signature.
 
 ## HTTP servers
 
@@ -243,23 +244,22 @@ a request that doesn't decode is a 400, a proc that fails a 500, both with
 `{"error": ".."}`. Static files are embedded in the executable.
 
 `vandorf build` writes `http.rs` into the module (the JSON codec, std-only
-server and a `handle_<name>` per server) and the server's executable. The
-demo's `[http.api]` serves `sys/api.sys`.
+server and a `handle_<name>` per server) and the server's executable, which
+listens on `addr` unless given `--addr host:port`. The demo's `[http.api]`
+serves `sys/api.sys`.
 
 ## Bins
 
-A bin (`[bin.<name>]`, or `--main`/`--entry Proc` on the single-file
-commands) runs a top-level proc, `Main` by default (an error if there is
+A bin (`[bin.<name>]`) runs a top-level proc, `Main` by default (an error if there is
 none). Its parameters are either `int`, `float`, `bool` or `string`, taken
 from the command line in declared order (`usage: demo <a: int> <b:
 string>`), or a single `[]string`, which gets the arguments as they are
 (`usage: vcc <argv...>`). The result is printed.
 
-- **Go**: a `package main` importing the code package (`<go.out>/../cmd/<name>`;
-  `<dir>/main` for `--main`).
-- **Rust**: a file under the crate's `src/` (`bin/<name>.rs`; `main.rs` for
-  `--main`) calling `<crate>::<module>::run_<entry>`, so the crate needs a
-  `lib.rs` that declares the module.
+- **Go**: a `package main` importing the code package (`<go.out>/../cmd/<name>`).
+- **Rust**: a file under the crate's `src/` (`bin/<name>.rs`) calling
+  `<crate>::<module>::run_<entry>`, so the crate needs a `lib.rs` that
+  declares the module.
 
 Neither backend overwrites a file it didn't generate, so an existing
 hand-written `src/main.rs` is left alone (the command fails instead).

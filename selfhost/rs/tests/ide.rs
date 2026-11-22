@@ -16,7 +16,10 @@ fn serves_pages_with_the_token_and_guards_writes() {
     assert!(!page.body.contains("__VANDORF_TOKEN__") && page.headers.get(&v::Str::from("Cache-Control")).map(|s| &**s) == Some("no-store"));
     let save = req("POST", "/api/save", &[], &[("host", "127.0.0.1:8080")], r#"{"path": "x.sys", "source": ""}"#);
     assert_eq!((save.status, &*save.body), (403, r#"{"error":"forbidden: missing or wrong session token","ok":false}"#));
-    assert_eq!(req("GET", "/api/term/list", &[], &[("host", "127.0.0.1")], "").status, 403);
+    // Called in-process, not listening anywhere: not on a loopback address,
+    // so no terminals.
+    let term = req("GET", "/api/term/list", &[], &[("host", "127.0.0.1")], "");
+    assert_eq!((term.status, &*term.body), (400, r#"{"error":"terminals are off: the IDE isn't listening on a loopback address","ok":false}"#));
     assert_eq!(req("GET", "/nope", &[], &[], "").status, 404);
 }
 

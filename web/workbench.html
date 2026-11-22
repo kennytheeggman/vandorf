@@ -265,9 +265,9 @@ function showImpls(go, rust){
   }
   p.innerHTML =
     section('Go', go, /^func (unimplemented\w+)/gm,
-      'Paths are relative to the code package. Preview assumes package <code>app</code> at <code>example.com/app</code>, types at <code>example.com/app/types</code>; <code>vandorf go</code> resolves the real paths from go.mod.') +
+      'Paths are relative to the code package. Preview assumes package <code>app</code> at <code>example.com/app</code>, types at <code>example.com/app/types</code>; <code>vandorf build</code> resolves the real paths from go.mod.') +
     section('Rust', rust, /^fn (unimplemented_\w+)/gm,
-      'Paths are relative to the generated module. Preview assumes it is <code>src/app</code> (<code>crate::app</code>); <code>vandorf rust</code> resolves it from Cargo.toml.');
+      'Paths are relative to the generated module. Preview assumes it is <code>src/app</code> (<code>crate::app</code>); <code>vandorf build</code> resolves it from Cargo.toml.');
 }
 
 $('compile').addEventListener('click', compile);

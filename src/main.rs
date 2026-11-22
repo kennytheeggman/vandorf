@@ -7,117 +7,39 @@ use vandorf::codegen::rust::RustOptions;
 use vandorf::codegen::{self, MainSpec, Output};
 use vandorf::project::{self, Project};
 use vandorf::sema::Program;
-use vandorf::Source;
 
 const USAGE: &str = "\
 usage:
-  vandorf build [<bin>] [--manifest vandorf.toml] [-C <dir>]   # libraries, and every bin or just <bin>
-  vandorf check [<file.sys> | --manifest vandorf.toml] [-C <dir>]
-  vandorf doc   [<file.sys> | --manifest vandorf.toml] [-o out.json] [-C <dir>]
-  vandorf go    <file.sys> -o <dir> [--package name] [--module import/path/of/dir] [--types-dir types] [--main] [--entry Proc]
-  vandorf rust  <file.sys> -o <dir> [--module-dir path/under/src] [--main] [--entry Proc]
-  vandorf serve [--addr 127.0.0.1:8080] [--dir .] [--term | --no-term]   # IDE; terminals default on for loopback only
+  vandorf build [<bin>]        # libraries, and every bin or just <bin>
+  vandorf check
+  vandorf doc                  # the visualizer document, on stdout
+  vandorf serve [--addr 127.0.0.1:8080]   # the IDE, on the working directory
 
-Without a file, check and doc use the project: the nearest vandorf.toml in the
-current directory or its parents (see the README for its fields). A project's
-.sys files share one namespace.
+Each works on the project: the nearest vandorf.toml in the current directory
+or its parents (see the README for its fields). A project's .sys files share
+one namespace. -C <dir>, anywhere in a command, runs it as if started in <dir>.
 
--C <dir> (any command, anywhere in it) runs it as if started in <dir>: the
-project is found from there, and relative paths are relative to it.
+build generates what the manifest configures: [go] and [rust] libraries (the
+types and the procs), an executable per [bin.<name>] running its entry proc
+with the command-line arguments, and per [http.<name>] a Rust server (which
+takes --addr to listen elsewhere). Impl paths in `= \"file:function\"` are
+relative to the .sys file naming them; each backend uses the reference with
+its extension (.go / .rs).
 
-Each backend writes two artifacts: the types (typegen) and the procs (codegen).
-Impl paths in `= \"file:function\"` are relative to the .sys file naming them;
-each backend uses the reference with its extension (.go / .rs).
-
-go:   <dir> is the code package; types go to <dir>/<types-dir> as their own
-      package (`.` keeps them in the code package). Import paths come from the
-      enclosing go.mod, or --module (the import path of <dir>).
-rust: <dir> is a module (<dir>/mod.rs, types.rs, procs.rs). Its place in the
-      crate comes from the enclosing Cargo.toml, or --module-dir (relative to
-      src/).
-
---main also writes an executable that runs proc Main (or --entry's proc, which
-must exist), taking its parameters as command-line arguments:
-<dir>/main/main_vandorf.go for Go, src/main.rs for Rust (which calls the procs
-through the crate's lib.rs, so the module must be reachable from there). In a
-project, [bin.<name>] tables configure executables instead.";
+serve offers terminals only when listening on a loopback address.";
 
 fn main() -> ExitCode {
     match run(std::env::args().skip(1).collect()) {
         Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
+        // Rendered diagnostics start with their level; other failures get one.
+        Err(e) if e.starts_with("error: ") => {
             eprintln!("{e}");
             ExitCode::FAILURE
         }
-    }
-}
-
-#[derive(Default)]
-struct Args {
-    cmd: String,
-    input: Option<PathBuf>,
-    manifest: Option<PathBuf>,
-    out: Option<PathBuf>,
-    package: Option<String>,
-    module: Option<String>,
-    types_dir: Option<String>,
-    module_dir: Option<String>,
-    main: bool,
-    entry: Option<String>,
-}
-
-fn parse_args(argv: Vec<String>) -> Result<Args, String> {
-    let mut it = argv.into_iter();
-    let mut args = Args { cmd: it.next().ok_or(USAGE)?, ..Default::default() };
-    while let Some(a) = it.next() {
-        let mut val = || it.next().ok_or_else(|| format!("{a} needs a value\n\n{USAGE}"));
-        match a.as_str() {
-            "-o" | "--out" => args.out = Some(PathBuf::from(val()?)),
-            "--manifest" => args.manifest = Some(PathBuf::from(val()?)),
-            "--package" => args.package = Some(val()?),
-            "--module" => args.module = Some(val()?),
-            "--types-dir" => args.types_dir = Some(val()?),
-            "--module-dir" => args.module_dir = Some(val()?),
-            "--main" => args.main = true,
-            "--entry" => args.entry = Some(val()?),
-            "-h" | "--help" => return Err(USAGE.into()),
-            s if s.starts_with('-') => return Err(format!("unknown flag {s}\n\n{USAGE}")),
-            _ if args.input.is_none() => args.input = Some(PathBuf::from(&a)),
-            _ => return Err(format!("unexpected argument {a}\n\n{USAGE}")),
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::FAILURE
         }
-    }
-    Ok(args)
-}
-
-/// What a command compiles: one file, or a project.
-struct Unit {
-    files: Vec<Source>,
-    /// Absolute directory of each file, for impl paths.
-    dirs: Vec<PathBuf>,
-    project: Option<Project>,
-}
-
-impl Unit {
-    fn file(path: &Path) -> Result<Unit, String> {
-        let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-        let dir = project::normalize(&project::absolute(path.parent().unwrap_or(Path::new("."))));
-        Ok(Unit { files: vec![Source { path: path.display().to_string(), text }], dirs: vec![dir], project: None })
-    }
-
-    fn project(manifest: Option<&Path>) -> Result<Unit, String> {
-        let manifest = match manifest {
-            Some(m) => m.to_path_buf(),
-            None => {
-                let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-                project::find(&cwd).ok_or_else(|| format!("no {} in {} or its parents\n\n{USAGE}", project::MANIFEST, cwd.display()))?
-            }
-        };
-        let p = project::load(&manifest)?;
-        Ok(Unit { files: p.files.clone(), dirs: p.dirs(), project: Some(p) })
-    }
-
-    fn compile(&self) -> Result<Program, String> {
-        vandorf::compile_files(&self.files)
     }
 }
 
@@ -131,88 +53,87 @@ fn change_dir(argv: Vec<String>) -> Result<Vec<String>, String> {
             rest.push(a);
             continue;
         }
-        let dir = it.next().ok_or_else(|| format!("-C needs a value\n\n{USAGE}"))?;
+        let dir = it.next().ok_or_else(|| format!("-C needs a value (see vandorf --help)"))?;
         std::env::set_current_dir(&dir).map_err(|e| format!("cannot use -C {dir}: {e}"))?;
     }
     Ok(rest)
 }
 
+/// The project around the working directory, checked.
+fn load() -> Result<(Project, Program), String> {
+    let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+    let manifest = project::find(&cwd).ok_or_else(|| format!("no {} in {} or its parents", project::MANIFEST, cwd.display()))?;
+    let p = project::load(&manifest)?;
+    let prog = vandorf::compile_files(&p.files)?;
+    Ok((p, prog))
+}
+
 fn run(argv: Vec<String>) -> Result<(), String> {
     let argv = change_dir(argv)?;
-    if argv.first().map(String::as_str) == Some("serve") {
-        return serve_cmd(&argv[1..]);
+    let (cmd, args) = argv.split_first().ok_or(USAGE)?;
+    if let Some(flag) = args.iter().find(|a| a.starts_with('-')).filter(|_| cmd != "serve") {
+        return Err(format!("unknown flag {flag} (see vandorf --help)"));
     }
-    let args = parse_args(argv)?;
-    let unit = match (&args.input, args.cmd.as_str()) {
-        (_, "build") => Unit::project(args.manifest.as_deref())?,
-        (Some(f), _) => Unit::file(f)?,
-        (None, "check" | "doc") => Unit::project(args.manifest.as_deref())?,
-        (None, _) => return Err(USAGE.into()),
-    };
-    let mut prog = unit.compile()?;
+    match (cmd.as_str(), args) {
+        ("-h" | "--help" | "help", _) => {
+            println!("{USAGE}");
+            Ok(())
+        }
+        ("serve", args) => serve_cmd(args),
+        ("check", []) => {
+            let (p, prog) = load()?;
+            eprintln!("ok: {} files, {} procs", p.files.len(), prog.all_procs().len());
+            Ok(())
+        }
+        ("doc", []) => {
+            let (_, prog) = load()?;
+            println!("{}", serde_json::to_string_pretty(&vandorf::document::generate(&prog)).unwrap());
+            Ok(())
+        }
+        ("build", [] | [_]) => {
+            let (p, prog) = load()?;
+            build(&p, prog, args.first().map(String::as_str))
+        }
+        ("check" | "doc" | "build", _) => Err(format!("too many arguments for {cmd} (see vandorf --help)")),
+        (other, _) => Err(format!("unknown command {other} (see vandorf --help)")),
+    }
+}
 
-    match args.cmd.as_str() {
-        "check" => {
-            eprintln!("ok: {} files, {} procs", unit.files.len(), prog.all_procs().len());
-            Ok(())
-        }
-        "doc" => {
-            let json = serde_json::to_string_pretty(&vandorf::document::generate(&prog)).unwrap();
-            match &args.out {
-                Some(p) => std::fs::write(p, json + "\n").map_err(|e| format!("{}: {e}", p.display())),
-                None => {
-                    println!("{json}");
-                    Ok(())
-                }
-            }
-        }
-        "build" => {
-            let p = unit.project.as_ref().unwrap();
-            let m = &p.manifest;
-            if m.go.is_none() && m.rust.is_none() {
-                return Err(format!("{}: configure [go] and/or [rust] to build", project::MANIFEST));
-            }
-            let bins: Vec<(&String, &project::Bin)> = match &args.input {
-                None => m.bin.iter().collect(),
-                Some(name) => {
-                    let name = name.display().to_string();
-                    match m.bin.get_key_value(&name) {
-                        Some(b) => vec![b],
-                        None => {
-                            let known: Vec<&str> = m.bin.keys().map(String::as_str).collect();
-                            return Err(format!("{}: no [bin.{name}]; bins: {}", project::MANIFEST, if known.is_empty() { "none".into() } else { known.join(", ") }));
-                        }
-                    }
-                }
-            };
-            if !m.http.is_empty() && m.rust.is_none() {
-                return Err(format!("{}: [http.*] servers are generated in Rust: configure [rust]", project::MANIFEST));
-            }
-            if !m.http.is_empty() && m.go.is_some() {
-                eprintln!("note: [http.*] servers are generated in Rust only, for now");
-            }
-            if let Some(g) = &m.go {
-                let out = p.root.join(&g.out);
-                go(&mut prog, &unit.dirs, &out, g.package.clone(), g.module.clone(), g.types_dir.clone(), go_mains(p, g, &bins))?;
-            }
-            if let Some(r) = &m.rust {
-                let servers: Vec<(&String, &project::Server)> = if args.input.is_none() { m.http.iter().collect() } else { vec![] };
-                rust(&mut prog, &unit.dirs, &p.root.join(&r.out), r.module_dir.clone(), rust_mains(&bins), &servers, &p.root)?;
-            }
-            Ok(())
-        }
-        "go" => {
-            let out = out_dir(&args)?;
-            let mains = single_main(&args, "main");
-            go(&mut prog, &unit.dirs, &out, args.package.clone(), args.module.clone(), args.types_dir.clone(), mains)
-        }
-        "rust" => {
-            let out = out_dir(&args)?;
-            let mains = single_main(&args, "main.rs");
-            rust(&mut prog, &unit.dirs, &out, args.module_dir.clone(), mains, &[], Path::new("."))
-        }
-        other => Err(format!("unknown command {other}\n\n{USAGE}")),
+/// Generates what the manifest configures: every bin, or just `only`.
+fn build(p: &Project, mut prog: Program, only: Option<&str>) -> Result<(), String> {
+    let m = &p.manifest;
+    if m.go.is_none() && m.rust.is_none() {
+        return Err(format!("{}: configure [go] and/or [rust] to build", project::MANIFEST));
     }
+    let bins: Vec<(&String, &project::Bin)> = match only {
+        None => m.bin.iter().collect(),
+        Some(name) => match m.bin.get_key_value(name) {
+            Some(b) => vec![b],
+            None => {
+                let known: Vec<&str> = m.bin.keys().map(String::as_str).collect();
+                return Err(format!("{}: no [bin.{name}]; bins: {}", project::MANIFEST, if known.is_empty() { "none".into() } else { known.join(", ") }));
+            }
+        },
+    };
+    if !m.http.is_empty() && m.rust.is_none() {
+        return Err(format!("{}: [http.*] servers are generated in Rust: configure [rust]", project::MANIFEST));
+    }
+    if !m.http.is_empty() && m.go.is_some() {
+        eprintln!("note: [http.*] servers are generated in Rust only, for now");
+    }
+    let dirs = p.dirs();
+    if let Some(g) = &m.go {
+        let out = p.root.join(&g.out);
+        let output = go(&mut prog, &dirs, &out, g.package.clone(), g.module.clone(), g.types_dir.clone(), go_mains(p, g, &bins))?;
+        check_impls(p, &prog, &out, &output, "func");
+    }
+    if let Some(r) = &m.rust {
+        let servers: Vec<(&String, &project::Server)> = if only.is_none() { m.http.iter().collect() } else { vec![] };
+        let out = p.root.join(&r.out);
+        let output = rust(&mut prog, &dirs, &out, r.module_dir.clone(), rust_mains(&bins), &servers, &p.root)?;
+        check_impls(p, &prog, &out, &output, "fn");
+    }
+    Ok(())
 }
 
 fn go(
@@ -223,7 +144,7 @@ fn go(
     module: Option<String>,
     types_dir: Option<String>,
     mains: Vec<MainSpec>,
-) -> Result<(), String> {
+) -> Result<Output, String> {
     std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
     project::rebase_impls(prog, dirs, out);
     let mut opts = GoOptions::new(package.unwrap_or_else(|| default_package(out)), module.or_else(|| go_import_path(out)));
@@ -235,8 +156,7 @@ fn go(
     let written = write_output(out, &output)?;
     // Generated code is already indented; gofmt only aligns it.
     format_with("gofmt", &["-w"], &written);
-    check_impls(out, &output, "func");
-    Ok(())
+    Ok(output)
 }
 
 /// The Go mains of `bins`: each a package in its `go` directory, by default
@@ -264,15 +184,6 @@ fn rust_mains(bins: &[(&String, &project::Bin)]) -> Vec<MainSpec> {
         .collect()
 }
 
-/// `--main` / `--entry` on the single-file commands.
-fn single_main(args: &Args, path: &str) -> Vec<MainSpec> {
-    if !args.main && args.entry.is_none() {
-        return vec![];
-    }
-    let entry = args.entry.clone().unwrap_or_else(|| codegen::MAIN_PROC.into());
-    vec![MainSpec { name: "main".into(), entry, path: path.into() }]
-}
-
 fn rust(
     prog: &mut Program,
     dirs: &[PathBuf],
@@ -281,7 +192,7 @@ fn rust(
     mains: Vec<MainSpec>,
     servers: &[(&String, &project::Server)],
     root: &Path,
-) -> Result<(), String> {
+) -> Result<Output, String> {
     std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
     project::rebase_impls(prog, dirs, out);
     let module_dir = module_dir.or_else(|| rust_module_dir(out));
@@ -290,8 +201,7 @@ fn rust(
     let output = codegen::rust::generate(prog, &opts)?;
     let written = write_output(out, &output)?;
     format_with("rustfmt", &["--edition", "2024"], &written);
-    check_impls(out, &output, "fn");
-    Ok(())
+    Ok(output)
 }
 
 /// An `[http.<name>]` table as the Rust backend takes it: routes split into
@@ -349,10 +259,6 @@ fn server_spec(name: &str, s: &project::Server, root: &Path, out: &Path, module_
     Ok(codegen::rust::ServerSpec { name: name.into(), addr: s.addr.clone(), routes, raw, statics, path })
 }
 
-fn out_dir(args: &Args) -> Result<PathBuf, String> {
-    args.out.clone().ok_or_else(|| format!("{} needs -o <dir>\n\n{USAGE}", args.cmd))
-}
-
 /// Writes the artifacts, returning the paths written. Refuses to overwrite
 /// files vandorf didn't generate (say, a hand-written `src/main.rs`).
 fn write_output(out: &Path, output: &Output) -> Result<Vec<PathBuf>, String> {
@@ -392,20 +298,15 @@ fn format_with(tool: &str, flags: &[&str], files: &[PathBuf]) {
 }
 
 fn serve_cmd(argv: &[String]) -> Result<(), String> {
-    let mut opts = serve::Options { addr: "127.0.0.1:8080".into(), dir: PathBuf::from("."), term: None };
+    let mut addr = "127.0.0.1:8080".to_string();
     let mut it = argv.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
-            "--term" => opts.term = Some(true),
-            "--no-term" => opts.term = Some(false),
-            "--addr" | "--dir" => {
-                let val = it.next().ok_or_else(|| format!("{a} needs a value\n\n{USAGE}"))?;
-                if a == "--addr" { opts.addr = val.clone() } else { opts.dir = PathBuf::from(val) }
-            }
-            _ => return Err(format!("unknown argument {a}\n\n{USAGE}")),
+            "--addr" => addr = it.next().ok_or_else(|| format!("--addr needs a value (see vandorf --help)"))?.clone(),
+            _ => return Err(format!("unknown argument {a} for serve (see vandorf --help)")),
         }
     }
-    serve::serve(opts)
+    serve::serve(serve::Options { addr, dir: PathBuf::from(".") })
 }
 
 fn default_package(dir: &Path) -> String {
@@ -471,19 +372,24 @@ fn rust_lib_name(dir: &Path) -> Option<String> {
     if has_lib { lib.or(package) } else { None }
 }
 
-/// Warns about impl references whose file or function can't be found.
-fn check_impls(out: &Path, output: &Output, keyword: &str) {
+/// Warns about impl references whose file or function can't be found, at
+/// the func's declaration. Paths are relative to the project's root.
+fn check_impls(p: &Project, prog: &Program, out: &Path, output: &Output, keyword: &str) {
+    let out = project::normalize(&project::absolute(out));
     for i in &output.impls {
-        let path = out.join(&i.file);
-        let problem = match std::fs::read_to_string(&path) {
-            Err(_) => format!("{} does not exist", path.display()),
+        let path = project::normalize(&out.join(&i.file));
+        let shown = project::slash(&project::relative(&path, &p.root));
+        let msg = match std::fs::read_to_string(&path) {
+            Err(_) => format!("{} is implemented in {shown}, which does not exist", i.node),
             // `fn f(`, or a generic `fn f<T>(` / `func F[T any](`.
             Ok(src) if !["(", "<", "["].iter().any(|open| src.contains(&format!("{keyword} {}{open}", i.function))) => {
-                format!("{} does not define {keyword} {}", path.display(), i.function)
+                format!("{} is implemented by {keyword} {} in {shown}, which does not define it", i.node, i.function)
             }
             Ok(_) => continue,
         };
-        eprintln!("warning: {} is implemented by {}:{}, but {problem}", i.node, i.file, i.function);
-        eprintln!("         expected: {}", i.signature);
+        let n = &prog.nodes[i.id];
+        let f = &p.files[n.span.context];
+        let note = format!("expected: {}", i.signature);
+        eprintln!("{}\n", vandorf::report::snippet("warning", &msg, &f.path, &f.text, n.span.into_range(), &[note]));
     }
 }

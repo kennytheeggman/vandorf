@@ -40,6 +40,8 @@ pub struct Artifact {
 
 #[derive(Debug, Clone)]
 pub struct ImplUse {
+    /// The func's node, and its qualified name.
+    pub id: crate::sema::NodeId,
     pub node: String,
     pub file: String,
     pub function: String,

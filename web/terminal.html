@@ -152,8 +152,8 @@ function run(cmd){
   var go = function(t){ if (t && t.alive){ show(t); send(t, cmd + '\r'); } };
   if (cur && cur.alive) go(cur); else create().then(go);
 }
-/* `vandorf <sub> -C <dir>`: the project's (or lone file's) directory,
-   absolute, so the command works wherever the shell has cd'd to. */
+/* `vandorf <sub> -C <dir>`: the active file's directory (its project is
+   found from there), absolute, so it works wherever the shell has cd'd to. */
 var root = '';
 api('/api/sources').then(function(r){ return r.json(); }).then(function(r){ if (r.ok) root = r.root; }).catch(function(){});
 function sh(s){ return /^[\w.\/-]+$/.test(s) ? s : "'" + s.replace(/'/g, "'\\''") + "'"; }
@@ -161,8 +161,7 @@ function vandorf(sub){
   var dir = (ctx.dir || '').replace(/\/$/, '');
   if (dir === '.') dir = '';
   var at = root ? root + (dir ? '/' + dir : '') : (dir || '.');
-  var target = ctx.project || !ctx.file ? '' : ' ' + sh(ctx.file.split('/').pop());
-  return 'vandorf ' + sub + ' -C ' + sh(at) + (/^check|^doc/.test(sub) ? target : '');
+  return 'vandorf ' + sub + ' -C ' + sh(at);
 }
 
 $('bNew').onclick = create;

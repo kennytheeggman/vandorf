@@ -312,7 +312,7 @@ pub fn at_value(toks: List<Tok>, pos: i64, left: Value) -> Result<AtValue, Strin
 
 fn shown(t: &Tok) -> String {
     match &*t.kind {
-        "eof" => "end of input".into(),
+        "eof" => "the end of the file".into(),
         "str" => format!("{:?}", &*t.text),
         _ => format!("'{}'", t.text),
     }

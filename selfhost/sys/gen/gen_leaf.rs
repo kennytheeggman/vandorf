@@ -218,6 +218,18 @@ fn wrap(node: &'static str, source: Error) -> Error {
     Box::new(NodeError { node, source })
 }
 
+/// A failure as a program prints it: the error underneath the nodes, and
+/// (when it passed through more than one) the nodes, outermost first.
+pub fn describe_error(e: &Error) -> String {
+    let mut nodes = vec![];
+    let mut cur: &(dyn std::error::Error + Send + Sync + 'static) = &**e;
+    while let Some(n) = cur.downcast_ref::<NodeError>() {
+        nodes.push(n.node);
+        cur = &*n.source;
+    }
+    if nodes.len() > 1 { format!("{cur}\n  (in {})", nodes.join(" > ")) } else { cur.to_string() }
+}
+
 fn get<'a, T>(slot: &'a Option<T>, node: &str) -> Result<&'a T, Error> {
     slot.as_ref().ok_or_else(|| format!("{node} has not run").into())
 }
@@ -1626,14 +1638,11 @@ pub fn rust_main(
             w.push("}".into());
         }
     }
-    for l in [
-        "Err(e) => {",
-        "eprintln!(\"error: {e}\");",
-        "ExitCode::FAILURE",
-        "}",
-        "}",
-        "}",
-    ] {
+    w.push("Err(e) => {".into());
+    w.push(format!(
+        "eprintln!(\"error: {{}}\", {lib}::describe_error(&e));"
+    ));
+    for l in ["ExitCode::FAILURE", "}", "}", "}"] {
         w.push(l.into());
     }
     let _ = &t;
@@ -2088,6 +2097,36 @@ fn json_route(req: &Request, call: fn(&Value) -> Result<String, (u16, String)>) 
     }
 }
 
+/// A server's main: `[--addr host:port]` from the command line (else
+/// `addr`, the manifest's), then serves.
+pub fn run(addr: &str, handler: Handler, statics: &'static [Static]) {
+    let name = std::env::args().next().map(|a| a.rsplit('/').next().unwrap_or("").to_string()).unwrap_or_default();
+    let usage = format!("usage: {name} [--addr host:port]   (default {addr})");
+    let mut addr = addr.to_string();
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
+        match (a.as_str(), args.next()) {
+            ("--addr", Some(v)) => addr = v,
+            ("-h" | "--help", _) => {
+                eprintln!("{usage}");
+                return;
+            }
+            _ => {
+                eprintln!("error: unexpected {a}\n{usage}");
+                std::process::exit(2);
+            }
+        }
+    }
+    serve(&addr, handler, statics);
+}
+
+static ADDR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// The address being served on, once serving ("" before).
+pub fn addr() -> &'static str {
+    ADDR.get().map_or("", String::as_str)
+}
+
 /// Serves until the process is stopped, a thread per connection.
 pub fn serve(addr: &str, handler: Handler, statics: &'static [Static]) {
     let listener = match std::net::TcpListener::bind(addr) {
@@ -2097,6 +2136,7 @@ pub fn serve(addr: &str, handler: Handler, statics: &'static [Static]) {
             std::process::exit(1);
         }
     };
+    let _ = ADDR.set(addr.to_string());
     eprintln!("listening on http://{addr}");
     for stream in listener.incoming().flatten() {
         std::thread::spawn(move || {

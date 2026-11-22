@@ -58,5 +58,6 @@ proc ChangeDirs(At): Res<string> {
 	};
 }
 
-// Fails with msg.
-func Usage(msg: string): string = "leaf.rs:fail";
+// Fails with msg (rendered diagnostics without their first `error: `,
+// which the executable prints).
+func Usage(msg: string): string = "cli/cli_leaf.rs:fail_report";

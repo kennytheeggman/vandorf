@@ -348,3 +348,10 @@ pub fn term_kill(id: i64) -> Result<bool, String> {
     let _ = t.child.lock().unwrap().kill();
     Ok(true)
 }
+
+/// Whether the server listens on a loopback address.
+pub fn loopback(_n: i64) -> Result<bool, String> {
+    let addr = super::http::addr();
+    let host = addr.rsplit_once(':').map_or(addr, |(h, _)| h);
+    Ok(super::ide_leaf::is_loopback(host))
+}
