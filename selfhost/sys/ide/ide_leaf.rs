@@ -209,6 +209,12 @@ pub fn is_sys(p: Str) -> Result<bool, String> {
         .is_some_and(|x| x.eq_ignore_ascii_case("sys")))
 }
 
+pub fn is_manifest(p: Str) -> Result<bool, String> {
+    Ok(Path::new(&*p)
+        .file_name()
+        .is_some_and(|n| n == "vandorf.toml"))
+}
+
 pub fn set_at(xs: List<Str>, i: i64, x: Str) -> Result<List<Str>, String> {
     let mut v = xs.to_vec();
     v[i as usize] = x;

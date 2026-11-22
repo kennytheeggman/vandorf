@@ -84,3 +84,32 @@ for p in ["/", "/project", "/explorer", "/viewer", "/terminal", "/workbench", "/
 # Writes and terminals need the token and a loopback Host.
 for name, h in [("no token", {}), ("token", {"X-Vandorf-Token": token(VCC)})]:
     print(f"terminal list, {name}:", call(VCC, "/api/term/list", headers={"Host": "127.0.0.1", **h})[0])
+
+# Saving a manifest: written if it parses as one, refused (and left as it
+# was) if not. On a scratch project both servers see.
+import os, shutil
+scratch = ".ide-parity"
+os.makedirs(scratch, exist_ok=True)
+good = '[project]\nname = "scratch"\n'
+for name, text in [
+    ("valid", '[project]\nname = "scratch"\n[rust]\nout = "rs/src/x"\n'),
+    ("syntax error", '[project\nname = "x"\n'),
+    ("unknown field", '[project]\nname = "x"\n[go]\nout = "a"\nmodul = "m"\n'),
+    ("missing field", '[http.w]\naddr = "a"\n'),
+    ("wrong type", '[project]\nname = 1\n'),
+]:
+    got = []
+    for port in (VCC, REF):
+        with open(f"{scratch}/vandorf.toml", "w") as f:
+            f.write(good)
+        body = json.dumps({"path": f"{scratch}/vandorf.toml", "source": text}).encode()
+        h = {"Host": "127.0.0.1", "X-Vandorf-Token": token(port), "Content-Type": "application/json"}
+        status, out = call(port, "/api/save", "POST", body, h)
+        with open(f"{scratch}/vandorf.toml") as f:
+            got.append((status, out + b"\n" + f.read().encode()))
+    report(f"save manifest, {name}", *[(s, o.split(b"\n")[0]) for s, o in got])
+    print("   file after:", "same" if got[0][1] == got[1][1] else "different")
+for name, path in [("not a manifest or .sys", "README.md"), ("missing manifest", f"{scratch}/sub/vandorf.toml")]:
+    body = json.dumps({"path": path, "source": "x"}).encode()
+    report(f"save {name}", *[call(p, "/api/save", "POST", body, {"Host": "127.0.0.1", "X-Vandorf-Token": token(p)}) for p in (VCC, REF)])
+shutil.rmtree(scratch)

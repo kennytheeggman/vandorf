@@ -16,7 +16,8 @@
 //! - `POST /api/compile`  `{source}` or `{path}` -> document, symbols and
 //!   generated code, or diagnostics. Same response shape as the Go
 //!   visualizer server, plus `symbols`.
-//! - `POST /api/save`     `{path, source}`: writes an existing `.sys` file
+//! - `POST /api/save`     `{path, source}`: writes an existing `.sys` file, or
+//!   an existing `vandorf.toml` if the new text is a valid manifest
 //! - `POST /api/term`, `GET /api/term/read?id=&from=`, `POST /api/term/input?id=`,
 //!   `POST /api/term/resize?id=&cols=&rows=`, `POST /api/term/kill?id=`:
 //!   shells on a pty (via `script(1)`), read by long polling.
@@ -416,8 +417,14 @@ fn save(base: &Path, body: &str) -> Result<Value, String> {
     let p = req["path"].as_str().ok_or("missing path")?;
     let text = req["source"].as_str().ok_or("missing source")?;
     let abs = resolve(base, p)?;
-    if !abs.extension().is_some_and(|x| x.eq_ignore_ascii_case("sys")) || !abs.is_file() {
-        return Err(format!("only existing .sys files can be saved: {p}"));
+    let manifest = abs.file_name().is_some_and(|n| n == project::MANIFEST);
+    if !(manifest || abs.extension().is_some_and(|x| x.eq_ignore_ascii_case("sys"))) || !abs.is_file() {
+        return Err(format!("only existing .sys files and manifests can be saved: {p}"));
+    }
+    // A manifest that doesn't parse would break the project (and this
+    // page's view of it), so it isn't written.
+    if manifest {
+        toml::from_str::<project::Manifest>(text).map_err(|e| format!("invalid manifest, not saved: {}", e.message()))?;
     }
     std::fs::write(&abs, text).map_err(|e| format!("cannot write {p}: {e}"))?;
     Ok(json!({ "ok": true, "path": p, "bytes": text.len() }))

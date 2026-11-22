@@ -79,3 +79,11 @@ proc ReadAll(At): []string {
 	};
 	Fs.Read -> At(s = { root = At.root, paths = At.paths, i = At.i + 1, acc = At.acc + [this] });
 }
+
+// Why text isn't a manifest the reference would load (its fields and
+// their types), or "".
+func ManifestError(text: string): string = "cli_leaf.rs:manifest_error";
+proc CheckManifest(At): string {
+	func At(text: string): string = "../leaf.rs:same";
+	At -> id(ManifestError(text = this));
+}

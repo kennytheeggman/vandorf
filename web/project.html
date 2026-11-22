@@ -55,6 +55,12 @@ td.a{ width:1%; color:var(--mut) }
 .files a{ cursor:pointer; color:var(--ink) } .files a:hover{ color:var(--accent); text-decoration:underline }
 
 /* manifest */
+#manifest{ height:100% } #manifest.on.editing{ display:flex; flex-direction:column }
+#medit{ display:none; flex:1; min-height:0; width:100%; box-sizing:border-box; margin:0; border:0; outline:0; resize:none; padding:14px 18px;
+  font:13px/1.6 var(--mono); background:var(--code-bg); color:var(--ink); tab-size:4 }
+#manifest.editing #medit{ display:block } #manifest.editing pre{ display:none }
+.mtool{ display:none } body.manifest .mtool{ display:inline-flex }
+.mstat{ font-size:12px; color:var(--mut); padding:0 6px } .mstat.bad{ color:var(--err) } .mstat.ok{ color:var(--ok, var(--mut)) }
 #manifest pre{ margin:0; padding:14px 18px; font:13px/1.6 var(--mono); background:var(--code-bg); min-height:100%; tab-size:4; white-space:pre-wrap; word-break:break-word }
 .t-com{ color:var(--com); font-style:italic } .t-sec{ color:var(--kw); font-weight:600 } .t-key{ color:var(--fn) } .t-str{ color:var(--str) } .t-num{ color:var(--str) }
 </style>
@@ -64,11 +70,15 @@ td.a{ width:1%; color:var(--mut) }
   <div class="seg"><button id="mOverview" class="on">Overview</button><button id="mManifest">Manifest</button></div>
   <span class="crumb" id="crumb"></span>
   <span class="sp"></span>
+  <span class="mtool mstat" id="mStat"></span>
+  <button class="mtool" id="bEdit" title="Edit the manifest">Edit</button>
+  <button class="mtool" id="bSave" title="Save (Ctrl/⌘+S)" style="display:none">Save</button>
+  <button class="mtool" id="bCancel" title="Discard the changes" style="display:none">Cancel</button>
   <button class="icon" id="bRefresh" title="Reload">&#8635;</button>
 </div>
 <div id="main">
   <section id="overview" class="on"><div class="msg">Loading&hellip;</div></section>
-  <section id="manifest"><pre id="toml"></pre></section>
+  <section id="manifest"><pre id="toml"></pre><textarea id="medit" spellcheck="false" autocomplete="off"></textarea></section>
 </div>
 <script>
 (function(){
@@ -76,23 +86,78 @@ td.a{ width:1%; color:var(--mut) }
 var $ = function(id){ return document.getElementById(id); };
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]; }); }
 function up(m){ if (window.parent !== window) window.parent.postMessage(m, location.origin); }
+var TOKEN = '__VANDORF_TOKEN__';
 var dir = new URLSearchParams(location.search).get('dir') || '';
 var P = null;
+var editing = false;
 
 function setMode(m){
   $('mOverview').classList.toggle('on', m === 'overview'); $('mManifest').classList.toggle('on', m === 'manifest');
   $('overview').classList.toggle('on', m === 'overview'); $('manifest').classList.toggle('on', m === 'manifest');
+  document.body.classList.toggle('manifest', m === 'manifest');
+}
+
+/* Editing the manifest: a plain textarea; a save that doesn't parse as a
+   manifest is refused by the server, and the text stays here to fix. */
+function mstat(text, cls){ var s = $('mStat'); s.textContent = text || ''; s.className = 'mtool mstat' + (cls ? ' ' + cls : ''); }
+function dirty(){ return editing && P && $('medit').value !== P.text; }
+function setEditing(on){
+  editing = on;
+  $('manifest').classList.toggle('editing', on);
+  $('bEdit').style.display = on ? 'none' : ''; $('bSave').style.display = on ? '' : 'none'; $('bCancel').style.display = on ? '' : 'none';
+  if (on){ $('medit').value = P ? P.text : ''; $('medit').focus(); mstat(''); }
+}
+$('bEdit').onclick = function(){ if (P) setEditing(true); };
+$('bCancel').onclick = function(){ if (!dirty() || confirm('Discard the changes to the manifest?')){ setEditing(false); mstat(''); } };
+$('bSave').onclick = saveManifest;
+$('medit').addEventListener('input', function(){ mstat(dirty() ? 'Modified' : ''); });
+$('medit').addEventListener('keydown', function(e){
+  if (e.key === 'Tab' && !e.shiftKey){ e.preventDefault(); document.execCommand('insertText', false, '\t'); }
+});
+document.addEventListener('keydown', function(e){
+  if (editing && (e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')){ e.preventDefault(); saveManifest(); }
+});
+window.addEventListener('beforeunload', function(e){ if (dirty()){ e.preventDefault(); e.returnValue = ''; } });
+function saveManifest(){
+  if (!P || !editing) return;
+  var text = $('medit').value;
+  mstat('Saving…');
+  fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Vandorf-Token': TOKEN },
+    body: JSON.stringify({ path: P.manifest, source: text }) })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      if (!res.ok){ mstat(res.error, 'bad'); return; }
+      P.text = text; setEditing(false); mstat('Saved', 'ok');
+      up({ type: 'ide-saved', path: P.manifest, text: text });
+      load();
+    })
+    .catch(function(e){ mstat('Not saved: ' + e, 'bad'); });
 }
 $('mOverview').onclick = function(){ setMode('overview'); };
 $('mManifest').onclick = function(){ setMode('manifest'); };
-$('bRefresh').onclick = load;
+$('bRefresh').onclick = function(){ if (!dirty() || confirm('Discard the changes to the manifest?')){ setEditing(false); load(); } };
 
 function load(){
   fetch('/api/project?dir=' + encodeURIComponent(dir)).then(function(r){ return r.json(); }).then(function(p){
-    if (!p.ok){ $('overview').innerHTML = '<div class="msg bad">' + esc(p.error) + '</div>'; up({ type: 'ide-status', text: p.error, cls: 'bad' }); return; }
+    if (!p.ok){ broken(p.error); return; }
     P = p; render();
     up({ type: 'ide-status', text: 'Project ' + p.name, cls: '' });
   }).catch(function(e){ $('overview').innerHTML = '<div class="msg bad">Cannot load the project: ' + esc(e) + '</div>'; });
+}
+
+/* A project that doesn't load (say, its sources don't exist): the error,
+   and its manifest as text, still editable to fix it. */
+function broken(error){
+  $('overview').innerHTML = '<div class="msg bad">' + esc(error) + '</div>';
+  up({ type: 'ide-status', text: error, cls: 'bad' });
+  var path = (dir && dir !== '.' ? dir + '/' : '') + 'vandorf.toml';
+  fetch('/api/source?path=' + encodeURIComponent(path)).then(function(r){ return r.json(); }).then(function(r){
+    if (!r.ok){ P = null; return; }
+    P = { manifest: path, text: r.source };
+    $('crumb').textContent = path; $('toml').innerHTML = toml(r.source);
+    $('overview').innerHTML = '<div class="msg bad">' + esc(error) + '<br><br>Fix it in the <a href="#" id="toManifest">manifest</a>.</div>';
+    $('toManifest').onclick = function(e){ e.preventDefault(); setMode('manifest'); };
+  });
 }
 
 function val(v, dflt){ return v != null && v !== '' ? '<code>' + esc(v) + '</code>' : '<span class="dflt">' + esc(dflt) + '</span>'; }
@@ -206,8 +271,8 @@ window.addEventListener('message', function(e){
   if (e.origin !== location.origin || !e.data) return;
   var m = e.data;
   if (m.type === 'vandorf-theme') document.documentElement.setAttribute('data-theme', m.theme);
-  if (m.type === 'ide-activate' && P) up({ type: 'ide-status', text: 'Project ' + P.name, cls: '' });
-  if (m.type === 'ide-refresh') load();
+  if (m.type === 'ide-activate' && P && P.name) up({ type: 'ide-status', text: 'Project ' + P.name, cls: '' });
+  if (m.type === 'ide-refresh' && !editing) load();
 });
 up({ type: 'project-ready' });
 load();

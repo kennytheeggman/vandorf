@@ -465,3 +465,110 @@ pub fn content_type(file: Str) -> Result<Str, String> {
     }
     .into())
 }
+
+// ---- Checking a manifest, as strictly as the reference's serde types ----
+
+type Fields = &'static [(&'static str, Kind, bool)];
+
+/// What a manifest field holds; tables are named as the reference's
+/// structs, for messages.
+#[derive(Clone, Copy)]
+enum Kind {
+    Str,
+    Strs,
+    /// A table of strings.
+    StrMap,
+    /// A table of these fields.
+    Table(&'static str, Fields),
+    /// A table whose values are tables of these fields.
+    Tables(&'static str, Fields),
+}
+
+const BIN: Fields = &[
+    ("entry", Kind::Str, false),
+    ("go", Kind::Str, false),
+    ("rust", Kind::Str, false),
+];
+const SERVER: Fields = &[
+    ("addr", Kind::Str, true),
+    ("routes", Kind::StrMap, false),
+    ("raw", Kind::StrMap, false),
+    ("static", Kind::StrMap, false),
+    ("rust", Kind::Str, false),
+];
+const META: Fields = &[("name", Kind::Str, true), ("sources", Kind::Strs, false)];
+const GO: Fields = &[
+    ("out", Kind::Str, true),
+    ("package", Kind::Str, false),
+    ("module", Kind::Str, false),
+    ("types_dir", Kind::Str, false),
+];
+const RUST: Fields = &[("out", Kind::Str, true), ("module_dir", Kind::Str, false)];
+const MANIFEST: Fields = &[
+    ("project", Kind::Table("Meta", META), true),
+    ("go", Kind::Table("GoTarget", GO), false),
+    ("rust", Kind::Table("RustTarget", RUST), false),
+    ("bin", Kind::Tables("Bin", BIN), false),
+    ("http", Kind::Tables("Server", SERVER), false),
+];
+
+/// serde's description of a value it didn't expect.
+fn unexpected(v: &toml::Value) -> String {
+    match v {
+        toml::Value::String(s) => format!("string {s:?}"),
+        toml::Value::Integer(i) => format!("integer `{i}`"),
+        toml::Value::Float(f) => format!("floating point `{f}`"),
+        toml::Value::Boolean(b) => format!("boolean `{b}`"),
+        toml::Value::Datetime(_) | toml::Value::Table(_) => "map".into(),
+        toml::Value::Array(_) => "sequence".into(),
+    }
+}
+
+fn check_value(v: &toml::Value, kind: Kind) -> Result<(), String> {
+    let invalid = |what: &str| Err(format!("invalid type: {}, expected {what}", unexpected(v)));
+    match (kind, v) {
+        (Kind::Str, toml::Value::String(_)) => Ok(()),
+        (Kind::Str, _) => invalid("a string"),
+        (Kind::Strs, toml::Value::Array(xs)) => {
+            xs.iter().try_for_each(|x| check_value(x, Kind::Str))
+        }
+        (Kind::Strs, _) => invalid("a sequence"),
+        (Kind::StrMap, toml::Value::Table(t)) => {
+            t.values().try_for_each(|x| check_value(x, Kind::Str))
+        }
+        (Kind::Tables(name, fields), toml::Value::Table(t)) => t
+            .values()
+            .try_for_each(|x| check_value(x, Kind::Table(name, fields))),
+        (Kind::StrMap | Kind::Tables(..), _) => invalid("a map"),
+        (Kind::Table(_, fields), toml::Value::Table(t)) => check_table(t, fields),
+        (Kind::Table(name, _), _) => invalid(&format!("struct {name}")),
+    }
+}
+
+fn check_table(t: &toml::Table, fields: Fields) -> Result<(), String> {
+    for (key, v) in t {
+        let Some((_, kind, _)) = fields.iter().find(|f| f.0 == key) else {
+            let names: Vec<String> = fields.iter().map(|f| format!("`{}`", f.0)).collect();
+            let expected = match names.len() {
+                1 => format!("expected {}", names[0]),
+                2 => format!("expected {} or {}", names[0], names[1]),
+                _ => format!("expected one of {}", names.join(", ")),
+            };
+            return Err(format!("unknown field `{key}`, {expected}"));
+        };
+        check_value(v, *kind)?;
+    }
+    match fields.iter().find(|f| f.2 && !t.contains_key(f.0)) {
+        Some((name, ..)) => Err(format!("missing field `{name}`")),
+        None => Ok(()),
+    }
+}
+
+/// Why text isn't a manifest the reference would load, or "".
+pub fn manifest_error(text: Str) -> Result<Str, String> {
+    let t: toml::Table = match text.parse() {
+        Ok(t) => t,
+        Err(e) => return Ok(e.message().into()),
+    };
+    Ok(check_table(&t, MANIFEST).err().unwrap_or_default().into())
+}

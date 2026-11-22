@@ -127,10 +127,13 @@ proc SourceRoute(At): HttpResponse {
 	};
 }
 
-// POST /api/save {path, source}: writes an existing .sys file.
+// POST /api/save {path, source}: writes an existing .sys file, or an
+// existing vandorf.toml if the new text is a valid manifest (one that
+// doesn't parse would break the project, and the IDE's view of it).
 proc Save(At): HttpResponse {
 	func At(s: { base: string, body: string }): { base: string, body: string } = "../leaf.rs:same";
 	func IsSys(p: string): bool = "ide_leaf.rs:is_sys";
+	func IsManifest(p: string): bool = "ide_leaf.rs:is_manifest";
 	func Len(s: string): int = "ide_leaf.rs:byte_len";
 	At -> ParseJson(text = this.body);
 	ParseJson switch {
@@ -144,7 +147,9 @@ proc Save(At): HttpResponse {
 	ResolvePath switch {
 		Ok(full) -> switch {
 			(IsSys(p = full)) -> Files.Write(path = full, text = UnwrapS(m = JsonStr(j = UnwrapJ(r = ParseJson), key = "source"))),
-			else -> id(ApiErr(msg = "only existing .sys files can be saved: " + UnwrapS(m = JsonStr(j = UnwrapJ(r = ParseJson), key = "path"))))
+			(IsManifest(p = full) && ManifestError(text = UnwrapS(m = JsonStr(j = UnwrapJ(r = ParseJson), key = "source"))) != "") -> id(ApiErr(msg = "invalid manifest, not saved: " + ManifestError(text = UnwrapS(m = JsonStr(j = UnwrapJ(r = ParseJson), key = "source"))))),
+			(IsManifest(p = full)) -> Files.Write(path = full, text = UnwrapS(m = JsonStr(j = UnwrapJ(r = ParseJson), key = "source"))),
+			else -> id(ApiErr(msg = "only existing .sys files and manifests can be saved: " + UnwrapS(m = JsonStr(j = UnwrapJ(r = ParseJson), key = "path"))))
 		},
 		Err(e) -> id(ApiErr(msg = e.msg))
 	};
