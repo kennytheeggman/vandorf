@@ -11,9 +11,9 @@ use vandorf::Source;
 
 const USAGE: &str = "\
 usage:
-  vandorf build [<bin>] [--manifest vandorf.toml]     # libraries, and every bin or just <bin>
-  vandorf check [<file.sys> | --manifest vandorf.toml]
-  vandorf doc   [<file.sys> | --manifest vandorf.toml] [-o out.json]
+  vandorf build [<bin>] [--manifest vandorf.toml] [-C <dir>]   # libraries, and every bin or just <bin>
+  vandorf check [<file.sys> | --manifest vandorf.toml] [-C <dir>]
+  vandorf doc   [<file.sys> | --manifest vandorf.toml] [-o out.json] [-C <dir>]
   vandorf go    <file.sys> -o <dir> [--package name] [--module import/path/of/dir] [--types-dir types] [--main] [--entry Proc]
   vandorf rust  <file.sys> -o <dir> [--module-dir path/under/src] [--main] [--entry Proc]
   vandorf serve [--addr 127.0.0.1:8080] [--dir .] [--term | --no-term]   # IDE; terminals default on for loopback only
@@ -21,6 +21,9 @@ usage:
 Without a file, check and doc use the project: the nearest vandorf.toml in the
 current directory or its parents (see the README for its fields). A project's
 .sys files share one namespace.
+
+-C <dir> (any command, anywhere in it) runs it as if started in <dir>: the
+project is found from there, and relative paths are relative to it.
 
 Each backend writes two artifacts: the types (typegen) and the procs (codegen).
 Impl paths in `= \"file:function\"` are relative to the .sys file naming them;
@@ -118,7 +121,24 @@ impl Unit {
     }
 }
 
+/// Takes out `-C <dir>` (anywhere, any number of times; each relative to the
+/// last) and changes into it.
+fn change_dir(argv: Vec<String>) -> Result<Vec<String>, String> {
+    let mut rest = vec![];
+    let mut it = argv.into_iter();
+    while let Some(a) = it.next() {
+        if a != "-C" {
+            rest.push(a);
+            continue;
+        }
+        let dir = it.next().ok_or_else(|| format!("-C needs a value\n\n{USAGE}"))?;
+        std::env::set_current_dir(&dir).map_err(|e| format!("cannot use -C {dir}: {e}"))?;
+    }
+    Ok(rest)
+}
+
 fn run(argv: Vec<String>) -> Result<(), String> {
+    let argv = change_dir(argv)?;
     if argv.first().map(String::as_str) == Some("serve") {
         return serve_cmd(&argv[1..]);
     }

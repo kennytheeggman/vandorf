@@ -572,3 +572,24 @@ pub fn manifest_error(text: Str) -> Result<Str, String> {
     };
     Ok(check_table(&t, MANIFEST).err().unwrap_or_default().into())
 }
+
+/// Takes the `-C <dir>`s out of argv (anywhere, in order).
+pub fn split_c(argv: List<Str>) -> Result<CliOpts, String> {
+    let (mut dirs, mut rest, mut err) = (vec![], vec![], String::new());
+    let mut it = argv.iter();
+    while let Some(a) = it.next() {
+        if &**a != "-C" {
+            rest.push(a.clone());
+            continue;
+        }
+        match it.next() {
+            Some(d) => dirs.push(d.clone()),
+            None => err = "-C needs a value".into(),
+        }
+    }
+    Ok(CliOpts {
+        dirs: dirs.into(),
+        rest: rest.into(),
+        err: err.into(),
+    })
+}

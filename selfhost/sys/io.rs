@@ -78,3 +78,18 @@ pub fn eprint(line: Str) -> Result<bool, String> {
     eprintln!("{line}");
     Ok(true)
 }
+
+pub fn chdir(path: Str) -> Result<super::types::ResString, String> {
+    use super::types::{Diag, ResString, Span};
+    Ok(match std::env::set_current_dir(&*path) {
+        Ok(()) => ResString::Ok(path),
+        Err(e) => ResString::Err(Diag {
+            msg: format!("cannot use -C {path}: {e}").into(),
+            span: Span {
+                at: 0,
+                end: 0,
+                file: 0,
+            },
+        }),
+    })
+}

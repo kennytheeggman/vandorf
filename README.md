@@ -15,6 +15,8 @@ cargo run -- serve                   # IDE on :8080 (explorer, diagram/text tabs
 
 Single files work too: `vandorf check f.sys`, `vandorf go f.sys -o dir`,
 `vandorf rust f.sys -o dir` (see `vandorf --help`).
+`-C <dir>`, anywhere in a command, runs it as if started in `<dir>`:
+`vandorf check -C examples/demo`.
 
 Pipeline: `parser` (chumsky, source → `ast`) → `sema` (name resolution,
 `this` typing, for-each regions) → `document` (grid layout, same JSON as the Go
