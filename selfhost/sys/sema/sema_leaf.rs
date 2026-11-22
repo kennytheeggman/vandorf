@@ -1,13 +1,7 @@
-//! Leaves for vcc's sema (../sys/sema): small pure helpers. The analysis
+//! Leaves for vcc's sema (the .sys files here): small pure helpers. The analysis
 //! itself is in .sys.
 
 use crate::vcc::types::*;
-
-/// The identity, for any type: entries and pass-through nodes of procs that
-/// take one struct (`func At(s: S): S`).
-pub fn same<T>(x: T) -> Result<T, String> {
-    Ok(x)
-}
 
 /// `", "` between list items: nothing before the first.
 pub fn sep(i: i64) -> Result<Str, String> {

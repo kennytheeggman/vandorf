@@ -1,4 +1,4 @@
-//! Implementations of the IDE's interfaces (../sys/ide): the session, its
+//! Implementations of the IDE's interfaces (ide.sys): the session, its
 //! pages, files under the source directory, and terminals.
 
 use crate::vcc::types::*;
@@ -51,14 +51,14 @@ pub fn base(_n: i64) -> Result<Str, String> {
 /// An IDE page by name ("" if there's none).
 pub fn page(name: Str) -> Result<Str, String> {
     Ok(s(match &*name {
-        "ide" => include_str!("../../web/ide.html"),
-        "explorer" => include_str!("../../web/explorer.html"),
-        "viewer" => include_str!("../../web/viewer.html"),
-        "terminal" => include_str!("../../web/terminal.html"),
-        "workbench" => include_str!("../../web/workbench.html"),
-        "viz" => include_str!("../../web/visualizer.html"),
-        "project" => include_str!("../../web/project.html"),
-        "ui.css" => include_str!("../../web/ui.css"),
+        "ide" => include_str!("../../../web/ide.html"),
+        "explorer" => include_str!("../../../web/explorer.html"),
+        "viewer" => include_str!("../../../web/viewer.html"),
+        "terminal" => include_str!("../../../web/terminal.html"),
+        "workbench" => include_str!("../../../web/workbench.html"),
+        "viz" => include_str!("../../../web/visualizer.html"),
+        "project" => include_str!("../../../web/project.html"),
+        "ui.css" => include_str!("../../../web/ui.css"),
         _ => "",
     }))
 }

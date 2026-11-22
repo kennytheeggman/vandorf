@@ -2,8 +2,8 @@
 // entry points (each with where its proc is declared), files and counts.
 
 proc ProjectRoute(At): HttpResponse {
-	func At(s: { base: string, query: map[string]string }): { base: string, query: map[string]string } = "../../leaves/sema_leaf.rs:same";
-	func Root(r: Res<string>): Res<string> = "../../leaves/sema_leaf.rs:same";
+	func At(s: { base: string, query: map[string]string }): { base: string, query: map[string]string } = "../leaf.rs:same";
+	func Root(r: Res<string>): Res<string> = "../leaf.rs:same";
 	At switch {
 		(!("dir" in this.query)) -> id(ApiErr(msg = "missing ?dir=")),
 		(this.query["dir"] == "" || this.query["dir"] == ".") -> Root(r = Ok(this.base)),
@@ -30,13 +30,13 @@ proc ProjectRoute(At): HttpResponse {
 }
 
 // The project's overview from its files' outlines.
-func ProjectJson(base: string, p: Project, text: string, outlines: []Outlined): Json = "../../leaves/ide_leaf.rs:project_json";
+func ProjectJson(base: string, p: Project, text: string, outlines: []Outlined): Json = "ide_leaf.rs:project_json";
 
 // A file's outline, or that it doesn't parse.
 type Outlined = { ok: bool, items: []Item };
 
 proc Outlines(At): []Outlined {
-	func At(s: { p: Project, i: int, acc: []Outlined }): { p: Project, i: int, acc: []Outlined } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { p: Project, i: int, acc: []Outlined }): { p: Project, i: int, acc: []Outlined } = "../leaf.rs:same";
 	At switch {
 		(this.i == this.p.srcs.len) -> id(this.acc),
 		else -> TryParse(src = this.p.srcs[this.i], file = 0)

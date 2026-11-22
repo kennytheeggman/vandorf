@@ -1,4 +1,4 @@
-//! Leaves for the IDE (../sys/ide): responses, paths, positions, and the
+//! Leaves for the IDE (the .sys files here): responses, paths, positions, and the
 //! JSON the pages read.
 
 use crate::vcc::types::*;

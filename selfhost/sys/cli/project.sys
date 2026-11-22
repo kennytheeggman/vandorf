@@ -12,20 +12,20 @@ type Bin = { entry: string, go: MaybeStr, rust: MaybeStr };
 // root: the manifest's directory. paths: relative to root, sorted.
 type Project = { root: string, manifest: Manifest, paths: []string, srcs: []string };
 
-func ParseManifest(text: string): Res<Manifest> = "../../leaves/cli_leaf.rs:parse_manifest";
-func JoinP(a: string, b: string): string = "../../leaves/cli_leaf.rs:join";
-func Parent(p: string): string = "../../leaves/cli_leaf.rs:parent";
+func ParseManifest(text: string): Res<Manifest> = "cli_leaf.rs:parse_manifest";
+func JoinP(a: string, b: string): string = "cli_leaf.rs:join";
+func Parent(p: string): string = "cli_leaf.rs:parent";
 // Implementation paths made relative to out (dirs: each file's directory).
-func RebaseImpls(prog: Program, dirs: []string, out: string): Program = "../../leaves/cli_leaf.rs:rebase_impls";
+func RebaseImpls(prog: Program, dirs: []string, out: string): Program = "cli_leaf.rs:rebase_impls";
 // target relative to the directory from; both absolute.
-func Relative(target: string, from: string): string = "../../leaves/cli_leaf.rs:relative";
-func SortDedup(xs: []string): []string = "../../leaves/cli_leaf.rs:sort_dedup";
-func StartsWith(text: string, prefix: string): bool = "../../leaves/cli_leaf.rs:starts_with";
-func CargoLibName(toml: string, has_lib_rs: bool): string = "../../leaves/cli_leaf.rs:cargo_lib_name";
+func Relative(target: string, from: string): string = "cli_leaf.rs:relative";
+func SortDedup(xs: []string): []string = "cli_leaf.rs:sort_dedup";
+func StartsWith(text: string, prefix: string): bool = "cli_leaf.rs:starts_with";
+func CargoLibName(toml: string, has_lib_rs: bool): string = "cli_leaf.rs:cargo_lib_name";
 
 // The nearest directory at or above dir that has `marker`, or "".
 proc FindUp(At): string {
-	func At(s: { dir: string, marker: string }): { dir: string, marker: string } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { dir: string, marker: string }): { dir: string, marker: string } = "../leaf.rs:same";
 	At -> Fs.IsFile(path = JoinP(a = this.dir, b = this.marker));
 	Fs.IsFile switch {
 		(this) -> id(At.dir),
@@ -36,7 +36,7 @@ proc FindUp(At): string {
 
 // Reads the manifest at path and every .sys file under its sources.
 proc LoadProject(At): Res<Project> {
-	func At(path: string): string = "../../leaves/sema_leaf.rs:same";
+	func At(path: string): string = "../leaf.rs:same";
 	At -> Fs.Read(path = this) as Text;
 	Text -> ParseManifest(text = this);
 	ParseManifest switch {
@@ -53,13 +53,13 @@ proc LoadProject(At): Res<Project> {
 	ReadAll -> id(Ok({ root = Parent(p = At), manifest = UnwrapM(r = ParseManifest), paths = UnwrapPaths(r = SourceFiles), srcs = this }));
 }
 
-func UnwrapM(r: Res<Manifest>): Manifest = "../../leaves/cli_leaf.rs:unwrap_m";
-func UnwrapPaths(r: Res<[]string>): []string = "../../leaves/cli_leaf.rs:unwrap_paths";
+func UnwrapM(r: Res<Manifest>): Manifest = "cli_leaf.rs:unwrap_m";
+func UnwrapPaths(r: Res<[]string>): []string = "cli_leaf.rs:unwrap_paths";
 
 // The .sys files under each source directory, relative to root, sorted.
 proc SourceFiles(At): Res<[]string> {
-	func At(s: { root: string, m: Manifest, i: int, acc: []string }): { root: string, m: Manifest, i: int, acc: []string } = "../../leaves/sema_leaf.rs:same";
-	func Rel(paths: []string, root: string): []string = "../../leaves/cli_leaf.rs:rel_all";
+	func At(s: { root: string, m: Manifest, i: int, acc: []string }): { root: string, m: Manifest, i: int, acc: []string } = "../leaf.rs:same";
+	func Rel(paths: []string, root: string): []string = "cli_leaf.rs:rel_all";
 	At switch {
 		(this.i == this.m.sources.len) -> id(Ok(SortDedup(xs = this.acc))),
 		else -> Fs.IsDir(path = JoinP(a = this.root, b = this.m.sources[this.i]))
@@ -72,7 +72,7 @@ proc SourceFiles(At): Res<[]string> {
 }
 
 proc ReadAll(At): []string {
-	func At(s: { root: string, paths: []string, i: int, acc: []string }): { root: string, paths: []string, i: int, acc: []string } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { root: string, paths: []string, i: int, acc: []string }): { root: string, paths: []string, i: int, acc: []string } = "../leaf.rs:same";
 	At switch {
 		(this.i == this.paths.len) -> id(this.acc),
 		else -> Fs.Read(path = JoinP(a = this.root, b = this.paths[this.i]))

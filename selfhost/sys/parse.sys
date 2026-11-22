@@ -16,24 +16,24 @@ type Cur = { toks: []Tok, pos: int, tok: Tok, prev: Tok };
 
 // At(toks, pos): the position, unchanged. Each proc declares its own (an
 // entry has to be local), all implemented by this one leaf.
-//   func At(toks: []Tok, pos: int): Cur = "../leaves/leaf.rs:at";
+//   func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 
 // toks[pos] must be the symbol or word `text`.
-func Expect(toks: []Tok, pos: int, text: string, what: string): Cur = "../leaves/leaf.rs:expect";
+func Expect(toks: []Tok, pos: int, text: string, what: string): Cur = "leaf.rs:expect";
 // toks[pos] must be an identifier other than a keyword.
-func NeedIdent(toks: []Tok, pos: int, what: string): Cur = "../leaves/leaf.rs:need_ident";
+func NeedIdent(toks: []Tok, pos: int, what: string): Cur = "leaf.rs:need_ident";
 // toks[pos] must be an identifier; keywords allowed (field names).
-func NeedName(toks: []Tok, pos: int, what: string): Cur = "../leaves/leaf.rs:need_name";
+func NeedName(toks: []Tok, pos: int, what: string): Cur = "leaf.rs:need_name";
 // toks[pos] must be a string.
-func NeedStr(toks: []Tok, pos: int, what: string): Cur = "../leaves/leaf.rs:need_str";
+func NeedStr(toks: []Tok, pos: int, what: string): Cur = "leaf.rs:need_str";
 
-func IsSym(t: Tok, s: string): bool = "../leaves/leaf.rs:is_sym";
-func IsWord(t: Tok, s: string): bool = "../leaves/leaf.rs:is_word";
+func IsSym(t: Tok, s: string): bool = "leaf.rs:is_sym";
+func IsWord(t: Tok, s: string): bool = "leaf.rs:is_word";
 // A closing bracket: where a list stops.
-func IsClose(t: Tok): bool = "../leaves/leaf.rs:is_close";
+func IsClose(t: Tok): bool = "leaf.rs:is_close";
 // toks[pos] must be the `>` closing type arguments or parameters; `>=`
 // there is an error, since it lexes as the comparison operator.
-func CloseAngle(toks: []Tok, pos: int): Cur = "../leaves/leaf.rs:close_angle";
+func CloseAngle(toks: []Tok, pos: int): Cur = "leaf.rs:close_angle";
 
 // What a parse step returns: what it parsed, and the index of the next
 // token.
@@ -44,13 +44,13 @@ type BodyItems = { nodes: []Node, edges: []Edge };
 
 // Parses a whole file.
 proc Parse(Start): File {
-	func Start(src: string): string = "../leaves/leaf.rs:same";
+	func Start(src: string): string = "leaf.rs:same";
 	Start -> ParseFile(src = this, file = 0);
 }
 
 // Parses the `file`th of a program's files.
 proc ParseFile(Start): File {
-	func Start(src: string, file: int): { src: string, file: int } = "../leaves/leaf.rs:src_file";
+	func Start(src: string, file: int): { src: string, file: int } = "leaf.rs:src_file";
 	Start -> Lex(src = this.src, file = this.file);
 	Lex -> PItems(toks = this, pos = 0, acc = { types = [], interfaces = [], nodes = [] });
 	PItems -> id(this.x);

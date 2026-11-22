@@ -25,8 +25,9 @@ const KEYWORDS: &[&str] = &[
     "id",
 ];
 
-pub fn same(s: Str) -> Result<Str, String> {
-    Ok(s)
+/// The identity: entries and pass-through nodes.
+pub fn same<T>(x: T) -> Result<T, String> {
+    Ok(x)
 }
 
 pub fn src_file(src: Str, file: i64) -> Result<ParseFileStartOut, String> {

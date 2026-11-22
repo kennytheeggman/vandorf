@@ -1,24 +1,24 @@
 // I/O: the only impure part of vcc. Everything else is pure: procs, and
-// leaf funcs in leaves/*_leaf.rs.
+// leaf funcs in the *_leaf.rs next to the .sys using them.
 
 interface Fs {
-	func Read(path: string): string = "../leaves/io.rs:read";
+	func Read(path: string): string = "io.rs:read";
 	// Writes text to path, creating its directory.
-	func Write(path: string, text: string): bool = "../leaves/io.rs:write";
-	func IsFile(path: string): bool = "../leaves/io.rs:is_file";
-	func IsDir(path: string): bool = "../leaves/io.rs:is_dir";
+	func Write(path: string, text: string): bool = "io.rs:write";
+	func IsFile(path: string): bool = "io.rs:is_file";
+	func IsDir(path: string): bool = "io.rs:is_dir";
 	// The working directory.
-	func Cwd(n: int): string = "../leaves/io.rs:cwd";
+	func Cwd(n: int): string = "io.rs:cwd";
 	// The .sys files under dir, skipping hidden directories and build output.
-	func Walk(dir: string): []string = "../leaves/io.rs:walk";
+	func Walk(dir: string): []string = "io.rs:walk";
 }
 
 interface Tools {
 	// Formats Rust files, if rustfmt is installed.
-	func Rustfmt(files: []string): bool = "../leaves/io.rs:rustfmt";
+	func Rustfmt(files: []string): bool = "io.rs:rustfmt";
 }
 
 interface Console {
 	// A line on stderr.
-	func Err(line: string): bool = "../leaves/io.rs:eprint";
+	func Err(line: string): bool = "io.rs:eprint";
 }

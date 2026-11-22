@@ -1,4 +1,4 @@
-//! Leaves for vcc's command line (../sys/cli): the manifest, paths, and
+//! Leaves for vcc's command line (the .sys files here): the manifest, paths, and
 //! the Rust main file.
 
 use crate::vcc::types::*;

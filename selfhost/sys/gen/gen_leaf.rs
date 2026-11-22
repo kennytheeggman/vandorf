@@ -1,4 +1,4 @@
-//! Leaves for vcc's code generators (../sys/gen): table updates and
+//! Leaves for vcc's code generators (the .sys files here): table updates and
 //! lookups, names, and text.
 
 use crate::vcc::types::*;

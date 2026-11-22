@@ -10,14 +10,14 @@ type MaybeProject = enum { None, Some(Project) };
 // and which is the editor's.
 type Unit = { names: []string, srcs: []string, root: string, here: int, project: MaybeProject };
 
-func NonBlank(m: MaybeStr): bool = "../../leaves/ide_leaf.rs:non_blank";
-func NonEmpty(m: MaybeStr): bool = "../../leaves/ide_leaf.rs:non_empty";
-func PathIndex(paths: []string, root: string, abs: string): int = "../../leaves/ide_leaf.rs:index_of_path";
-func SetAt(xs: []string, i: int, x: string): []string = "../../leaves/ide_leaf.rs:set_at";
+func NonBlank(m: MaybeStr): bool = "ide_leaf.rs:non_blank";
+func NonEmpty(m: MaybeStr): bool = "ide_leaf.rs:non_empty";
+func PathIndex(paths: []string, root: string, abs: string): int = "ide_leaf.rs:index_of_path";
+func SetAt(xs: []string, i: int, x: string): []string = "ide_leaf.rs:set_at";
 
 proc Compile(At): HttpResponse {
-	func At(s: { base: string, body: string }): { base: string, body: string } = "../../leaves/sema_leaf.rs:same";
-	func Text(s: string): string = "../../leaves/sema_leaf.rs:same";
+	func At(s: { base: string, body: string }): { base: string, body: string } = "../leaf.rs:same";
+	func Text(s: string): string = "../leaf.rs:same";
 	At -> ParseJson(text = this.body);
 	ParseJson switch {
 		Ok(j) -> switch {
@@ -53,11 +53,11 @@ proc Compile(At): HttpResponse {
 }
 
 // The editor's file as named in messages: its path, its "name", or <editor>.
-func EditorName(j: Json): string = "../../leaves/ide_leaf.rs:editor_name";
-func UnwrapR2(r: Res<string>): string = "../../leaves/ide_leaf.rs:unwrap_res_string";
+func EditorName(j: Json): string = "ide_leaf.rs:editor_name";
+func UnwrapR2(r: Res<string>): string = "ide_leaf.rs:unwrap_res_string";
 
 proc CompileUnit(At): HttpResponse {
-	func At(s: { base: string, unit: Unit }): { base: string, unit: Unit } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { base: string, unit: Unit }): { base: string, unit: Unit } = "../leaf.rs:same";
 	At -> ParseUnit(s = { srcs = this.unit.srcs, i = 0, file = { types = [], interfaces = [], nodes = [] }, errors = [] });
 	ParseUnit switch {
 		(this.errors.len > 0) -> Diagnostics(s = { unit = At.unit, errors = this.errors }) as ParseErrors,
@@ -81,13 +81,13 @@ proc CompileUnit(At): HttpResponse {
 	])));
 }
 
-func ProjectName(p: MaybeProject): Json = "../../leaves/ide_leaf.rs:project_name_json";
+func ProjectName(p: MaybeProject): Json = "ide_leaf.rs:project_name_json";
 // vcc doesn't generate Go yet; or [go] isn't configured.
-func GoPreview(p: MaybeProject): Json = "../../leaves/ide_leaf.rs:go_preview";
+func GoPreview(p: MaybeProject): Json = "ide_leaf.rs:go_preview";
 
 // Each file parsed, its errors kept (they're diagnostics, not failures).
 proc ParseUnit(At): { file: File, errors: []Diag } {
-	func At(s: { srcs: []string, i: int, file: File, errors: []Diag }): { srcs: []string, i: int, file: File, errors: []Diag } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { srcs: []string, i: int, file: File, errors: []Diag }): { srcs: []string, i: int, file: File, errors: []Diag } = "../leaf.rs:same";
 	At switch {
 		(this.i == this.srcs.len) -> id({ file = this.file, errors = this.errors }),
 		else -> TryParse(src = this.srcs[this.i], file = this.i)
@@ -100,9 +100,9 @@ proc ParseUnit(At): { file: File, errors: []Diag } {
 
 // 200 with ok: false, so the client can still read the diagnostics.
 proc Diagnostics(At): HttpResponse {
-	func At(s: { unit: Unit, errors: []Diag }): { unit: Unit, errors: []Diag } = "../../leaves/sema_leaf.rs:same";
-	func List(names: []string, srcs: []string, here: int, errors: []Diag): Json = "../../leaves/ide_leaf.rs:diagnostics_json";
-	func Rendered(names: []string, srcs: []string, errors: []Diag): string = "../../leaves/ide_leaf.rs:render_diagnostics";
+	func At(s: { unit: Unit, errors: []Diag }): { unit: Unit, errors: []Diag } = "../leaf.rs:same";
+	func List(names: []string, srcs: []string, here: int, errors: []Diag): Json = "ide_leaf.rs:diagnostics_json";
+	func Rendered(names: []string, srcs: []string, errors: []Diag): string = "ide_leaf.rs:render_diagnostics";
 	At -> id(Api(j = Obj([
 		{ key = "ok", value = Bool(false) },
 		{ key = "error", value = Str(Rendered(names = this.unit.names, srcs = this.unit.srcs, errors = this.errors)) },
@@ -116,14 +116,14 @@ proc Diagnostics(At): HttpResponse {
 // the source directory, 0-based lines) and, for funcs, their implementation
 // files resolved the same way.
 proc Symbols(At): Json {
-	func At(s: { base: string, unit: Unit, prog: Program }): { base: string, unit: Unit, prog: Program } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { base: string, unit: Unit, prog: Program }): { base: string, unit: Unit, prog: Program } = "../leaf.rs:same";
 	At -> TypeSymbols(s = { types = this.prog.types, i = 0, acc = [] });
 	TypeSymbols -> NodeSymbols(s = { base = At.base, unit = At.unit, prog = At.prog, i = 0, acc = [] });
 	NodeSymbols -> id(Obj([{ key = "types", value = Obj(TypeSymbols) }, { key = "nodes", value = Obj(this) }]));
 }
 
 proc TypeSymbols(At): []JsonField {
-	func At(s: { types: []TypeDef, i: int, acc: []JsonField }): { types: []TypeDef, i: int, acc: []JsonField } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { types: []TypeDef, i: int, acc: []JsonField }): { types: []TypeDef, i: int, acc: []JsonField } = "../leaf.rs:same";
 	At switch {
 		(this.i == this.types.len) -> id(this.acc),
 		else -> ShowType(t = this.types[this.i].ty)
@@ -132,12 +132,12 @@ proc TypeSymbols(At): []JsonField {
 }
 
 proc NodeSymbols(At): []JsonField {
-	func At(s: { base: string, unit: Unit, prog: Program, i: int, acc: []JsonField }): { base: string, unit: Unit, prog: Program, i: int, acc: []JsonField } = "../../leaves/sema_leaf.rs:same";
-	func K(k: NodeKind): NodeKind = "../../leaves/sema_leaf.rs:same";
+	func At(s: { base: string, unit: Unit, prog: Program, i: int, acc: []JsonField }): { base: string, unit: Unit, prog: Program, i: int, acc: []JsonField } = "../leaf.rs:same";
+	func K(k: NodeKind): NodeKind = "../leaf.rs:same";
 	// { file, line } of a node: its file relative to base (or null).
-	func Loc(base: string, unit: Unit, span: Span): Json = "../../leaves/ide_leaf.rs:loc_json";
+	func Loc(base: string, unit: Unit, span: Span): Json = "ide_leaf.rs:loc_json";
 	// A func's implementations: written, path (relative to base), function, lang.
-	func Imps(base: string, unit: Unit, span: Span, imps: []ImplRef): Json = "../../leaves/ide_leaf.rs:imps_json";
+	func Imps(base: string, unit: Unit, span: Span, imps: []ImplRef): Json = "ide_leaf.rs:imps_json";
 	At switch {
 		(this.i == this.prog.nodes.len) -> id(this.acc),
 		else -> K(k = this.prog.nodes[this.i].kind)
@@ -165,17 +165,17 @@ proc NodeSymbols(At): []JsonField {
 	]) }] });
 }
 
-func FuncImps(n: NodeDecl): []ImplRef = "../../leaves/ide_leaf.rs:func_imps";
-func EntryName(prog: Program, pid: int): string = "../../leaves/ide_leaf.rs:entry_name";
+func FuncImps(n: NodeDecl): []ImplRef = "ide_leaf.rs:func_imps";
+func EntryName(prog: Program, pid: int): string = "ide_leaf.rs:entry_name";
 
 // ---- The Rust preview: what `vcc build` would generate ----
 
 proc RustPreview(At): Json {
-	func At(s: { unit: Unit, prog: Program }): { unit: Unit, prog: Program } = "../../leaves/sema_leaf.rs:same";
-	func P(p: MaybeProject): MaybeProject = "../../leaves/sema_leaf.rs:same";
-	func R(r: MaybeRust): MaybeRust = "../../leaves/sema_leaf.rs:same";
-	func NominalMains(prog: Program): map[string]Bin = "../../leaves/ide_leaf.rs:nominal_mains";
-	func Dirs(root: string, paths: []string): []string = "../../leaves/cli_leaf.rs:dirs";
+	func At(s: { unit: Unit, prog: Program }): { unit: Unit, prog: Program } = "../leaf.rs:same";
+	func P(p: MaybeProject): MaybeProject = "../leaf.rs:same";
+	func R(r: MaybeRust): MaybeRust = "../leaf.rs:same";
+	func NominalMains(prog: Program): map[string]Bin = "ide_leaf.rs:nominal_mains";
+	func Dirs(root: string, paths: []string): []string = "../cli/cli_leaf.rs:dirs";
 	At -> P(p = this.unit.project);
 	P switch {
 		Some(p) -> R(r = p.manifest.rust),
@@ -196,15 +196,15 @@ proc RustPreview(At): Json {
 	}) as Configured;
 }
 
-func UnwrapPr(p: MaybeProject): Project = "../../leaves/ide_leaf.rs:unwrap_project";
+func UnwrapPr(p: MaybeProject): Project = "ide_leaf.rs:unwrap_project";
 
 // The generated files as JSON: artifacts (types, code, mains) and the
 // implementations they call; or the error.
 proc Preview(At): Json {
-	func At(s: { prog: Program, module_dir: MaybeStr, krate: string, bins: map[string]Bin }): { prog: Program, module_dir: MaybeStr, krate: string, bins: map[string]Bin } = "../../leaves/sema_leaf.rs:same";
-	func Output(types: string, modrs: string, procs: string, mains: []OutFile, impls: Json): Json = "../../leaves/ide_leaf.rs:output_json";
-	func Impls(prog: Program, t: Table, module_dir: MaybeStr): Json = "../../leaves/ide_leaf.rs:impls_json";
-	func Error(msg: string): Json = "../../leaves/ide_leaf.rs:error_json";
+	func At(s: { prog: Program, module_dir: MaybeStr, krate: string, bins: map[string]Bin }): { prog: Program, module_dir: MaybeStr, krate: string, bins: map[string]Bin } = "../leaf.rs:same";
+	func Output(types: string, modrs: string, procs: string, mains: []OutFile, impls: Json): Json = "ide_leaf.rs:output_json";
+	func Impls(prog: Program, t: Table, module_dir: MaybeStr): Json = "ide_leaf.rs:impls_json";
+	func Error(msg: string): Json = "ide_leaf.rs:error_json";
 	At -> RustGenerate(s = { prog = this.prog, module_dir = this.module_dir, servers = [] });
 	RustGenerate switch {
 		{ types = _, procs = _, modrs = _, http = _, err = Some(e) } -> id(Error(msg = e)),
@@ -217,13 +217,13 @@ proc Preview(At): Json {
 	BuildTable -> id(Output(types = RustGenerate.types, modrs = RustGenerate.modrs, procs = RustGenerate.procs, mains = UnwrapOut(r = PreviewMains), impls = Impls(prog = At.prog, t = this, module_dir = At.module_dir)));
 }
 
-func UnwrapOut(r: Res<[]OutFile>): []OutFile = "../../leaves/ide_leaf.rs:unwrap_out";
+func UnwrapOut(r: Res<[]OutFile>): []OutFile = "ide_leaf.rs:unwrap_out";
 
 // The bins' files: dir (relative to the module) as path, file name as kind.
 proc PreviewMains(At): Res<[]OutFile> {
-	func At(s: { prog: Program, bins: map[string]Bin, names: []string, module_dir: MaybeStr, krate: string, i: int, acc: []OutFile }): { prog: Program, bins: map[string]Bin, names: []string, module_dir: MaybeStr, krate: string, i: int, acc: []OutFile } = "../../leaves/sema_leaf.rs:same";
-	func RustMain(prog: Program, t: Table, name: string, entry: string, path: string, module_dir: MaybeStr, krate: string): { dir: string, file: string, text: string, err: MaybeStr } = "../../leaves/gen_leaf.rs:rust_main";
-	func BinPath(b: Bin, name: string): string = "../../leaves/cli_leaf.rs:bin_path";
+	func At(s: { prog: Program, bins: map[string]Bin, names: []string, module_dir: MaybeStr, krate: string, i: int, acc: []OutFile }): { prog: Program, bins: map[string]Bin, names: []string, module_dir: MaybeStr, krate: string, i: int, acc: []OutFile } = "../leaf.rs:same";
+	func RustMain(prog: Program, t: Table, name: string, entry: string, path: string, module_dir: MaybeStr, krate: string): { dir: string, file: string, text: string, err: MaybeStr } = "../gen/gen_leaf.rs:rust_main";
+	func BinPath(b: Bin, name: string): string = "../cli/cli_leaf.rs:bin_path";
 	At switch {
 		(this.i == this.names.len) -> id(Ok(this.acc)),
 		else -> BuildTable(prog = this.prog)

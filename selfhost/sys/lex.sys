@@ -6,12 +6,12 @@
 // and `end` are byte offsets into the source.
 type Tok = { kind: string, text: string, at: int, end: int, file: int };
 
-func Lex(src: string, file: int): []Tok = "../leaves/leaf.rs:lex";
+func Lex(src: string, file: int): []Tok = "leaf.rs:lex";
 
 // Pure helpers the parser calls in expressions.
-func MkIdent(t: Tok): Ident = "../leaves/leaf.rs:mk_ident";
-func SpanOf(t: Tok): Span = "../leaves/leaf.rs:span_of";
-func IntOf(t: Tok): int = "../leaves/leaf.rs:int_of";
-func FloatOf(t: Tok): float = "../leaves/leaf.rs:float_of";
+func MkIdent(t: Tok): Ident = "leaf.rs:mk_ident";
+func SpanOf(t: Tok): Span = "leaf.rs:span_of";
+func IntOf(t: Tok): int = "leaf.rs:int_of";
+func FloatOf(t: Tok): float = "leaf.rs:float_of";
 // Splits a "file:function" string token, failing if it isn't one.
-func ImplOf(t: Tok): ImplRef = "../leaves/leaf.rs:impl_of";
+func ImplOf(t: Tok): ImplRef = "leaf.rs:impl_of";

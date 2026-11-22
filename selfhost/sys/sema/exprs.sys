@@ -13,31 +13,31 @@ type Scope = { this: Type, binds: []Member };
 type CheckIn = { env: Env, sc: Scope, v: Value, want: Type };
 type SynthIn = { env: Env, sc: Scope, v: Value };
 
-func IntToFloat(i: int): float = "../../leaves/sema_leaf.rs:int_to_float";
-func IsPrimNamed(t: Type, p: string): bool = "../../leaves/sema_leaf.rs:is_prim_named";
-func IsArray(t: Type): bool = "../../leaves/sema_leaf.rs:is_array";
-func IsMap(t: Type): bool = "../../leaves/sema_leaf.rs:is_map";
-func IsEnum(t: Type): bool = "../../leaves/sema_leaf.rs:is_enum";
-func IsStruct(t: Type): bool = "../../leaves/sema_leaf.rs:is_struct";
+func IntToFloat(i: int): float = "sema_leaf.rs:int_to_float";
+func IsPrimNamed(t: Type, p: string): bool = "sema_leaf.rs:is_prim_named";
+func IsArray(t: Type): bool = "sema_leaf.rs:is_array";
+func IsMap(t: Type): bool = "sema_leaf.rs:is_map";
+func IsEnum(t: Type): bool = "sema_leaf.rs:is_enum";
+func IsStruct(t: Type): bool = "sema_leaf.rs:is_struct";
 // The fields of a struct or variants of an enum (none otherwise).
-func MembersOf(t: Type): []Member = "../../leaves/sema_leaf.rs:members_of";
-func ElemOf(t: Type): Type = "../../leaves/sema_leaf.rs:elem_of";
-func KeyOf(t: Type): Type = "../../leaves/sema_leaf.rs:key_of";
+func MembersOf(t: Type): []Member = "sema_leaf.rs:members_of";
+func ElemOf(t: Type): Type = "sema_leaf.rs:elem_of";
+func KeyOf(t: Type): Type = "sema_leaf.rs:key_of";
 // A map literal key as written in messages: 3, "a".
-func LitKey(e: Expr): MaybeStr = "../../leaves/sema_leaf.rs:lit_key";
+func LitKey(e: Expr): MaybeStr = "sema_leaf.rs:lit_key";
 // A node's return and parameters (an alias's are those of what it instances).
-func NodeRet(nodes: []NodeDecl, n: int): Type = "../../leaves/sema_leaf.rs:node_ret";
-func NodeParams(nodes: []NodeDecl, n: int): []Member = "../../leaves/sema_leaf.rs:node_params";
-func IsFunc(n: NodeDecl): bool = "../../leaves/sema_leaf.rs:is_func";
-func Prefixed(d: Diag, prefix: string): Diag = "../../leaves/sema_leaf.rs:prefixed";
+func NodeRet(nodes: []NodeDecl, n: int): Type = "sema_leaf.rs:node_ret";
+func NodeParams(nodes: []NodeDecl, n: int): []Member = "sema_leaf.rs:node_params";
+func IsFunc(n: NodeDecl): bool = "sema_leaf.rs:is_func";
+func Prefixed(d: Diag, prefix: string): Diag = "sema_leaf.rs:prefixed";
 
 // ---- Checking against a type ----
 
 // Literals of structs, arrays, maps and variants take their type from
 // `want`; anything else has its own type, which `want` must accept.
 proc Check(At): Res<Expr> {
-	func At(s: CheckIn): CheckIn = "../../leaves/sema_leaf.rs:same";
-	func K(k: ValueKind): ValueKind = "../../leaves/sema_leaf.rs:same";
+	func At(s: CheckIn): CheckIn = "../leaf.rs:same";
+	func K(k: ValueKind): ValueKind = "../leaf.rs:same";
 	At -> Unfold(s = { t = this.want, defs = this.env.types }) as Shape;
 	Shape -> K(k = At.v.kind);
 	K switch {
@@ -92,22 +92,22 @@ proc Check(At): Res<Expr> {
 	NoVariant -> id(Err({ msg = this + " has no variant " + ApplyName(k = K).segs[0].name, span = ApplyName(k = K).span }));
 }
 
-func IsSomeT(t: MaybeType): bool = "../../leaves/sema_leaf.rs:is_some";
-func BinaryR(k: ValueKind): Value = "../../leaves/sema_leaf.rs:binary_r";
-func ApplyName(k: ValueKind): Path = "../../leaves/sema_leaf.rs:apply_name";
-func UnwrapE(r: Res<Expr>): Expr = "../../leaves/sema_leaf.rs:unwrap_e";
+func IsSomeT(t: MaybeType): bool = "sema_leaf.rs:is_some";
+func BinaryR(k: ValueKind): Value = "sema_leaf.rs:binary_r";
+func ApplyName(k: ValueKind): Path = "sema_leaf.rs:apply_name";
+func UnwrapE(r: Res<Expr>): Expr = "sema_leaf.rs:unwrap_e";
 
 // "expected <want>, found <found>"
 proc Expected(At): Res<Expr> {
-	func At(s: { c: CheckIn, found: string }): { c: CheckIn, found: string } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { c: CheckIn, found: string }): { c: CheckIn, found: string } = "../leaf.rs:same";
 	At -> ShowType(t = this.c.want);
 	ShowType -> id(Err({ msg = "expected " + this + ", found " + At.found, span = At.c.v.span }));
 }
 
 // A primitive literal, which has its own type.
 proc CheckLit(At): Res<Expr> {
-	func At(s: CheckIn): CheckIn = "../../leaves/sema_leaf.rs:same";
-	func Article(k: ValueKind): string = "../../leaves/sema_leaf.rs:article";
+	func At(s: CheckIn): CheckIn = "../leaf.rs:same";
+	func Article(k: ValueKind): string = "sema_leaf.rs:article";
 	At -> Synth(s = { env = this.env, sc = this.sc, v = this.v });
 	Synth switch {
 		Ok(x) -> Accepts(s = { a = At.want, b = x.t, defs = At.env.types, assumed = [] }),
@@ -120,12 +120,12 @@ proc CheckLit(At): Res<Expr> {
 	Found -> Expected(s = { c = At, found = Article(k = At.v.kind) + " " + this + " literal" });
 }
 
-func UnwrapTyped(r: Res<Typed>): Typed = "../../leaves/sema_leaf.rs:unwrap_typed";
+func UnwrapTyped(r: Res<Typed>): Typed = "sema_leaf.rs:unwrap_typed";
 
 // Anything with its own type, which `want` must accept.
 proc CheckSynth(At): Res<Expr> {
-	func At(s: CheckIn): CheckIn = "../../leaves/sema_leaf.rs:same";
-	func What(v: Value): string = "../../leaves/sema_leaf.rs:what";
+	func At(s: CheckIn): CheckIn = "../leaf.rs:same";
+	func What(v: Value): string = "sema_leaf.rs:what";
 	At -> Synth(s = { env = this.env, sc = this.sc, v = this.v });
 	Synth switch {
 		Ok(x) -> Accepts(s = { a = At.want, b = x.t, defs = At.env.types, assumed = [] }),
@@ -141,7 +141,7 @@ proc CheckSynth(At): Res<Expr> {
 
 // Each item checked against `want`.
 proc CheckAll(At): Res<[]Expr> {
-	func At(s: { c: CheckIn, items: []Value, want: Type, i: int, acc: []Expr }): { c: CheckIn, items: []Value, want: Type, i: int, acc: []Expr } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { c: CheckIn, items: []Value, want: Type, i: int, acc: []Expr }): { c: CheckIn, items: []Value, want: Type, i: int, acc: []Expr } = "../leaf.rs:same";
 	At switch {
 		(this.i == this.items.len) -> id(Ok(this.acc)),
 		else -> Check(s = { env = this.c.env, sc = this.c.sc, v = this.items[this.i], want = this.want })
@@ -153,7 +153,7 @@ proc CheckAll(At): Res<[]Expr> {
 }
 
 proc CheckEntries(At): Res<Expr> {
-	func At(s: { c: CheckIn, kvs: []Entry, kt: Type, vt: Type, i: int, seen: []string, acc: []ExprEntry }): { c: CheckIn, kvs: []Entry, kt: Type, vt: Type, i: int, seen: []string, acc: []ExprEntry } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { c: CheckIn, kvs: []Entry, kt: Type, vt: Type, i: int, seen: []string, acc: []ExprEntry }): { c: CheckIn, kvs: []Entry, kt: Type, vt: Type, i: int, seen: []string, acc: []ExprEntry } = "../leaf.rs:same";
 	At switch {
 		(this.i == this.kvs.len) -> id(Ok(Map(this.acc))),
 		else -> Check(s = { env = this.c.env, sc = this.c.sc, v = this.kvs[this.i].key, want = this.kt }) as K
@@ -175,11 +175,11 @@ proc CheckEntries(At): Res<Expr> {
 	};
 }
 
-func LitKeys(m: MaybeStr): []string = "../../leaves/sema_leaf.rs:some_strs";
+func LitKeys(m: MaybeStr): []string = "sema_leaf.rs:some_strs";
 
 // A struct literal: every field of the type, each once.
 proc CheckFields(At): Res<Expr> {
-	func At(s: { c: CheckIn, fs: []Member, args: []Arg, i: int, given: map[string]Expr }): { c: CheckIn, fs: []Member, args: []Arg, i: int, given: map[string]Expr } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { c: CheckIn, fs: []Member, args: []Arg, i: int, given: map[string]Expr }): { c: CheckIn, fs: []Member, args: []Arg, i: int, given: map[string]Expr } = "../leaf.rs:same";
 	At switch {
 		(this.i == this.args.len) -> FillFields(s = { c = this.c, fs = this.fs, given = this.given, i = 0, acc = [] }),
 		else -> Member(ms = this.fs, name = this.args[this.i].name.name)
@@ -199,7 +199,7 @@ proc CheckFields(At): Res<Expr> {
 }
 
 proc FillFields(At): Res<Expr> {
-	func At(s: { c: CheckIn, fs: []Member, given: map[string]Expr, i: int, acc: []ExprMember }): { c: CheckIn, fs: []Member, given: map[string]Expr, i: int, acc: []ExprMember } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { c: CheckIn, fs: []Member, given: map[string]Expr, i: int, acc: []ExprMember }): { c: CheckIn, fs: []Member, given: map[string]Expr, i: int, acc: []ExprMember } = "../leaf.rs:same";
 	At switch {
 		(this.i == this.fs.len) -> id(Ok(Struct(this.acc))),
 		(this.fs[this.i].name in this.given) -> At(s = { c = this.c, fs = this.fs, given = this.given, i = this.i + 1, acc = this.acc + [{ name = this.fs[this.i].name, e = this.given[this.fs[this.i].name] }] }),
@@ -210,8 +210,8 @@ proc FillFields(At): Res<Expr> {
 
 // `Tag(..)` where an enum with that variant is expected.
 proc CheckVariant(At): Res<Expr> {
-	func At(s: { c: CheckIn, tag: string, vty: Type, args: []ApplyArg }): { c: CheckIn, tag: string, vty: Type, args: []ApplyArg } = "../../leaves/sema_leaf.rs:same";
-	func FirstName(args: []ApplyArg): OptIdent = "../../leaves/sema_leaf.rs:first_arg_name";
+	func At(s: { c: CheckIn, tag: string, vty: Type, args: []ApplyArg }): { c: CheckIn, tag: string, vty: Type, args: []ApplyArg } = "../leaf.rs:same";
+	func FirstName(args: []ApplyArg): OptIdent = "sema_leaf.rs:first_arg_name";
 	At -> FirstName(args = this.args);
 	FirstName switch {
 		Some(n) -> id(Err({ msg = "variant " + At.tag + " takes its payload without a name: " + At.tag + "(value)", span = n.span })),
@@ -236,8 +236,8 @@ proc CheckVariant(At): Res<Expr> {
 // ---- An expression's own type ----
 
 proc Synth(At): Res<Typed> {
-	func At(s: SynthIn): SynthIn = "../../leaves/sema_leaf.rs:same";
-	func K(k: ValueKind): ValueKind = "../../leaves/sema_leaf.rs:same";
+	func At(s: SynthIn): SynthIn = "../leaf.rs:same";
+	func K(k: ValueKind): ValueKind = "../leaf.rs:same";
 	At -> K(k = this.v.kind);
 	K switch {
 		Ref(p) -> PathValue(s = { env = At.env, sc = At.sc, path = p }),
@@ -327,19 +327,19 @@ proc Synth(At): Res<Typed> {
 	};
 }
 
-func FieldName(k: ValueKind): Ident = "../../leaves/sema_leaf.rs:field_name";
-func IndexKey(k: ValueKind): Value = "../../leaves/sema_leaf.rs:index_key";
-func IndexOf(k: ValueKind): Value = "../../leaves/sema_leaf.rs:index_of";
-func InKey(k: ValueKind): Value = "../../leaves/sema_leaf.rs:in_key";
-func InMapValue(k: ValueKind): Value = "../../leaves/sema_leaf.rs:in_map";
-func UnaryOperand(k: ValueKind): Value = "../../leaves/sema_leaf.rs:unary_operand";
-func BinaryOp(k: ValueKind): string = "../../leaves/sema_leaf.rs:binary_op";
+func FieldName(k: ValueKind): Ident = "sema_leaf.rs:field_name";
+func IndexKey(k: ValueKind): Value = "sema_leaf.rs:index_key";
+func IndexOf(k: ValueKind): Value = "sema_leaf.rs:index_of";
+func InKey(k: ValueKind): Value = "sema_leaf.rs:in_key";
+func InMapValue(k: ValueKind): Value = "sema_leaf.rs:in_map";
+func UnaryOperand(k: ValueKind): Value = "sema_leaf.rs:unary_operand";
+func BinaryOp(k: ValueKind): string = "sema_leaf.rs:binary_op";
 // The value type of a map, or element type of an array.
-func IndexedValue(t: Type): Type = "../../leaves/sema_leaf.rs:indexed_value";
+func IndexedValue(t: Type): Type = "sema_leaf.rs:indexed_value";
 
 // A binary operator other than && and ||, its left operand already typed.
 proc SynthBinary(At): Res<Typed> {
-	func At(s: { env: Env, sc: Scope, v: Value, op: string, l: Typed, r: Value }): { env: Env, sc: Scope, v: Value, op: string, l: Typed, r: Value } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { env: Env, sc: Scope, v: Value, op: string, l: Typed, r: Value }): { env: Env, sc: Scope, v: Value, op: string, l: Typed, r: Value } = "../leaf.rs:same";
 	At -> Unfold(s = { t = this.l.t, defs = this.env.types }) as LShape;
 	LShape switch {
 		// `xs + ys`: a new array with both.
@@ -371,17 +371,17 @@ proc SynthBinary(At): Res<Typed> {
 }
 
 // The primitive behind a type, or "" if it isn't one.
-func PrimName(t: Type): string = "../../leaves/sema_leaf.rs:prim_name";
+func PrimName(t: Type): string = "sema_leaf.rs:prim_name";
 // Whether the operator applies to the two primitives, an int literal next
 // to a float becoming a float.
-func Operands(s: { op: string, l: Expr, lp: string, r: Expr, rp: string }): { ok: bool, op: string, l: Expr, r: Expr, operand: string } = "../../leaves/sema_leaf.rs:operands";
-func OpResult(op: string, operand: string): Type = "../../leaves/sema_leaf.rs:op_result";
-func Allowed(op: string): string = "../../leaves/sema_leaf.rs:allowed";
+func Operands(s: { op: string, l: Expr, lp: string, r: Expr, rp: string }): { ok: bool, op: string, l: Expr, r: Expr, operand: string } = "sema_leaf.rs:operands";
+func OpResult(op: string, operand: string): Type = "sema_leaf.rs:op_result";
+func Allowed(op: string): string = "sema_leaf.rs:allowed";
 
 // `F(param = value)` in an expression: calls the func's implementation.
 proc SynthCall(At): Res<Typed> {
-	func At(s: { env: Env, sc: Scope, name: Path, args: []ApplyArg }): { env: Env, sc: Scope, name: Path, args: []ApplyArg } = "../../leaves/sema_leaf.rs:same";
-	func Named(args: []ApplyArg): MaybeArgs = "../../leaves/sema_leaf.rs:named_args";
+	func At(s: { env: Env, sc: Scope, name: Path, args: []ApplyArg }): { env: Env, sc: Scope, name: Path, args: []ApplyArg } = "../leaf.rs:same";
+	func Named(args: []ApplyArg): MaybeArgs = "sema_leaf.rs:named_args";
 	At -> ResolveNode(s = { nodes = this.env.nodes, globals = this.env.globals, pid = this.env.pid, path = this.name });
 	ResolveNode switch {
 		Ok(n) -> switch {
@@ -406,11 +406,11 @@ proc SynthCall(At): Res<Typed> {
 
 // The arguments, all named; or where the first one without a name is.
 type MaybeArgs = enum { Some([]Arg), None(Span) };
-func UnwrapN(r: ResolvedNode): int = "../../leaves/sema_leaf.rs:unwrap_n";
+func UnwrapN(r: ResolvedNode): int = "sema_leaf.rs:unwrap_n";
 
 // e.name, where e has type t: a struct field, or .len, .keys, .values.
 proc Select(At): Res<Typed> {
-	func At(s: { env: Env, e: Expr, t: Type, name: Ident }): { env: Env, e: Expr, t: Type, name: Ident } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { env: Env, e: Expr, t: Type, name: Ident }): { env: Env, e: Expr, t: Type, name: Ident } = "../leaf.rs:same";
 	At -> Unfold(s = { t = this.t, defs = this.env.types });
 	Unfold switch {
 		(IsStruct(t = this) && IsSomeT(t = Member(ms = MembersOf(t = this), name = At.name.name))) -> id(Ok({ e = Field({ e = At.e, ty = At.t, name = At.name.name }), t = UnwrapT(t = Member(ms = MembersOf(t = this), name = At.name.name)) })),
@@ -426,7 +426,7 @@ type RefUpto = { r: Ref, rest: []Ident };
 
 // A path's value: its struct fields as a Ref, then any .len, .keys, .values.
 proc PathValue(At): Res<Typed> {
-	func At(s: { env: Env, sc: Scope, path: Path }): { env: Env, sc: Scope, path: Path } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { env: Env, sc: Scope, path: Path }): { env: Env, sc: Scope, path: Path } = "../leaf.rs:same";
 	At -> RefUpto(s = this);
 	RefUpto switch {
 		Ok(x) -> Selects(s = { env = At.env, e = Ref(x.r), t = x.r.ty, rest = x.rest, i = 0 }),
@@ -435,7 +435,7 @@ proc PathValue(At): Res<Typed> {
 }
 
 proc Selects(At): Res<Typed> {
-	func At(s: { env: Env, e: Expr, t: Type, rest: []Ident, i: int }): { env: Env, e: Expr, t: Type, rest: []Ident, i: int } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { env: Env, e: Expr, t: Type, rest: []Ident, i: int }): { env: Env, e: Expr, t: Type, rest: []Ident, i: int } = "../leaf.rs:same";
 	At switch {
 		(this.i == this.rest.len) -> id(Ok({ e = this.e, t = this.t })),
 		else -> Select(s = { env = this.env, e = this.e, t = this.t, name = this.rest[this.i] })
@@ -449,8 +449,8 @@ proc Selects(At): Res<Typed> {
 // The root of a path (this, a binding or a node) and its struct fields,
 // stopping at the first segment that isn't one; the rest are returned.
 proc RefUpto(At): Res<RefUpto> {
-	func At(s: { env: Env, sc: Scope, path: Path }): { env: Env, sc: Scope, path: Path } = "../../leaves/sema_leaf.rs:same";
-	func Segs(ids: []Ident, from: int): []Ident = "../../leaves/sema_leaf.rs:segs_from";
+	func At(s: { env: Env, sc: Scope, path: Path }): { env: Env, sc: Scope, path: Path } = "../leaf.rs:same";
+	func Segs(ids: []Ident, from: int): []Ident = "sema_leaf.rs:segs_from";
 	At switch {
 		(this.path.segs[0].name == "this") -> RefFields(s = { env = this.env, root = This(), root_ty = this.sc.this, bind = "", ty = this.sc.this, rest = Segs(ids = this.path.segs, from = 1), fields = [], span = this.path.span }),
 		(HasMember(ms = this.sc.binds, name = this.path.segs[0].name)) -> RefFields(s = { env = this.env, root = Bind(), root_ty = UnwrapT(t = Member(ms = this.sc.binds, name = this.path.segs[0].name)), bind = this.path.segs[0].name, ty = UnwrapT(t = Member(ms = this.sc.binds, name = this.path.segs[0].name)), rest = Segs(ids = this.path.segs, from = 1), fields = [], span = this.path.span }),
@@ -463,8 +463,8 @@ proc RefUpto(At): Res<RefUpto> {
 }
 
 proc RefFields(At): Res<RefUpto> {
-	func At(s: { env: Env, root: Root, root_ty: Type, bind: string, ty: Type, rest: []Ident, fields: []string, span: Span }): { env: Env, root: Root, root_ty: Type, bind: string, ty: Type, rest: []Ident, fields: []string, span: Span } = "../../leaves/sema_leaf.rs:same";
-	func Segs(ids: []Ident, from: int): []Ident = "../../leaves/sema_leaf.rs:segs_from";
+	func At(s: { env: Env, root: Root, root_ty: Type, bind: string, ty: Type, rest: []Ident, fields: []string, span: Span }): { env: Env, root: Root, root_ty: Type, bind: string, ty: Type, rest: []Ident, fields: []string, span: Span } = "../leaf.rs:same";
+	func Segs(ids: []Ident, from: int): []Ident = "sema_leaf.rs:segs_from";
 	At -> Unfold(s = { t = this.ty, defs = this.env.types });
 	Unfold switch {
 		(At.rest.len == 0 || !IsStruct(t = this)) -> id(Ok({ r = { root = At.root, root_ty = At.root_ty, bind = At.bind, fields = At.fields, ty = At.ty, span = At.span }, rest = At.rest })),
@@ -480,7 +480,7 @@ type ArgsIn = { env: Env, sc: Scope, target: int, given: []Arg, span: Span, i: i
 
 // Named arguments checked against the target's parameters.
 proc Args(At): Res<Call> {
-	func At(s: ArgsIn): ArgsIn = "../../leaves/sema_leaf.rs:same";
+	func At(s: ArgsIn): ArgsIn = "../leaf.rs:same";
 	At switch {
 		(this.i == this.given.len) -> FillArgs(s = { env = this.env, target = this.target, seen = this.seen, span = this.span, ps = NodeParams(nodes = this.env.nodes, n = this.target), i = 0, acc = [] }),
 		else -> Member(ms = NodeParams(nodes = this.env.nodes, n = this.target), name = this.given[this.i].name.name)
@@ -499,7 +499,7 @@ proc Args(At): Res<Call> {
 }
 
 proc FillArgs(At): Res<Call> {
-	func At(s: { env: Env, target: int, seen: map[string]Expr, span: Span, ps: []Member, i: int, acc: []CallArg }): { env: Env, target: int, seen: map[string]Expr, span: Span, ps: []Member, i: int, acc: []CallArg } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { env: Env, target: int, seen: map[string]Expr, span: Span, ps: []Member, i: int, acc: []CallArg }): { env: Env, target: int, seen: map[string]Expr, span: Span, ps: []Member, i: int, acc: []CallArg } = "../leaf.rs:same";
 	At switch {
 		(this.i == this.ps.len) -> id(Ok({ target = this.target, args = this.acc, span = this.span, text = "" })),
 		(this.ps[this.i].name in this.seen) -> At(s = { env = this.env, target = this.target, seen = this.seen, span = this.span, ps = this.ps, i = this.i + 1, acc = this.acc + [{ name = this.ps[this.i].name, param = this.ps[this.i].ty, value = this.seen[this.ps[this.i].name] }] }),
@@ -510,10 +510,10 @@ proc FillArgs(At): Res<Call> {
 // The call a target makes: id(value) ends the proc with value; `as B2`
 // calls the alias instance.
 proc CallOf(At): Res<Call> {
-	func At(s: { env: Env, sc: Scope, t: Target }): { env: Env, sc: Scope, t: Target } = "../../leaves/sema_leaf.rs:same";
-	func IdValue(t: Target): OptValue = "../../leaves/sema_leaf.rs:id_value";
-	func AliasOf(t: Target): OptIdent = "../../leaves/sema_leaf.rs:alias_of";
-	func OwnLocal(nodes: []NodeDecl, pid: int, name: string): int = "../../leaves/sema_leaf.rs:own_local";
+	func At(s: { env: Env, sc: Scope, t: Target }): { env: Env, sc: Scope, t: Target } = "../leaf.rs:same";
+	func IdValue(t: Target): OptValue = "sema_leaf.rs:id_value";
+	func AliasOf(t: Target): OptIdent = "sema_leaf.rs:alias_of";
+	func OwnLocal(nodes: []NodeDecl, pid: int, name: string): int = "sema_leaf.rs:own_local";
 	At -> IdValue(t = this.t);
 	IdValue switch {
 		Some(v) -> Check(s = { env = At.env, sc = At.sc, v = v, want = NodeRet(nodes = At.env.nodes, n = At.env.ids[SpanKey(s = At.t.node.span)]) }) as IdV,
@@ -533,7 +533,7 @@ proc CallOf(At): Res<Call> {
 	};
 	AliasCall -> Called(r = this);
 	NodeCall -> Called(r = this);
-	func Called(r: Res<Call>): Res<Call> = "../../leaves/sema_leaf.rs:same";
+	func Called(r: Res<Call>): Res<Call> = "../leaf.rs:same";
 	Called switch {
 		Ok(c) -> id(Ok({ ..c, text = Squash(src = At.env.srcs[At.t.inner.file], span = At.t.inner) })),
 		Err(e) -> id(Err(e))
@@ -541,12 +541,12 @@ proc CallOf(At): Res<Call> {
 }
 
 // The source text of a span on one line: whitespace runs become a space.
-func Squash(src: string, span: Span): string = "../../leaves/sema_leaf.rs:squash";
+func Squash(src: string, span: Span): string = "sema_leaf.rs:squash";
 
 // A bool condition or guard.
 proc Cond(At): Res<Expr> {
-	func At(s: SynthIn): SynthIn = "../../leaves/sema_leaf.rs:same";
-	func K(k: ValueKind): ValueKind = "../../leaves/sema_leaf.rs:same";
+	func At(s: SynthIn): SynthIn = "../leaf.rs:same";
+	func K(k: ValueKind): ValueKind = "../leaf.rs:same";
 	At -> K(k = this.v.kind);
 	K switch {
 		Str(s) -> id(Err({ msg = "conditions are expressions now: write (" + s + "), without quotes", span = At.v.span })),
@@ -561,9 +561,9 @@ proc Cond(At): Res<Expr> {
 // `{ ..base, f = v }`: the fields given, checked against `want`; the rest
 // read from base, which must be a path.
 proc CheckUpdate(At): Res<Expr> {
-	func At(s: { c: CheckIn, shape: Type, base: Value, args: []Arg }): { c: CheckIn, shape: Type, base: Value, args: []Arg } = "../../leaves/sema_leaf.rs:same";
-	func E(e: Expr): Expr = "../../leaves/sema_leaf.rs:same";
-	func What(v: Value): string = "../../leaves/sema_leaf.rs:what";
+	func At(s: { c: CheckIn, shape: Type, base: Value, args: []Arg }): { c: CheckIn, shape: Type, base: Value, args: []Arg } = "../leaf.rs:same";
+	func E(e: Expr): Expr = "../leaf.rs:same";
+	func What(v: Value): string = "sema_leaf.rs:what";
 	At -> Synth(s = { env = this.c.env, sc = this.c.sc, v = this.base });
 	Synth switch {
 		Ok(x) -> E(e = x.e),
@@ -586,12 +586,12 @@ proc CheckUpdate(At): Res<Expr> {
 }
 
 // The first of bfs not among fs, or "".
-func Extra(bfs: []Member, fs: []Member): string = "../../leaves/sema_leaf.rs:extra_member";
+func Extra(bfs: []Member, fs: []Member): string = "sema_leaf.rs:extra_member";
 
 type UpdateIn = { c: CheckIn, fs: []Member, base: Ref, bfs: []Member, what: string, args: []Arg, i: int, given: map[string]Expr };
 
 proc UpdateFields(At): Res<Expr> {
-	func At(s: UpdateIn): UpdateIn = "../../leaves/sema_leaf.rs:same";
+	func At(s: UpdateIn): UpdateIn = "../leaf.rs:same";
 	At switch {
 		(this.i == this.args.len) -> FillUpdate(s = { ..this, i = 0, acc = [] }),
 		else -> Member(ms = this.fs, name = this.args[this.i].name.name)
@@ -612,7 +612,7 @@ proc UpdateFields(At): Res<Expr> {
 
 // The fields in the type's order: given, or read from the base.
 proc FillUpdate(At): Res<Expr> {
-	func At(s: { c: CheckIn, fs: []Member, base: Ref, bfs: []Member, what: string, args: []Arg, i: int, given: map[string]Expr, acc: []ExprMember }): { c: CheckIn, fs: []Member, base: Ref, bfs: []Member, what: string, args: []Arg, i: int, given: map[string]Expr, acc: []ExprMember } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { c: CheckIn, fs: []Member, base: Ref, bfs: []Member, what: string, args: []Arg, i: int, given: map[string]Expr, acc: []ExprMember }): { c: CheckIn, fs: []Member, base: Ref, bfs: []Member, what: string, args: []Arg, i: int, given: map[string]Expr, acc: []ExprMember } = "../leaf.rs:same";
 	At switch {
 		(this.i == this.fs.len) -> id(Ok(Struct(this.acc))),
 		(this.fs[this.i].name in this.given) -> At(s = { ..this, i = this.i + 1, acc = this.acc + [{ name = this.fs[this.i].name, e = this.given[this.fs[this.i].name] }] }),

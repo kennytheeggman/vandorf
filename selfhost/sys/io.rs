@@ -1,4 +1,4 @@
-//! Implementations of vcc's I/O interfaces (../sys/io.sys): the only
+//! Implementations of vcc's I/O interfaces (io.sys): the only
 //! impure part of vcc.
 
 use crate::vcc::types::{List, Str};

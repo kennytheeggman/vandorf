@@ -5,19 +5,19 @@
 // line: 0-based, of the name.
 type Item = { kind: string, name: string, qual: string, line: int, children: []Item };
 
-func LineCol(src: string, offset: int): { line: int, ch: int } = "../../leaves/ide_leaf.rs:line_col";
-func ItemsJson(items: []Item): Json = "../../leaves/ide_leaf.rs:items_json";
-func Qualify(prefix: string, name: string): string = "../../leaves/ide_leaf.rs:qualify";
+func LineCol(src: string, offset: int): { line: int, ch: int } = "ide_leaf.rs:line_col";
+func ItemsJson(items: []Item): Json = "ide_leaf.rs:items_json";
+func Qualify(prefix: string, name: string): string = "ide_leaf.rs:qualify";
 
 proc Tree(At): HttpResponse {
-	func At(base: string): string = "../../leaves/sema_leaf.rs:same";
+	func At(base: string): string = "../leaf.rs:same";
 	At -> Files.Walk(base = this);
 	Files.Walk -> TreeFiles(s = { base = At, paths = this, i = 0, acc = [], projects = [:] });
 	TreeFiles -> id(Api(j = Obj([{ key = "ok", value = Bool(true) }, { key = "root", value = Str(At) }, { key = "files", value = Arr(this) }])));
 }
 
 proc TreeFiles(At): []Json {
-	func At(s: { base: string, paths: []string, i: int, acc: []Json, projects: map[string]Json }): { base: string, paths: []string, i: int, acc: []Json, projects: map[string]Json } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { base: string, paths: []string, i: int, acc: []Json, projects: map[string]Json }): { base: string, paths: []string, i: int, acc: []Json, projects: map[string]Json } = "../leaf.rs:same";
 	At switch {
 		(this.i == this.paths.len) -> id(this.acc),
 		else -> FindUp(s = { dir = Parent(p = JoinP(a = this.base, b = this.paths[this.i])), marker = "vandorf.toml" })
@@ -33,8 +33,8 @@ proc TreeFiles(At): []Json {
 
 // A file's entry, and the project cache it may have added to.
 proc Contents(At): { at: { base: string, paths: []string, i: int, acc: []Json, projects: map[string]Json }, file: Json } {
-	func At(s: { at: { base: string, paths: []string, i: int, acc: []Json, projects: map[string]Json }, project: Json }): { at: { base: string, paths: []string, i: int, acc: []Json, projects: map[string]Json }, project: Json } = "../../leaves/sema_leaf.rs:same";
-	func OrEmpty(r: Res<string>): string = "../../leaves/ide_leaf.rs:or_empty";
+	func At(s: { at: { base: string, paths: []string, i: int, acc: []Json, projects: map[string]Json }, project: Json }): { at: { base: string, paths: []string, i: int, acc: []Json, projects: map[string]Json }, project: Json } = "../leaf.rs:same";
+	func OrEmpty(r: Res<string>): string = "ide_leaf.rs:or_empty";
 	At -> Files.Read(path = JoinP(a = this.at.base, b = this.at.paths[this.at.i]));
 	Files.Read -> TryParse(src = OrEmpty(r = this), file = 0);
 	TryParse switch {
@@ -45,30 +45,30 @@ proc Contents(At): { at: { base: string, paths: []string, i: int, acc: []Json, p
 	Outline -> id({ at = At.at, file = Obj([{ key = "path", value = Str(At.at.paths[At.at.i]) }, { key = "project", value = At.project }, { key = "items", value = WithEntries(items = ItemsJson(items = this), project = At.project) }, { key = "error", value = Null() }]) });
 }
 
-func WithEntries(items: Json, project: Json): Json = "../../leaves/ide_leaf.rs:with_entries";
+func WithEntries(items: Json, project: Json): Json = "ide_leaf.rs:with_entries";
 
 // { name, dir, entries } of the project whose manifest is in dir: entries
 // by proc, what runs it ("bin demo", "POST /api/calc", "GET / (raw)").
 proc ProjectInfo(At): Json {
-	func At(s: { base: string, dir: string }): { base: string, dir: string } = "../../leaves/sema_leaf.rs:same";
-	func Info(text: Res<string>, dir: string): Json = "../../leaves/ide_leaf.rs:project_info";
+	func At(s: { base: string, dir: string }): { base: string, dir: string } = "../leaf.rs:same";
+	func Info(text: Res<string>, dir: string): Json = "ide_leaf.rs:project_info";
 	At -> Files.Read(path = JoinP(a = this.dir, b = "vandorf.toml"));
 	Files.Read -> id(Info(text = this, dir = Relative(target = At.dir, from = At.base)));
 }
 
 // A file's declarations, sorted by line.
 proc Outline(At): []Item {
-	func At(s: { src: string, f: File }): { src: string, f: File } = "../../leaves/sema_leaf.rs:same";
-	func ByLine(items: []Item): []Item = "../../leaves/ide_leaf.rs:by_line";
-	func TypeItems(src: string, ts: []TypeDecl): []Item = "../../leaves/ide_leaf.rs:type_items";
-	func IfaceItems(src: string, is: []Interface): []Item = "../../leaves/ide_leaf.rs:iface_items";
+	func At(s: { src: string, f: File }): { src: string, f: File } = "../leaf.rs:same";
+	func ByLine(items: []Item): []Item = "ide_leaf.rs:by_line";
+	func TypeItems(src: string, ts: []TypeDecl): []Item = "ide_leaf.rs:type_items";
+	func IfaceItems(src: string, is: []Interface): []Item = "ide_leaf.rs:iface_items";
 	At -> NodeItems(s = { src = this.src, ns = this.f.nodes, prefix = "", i = 0, acc = [] });
 	NodeItems -> id(ByLine(items = TypeItems(src = At.src, ts = At.f.types) + IfaceItems(src = At.src, is = At.f.interfaces) + this));
 }
 
 proc NodeItems(At): []Item {
-	func At(s: { src: string, ns: []Node, prefix: string, i: int, acc: []Item }): { src: string, ns: []Node, prefix: string, i: int, acc: []Item } = "../../leaves/sema_leaf.rs:same";
-	func N(n: Node): Node = "../../leaves/sema_leaf.rs:same";
+	func At(s: { src: string, ns: []Node, prefix: string, i: int, acc: []Item }): { src: string, ns: []Node, prefix: string, i: int, acc: []Item } = "../leaf.rs:same";
+	func N(n: Node): Node = "../leaf.rs:same";
 	At switch {
 		(this.i == this.ns.len) -> id(this.acc),
 		else -> N(n = this.ns[this.i])

@@ -1,4 +1,4 @@
-//! Leaves for vcc's document layout (../sys/doc): grid updates and JSON.
+//! Leaves for vcc's document layout (document.sys): grid updates and JSON.
 
 use crate::vcc::types::*;
 

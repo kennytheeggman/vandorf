@@ -13,7 +13,7 @@ type Json = enum { Null, Bool(bool), Num(int), Str(string), Arr([]Json), Obj([]J
 type JsonField = { key: string, value: Json };
 
 // serde_json's pretty format.
-func Pretty(j: Json): string = "../../leaves/doc_leaf.rs:pretty";
+func Pretty(j: Json): string = "doc_leaf.rs:pretty";
 
 // 0 func, 1 proc. Edges: 0 call, 1 match, 2 for each expand, 3 for each
 // continue, 4 for each collect.
@@ -24,35 +24,35 @@ type Pos = { r: int, c: int };
 type Layout = { rows: [][]int, pos: map[int]Pos, out: map[int][]Pending };
 
 // l with n placed at the end of row r.
-func Place(l: Layout, n: int, r: int): Layout = "../../leaves/doc_leaf.rs:place";
+func Place(l: Layout, n: int, r: int): Layout = "doc_leaf.rs:place";
 // l without `set` and their recorded edges.
-func PushDown(l: Layout, set: map[int]bool): Layout = "../../leaves/doc_leaf.rs:push_down";
-func TrimRows(l: Layout): Layout = "../../leaves/doc_leaf.rs:trim_rows";
+func PushDown(l: Layout, set: map[int]bool): Layout = "doc_leaf.rs:push_down";
+func TrimRows(l: Layout): Layout = "doc_leaf.rs:trim_rows";
 // The calls a switch can end in, each with the arm heads on the way.
-func ArmPaths(arms: []SArm): []{ labels: []string, call: Call } = "../../leaves/doc_leaf.rs:arm_paths";
+func ArmPaths(arms: []SArm): []{ labels: []string, call: Call } = "doc_leaf.rs:arm_paths";
 // An arm's head as written, without the parentheses around a condition.
-func Procs(nodes: []NodeDecl): []int = "../../leaves/doc_leaf.rs:all_procs";
-func GraphOf(n: NodeDecl): Graph = "../../leaves/doc_leaf.rs:graph_of";
-func Frontier(l: Layout, g: Graph): []int = "../../leaves/doc_leaf.rs:frontier";
+func Procs(nodes: []NodeDecl): []int = "doc_leaf.rs:all_procs";
+func GraphOf(n: NodeDecl): Graph = "doc_leaf.rs:graph_of";
+func Frontier(l: Layout, g: Graph): []int = "doc_leaf.rs:frontier";
 
 // One grid per proc, nested ones included, keyed by qualified name.
 proc Document(At): string {
-	func At(prog: Program): Program = "../../leaves/sema_leaf.rs:same";
+	func At(prog: Program): Program = "../leaf.rs:same";
 	At -> Grids(s = { prog = this, procs = Procs(nodes = this.nodes), i = 0, acc = [:] });
 	Grids -> id(Pretty(j = Obj([{ key = "grids", value = Obj(JsonFields(m = this)) }])));
 }
 
 // The document as a JSON value.
 proc DocumentJson(At): Json {
-	func At(prog: Program): Program = "../../leaves/sema_leaf.rs:same";
+	func At(prog: Program): Program = "../leaf.rs:same";
 	At -> Grids(s = { prog = this, procs = Procs(nodes = this.nodes), i = 0, acc = [:] });
 	Grids -> id(Obj([{ key = "grids", value = Obj(JsonFields(m = this)) }]));
 }
 
-func JsonFields(m: map[string]Json): []JsonField = "../../leaves/doc_leaf.rs:fields";
+func JsonFields(m: map[string]Json): []JsonField = "doc_leaf.rs:fields";
 
 proc Grids(At): map[string]Json {
-	func At(s: { prog: Program, procs: []int, i: int, acc: map[string]Json }): { prog: Program, procs: []int, i: int, acc: map[string]Json } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { prog: Program, procs: []int, i: int, acc: map[string]Json }): { prog: Program, procs: []int, i: int, acc: map[string]Json } = "../leaf.rs:same";
 	At switch {
 		(this.i == this.procs.len) -> id(this.acc),
 		else -> Sweep(s = { prog = this.prog, pid = this.procs[this.i], g = GraphOf(n = this.prog.nodes[this.procs[this.i]]), l = Place(l = { rows = [[]], pos = [:], out = [:] }, n = ProcEntry(nodes = this.prog.nodes, pid = this.procs[this.i]), r = 0) })
@@ -61,7 +61,7 @@ proc Grids(At): map[string]Json {
 	GridJson -> At(s = { prog = At.prog, procs = At.procs, i = At.i + 1, acc = At.acc + [QualName(n = At.prog.nodes[At.procs[At.i]]): this] });
 }
 
-func ProcEntry(nodes: []NodeDecl, pid: int): int = "../../leaves/sema_leaf.rs:proc_entry";
+func ProcEntry(nodes: []NodeDecl, pid: int): int = "../sema/sema_leaf.rs:proc_entry";
 
 type SweepIn = { prog: Program, pid: int, g: Graph, l: Layout };
 
@@ -69,7 +69,7 @@ type SweepIn = { prog: Program, pid: int, g: Graph, l: Layout };
 // moves a node strictly lower, so the grid can't grow past a row per node;
 // guard regardless.
 proc Sweep(At): Layout {
-	func At(s: SweepIn): SweepIn = "../../leaves/sema_leaf.rs:same";
+	func At(s: SweepIn): SweepIn = "../leaf.rs:same";
 	At switch {
 		(this.l.rows.len > this.g.region_of.len + 1 || Frontier(l = this.l, g = this.g).len == 0) -> id(this.l),
 		else -> Sources(s = { at = this, srcs = Frontier(l = this.l, g = this.g), last = this.l.rows.len - 1, row = this.l.rows.len, l = { ..this.l, rows = this.l.rows + [[]] }, i = 0 })
@@ -80,7 +80,7 @@ proc Sweep(At): Layout {
 type SourcesIn = { at: SweepIn, srcs: []int, last: int, row: int, l: Layout, i: int };
 
 proc Sources(At): Layout {
-	func At(s: SourcesIn): SourcesIn = "../../leaves/sema_leaf.rs:same";
+	func At(s: SourcesIn): SourcesIn = "../leaf.rs:same";
 	At switch {
 		(this.i == this.srcs.len) -> id(this.l),
 		// A pushdown earlier in this sweep may have moved src down a row (it
@@ -94,8 +94,8 @@ proc Sources(At): Layout {
 
 // Each edge out of src: placing (or pushing down) its target, or a back edge.
 proc Record(At): Layout {
-	func At(s: { prog: Program, pid: int, src: int, row: int, outs: []Out, i: int, l: Layout, acc: []Pending }): { prog: Program, pid: int, src: int, row: int, outs: []Out, i: int, l: Layout, acc: []Pending } = "../../leaves/sema_leaf.rs:same";
-	func Placed(l: Layout, target: int, back: bool): { l: Layout, back: bool } = "../../leaves/sema_leaf.rs:pack_placed";
+	func At(s: { prog: Program, pid: int, src: int, row: int, outs: []Out, i: int, l: Layout, acc: []Pending }): { prog: Program, pid: int, src: int, row: int, outs: []Out, i: int, l: Layout, acc: []Pending } = "../leaf.rs:same";
+	func Placed(l: Layout, target: int, back: bool): { l: Layout, back: bool } = "../sema/sema_leaf.rs:pack_placed";
 	At switch {
 		(this.i == this.outs.len) -> id({ ..this.l, out = this.l.out + [this.src: this.acc] }),
 		(!(this.outs[this.i].target in this.l.pos)) -> Placed(l = Place(l = this.l, n = this.outs[this.i].target, r = this.row), target = this.outs[this.i].target, back = false),
@@ -112,10 +112,10 @@ proc Record(At): Layout {
 
 // `from` and every placed node reachable from it along forward edges.
 proc Downstream(At): map[int]bool {
-	func At(s: { l: Layout, stack: []int, seen: map[int]bool }): { l: Layout, stack: []int, seen: map[int]bool } = "../../leaves/sema_leaf.rs:same";
-	func Last(xs: []int): int = "../../leaves/sema_leaf.rs:last_int";
-	func Pop(xs: []int): []int = "../../leaves/sema_leaf.rs:pop_int";
-	func Forward(l: Layout, n: int): []int = "../../leaves/doc_leaf.rs:forward";
+	func At(s: { l: Layout, stack: []int, seen: map[int]bool }): { l: Layout, stack: []int, seen: map[int]bool } = "../leaf.rs:same";
+	func Last(xs: []int): int = "../sema/sema_leaf.rs:last_int";
+	func Pop(xs: []int): []int = "../sema/sema_leaf.rs:pop_int";
+	func Forward(l: Layout, n: int): []int = "doc_leaf.rs:forward";
 	At switch {
 		(this.stack.len == 0) -> id(this.seen),
 		(!(Last(xs = this.stack) in this.l.pos) || Last(xs = this.stack) in this.seen) -> At(s = { l = this.l, stack = Pop(xs = this.stack), seen = this.seen }),
@@ -124,8 +124,8 @@ proc Downstream(At): map[int]bool {
 }
 
 proc EdgeTargets(At): []Out {
-	func At(s: { prog: Program, g: Graph, src: int }): { prog: Program, g: Graph, src: int } = "../../leaves/sema_leaf.rs:same";
-	func E(e: SEdge): SEdge = "../../leaves/sema_leaf.rs:same";
+	func At(s: { prog: Program, g: Graph, src: int }): { prog: Program, g: Graph, src: int } = "../leaf.rs:same";
+	func E(e: SEdge): SEdge = "../leaf.rs:same";
 	At -> ShowType(t = NodeRet(nodes = this.prog.nodes, n = this.src)) as Ret;
 	Ret -> E(e = At.g.edges[At.src]);
 	E switch {
@@ -142,8 +142,8 @@ proc EdgeTargets(At): []Out {
 
 // A nested switch's arms are flattened into one edge per call.
 proc MatchOuts(At): []Out {
-	func At(s: { paths: []{ labels: []string, call: Call }, value: string, i: int, acc: []Out }): { paths: []{ labels: []string, call: Call }, value: string, i: int, acc: []Out } = "../../leaves/sema_leaf.rs:same";
-	func Labels(ls: []string): string = "../../leaves/doc_leaf.rs:join_labels";
+	func At(s: { paths: []{ labels: []string, call: Call }, value: string, i: int, acc: []Out }): { paths: []{ labels: []string, call: Call }, value: string, i: int, acc: []Out } = "../leaf.rs:same";
+	func Labels(ls: []string): string = "doc_leaf.rs:join_labels";
 	At switch {
 		(this.i == this.paths.len) -> id(this.acc),
 		else -> At(s = { paths = this.paths, value = this.value, i = this.i + 1, acc = this.acc + [{ ty = 1, target = this.paths[this.i].call.target, label = Some(Labels(ls = this.paths[this.i].labels)), value = this.value, args = this.paths[this.i].call.text }] })
@@ -152,14 +152,14 @@ proc MatchOuts(At): []Out {
 
 // `B(i: int, l: []int)`: what a call to n receives.
 proc CallSig(At): string {
-	func At(s: { prog: Program, pid: int, n: int }): { prog: Program, pid: int, n: int } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { prog: Program, pid: int, n: int }): { prog: Program, pid: int, n: int } = "../leaf.rs:same";
 	At -> ShowParams(s = { ps = NodeParams(nodes = this.prog.nodes, n = this.n), i = 0, acc = "" });
 	ShowParams -> id(DisplayLabel(prog = At.prog, pid = At.pid, n = At.n) + "(" + this + ")");
 }
 
 // `p: t, q: u`
 proc ShowParams(At): string {
-	func At(s: { ps: []Member, i: int, acc: string }): { ps: []Member, i: int, acc: string } = "../../leaves/sema_leaf.rs:same";
+	func At(s: { ps: []Member, i: int, acc: string }): { ps: []Member, i: int, acc: string } = "../leaf.rs:same";
 	At switch {
 		(this.i == this.ps.len) -> id(this.acc),
 		else -> ShowType(t = this.ps[this.i].ty)
@@ -169,13 +169,13 @@ proc ShowParams(At): string {
 
 // Funcs local to the proc by bare name; others (interface funcs, top-level
 // funcs) by qualified name.
-func DisplayLabel(prog: Program, pid: int, n: int): string = "../../leaves/doc_leaf.rs:display_label";
+func DisplayLabel(prog: Program, pid: int, n: int): string = "doc_leaf.rs:display_label";
 
 // ---- JSON ----
 
 proc GridJson(At): Json {
-	func At(s: { prog: Program, pid: int, l: Layout }): { prog: Program, pid: int, l: Layout } = "../../leaves/sema_leaf.rs:same";
-	func Rows(prog: Program, pid: int, l: Layout): Json = "../../leaves/doc_leaf.rs:rows_json";
-	func Edges(l: Layout): Json = "../../leaves/doc_leaf.rs:edges_json";
+	func At(s: { prog: Program, pid: int, l: Layout }): { prog: Program, pid: int, l: Layout } = "../leaf.rs:same";
+	func Rows(prog: Program, pid: int, l: Layout): Json = "doc_leaf.rs:rows_json";
+	func Edges(l: Layout): Json = "doc_leaf.rs:edges_json";
 	At -> id(Obj([{ key = "rows", value = Rows(prog = this.prog, pid = this.pid, l = this.l) }, { key = "edges", value = Edges(l = this.l) }]));
 }
