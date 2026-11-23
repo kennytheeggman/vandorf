@@ -1,0 +1,3 @@
+proc P(A): int { func A(): int; func A(): int; }
+---
+error: duplicate name A in proc P @37..38

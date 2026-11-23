@@ -1,0 +1,56 @@
+Shape = enum { Dot, Circle(float), Rect({ w: float, h: float }) }
+Report = { count: int, total: float, kinds: map[string]int }
+Measured = { kind: string, area: float }
+Fold = { xs: []Measured, r: Report, i: int }
+Expr = enum { Lit(int), Neg(Expr), Add({ l: Expr, r: Expr }) }
+Outcome = enum { I(string), S, B({ i: int }) }
+Scope = map[string]{ slot: int, kind: string }
+Shape accepts Shape: true
+Shape accepts Report: false
+Shape accepts Measured: false
+Shape accepts Fold: false
+Shape accepts Expr: false
+Shape accepts Outcome: false
+Shape accepts Scope: false
+Report accepts Shape: false
+Report accepts Report: true
+Report accepts Measured: false
+Report accepts Fold: false
+Report accepts Expr: false
+Report accepts Outcome: false
+Report accepts Scope: false
+Measured accepts Shape: false
+Measured accepts Report: false
+Measured accepts Measured: true
+Measured accepts Fold: false
+Measured accepts Expr: false
+Measured accepts Outcome: false
+Measured accepts Scope: false
+Fold accepts Shape: false
+Fold accepts Report: false
+Fold accepts Measured: false
+Fold accepts Fold: true
+Fold accepts Expr: false
+Fold accepts Outcome: false
+Fold accepts Scope: false
+Expr accepts Shape: false
+Expr accepts Report: false
+Expr accepts Measured: false
+Expr accepts Fold: false
+Expr accepts Expr: true
+Expr accepts Outcome: false
+Expr accepts Scope: false
+Outcome accepts Shape: false
+Outcome accepts Report: false
+Outcome accepts Measured: false
+Outcome accepts Fold: false
+Outcome accepts Expr: false
+Outcome accepts Outcome: true
+Outcome accepts Scope: false
+Scope accepts Shape: false
+Scope accepts Report: false
+Scope accepts Measured: false
+Scope accepts Fold: false
+Scope accepts Expr: false
+Scope accepts Outcome: false
+Scope accepts Scope: true

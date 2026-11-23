@@ -1,0 +1,83 @@
+{
+  "grids": {
+    "P": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "A"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "L",
+              "branch": "detached"
+            },
+            {
+              "type": 0,
+              "label": "L2",
+              "sublabel": "instance of L",
+              "branch": "detached"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "id"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 5,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "int",
+          "call": "L(s: string)",
+          "args": "s = \"a\""
+        },
+        {
+          "type": 5,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            1
+          ],
+          "valueType": "int",
+          "call": "L2(s: string)",
+          "args": "s = \"b\""
+        },
+        {
+          "type": 7,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "{  }",
+          "call": "id1(value: int)",
+          "args": "A"
+        }
+      ]
+    }
+  }
+}

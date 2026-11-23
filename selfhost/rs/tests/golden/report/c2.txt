@@ -1,0 +1,7 @@
+error: msg
+ --> f.sys:2:2
+  |
+2 |     func B(): int;
+  |     ^^^^^^^^^^^^^^
+  = one
+  = two

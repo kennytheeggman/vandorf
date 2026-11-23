@@ -1,0 +1,3 @@
+proc P(A): int { func B(): int; }
+---
+error: entry A is not declared in proc P @7..8

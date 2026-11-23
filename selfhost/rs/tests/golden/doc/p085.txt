@@ -1,0 +1,18 @@
+{
+  "grids": {
+    "A": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "S",
+              "sublabel": "rs/src/impls.rs:s"
+            }
+          ]
+        }
+      ],
+      "edges": []
+    }
+  }
+}

@@ -1,0 +1,2 @@
+#0 S struct { a: int } (typedef S)
+#1 POut struct { a: int, n: int } (return of P)

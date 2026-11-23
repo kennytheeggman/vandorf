@@ -1,0 +1,3 @@
+proc P(A): Q { func A(): int; }
+---
+error: unknown type Q @11..12

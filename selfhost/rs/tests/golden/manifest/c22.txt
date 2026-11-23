@@ -1,0 +1,8 @@
+[project]
+name = "x"
+[rust]
+out = "a"
+pre = []
+
+---
+unknown field `pre`, expected one of `out`, `module_dir`, `post`, `test`

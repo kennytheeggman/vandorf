@@ -1,0 +1,46 @@
+#1 edge #2: for each this:[]Shape :Shape -> call #3(s:Shape=this:Shape)  text="s = this"
+#1 edge #3: collect -> call #4(f:Fold={xs=this:[]Measured,r={count=0,total=0.0,kinds=[]},i=0})  text="f = { xs = this, r = { count = 0, total = 0.0, kinds = [:] }, i = 0 }"
+#1 edge #4: switch [(this.i == this.xs.len)] ((this.i:int == this.xs:[]Measuredlen@[]Measured :int)) -> call #5(value:Report=this.r:Report)  text="this.r"; [(this.xs[this.i].kind in this.r.kinds)] ((this.xs:[]Measured[this.i:int]@[]Measured.kind@Measured in this.r.kinds:map[string]int)) -> call #4(f:Fold={xs=this.xs:[]Measured,r={count=(this.r.count:int + 1 :int),total=(this.r.total:float + this.xs:[]Measured[this.i:int]@[]Measured.area@Measured :float),kinds=(this.r.kinds:map[string]int ++ [this.xs:[]Measured[this.i:int]@[]Measured.kind@Measured:(this.r.kinds:map[string]int[this.xs:[]Measured[this.i:int]@[]Measured.kind@Measured]@map[string]int + 1 :int)])@map[string]int},i=(this.i:int + 1 :int)})  text="f = { ..this, i = this.i + 1, r = { ..this.r, count = this.r.count + 1, total = this.r.total + this.xs[this.i].area, kinds = this.r.kinds + [this.xs[this.i].kind: this.r.kinds[this.xs[this.i].kind] + 1] } }"; [else] else -> call #4(f:Fold={xs=this.xs:[]Measured,r={count=(this.r.count:int + 1 :int),total=(this.r.total:float + this.xs:[]Measured[this.i:int]@[]Measured.area@Measured :float),kinds=(this.r.kinds:map[string]int ++ [this.xs:[]Measured[this.i:int]@[]Measured.kind@Measured:1])@map[string]int},i=(this.i:int + 1 :int)})  text="f = { ..this, i = this.i + 1, r = { ..this.r, count = this.r.count + 1, total = this.r.total + this.xs[this.i].area, kinds = this.r.kinds + [this.xs[this.i].kind: 1] } }"
+#1 spawned={}
+#1 region 0: parent=-1 entry=2 elem=void nodes=[2, 4, 5] sink=-1
+#1 region 1: parent=0 entry=3 elem=Shape nodes=[3] sink=3
+#1 region_of={2: 0, 3: 1, 4: 0, 5: 0} opens={2: 1}
+#6 spawned={}
+#6 region 0: parent=-1 entry=7 elem=void nodes=[7] sink=-1
+#6 region_of={7: 0} opens={}
+#8 edge #9: call #10(e:Expr=Add({l=Neg(this:Expr),r=Lit(10)}), scale:int=1)  text="e = Add({ l = Neg(this), r = Lit(10) }), scale = 1"
+#8 edge #10: call #12(e:Expr=#9:Expr, scale:int=2)  text="e = Build, scale = 2"
+#8 edge #12: call #11(xs:[]int=[#10:int,#12:int,100])  text="xs = [Eval, Twice, 100]"
+#8 spawned={}
+#8 region 0: parent=-1 entry=9 elem=void nodes=[9, 10, 12, 11] sink=-1
+#8 region_of={9: 0, 10: 0, 11: 0, 12: 0} opens={}
+#13 edge #14: switch [Lit(n)] Lit($n:int):Expr -> switch { [(Small(i = n) && n % 2 == 0)] ((call #15(i:int=$n:int)  text="" && (($n:int % 2 :int) == 0 :int) :bool)) -> call #16(value:string="small even")  text="\"small even\""; [else] else -> call #17(value:string="literal")  text="\"literal\"" }; [Neg(Lit(_))] Neg(Lit(_:int):Expr):Expr -> call #18(value:string="negated literal")  text="\"negated literal\""; [Neg(e)] Neg($e:Expr):Expr -> call #22(e:Expr=$e:Expr)  text="e = e"; [Add({ l = Lit(_), r = Lit(_) })] Add({l=Lit(_:int):Expr,r=Lit(_:int):Expr}:{ l: Expr, r: Expr }):Expr -> call #19(value:string="sum of literals")  text="\"sum of literals\""; [Add(_)] Add(_:{ l: Expr, r: Expr }):Expr -> call #20(value:string="something else")  text="\"something else\""
+#13 edge #22: call #21(value:string=("minus " + #22:string :string))  text="\"minus \" + Inner"
+#13 spawned={}
+#13 region 0: parent=-1 entry=14 elem=void nodes=[14, 16, 17, 18, 22, 19, 20, 21] sink=-1
+#13 region_of={14: 0, 16: 0, 17: 0, 18: 0, 19: 0, 20: 0, 21: 0, 22: 0} opens={}
+#23 edge #24: for each #24.l:[]int :int -> call #25(i:int=this:int, l:[]int=#24.l:[]int)  text="i = this, l = Start.l"
+#23 edge #25: collect -> call #26(l:[]int=this:[]int)  text="l = this"
+#23 spawned={}
+#23 region 0: parent=-1 entry=24 elem=void nodes=[24, 26] sink=-1
+#23 region 1: parent=0 entry=25 elem=int nodes=[25] sink=25
+#23 region_of={24: 0, 25: 1, 26: 0} opens={24: 1}
+#27 edge #0: call #32(i:int=this:int)  text="i = this"
+#27 edge #23: switch [(this == 0)] ((this:int == 0 :int)) -> call #30(i:int=this:int)  text="i = this"; [else] else -> call #31(i:int=this:int)  text="i = this"
+#27 edge #28: call #29(s:string=this:string)  text="s = this"
+#27 edge #29: switch [(this < 10)] ((this:int < 10 :int)) -> call #29(s:string=#28:string)  text="s = Start"; [else] else -> call #23(i:int=this:int)  text="i = this"
+#27 edge #30: call #33(r:Outcome=I(this:string))  text="r = I(this)"
+#27 edge #31: call #0(s:string=this:string)  text="s = this"
+#27 edge #32: call #33(r:Outcome=S())  text="r = S()"
+#27 spawned={}
+#27 region 0: parent=-1 entry=28 elem=void nodes=[28, 29, 23, 30, 31, 33, 0, 32] sink=-1
+#27 region_of={0: 0, 23: 0, 28: 0, 29: 0, 30: 0, 31: 0, 32: 0, 33: 0} opens={}
+#34 edge #35: call #27(a:int=this.a:int, b:string=this.b:string)  text="a = this.a, b = this.b"
+#34 spawned={}
+#34 region 0: parent=-1 entry=35 elem=void nodes=[35, 27] sink=-1
+#34 region_of={27: 0, 35: 0} opens={}
+#36 edge #37: call #38(scope:Scope=((this.scope:Scope ++ ["len":{slot=this.scope:Scopelen@Scope,kind="builtin"}])@Scope -- ["tmp"])@Scope, query:string=this.query:string)  text="scope = this.scope + [\"len\": { slot = this.scope.len, kind = \"builtin\" }] - [\"tmp\"], query = this.query"
+#36 edge #38: switch [(this.query in this.scope)] ((this.query:string in this.scope:Scope)) -> call #39(name:string=this.query:string, slot:int=this.scope:Scope[this.query:string]@Scope.slot@{ slot: int, kind: string }, kind:string=this.scope:Scope[this.query:string]@Scope.kind@{ slot: int, kind: string }, total:int=this.scope:Scopelen@Scope)  text="name = this.query, slot = this.scope[this.query].slot, kind = this.scope[this.query].kind, total = this.scope.len"; [else] else -> call #40(name:string=this.query:string, known:[]string=this.scope:Scopekeys@Scope)  text="name = this.query, known = this.scope.keys"
+#36 spawned={}
+#36 region 0: parent=-1 entry=37 elem=void nodes=[37, 38, 39, 40] sink=-1
+#36 region_of={37: 0, 38: 0, 39: 0, 40: 0} opens={}

@@ -1,5 +1,5 @@
-//! vcc's manifest check refuses what the reference's serde types refuse,
-//! with the same message.
+//! vcc's manifest check: what it refuses and why, per case, against the
+//! golden files (first recorded from the reference's serde types).
 
 const CASES: &[&str] = &[
     "[project]\nname = \"x\"\n",
@@ -48,15 +48,12 @@ const CASES: &[&str] = &[
     "[project]\nname = \"x\"\n[go]\nout = \"a\"\ntest = \"go test\"\n",
 ];
 
+mod common;
+
 #[test]
-fn manifest_checks_match_the_reference() {
-    let mut bad = vec![];
-    for text in CASES {
-        let reference = toml::from_str::<vandorf::project::Manifest>(text).err().map(|e| e.message().to_string()).unwrap_or_default();
+fn checks_manifests() {
+    for (i, text) in CASES.iter().enumerate() {
         let mine = vcc::vcc::run_check_manifest((*text).into()).unwrap().to_string();
-        if reference != mine {
-            bad.push(format!("{text:?}\n  reference: {reference:?}\n  vcc:       {mine:?}"));
-        }
+        common::check("manifest", &format!("c{i:02}"), &format!("{text}\n---\n{mine}\n"));
     }
-    assert!(bad.is_empty(), "{}", bad.join("\n"));
 }

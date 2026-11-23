@@ -1,0 +1,9 @@
+proc P(S): int { func S(): map[string]{ x: int }; func T(k: string, x: int): int; func C(l: []int): int; 
+         S for each (this.keys) -> T(k = this, x = S[this].x); T collect each (T) -> C(l = this); }
+---
+#0 edge #1: for each this:map[string]{ x: int }@127..136.keys@map[string]{ x: int } :string -> call #2(k:string=this:string@147..151, x:int=#1:map[string]{ x: int }@157..158[this:string@159..163]@map[string]{ x: int }.x@{ x: int }) @141..142 text="k = this, x = S[this].x"
+#0 edge #2: collect -> call #3(l:[]int=this:[]int@197..201) @191..192 text="l = this"
+#0 spawned={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 3] sink=-1
+#0 region 1: parent=0 entry=2 elem=string nodes=[2] sink=2
+#0 region_of={1: 0, 2: 1, 3: 0} opens={1: 1}

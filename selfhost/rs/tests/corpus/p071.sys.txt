@@ -1,0 +1,2 @@
+proc P(S): int {{ func S(): {{ m: map[string]int, xs: []int, s: string }}; func T(i: int): int; 
+         func U(m: map[string]int): int; func K(ks: []string): int; S -> {arg}; }}

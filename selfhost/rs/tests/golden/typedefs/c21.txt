@@ -1,0 +1,7 @@
+type Id<T> = T; type A = Id<Id<int>>; type B = Id<A>;
+---
+A (A) = Id<Id<int>>
+B (B) = Id<A>
+Id<int> (IdInt) = int
+Id<Id<int>> (IdIdInt) = Id<int>
+Id<A> (IdA) = A

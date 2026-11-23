@@ -1,0 +1,5 @@
+
+            type R<T> = { x: T, pos: int };
+            type Toks = R<[]string>;
+            proc P(A): R<int> { func A(r: Toks): R<int>; }
+        

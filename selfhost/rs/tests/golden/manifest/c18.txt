@@ -1,0 +1,9 @@
+[project]
+name = "x"
+[http.w]
+addr = "a"
+go = "go/cmd/w"
+rust = "bin/w.rs"
+
+---
+

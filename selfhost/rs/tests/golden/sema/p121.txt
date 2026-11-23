@@ -1,0 +1,31 @@
+
+            type Ctx = { greeting: string };
+            proc Setup(S): Ctx { func S(): Ctx; }
+            proc Hi(B): string { func B(name: string, ctx: Ctx): string; }
+            type Req = { method: string, path: string, query: map[string]string, headers: map[string]string, body: string };
+            proc Page(C): { status: int, headers: map[string]string, body: string } {
+                func C(ctx: Ctx, req: Req): { status: int, headers: map[string]string, body: string };
+            }
+            proc NoCtx(D): string { func D(name: string): string; }
+            proc WrongCtx(E): string { func E(ctx: string): string; }
+            proc Takes(F): Ctx { func F(n: int): Ctx; }
+        
+---
+#0 spawned={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1] sink=-1
+#0 region_of={1: 0} opens={}
+#2 spawned={}
+#2 region 0: parent=-1 entry=3 elem=void nodes=[3] sink=-1
+#2 region_of={3: 0} opens={}
+#4 spawned={}
+#4 region 0: parent=-1 entry=5 elem=void nodes=[5] sink=-1
+#4 region_of={5: 0} opens={}
+#6 spawned={}
+#6 region 0: parent=-1 entry=7 elem=void nodes=[7] sink=-1
+#6 region_of={7: 0} opens={}
+#8 spawned={}
+#8 region 0: parent=-1 entry=9 elem=void nodes=[9] sink=-1
+#8 region_of={9: 0} opens={}
+#10 spawned={}
+#10 region 0: parent=-1 entry=11 elem=void nodes=[11] sink=-1
+#10 region_of={11: 0} opens={}

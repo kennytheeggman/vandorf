@@ -1,0 +1,4 @@
+interface I { func B(n: int): int; } interface J { func B(n: int): int; }
+            proc P(A): int { func A(): int; func B(n: int): int; func C(n: int): string; func L(s: string): void; func D(b: int): int; func E(b: int): int; A -> spawn { detach B(n = 1) } join D(b = this.B); }
+---
+error: B is detached, so the join doesn't get its output @277..278

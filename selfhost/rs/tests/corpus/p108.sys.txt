@@ -1,0 +1,16 @@
+
+            type St = { acc: []int, i: int };
+            proc P(S): []int {
+                func S(acc: []int, i: int): St;
+                func T(x: int): int;
+                func K(): int;
+                func L(x: int): int;
+                S -> T(x = this.i);
+                T switch {
+                    (this > 3) -> K(),
+                    else -> S(acc = S.acc + [this], i = S.i + 1)
+                };
+                K -> L(x = S.i);
+                L -> id(S.acc + [this]);
+            }
+        

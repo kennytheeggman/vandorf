@@ -1,0 +1,3 @@
+type R<T> = { x: T }; type A = R; proc P(X): int { func X(): int; }
+---
+error: R is generic: give it type arguments, as in R<T> @31..32

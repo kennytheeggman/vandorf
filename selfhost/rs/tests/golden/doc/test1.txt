@@ -1,0 +1,259 @@
+{
+  "grids": {
+    "Bar": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Start"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Loop"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 1,
+              "label": "ForEach"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Branch1"
+            },
+            {
+              "type": 0,
+              "label": "Branch2Begin"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Foo.Call",
+              "interface": "Foo"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Branch2End"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "End"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "string",
+          "call": "Loop(s: string)",
+          "args": "s = this"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "label": "this < 10",
+          "valueType": "int",
+          "call": "Loop(s: string)",
+          "args": "s = Start"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "label": "else",
+          "valueType": "int",
+          "call": "ForEach(i: int)",
+          "args": "i = this"
+        },
+        {
+          "type": 1,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            3,
+            0
+          ],
+          "label": "this == 0",
+          "valueType": "int",
+          "call": "Branch1(i: int)",
+          "args": "i = this"
+        },
+        {
+          "type": 1,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            3,
+            1
+          ],
+          "label": "else",
+          "valueType": "int",
+          "call": "Branch2Begin(i: int)",
+          "args": "i = this"
+        },
+        {
+          "type": 0,
+          "source": [
+            3,
+            0
+          ],
+          "target": [
+            6,
+            0
+          ],
+          "valueType": "string",
+          "call": "End(r: enum { I(string), S, B({ i: int }) })",
+          "args": "r = I(this)"
+        },
+        {
+          "type": 0,
+          "source": [
+            3,
+            1
+          ],
+          "target": [
+            4,
+            0
+          ],
+          "valueType": "string",
+          "call": "Foo.Call(s: string)",
+          "args": "s = this"
+        },
+        {
+          "type": 0,
+          "source": [
+            4,
+            0
+          ],
+          "target": [
+            5,
+            0
+          ],
+          "valueType": "int",
+          "call": "Branch2End(i: int)",
+          "args": "i = this"
+        },
+        {
+          "type": 0,
+          "source": [
+            5,
+            0
+          ],
+          "target": [
+            6,
+            0
+          ],
+          "valueType": "void",
+          "call": "End(r: enum { I(string), S, B({ i: int }) })",
+          "args": "r = S()"
+        }
+      ]
+    },
+    "ForEach": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Start"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Process"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Collect"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 2,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "int",
+          "call": "Process(i: int, l: []int)",
+          "args": "i = this, l = Start.l"
+        },
+        {
+          "type": 4,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "[]int",
+          "call": "Collect(l: []int)",
+          "args": "l = this"
+        }
+      ]
+    }
+  }
+}

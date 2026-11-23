@@ -1,0 +1,16 @@
+[project]
+name = "x"
+sources = ["sys", "lib"]
+[rust]
+out = "rs/src/x"
+[bin.a]
+entry = "A"
+[http.web]
+addr = "127.0.0.1:1"
+routes = { "POST /a" = "A" }
+raw = { "GET /" = "P" }
+static = { "/x" = "x.html" }
+rust = "bin/web.rs"
+
+---
+

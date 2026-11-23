@@ -1,0 +1,4 @@
+type Id<T> = T; proc Q(X): int { func X(v: Id<void>): int; }
+---
+error: void can't be a type argument @46..50
+error: entry X is not declared in proc Q @23..24

@@ -1,0 +1,11 @@
+
+        proc P(A): int {
+            func A(): []int;
+            func B(i: int): int;
+            func C(i: int): int;
+            func D(l: []int): int;
+            A for each (A) -> B(i = this);
+            B -> C(i = this);
+            C collect each (C) -> D(l = this);
+        }
+        

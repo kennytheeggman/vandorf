@@ -1,0 +1,15 @@
+
+        type S = { a: int, b: string, c: { d: int } };
+        proc P(A): S {
+            func A(): S;
+            func N(s: S): int;
+            A -> N(s = { ..this, a = 1 });
+            N -> id({ ..A, c = { ..A.c, d = { ..A, b = "x" }.a } });
+        }
+        
+---
+#0 edge #1: call #2(s:S={a=1,b=this.b:string@162..166,c=this.c:{ d: int }@162..166}) @152..153 text="s = { ..this, a = 1 }"
+#0 edge #2: call #3(value:S={a=#1.a:int@202..203,b=#1.b:string@202..203,c={d={a=#1.a:int@226..227,b="x",c=#1.c:{ d: int }@226..227}.a@S}}) @195..197 text="{ ..A, c = { ..A.c, d = { ..A, b = \"x\" }.a } }"
+#0 spawned={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2, 3] sink=-1
+#0 region_of={1: 0, 2: 0, 3: 0} opens={}

@@ -1,0 +1,3 @@
+proc P(A): int { func A(): int; func B(i: int): int; A -> B(i = this) as A; }
+---
+error: alias A clashes with a node of that name in proc P @73..74

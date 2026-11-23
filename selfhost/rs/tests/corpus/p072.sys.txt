@@ -1,0 +1,1 @@
+proc P(S): int { func S(): map[float]int; }

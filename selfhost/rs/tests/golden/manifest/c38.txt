@@ -1,0 +1,8 @@
+[project]
+name = "x"
+[rust]
+out = "a"
+post = "cargo build"
+
+---
+invalid type: string "cargo build", expected a sequence

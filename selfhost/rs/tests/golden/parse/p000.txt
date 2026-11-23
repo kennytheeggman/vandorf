@@ -1,0 +1,1 @@
+(file(type T @5:6(struct(field x @11:12(named int @14:17 @14:17)) @9:19))(proc P @26:27 A @28:29(named int @32:35 @32:35)(func A @43:44(named T @48:49 @48:49))(func B @56:57(field t @58:59(named T @61:62 @61:62))(named int @65:68 @65:68))(edge(path A @70:71 @70:71)(call(target text="t = this"(path B @75:76 @75:76)(arg t @77:78(ref(path this @81:85 @81:85) @81:85)))) @70:86)))

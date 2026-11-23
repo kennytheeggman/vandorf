@@ -1,0 +1,9 @@
+
+        proc Main(A): string {
+            func A(n: int, verbose: bool, name: string): string;
+        }
+    
+---
+#0 spawned={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1] sink=-1
+#0 region_of={1: 0} opens={}

@@ -1,0 +1,8 @@
+[project]
+name = "x"
+[http.w]
+addr = "a"
+setp = "Setup"
+
+---
+unknown field `setp`, expected one of `addr`, `setup`, `routes`, `raw`, `static`, `go`, `rust`

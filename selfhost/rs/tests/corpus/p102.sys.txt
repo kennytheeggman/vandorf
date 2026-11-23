@@ -1,0 +1,7 @@
+
+        proc P(A): int {
+            func A(): { n: int } = "a.go:A", "../impls/a.rs:a";
+            func B(i: int): int = "../other/b.go:B";
+            A -> B(i = A.n);
+        }
+    

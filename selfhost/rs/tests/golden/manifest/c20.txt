@@ -1,0 +1,8 @@
+[project]
+name = "x"
+[http.w]
+addr = "a"
+goo = "x"
+
+---
+unknown field `goo`, expected one of `addr`, `setup`, `routes`, `raw`, `static`, `go`, `rust`

@@ -1,0 +1,6 @@
+[project
+name = "x"
+
+---
+invalid table header
+expected `.`, `]`

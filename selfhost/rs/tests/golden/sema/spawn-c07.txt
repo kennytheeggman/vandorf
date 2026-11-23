@@ -1,0 +1,4 @@
+interface I { func B(n: int): int; } interface J { func B(n: int): int; }
+            proc P(A): int { func A(): int; func B(n: int): int; func C(n: int): string; func L(s: string): void; func D(b: int): int; func E(b: int): int; A -> spawn { id(1) } join D(b = 1); }
+---
+error: id ends the proc, so it can't run in a spawn branch @243..245

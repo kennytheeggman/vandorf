@@ -1,0 +1,10 @@
+[project]
+name = "x"
+[go]
+out = "go/x"
+package = "x"
+module = "m"
+types_dir = "t"
+
+---
+

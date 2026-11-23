@@ -1,0 +1,3 @@
+type R<T> = { x: T }; type A = R<int, int>;
+---
+error: R takes 1 type argument, not 2 @31..32

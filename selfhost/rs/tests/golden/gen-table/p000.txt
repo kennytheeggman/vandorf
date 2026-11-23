@@ -1,0 +1,1 @@
+#0 T struct { x: int } (typedef T)

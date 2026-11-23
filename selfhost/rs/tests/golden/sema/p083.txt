@@ -1,0 +1,3 @@
+proc A(S): int { func S(): int = "impl.go:S"; S -> B(); }
+---
+error: unknown node B @51..52

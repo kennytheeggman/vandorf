@@ -1,0 +1,3 @@
+proc P(A): int { func A(): int; func B(): int; func C(): int; A -> B() as X; X -> C() as X; }
+---
+error: X is already an alias of B @89..90

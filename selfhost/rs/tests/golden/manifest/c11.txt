@@ -1,0 +1,7 @@
+[project]
+name = "x"
+[http.web]
+routes = {}
+
+---
+missing field `addr`

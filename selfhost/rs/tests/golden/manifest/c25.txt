@@ -1,0 +1,5 @@
+[project]
+name = 1.5
+
+---
+invalid type: floating point `1.5`, expected a string

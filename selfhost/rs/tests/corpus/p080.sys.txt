@@ -1,0 +1,3 @@
+
+
+proc A(S): int { func S(): int; }

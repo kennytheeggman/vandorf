@@ -1,0 +1,1 @@
+proc Calc(A): int { func A(l: []int): int; }

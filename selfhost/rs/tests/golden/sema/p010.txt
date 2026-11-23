@@ -1,0 +1,3 @@
+proc P(A): int { func A(): int; func B(i: int): int; A -> B(); }
+---
+error: call to P.B is missing argument i @58..59

@@ -1,0 +1,8 @@
+[project]
+name = "x"
+[http.w]
+addr = "a"
+raw = []
+
+---
+invalid type: sequence, expected a map

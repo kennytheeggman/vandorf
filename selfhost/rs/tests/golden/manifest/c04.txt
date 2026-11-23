@@ -1,0 +1,9 @@
+[project]
+name = "x"
+[go]
+out = "a"
+post = []
+test = ["go test ./..."]
+
+---
+

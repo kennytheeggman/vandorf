@@ -1,0 +1,100 @@
+{
+  "grids": {
+    "P": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "A"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "B"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "C"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "D"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "int",
+          "call": "B(i: int)",
+          "args": "i = this"
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "int",
+          "call": "C(i: int)",
+          "args": "i = this"
+        },
+        {
+          "type": 1,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            0,
+            0
+          ],
+          "label": "this < 3",
+          "valueType": "int",
+          "call": "A(i: int)",
+          "args": "i = this"
+        },
+        {
+          "type": 1,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            3,
+            0
+          ],
+          "label": "else",
+          "valueType": "int",
+          "call": "D(i: int)",
+          "args": "i = this"
+        }
+      ]
+    }
+  }
+}

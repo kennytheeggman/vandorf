@@ -1,0 +1,6 @@
+[project]
+name = "x"
+bin = 3
+
+---
+unknown field `bin`, expected `name` or `sources`

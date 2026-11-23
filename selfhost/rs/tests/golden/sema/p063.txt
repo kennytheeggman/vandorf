@@ -1,0 +1,3 @@
+proc P(S): int { func S(): int; func T(i: int): int; S switch { (this > 0) -> T(i = this) }; }
+---
+error: this switch on S needs an else arm, taken when no condition holds @53..91

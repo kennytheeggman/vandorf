@@ -1,0 +1,17 @@
+
+        proc P(A): int {
+            func A(): int;
+            func B(i: int): int;
+            func C(i: int): int;
+            A switch { (this > 0) -> B(i = this) as B2, else -> B(i = 0) as B2 };
+            B2 -> B(i = B2);
+            B -> C(i = this) as C2;
+        }
+    
+---
+#0 edge #1: switch [(this > 0)] ((this:int@143..147 > 0 :int)) -> call #4(i:int=this:int@162..166) @156..157 text="i = this"; [else] else -> call #4(i:int=0) @183..184 text="i = 0"
+#0 edge #2: call #5(i:int=this:int@253..257) @247..248 text="i = this"
+#0 edge #4: call #2(i:int=#4:int@225..227) @219..220 text="i = B2"
+#0 spawned={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 4, 2, 5] sink=-1
+#0 region_of={1: 0, 2: 0, 4: 0, 5: 0} opens={}

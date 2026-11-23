@@ -1,0 +1,6 @@
+[project]
+name = "x"
+sources = "sys"
+
+---
+invalid type: string "sys", expected a sequence

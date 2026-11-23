@@ -1,0 +1,9 @@
+
+        type S = { a: int, b: string, c: { d: int } };
+        proc P(A): S {
+            func A(): S;
+            func N(s: S): int;
+            A -> N(s = { ..this, a = 1 });
+            N -> id({ ..A, c = { ..A.c, d = { ..A, b = "x" }.a } });
+        }
+        

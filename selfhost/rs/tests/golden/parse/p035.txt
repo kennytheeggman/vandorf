@@ -1,0 +1,1 @@
+(file(type R @5:6 int @7:10(struct(field x @16:17(named int @19:22 @19:22)) @14:24)))

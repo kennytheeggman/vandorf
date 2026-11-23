@@ -1,7 +1,10 @@
-//! vcc's diagnostics render as the reference's vandorf::report::snippet.
+//! vcc's diagnostic snippets (message, path:line:col, the line underlined,
+//! notes), against their golden files.
+
+mod common;
 
 #[test]
-fn snippets_match_the_reference() {
+fn renders_snippets() {
     let cases: &[(&str, std::ops::Range<usize>, &[&str])] = &[
         ("proc P(A): int { func A(: int; }", 24..25, &[]),
         ("a\n\tfunc B(): int;\n", 8..9, &["expected: pub fn b()"]),
@@ -13,9 +16,8 @@ fn snippets_match_the_reference() {
         ("multi\nline\nspan\n", 2..14, &[]),
         (&"line\n".repeat(120), 500..504, &[]),
     ];
-    for (text, span, notes) in cases {
+    for (i, (text, span, notes)) in cases.iter().enumerate() {
         let notes: Vec<String> = notes.iter().map(|n| n.to_string()).collect();
-        let want = vandorf::report::snippet("error", "msg", "f.sys", text, span.clone(), &notes);
         let mine = vcc::vcc::run_render_snippet(vcc::vcc::types::RenderSnippetAtS {
             level: "error".into(),
             msg: "msg".into(),
@@ -26,6 +28,6 @@ fn snippets_match_the_reference() {
             notes: notes.iter().map(|n| n.as_str().into()).collect(),
         })
         .unwrap();
-        assert_eq!(&*mine, want, "{text:?} {span:?}");
+        common::check("report", &format!("c{i}"), &mine);
     }
 }

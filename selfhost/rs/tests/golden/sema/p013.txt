@@ -1,0 +1,10 @@
+
+        proc P(A): int {
+            func A(): []int; func B(i: int): int; func C(l: []int): int; func D(i: int): int;
+            A for each (A) -> B(i = this);
+            B collect each (B) -> C(l = this);
+            C -> D(i = B);
+        }
+        
+---
+error: P.B runs inside a for each region, so its output is not visible here @233..234

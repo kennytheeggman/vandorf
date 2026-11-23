@@ -1,0 +1,2 @@
+func A(): int; func D(i: []int): int;
+---

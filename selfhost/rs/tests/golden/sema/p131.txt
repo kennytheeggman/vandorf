@@ -1,0 +1,12 @@
+
+        proc P(A): int {
+            func A(): int;
+            func L(s: string): void;
+            A -> spawn { detach L(s = "a"), detach L(s = "b") as L2 } join id(A);
+        }
+        
+---
+#0 edge #1: spawn { detach call #2(s:string="a") @122..123 text="s = \"a\"", detach call #4(s:string="b") @141..142 text="s = \"b\"" } join :{  } -> call #3(value:int=#1:int@168..169) @165..167 text="A"
+#0 spawned={2: 1, 4: 1}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 3] sink=-1
+#0 region_of={1: 0, 3: 0} opens={}

@@ -1,0 +1,123 @@
+{
+  "grids": {
+    "P": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "A"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "id"
+            },
+            {
+              "type": 0,
+              "label": "B"
+            },
+            {
+              "type": 0,
+              "label": "id"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "C"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "id"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "label": "this > 0",
+          "valueType": "int",
+          "call": "id1(value: { n: int, tags: []string })",
+          "args": "{ n = this, tags = [\"pos\"] }"
+        },
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            1
+          ],
+          "label": "this == 0",
+          "valueType": "int",
+          "call": "B(i: int)",
+          "args": "i = this"
+        },
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            2
+          ],
+          "label": "else",
+          "valueType": "int",
+          "call": "id2(value: { n: int, tags: []string })",
+          "args": "{ n = -this, tags = [] }"
+        },
+        {
+          "type": 2,
+          "source": [
+            1,
+            1
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "int",
+          "call": "C(i: int)",
+          "args": "i = this"
+        },
+        {
+          "type": 4,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            3,
+            0
+          ],
+          "valueType": "[]int",
+          "call": "id3(value: { n: int, tags: []string })",
+          "args": "{ n = this.len, tags = [\"many\"] }"
+        }
+      ]
+    }
+  }
+}

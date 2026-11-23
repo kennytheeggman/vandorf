@@ -1,0 +1,3 @@
+type L = []L;
+---
+error: type L refers to itself, so it must be a struct or enum @5..6

@@ -1,0 +1,9 @@
+[project]
+name = "x"
+[rust]
+out = "a"
+post = ["cargo build", "echo done"]
+test = ["cargo test"]
+
+---
+

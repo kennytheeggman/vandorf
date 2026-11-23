@@ -1,0 +1,4 @@
+proc A(S): int { func S(t: T): int; S -> B(i = this); }
+---
+error: unknown type T @27..28
+error: entry S is not declared in proc A @7..8

@@ -1,0 +1,56 @@
+{
+  "grids": {
+    "Calc": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "C"
+            }
+          ]
+        }
+      ],
+      "edges": []
+    },
+    "Hi": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "B"
+            }
+          ]
+        }
+      ],
+      "edges": []
+    },
+    "Page": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "P"
+            }
+          ]
+        }
+      ],
+      "edges": []
+    },
+    "Setup": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "S"
+            }
+          ]
+        }
+      ],
+      "edges": []
+    }
+  }
+}

@@ -1,0 +1,3 @@
+proc P(A): int { func A(): int; func B(r: enum { X }): int; A -> B(r = Y(this)); }
+---
+error: argument r of P.B: enum { X } has no variant Y @71..72

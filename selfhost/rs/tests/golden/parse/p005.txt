@@ -1,0 +1,1 @@
+(file(proc Outer @14:19 Inner @20:25(named int @28:31 @28:31)(proc Inner @51:56 A @57:58(named int @61:64 @61:64)(func A @72:73(named int @77:80 @77:80)))))

@@ -1,0 +1,8 @@
+[project]
+name = "x"
+[rust]
+out = "a"
+mod = "m"
+
+---
+unknown field `mod`, expected one of `out`, `module_dir`, `post`, `test`

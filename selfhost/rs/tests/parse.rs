@@ -1,12 +1,10 @@
-//! vcc's parser (generated from ../sys/parse*.sys) against the reference
-//! one (the vandorf crate's chumsky parser): both ASTs are printed as
-//! S-expressions, spans included, and must match.
-//!
-//! The reference parser's spans include whitespace after the last token
-//! (chumsky consumes it); vcc's end at the token. Reference spans are
-//! trimmed before comparing.
+//! vcc's parser (generated from ../sys/parse*.sys): ASTs printed as
+//! S-expressions, spans included, against their golden files (first
+//! recorded from the reference parser's, whose spans were trimmed of
+//! trailing whitespace to match).
 
-use vandorf::ast as r;
+mod common;
+
 use vcc::vcc::types as v;
 
 struct Out<'a> {
@@ -49,357 +47,6 @@ impl Out<'_> {
 }
 
 // ---- Reference AST ----
-
-fn r_file(o: &mut Out, f: &r::File) {
-    o.open("file");
-    for t in &f.types {
-        o.open("type");
-        r_ident(o, &t.name);
-        for p in &t.params {
-            r_ident(o, p);
-        }
-        r_ty(o, &t.ty);
-        o.close();
-    }
-    for i in &f.interfaces {
-        o.open("interface");
-        r_ident(o, &i.name);
-        for f in &i.funcs {
-            r_func(o, f);
-        }
-        o.close();
-    }
-    for n in &f.nodes {
-        r_node(o, n);
-    }
-    o.close();
-}
-
-fn r_ident(o: &mut Out, i: &r::Ident) {
-    o.atom(&i.name);
-    o.span(i.span.start, i.span.end);
-}
-
-fn r_path(o: &mut Out, p: &r::Path) {
-    o.open("path");
-    for s in &p.segs {
-        r_ident(o, s);
-    }
-    o.span(p.span.start, p.span.end);
-    o.close();
-}
-
-fn r_node(o: &mut Out, n: &r::Node) {
-    match n {
-        r::Node::Func(f) => r_func(o, f),
-        r::Node::Proc(p) => r_proc(o, p),
-    }
-}
-
-fn r_func(o: &mut Out, f: &r::Func) {
-    o.open("func");
-    r_ident(o, &f.name);
-    for p in &f.params {
-        r_field(o, p);
-    }
-    match &f.ret {
-        Some(t) => r_ty(o, t),
-        None => o.atom("void"),
-    }
-    for i in &f.imps {
-        o.open("impl");
-        o.atom(&i.written);
-        o.atom(&i.function);
-        o.span(i.span.start, i.span.end);
-        o.close();
-    }
-    o.close();
-}
-
-fn r_proc(o: &mut Out, p: &r::Proc) {
-    o.open("proc");
-    r_ident(o, &p.name);
-    r_ident(o, &p.entry);
-    r_ty(o, &p.ret);
-    for n in &p.nodes {
-        r_node(o, n);
-    }
-    for e in &p.edges {
-        r_edge(o, e);
-    }
-    o.close();
-}
-
-fn r_field(o: &mut Out, f: &r::Field) {
-    o.open("field");
-    r_ident(o, &f.name);
-    r_ty(o, &f.ty);
-    o.close();
-}
-
-fn r_ty(o: &mut Out, t: &r::TypeExpr) {
-    use r::TypeExprKind as K;
-    match &t.kind {
-        K::Named(i) => {
-            o.open("named");
-            r_ident(o, i);
-        }
-        K::Inst(i, args) => {
-            o.open("inst");
-            r_ident(o, i);
-            for a in args {
-                r_ty(o, a);
-            }
-        }
-        K::Array(e) => {
-            o.open("array");
-            r_ty(o, e);
-        }
-        K::Map(k, v) => {
-            o.open("map");
-            r_ty(o, k);
-            r_ty(o, v);
-        }
-        K::Struct(fs) => {
-            o.open("struct");
-            for f in fs {
-                r_field(o, f);
-            }
-        }
-        K::Enum(vs) => {
-            o.open("enum");
-            for v in vs {
-                o.open("variant");
-                r_ident(o, &v.name);
-                if let Some(p) = &v.payload {
-                    r_ty(o, p);
-                }
-                o.close();
-            }
-        }
-    }
-    o.span(t.span.start, t.span.end);
-    o.close();
-}
-
-fn r_edge(o: &mut Out, e: &r::Edge) {
-    o.open("edge");
-    r_path(o, &e.source);
-    match &e.kind {
-        r::EdgeKind::Call(t) => {
-            o.open("call");
-            r_target(o, t);
-        }
-        r::EdgeKind::Match(arms) => {
-            o.open("match");
-            for a in arms {
-                r_arm(o, a);
-            }
-        }
-        r::EdgeKind::Collect { dim, target } => {
-            o.open("collect");
-            r_ident(o, dim);
-            r_target(o, target);
-        }
-        r::EdgeKind::ForEach { dim, target } => {
-            o.open("foreach");
-            r_value(o, dim);
-            r_target(o, target);
-        }
-        r::EdgeKind::Spawn { branches, join } => {
-            o.open("spawn");
-            for b in branches {
-                o.open(if b.detach { "detach" } else { "branch" });
-                r_target(o, &b.target);
-                o.close();
-            }
-            o.open("join");
-            r_target(o, join);
-            o.close();
-        }
-    }
-    o.close();
-    o.span(e.span.start, e.span.end);
-    o.close();
-}
-
-fn r_target(o: &mut Out, t: &r::Target) {
-    o.open("target");
-    o.s.push_str(&format!(" text={:?}", t.text));
-    r_path(o, &t.node);
-    for a in &t.args {
-        o.open("arg");
-        r_ident(o, &a.name);
-        r_value(o, &a.value);
-        o.close();
-    }
-    if let Some(a) = &t.alias {
-        o.open("as");
-        r_ident(o, a);
-        o.close();
-    }
-    if let Some(v) = &t.id {
-        o.open("id");
-        r_value(o, v);
-        o.close();
-    }
-    o.close();
-}
-
-fn r_arm(o: &mut Out, a: &r::Arm) {
-    o.open("arm");
-    match &a.head {
-        r::Head::Pat(p) => r_pat(o, p),
-        r::Head::Cond(c) => {
-            o.open("cond");
-            r_value(o, c);
-            o.close();
-        }
-        r::Head::Else => o.atom("else"),
-    }
-    o.span(a.span.start, a.span.end);
-    match &a.body {
-        r::Body::Call(t) => r_target(o, t),
-        r::Body::Switch(arms, span) => {
-            o.open("switch");
-            for a in arms {
-                r_arm(o, a);
-            }
-            o.span(span.start, span.end);
-            o.close();
-        }
-    }
-    o.close();
-}
-
-fn r_pat(o: &mut Out, p: &r::Pat) {
-    use r::PatKind as K;
-    match &p.kind {
-        K::Wild => o.open("_"),
-        K::Bind(i) => {
-            o.open("bind");
-            r_ident(o, i);
-        }
-        K::Variant { tag, payload } => {
-            o.open("variant");
-            r_ident(o, tag);
-            if let Some(q) = payload {
-                r_pat(o, q);
-            }
-        }
-        K::Struct(fs) => {
-            o.open("struct");
-            for (n, q) in fs {
-                r_ident(o, n);
-                r_pat(o, q);
-            }
-        }
-        K::Or(alts) => {
-            o.open("or");
-            for a in alts {
-                r_pat(o, a);
-            }
-        }
-    }
-    o.span(p.span.start, p.span.end);
-    o.close();
-}
-
-fn r_value(o: &mut Out, v: &r::Value) {
-    use r::ValueKind as K;
-    match &v.kind {
-        K::Ref(p) => {
-            o.open("ref");
-            r_path(o, p);
-        }
-        K::Int(i) => {
-            o.open("int");
-            o.atom(i);
-        }
-        K::Float(f) => {
-            o.open("float");
-            o.atom(f);
-        }
-        K::Str(s) => {
-            o.open("str");
-            o.atom(format!("{s:?}"));
-        }
-        K::Bool(b) => {
-            o.open("bool");
-            o.atom(b);
-        }
-        K::Apply { name, args } => {
-            o.open("apply");
-            r_path(o, name);
-            for a in args {
-                o.open("arg");
-                if let Some(n) = &a.name {
-                    r_ident(o, n);
-                }
-                r_value(o, &a.value);
-                o.close();
-            }
-        }
-        K::Struct(args) => {
-            o.open("struct");
-            for a in args {
-                r_ident(o, &a.name);
-                r_value(o, &a.value);
-            }
-        }
-        K::Update { base, args } => {
-            o.open("update");
-            r_value(o, base);
-            for a in args {
-                r_ident(o, &a.name);
-                r_value(o, &a.value);
-            }
-        }
-        K::Array(es) => {
-            o.open("array");
-            for e in es {
-                r_value(o, e);
-            }
-        }
-        K::Map(kvs) => {
-            o.open("map");
-            for (k, v) in kvs {
-                r_value(o, k);
-                r_value(o, v);
-            }
-        }
-        K::Unary(op, e) => {
-            o.open("unary");
-            o.atom(if *op == r::UnOp::Not { "!" } else { "-" });
-            r_value(o, e);
-        }
-        K::Binary(op, l, rr) => {
-            o.open("binary");
-            o.atom(op.symbol());
-            r_value(o, l);
-            r_value(o, rr);
-        }
-        K::Index(e, k) => {
-            o.open("index");
-            r_value(o, e);
-            r_value(o, k);
-        }
-        K::Field(e, n) => {
-            o.open("field");
-            r_value(o, e);
-            r_ident(o, n);
-        }
-        K::In(k, m) => {
-            o.open("in");
-            r_value(o, k);
-            r_value(o, m);
-        }
-    }
-    o.span(v.span.start, v.span.end);
-    o.close();
-}
-
-// ---- vcc's AST ----
 
 fn sp(o: &mut Out, s: &v::Span) {
     o.span(s.at as usize, s.end as usize);
@@ -757,21 +404,12 @@ fn v_value(o: &mut Out, val: &v::Value) {
 
 // ---- The comparison ----
 
-fn both(src: &str) -> (String, String) {
-    let reference = vandorf::parser::parse(src, 0).unwrap_or_else(|e| panic!("reference parser: {e:?}"));
+/// vcc's AST of src as an S-expression, spans included.
+fn ast(src: &str) -> String {
     let mine = vcc::vcc::run_parse(src.into()).unwrap_or_else(|e| panic!("vcc: {e}"));
-    let mut a = Out { src, s: String::new() };
-    r_file(&mut a, &reference);
     let mut b = Out { src, s: String::new() };
     v_file(&mut b, &mine);
-    (a.s, b.s)
-}
-
-/// The first point where `a` and `b` differ, with context.
-fn diff(a: &str, b: &str) -> String {
-    let i = a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count();
-    let from = i.saturating_sub(120);
-    format!("reference: ...{}\nvcc:       ...{}", &a[from..(i + 80).min(a.len())], &b[from..(i + 80).min(b.len())])
+    b.s
 }
 
 fn sys_files() -> Vec<std::path::PathBuf> {
@@ -790,19 +428,38 @@ fn sys_files() -> Vec<std::path::PathBuf> {
 }
 
 #[test]
-fn parses_every_sys_file_like_the_reference() {
+fn parses_every_sys_file() {
     let files = sys_files();
     assert!(files.len() > 10);
     for f in files {
         let src = std::fs::read_to_string(&f).unwrap();
-        let (a, b) = both(&src);
-        assert!(a == b, "{}:\n{}", f.display(), diff(&a, &b));
+        if let Err(e) = vcc::vcc::run_parse(src.as_str().into()) {
+            panic!("{}: {e}", f.display());
+        }
     }
 }
 
 #[test]
-fn parses_tricky_syntax_like_the_reference() {
-    for src in [
+fn parses_corpus() {
+    for (name, src) in common::corpus() {
+        if vcc::vcc::run_parse(src.as_str().into()).is_err() {
+            assert!(!common::has("parse", &name), "{name} has a golden AST but no longer parses");
+            continue;
+        }
+        common::check("parse", &name, &ast(&src));
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/demo/sys");
+    let mut demo: Vec<_> = std::fs::read_dir(&root).unwrap().map(|e| e.unwrap().path()).filter(|p| p.extension().is_some_and(|x| x == "sys")).collect();
+    demo.sort();
+    for f in demo {
+        let src = std::fs::read_to_string(&f).unwrap();
+        common::check("parse", &format!("demo-{}", f.file_stem().unwrap().to_string_lossy()), &ast(&src));
+    }
+}
+
+#[test]
+fn parses_tricky_syntax() {
+    for (i, src) in [
         // Precedence, prefix operators and negative literals, postfix chains.
         r#"proc P(A): int { A switch {
             (a || b && !c == d) -> X(i = -3, f = -1.5, g = - x),
@@ -835,16 +492,15 @@ fn parses_tricky_syntax_like_the_reference() {
             A for each (this) -> B(i = this);
             B collect each (B) -> Inner();
         };"#,
-    ] {
-        let (a, b) = both(src);
-        assert!(a == b, "{src}\n{}", diff(&a, &b));
+    ].iter().enumerate() {
+        common::check("parse-tricky", &format!("c{i}"), &ast(src));
     }
 }
 
 #[test]
 fn reports_syntax_errors() {
     for (src, want) in [
-        ("proc P(A): int { func A(): int; A -> ; }", "expected a name, found ';'"),
+        ("proc P(A): int { func A(): int; A -> ; }", "expected a call: a name, or id(value), found ';'"),
         ("proc P(A) int {}", "expected : and the proc's type, found 'int'"),
         ("func F(x: int) = \"nocolon\";", "expected \"file:function\""),
         ("type T = enum { A, B(int };", "expected ) after the payload, found '}'"),

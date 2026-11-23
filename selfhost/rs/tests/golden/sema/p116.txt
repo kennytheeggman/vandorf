@@ -1,0 +1,23 @@
+
+            type Ctx = { greeting: string };
+            proc Setup(S): Ctx { func S(): Ctx; }
+            proc Hi(B): string { func B(name: string, ctx: Ctx): string; }
+            proc Calc(C): int { func C(n: int): int; }
+            type Req = { method: string, path: string, query: map[string]string, headers: map[string]string, body: string };
+            proc Page(P): { status: int, headers: map[string]string, body: string } {
+                func P(ctx: Ctx, req: Req): { status: int, headers: map[string]string, body: string };
+            }
+        
+---
+#0 spawned={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1] sink=-1
+#0 region_of={1: 0} opens={}
+#2 spawned={}
+#2 region 0: parent=-1 entry=3 elem=void nodes=[3] sink=-1
+#2 region_of={3: 0} opens={}
+#4 spawned={}
+#4 region 0: parent=-1 entry=5 elem=void nodes=[5] sink=-1
+#4 region_of={5: 0} opens={}
+#6 spawned={}
+#6 region 0: parent=-1 entry=7 elem=void nodes=[7] sink=-1
+#6 region_of={7: 0} opens={}

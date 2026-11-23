@@ -1,0 +1,1 @@
+type S = { a: int }; proc P(A): { a: int, n: int } { func A(): S; A -> id({ ..this, n = 2 }); }

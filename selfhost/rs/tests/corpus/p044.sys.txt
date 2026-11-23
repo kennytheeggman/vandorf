@@ -1,0 +1,1 @@
+a type argument can't be a struct or enum written out

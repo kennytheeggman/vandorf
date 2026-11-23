@@ -1,0 +1,6 @@
+######## setup None, routes [("POST", "/api/p", "P")], raw []
+error: P.B: ../../y/lf.rs and ../../x/lf.rs are both outside the crate's src/ and would both be module lf
+######## setup None, routes [("GET", "/x", "Missing")], raw []
+error: P.B: ../../y/lf.rs and ../../x/lf.rs are both outside the crate's src/ and would both be module lf
+######## setup None, routes [], raw [("GET", "/raw", "P")]
+error: P.B: ../../y/lf.rs and ../../x/lf.rs are both outside the crate's src/ and would both be module lf

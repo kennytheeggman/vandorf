@@ -1,0 +1,2 @@
+#0 PSOut struct { a: bool, b: #1 } (return of P.S)
+#1 PSOutB enum { X: void, Y: int } (return of P.S)

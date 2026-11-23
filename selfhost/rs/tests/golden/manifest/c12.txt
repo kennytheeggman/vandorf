@@ -1,0 +1,6 @@
+[project]
+name = "x"
+sauces = []
+
+---
+unknown field `sauces`, expected `name` or `sources`
