@@ -1,1 +1,2 @@
-#0 PAOut struct { n: int } (return of P.A)
+#0 PArgs struct {  } (parameters of P)
+#1 PAOut struct { n: int } (return of P.A)

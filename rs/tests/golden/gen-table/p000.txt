@@ -1,1 +1,2 @@
 #0 T struct { x: int } (typedef T)
+#1 PArgs struct {  } (parameters of P)

@@ -1,7 +1,8 @@
-proc P(A): int { func A(): int; A -> id(1) as X; }
+proc P(): int { func A(): int; P -> A(); A -> id(1) as X; }
 ---
-P @5..6 proc parent=-1 entry=1 ret=int locals=[1, 2]
-P.A @22..23 func (): int = 
-P.X @46..47 id ()
+P @5..6 proc parent=-1 entry=1 ret=int locals=[1, 2, 3]
+P.P @5..6 sig of 0 ()
+P.A @21..22 func (): int = 
+P.X @55..56 id ()
 global P = 0
 top [0]

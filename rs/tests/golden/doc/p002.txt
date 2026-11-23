@@ -5,6 +5,15 @@
         {
           "nodes": [
             {
+              "type": 2,
+              "label": "P",
+              "sublabel": "()"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "A"
             }
@@ -49,13 +58,26 @@
       ],
       "edges": [
         {
-          "type": 1,
+          "type": 0,
           "source": [
             0,
             0
           ],
           "target": [
             1,
+            0
+          ],
+          "valueType": "{  }",
+          "call": "A()"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
             0
           ],
           "label": "L()",
@@ -65,11 +87,11 @@
         {
           "type": 1,
           "source": [
-            0,
+            1,
             0
           ],
           "target": [
-            1,
+            2,
             1
           ],
           "label": "R()",
@@ -79,11 +101,11 @@
         {
           "type": 0,
           "source": [
-            1,
+            2,
             0
           ],
           "target": [
-            3,
+            4,
             0
           ],
           "valueType": "int",
@@ -92,28 +114,15 @@
         {
           "type": 0,
           "source": [
-            1,
+            2,
             1
           ],
           "target": [
-            2,
+            3,
             0
           ],
           "valueType": "int",
           "call": "X()"
-        },
-        {
-          "type": 0,
-          "source": [
-            2,
-            0
-          ],
-          "target": [
-            3,
-            0
-          ],
-          "valueType": "int",
-          "call": "D()"
         },
         {
           "type": 0,
@@ -123,6 +132,19 @@
           ],
           "target": [
             4,
+            0
+          ],
+          "valueType": "int",
+          "call": "D()"
+        },
+        {
+          "type": 0,
+          "source": [
+            4,
+            0
+          ],
+          "target": [
+            5,
             0
           ],
           "valueType": "int",

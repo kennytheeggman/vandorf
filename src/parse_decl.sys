@@ -124,47 +124,29 @@ proc PImplList(toks: []Tok, pos: int): R<[]ImplRef> {
 	};
 }
 
-// proc := IDENT '(' head ')' ':' type '{' ((func | proc | edge) ';')* '}'
-// (after 'proc')
+// proc := IDENT '(' (field (',' field)* ','?)? ')' ':' type
+//         '{' ((func | proc | edge) ';')* '}'   (after 'proc')
 proc PProc(toks: []Tok, pos: int): R<Proc> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PProc -> At(toks = this.toks, pos = this.pos);
 	At -> NeedIdent(toks = this.toks, pos = this.pos, what = "the proc's name") as Name;
 	Name -> Expect(toks = this.toks, pos = this.pos, text = "(", what = "( after the proc's name") as Open;
-	Open -> PProcHead(toks = this.toks, pos = this.pos);
-	PProcHead -> Expect(toks = At.toks, pos = this.pos, text = ":", what = ": and the proc's type") as Colon;
+	Open -> PFieldList(toks = this.toks, pos = this.pos);
+	PFieldList -> Expect(toks = At.toks, pos = this.pos, text = ")", what = ", or )") as Close;
+	Close -> Expect(toks = this.toks, pos = this.pos, text = ":", what = ": and the proc's type") as Colon;
 	Colon -> PType(toks = this.toks, pos = this.pos);
 	PType -> Expect(toks = At.toks, pos = this.pos, text = "{", what = "{ to start the proc's body") as BodyOpen;
 	BodyOpen -> PBody(toks = this.toks, pos = this.pos);
 	PBody -> Expect(toks = At.toks, pos = this.pos, text = "}", what = "a func, proc, edge or }") as BodyClose;
 	BodyClose -> id({
-		x = { name = MkIdent(t = Name.tok), entry = PProcHead.x.entry, params = PProcHead.x.params, ret = PType.x, nodes = PBody.x.nodes, edges = StartsAtSig(name = MkIdent(t = Name.tok), entry = PProcHead.x.entry, edges = PBody.x.edges) },
+		x = { name = MkIdent(t = Name.tok), params = PFieldList.x, ret = PType.x, nodes = PBody.x.nodes, edges = StartsAtSig(name = MkIdent(t = Name.tok), edges = PBody.x.edges) },
 		pos = this.pos
 	});
 }
 
-// A proc with params starts its body from its own name: fails at the first
-// edge otherwise.
-func StartsAtSig(name: Ident, entry: OptIdent, edges: []Edge): []Edge = "leaf.rs:starts_at_sig";
-
-type ProcHead = { entry: OptIdent, params: []Field };
-
-// head := (field (',' field)*)? | IDENT, then ')'   (after '(')
-//
-// A bare IDENT is the older form, naming the proc's entry.
-proc PProcHead(toks: []Tok, pos: int): R<ProcHead> {
-	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
-	PProcHead -> At(toks = this.toks, pos = this.pos);
-	At switch {
-		(IsSym(t = this.tok, s = ")")) -> id({ x = { entry = None(), params = [] }, pos = this.pos + 1 }),
-		(this.tok.kind != "eof" && IsSym(t = this.toks[this.pos + 1], s = ":")) -> PFieldList(toks = this.toks, pos = this.pos),
-		else -> NeedIdent(toks = this.toks, pos = this.pos, what = "the proc's parameters")
-	};
-	PFieldList -> Expect(toks = At.toks, pos = this.pos, text = ")", what = ", or )") as Close;
-	Close -> id({ x = { entry = None(), params = PFieldList.x }, pos = this.pos });
-	NeedIdent -> Expect(toks = this.toks, pos = this.pos, text = ")", what = ") after the entry") as EntryClose;
-	EntryClose -> id({ x = { entry = Some(MkIdent(t = NeedIdent.tok)), params = [] }, pos = this.pos });
-}
+// A proc's body starts from its own name: fails at the first edge
+// otherwise.
+func StartsAtSig(name: Ident, edges: []Edge): []Edge = "leaf.rs:starts_at_sig";
 
 // ((func | proc | edge) ';')*, stopping at '}'.
 proc PBody(toks: []Tok, pos: int): R<BodyItems> {

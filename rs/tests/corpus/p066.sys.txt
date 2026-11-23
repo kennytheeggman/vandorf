@@ -1,1 +1,1 @@
-proc P(S): int {{ func S(): {{ i: int, f: float, s: string, b: bool }}; func T(i: int): int; func Q(i: int): bool; func R(i: int); S switch {{ ({c}) -> T(i = 0), else -> T(i = 1) }}; }}
+proc P(): int {{ func S(): {{ i: int, f: float, s: string, b: bool }}; func T(i: int): int; func Q(i: int): bool; func R(i: int); P -> S(); S switch {{ ({c}) -> T(i = 0), else -> T(i = 1) }}; }}

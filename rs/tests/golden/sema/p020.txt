@@ -1,3 +1,3 @@
-type int = string; proc P(X): int { func X(): int; }
+type int = string; proc P(): int { func X(): int; P -> X(); }
 ---
 error: int is a built-in type @5..8

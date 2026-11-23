@@ -1,1 +1,2 @@
-#0 PSOutValue struct { x: int } (return of P.S)
+#0 PArgs struct {  } (parameters of P)
+#1 PSOutValue struct { x: int } (return of P.S)

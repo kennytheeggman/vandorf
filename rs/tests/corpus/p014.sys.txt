@@ -1,1 +1,1 @@
-type A = B; type B = A; proc P(X): int { func X(): int; }
+type A = B; type B = A; proc P(): int { func X(): int; P -> X(); }

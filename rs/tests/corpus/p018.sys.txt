@@ -1,1 +1,1 @@
-type U = void; proc P(X): int { func X(): int; }
+type U = void; proc P(): int { func X(): int; P -> X(); }

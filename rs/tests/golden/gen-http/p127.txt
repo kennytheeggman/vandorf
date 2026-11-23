@@ -567,6 +567,21 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+impl Json for types::ToolArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"args\":");
+        self.args.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("ToolArgs")?;
+        Ok(types::ToolArgs {
+            args: Json::from_json(field(fs, "args")?).map_err(|e| format!("args: {e}"))?,
+        })
+    }
+}
+
 /// Runs proc Tool with the request's parameters.
 fn call_tool(params: &Value) -> Result<String, (u16, String)> {
     let args: types::List<types::Str> = arg(params, "args")?;

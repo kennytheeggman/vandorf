@@ -567,6 +567,21 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+impl Json for types::ForEachArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"i\":");
+        self.i.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("ForEachArgs")?;
+        Ok(types::ForEachArgs {
+            i: Json::from_json(field(fs, "i")?).map_err(|e| format!("i: {e}"))?,
+        })
+    }
+}
+
 impl Json for types::ForEachStartOut {
     fn to_json(&self, out: &mut String) {
         out.push('{');
@@ -581,6 +596,24 @@ impl Json for types::ForEachStartOut {
         Ok(types::ForEachStartOut {
             l: Json::from_json(field(fs, "l")?).map_err(|e| format!("l: {e}"))?,
             s: Json::from_json(field(fs, "s")?).map_err(|e| format!("s: {e}"))?,
+        })
+    }
+}
+
+impl Json for types::BarArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"a\":");
+        self.a.to_json(out);
+        out.push_str(",\"b\":");
+        self.b.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("BarArgs")?;
+        Ok(types::BarArgs {
+            a: Json::from_json(field(fs, "a")?).map_err(|e| format!("a: {e}"))?,
+            b: Json::from_json(field(fs, "b")?).map_err(|e| format!("b: {e}"))?,
         })
     }
 }
@@ -614,21 +647,6 @@ impl Json for types::BarEndR {
             },
             _ => Err("expected a variant of BarEndR: \"Tag\" or {\"Tag\": payload}".into()),
         }
-    }
-}
-
-impl Json for types::BarEndRB {
-    fn to_json(&self, out: &mut String) {
-        out.push('{');
-        out.push_str("\"i\":");
-        self.i.to_json(out);
-        out.push('}');
-    }
-    fn from_json(v: &Value) -> Result<Self, String> {
-        let fs = v.object("BarEndRB")?;
-        Ok(types::BarEndRB {
-            i: Json::from_json(field(fs, "i")?).map_err(|e| format!("i: {e}"))?,
-        })
     }
 }
 

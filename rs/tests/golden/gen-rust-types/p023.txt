@@ -186,6 +186,14 @@ pub struct RInt {
     pub pos: i64,
 }
 
+/// The type of the parameters of P.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PArgs {
+    pub r: RStringList,
+    pub s: RStringList,
+    pub m: Map<Str, RInt>,
+}
+
 /// A typedef.
 pub type Toks = RStringList;
 

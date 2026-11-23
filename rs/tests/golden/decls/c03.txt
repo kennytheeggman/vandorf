@@ -1,3 +1,7 @@
-proc P(A): int { func B(): int; }
+proc P(): int { func B(): int; P -> A(); }
 ---
-error: entry A is not declared in proc P @7..8
+P @5..6 proc parent=-1 entry=1 ret=int locals=[1, 2]
+P.P @5..6 sig of 0 ()
+P.B @21..22 func (): int = 
+global P = 0
+top [0]

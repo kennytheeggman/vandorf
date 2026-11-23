@@ -567,6 +567,18 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+impl Json for types::PArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("PArgs")?;
+        Ok(types::PArgs {
+        })
+    }
+}
+
 impl Json for types::PAOut {
     fn to_json(&self, out: &mut String) {
         match self {

@@ -93,22 +93,32 @@ fn fan_out<E: Send, R: Send>(xs: Vec<E>, f: impl Fn(E) -> Result<R, Error> + Syn
 
 #[derive(Debug, Clone, Default)]
 struct EnvA {
+    in_a_a: Option<InAA>,
+    out_a_a: Option<types::AArgs>,
     in_a_s: Option<InAS>,
     out_a_s: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcA {
+    AA,
     AS,
 }
 
 /// Runs proc A.
 pub fn run_a() -> Result<i64, Error> {
     let mut env = EnvA::default();
-    env.in_a_s = Some(InAS {  });
-    let mut pc = PcA::AS;
+    env.in_a_a = Some(InAA {  });
+    let mut pc = PcA::AA;
     loop {
         match pc {
+            PcA::AA => {
+                let input = take_slot(&mut env.in_a_a, "A.A")?;
+                let this = types::AArgs {  };
+                env.in_a_s = Some(InAS {  });
+                pc = PcA::AS;
+                continue;
+            }
             PcA::AS => {
                 let input = take_slot(&mut env.in_a_s, "A.S")?;
                 let this = crate::app::rs::src::impls::s().map_err(|e| wrap("A.S", e.into()))?;
@@ -117,6 +127,11 @@ pub fn run_a() -> Result<i64, Error> {
             _ => return Err(format!("A: invalid state {pc:?}").into()),
         }
     }
+}
+
+/// Input of A.A.
+#[derive(Debug, Clone)]
+struct InAA {
 }
 
 /// Input of A.S.
@@ -287,6 +302,11 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
         }
         self
     }
+}
+
+/// The type of the parameters of A.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AArgs {
 }
 
 

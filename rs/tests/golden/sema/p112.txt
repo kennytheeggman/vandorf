@@ -1,6 +1,7 @@
-proc P(A): int { func A(): int = "../../x/lf.rs:a"; func B(): int = "../../y/lf.rs:b"; A -> B(); }
+proc P(): int { func A(): int = "../../x/lf.rs:a"; func B(): int = "../../y/lf.rs:b"; P -> A(); A -> B(); }
 ---
-#0 edge #1: call #2() @92..93 text=""
+#0 edge #1: call #2() @91..92 text=""
+#0 edge #2: call #3() @101..102 text=""
 #0 spawned={}
-#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2] sink=-1
-#0 region_of={1: 0, 2: 0} opens={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2, 3] sink=-1
+#0 region_of={1: 0, 2: 0, 3: 0} opens={}

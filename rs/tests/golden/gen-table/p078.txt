@@ -1,1 +1,2 @@
 #0 T struct { x: int } (typedef T)
+#1 BArgs struct { i: int } (parameters of B)

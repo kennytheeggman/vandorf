@@ -1,1 +1,1 @@
-proc Tool(A): string { func A(n: int): string; }
+proc Tool(n: int): string { func A(n: int): string; Tool -> A(n = this.n); }

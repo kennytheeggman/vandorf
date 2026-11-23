@@ -1,1 +1,1 @@
-
+#0 ToolArgs struct { args: []string } (parameters of Tool)

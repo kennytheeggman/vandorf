@@ -1,3 +1,4 @@
 #0 RStringList struct { x: []string, pos: int } (typedef R<[]string>)
 #1 RInt struct { x: int, pos: int } (typedef R<int>)
+#2 PArgs struct { r: #0 } (parameters of P)
 alias Toks = #0

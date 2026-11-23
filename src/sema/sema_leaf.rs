@@ -357,9 +357,8 @@ pub fn set_proc(mut cx: Cx, id: i64, entry: i64, locals: List<i64>) -> Result<Cx
     Ok(cx)
 }
 
-/// cx with proc `pid`'s signature node after it, if it has parameters
-/// rather than a named entry: a local of the proc with the proc's name
-/// (`P.P`), so `P` in the body names it.
+/// cx with proc `pid`'s signature node after it: a local of the proc with
+/// the proc's name (`P.P`), so `P` in the body names it.
 pub fn with_sig(
     mut cx: Cx,
     p: Proc,
@@ -367,47 +366,15 @@ pub fn with_sig(
     pid: i64,
     params: List<Member>,
 ) -> Result<Cx, String> {
-    if let OptIdent::None = p.entry {
-        cx.nodes = push(
-            cx.nodes,
-            NodeDecl {
-                qual: push(qual, p.name.name.clone()),
-                span: p.name.span,
-                kind: NodeKind::Sig(NodeKindSig { pid, params }),
-            },
-        );
-    }
+    cx.nodes = push(
+        cx.nodes,
+        NodeDecl {
+            qual: push(qual, p.name.name.clone()),
+            span: p.name.span,
+            kind: NodeKind::Sig(NodeKindSig { pid, params }),
+        },
+    );
     Ok(cx)
-}
-
-/// The proc's own locals before its declared ones: its signature node.
-pub fn sig_names(p: Proc, pid: i64) -> Result<Map<Str, i64>, String> {
-    Ok(match p.entry {
-        OptIdent::None => Map::from_iter([(p.name.name, pid + 1)]),
-        OptIdent::Some(_) => Map::default(),
-    })
-}
-
-pub fn sig_locals(p: Proc, pid: i64) -> Result<List<i64>, String> {
-    Ok(match p.entry {
-        OptIdent::None => vec![pid + 1].into(),
-        OptIdent::Some(_) => List::default(),
-    })
-}
-
-/// The signature node, or the named entry's local (-1 if there's none).
-pub fn entry_id(p: Proc, pid: i64, names: Map<Str, i64>) -> Result<i64, String> {
-    Ok(match p.entry {
-        OptIdent::None => pid + 1,
-        OptIdent::Some(e) => names.get(&e.name).copied().unwrap_or(-1),
-    })
-}
-
-pub fn entry_ident(p: Proc) -> Result<Ident, String> {
-    Ok(match p.entry {
-        OptIdent::Some(e) => e,
-        OptIdent::None => p.name,
-    })
 }
 
 /// The proc a signature node belongs to; any other node is itself.

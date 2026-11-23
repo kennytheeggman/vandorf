@@ -712,6 +712,20 @@ func httpDecT(v any) (types.T, error) {
 	return x, nil
 }
 
+func httpEncPArgs(b *strings.Builder, x types.PArgs) {
+	b.WriteByte('{')
+	b.WriteByte('}')
+}
+
+func httpDecPArgs(v any) (types.PArgs, error) {
+	var x types.PArgs
+	_, err := httpObject(v, "PArgs")
+	if err != nil {
+		return x, err
+	}
+	return x, nil
+}
+
 // httpCallP runs proc P with the request's parameters.
 func httpCallP(ctx context.Context, params any) (string, int, error) {
 	result, err := RunP(ctx)
@@ -749,6 +763,10 @@ import (
 	"example.com/app/types"
 )
 
+// inPP is the input of P.P.
+type inPP struct {
+}
+
 // inPA is the input of P.A.
 type inPA struct {
 }
@@ -771,6 +789,8 @@ import (
 )
 
 type envP struct {
+	inPP inPP
+	outPP types.PArgs
 	inPA inPA
 	outPA types.T
 	inPB inPB
@@ -778,7 +798,8 @@ type envP struct {
 }
 
 const (
-	pcP_PA = iota
+	pcP_PP = iota
+	pcP_PA
 	pcP_PB
 )
 
@@ -786,13 +807,20 @@ const (
 func RunP(ctx context.Context) (int, error) {
 	var zero int
 	env := &envP{}
-	env.inPA = inPA{}
-	pc := pcP_PA
+	env.inPP = inPP{}
+	pc := pcP_PP
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcP_PP:
+			this := types.PArgs{}
+			zeroOut(&env.inPP)
+			_ = this
+			env.inPA = inPA{}
+			pc = pcP_PA
+			continue
 		case pcP_PA:
 			this, err := unimplementedPA(ctx)
 			if err != nil {
@@ -1106,6 +1134,10 @@ package types
 // T is a typedef.
 type T struct {
 	X int
+}
+
+// PArgs is the type of the parameters of P.
+type PArgs struct {
 }
 
 

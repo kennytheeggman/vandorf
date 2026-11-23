@@ -11,11 +11,13 @@ import (
 )
 
 type envBar struct {
+	inBarBar inBarBar
+	outBarBar types.BarArgs
 	inBarStart inBarStart
 	outBarStart string
 	inBarLoop inBarLoop
 	outBarLoop int
-	inForEach inForEachStart
+	inForEach inForEachForEach
 	outForEach int
 	inBarBranch1 inBarBranch1
 	outBarBranch1 string
@@ -30,7 +32,8 @@ type envBar struct {
 }
 
 const (
-	pcBar_BarStart = iota
+	pcBar_BarBar = iota
+	pcBar_BarStart
 	pcBar_BarLoop
 	pcBar_ForEach
 	pcBar_BarBranch1
@@ -44,13 +47,20 @@ const (
 func RunBar(ctx context.Context, a int, b string) (string, error) {
 	var zero string
 	env := &envBar{}
-	env.inBarStart = inBarStart{A: a, B: b}
-	pc := pcBar_BarStart
+	env.inBarBar = inBarBar{A: a, B: b}
+	pc := pcBar_BarBar
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcBar_BarBar:
+			this := types.BarArgs{A: env.inBarBar.A, B: env.inBarBar.B}
+			zeroOut(&env.inBarBar)
+			_ = this
+			env.inBarStart = inBarStart{A: this.A, B: this.B}
+			pc = pcBar_BarStart
+			continue
 		case pcBar_BarStart:
 			this, err := unimplementedBarStart(ctx, env.inBarStart.A, env.inBarStart.B)
 			if err != nil {
@@ -75,7 +85,7 @@ func RunBar(ctx context.Context, a int, b string) (string, error) {
 					continue
 				}
 			}
-			env.inForEach = inForEachStart{I: this}
+			env.inForEach = inForEachForEach{I: this}
 			pc = pcBar_ForEach
 			continue
 		case pcBar_ForEach:
@@ -163,6 +173,8 @@ import (
 )
 
 type envForEach struct {
+	inForEachForEach inForEachForEach
+	outForEachForEach types.ForEachArgs
 	inForEachStart inForEachStart
 	outForEachStart types.ForEachStartOut
 	inForEachCollect inForEachCollect
@@ -172,7 +184,8 @@ type envForEach struct {
 }
 
 const (
-	pcForEach_ForEachStart = iota
+	pcForEach_ForEachForEach = iota
+	pcForEach_ForEachStart
 	pcForEach_ForEachCollect
 	pcForEach_ForEachProcess
 )
@@ -181,13 +194,20 @@ const (
 func RunForEach(ctx context.Context, i int) (int, error) {
 	var zero int
 	env := &envForEach{}
-	env.inForEachStart = inForEachStart{I: i}
-	pc := pcForEach_ForEachStart
+	env.inForEachForEach = inForEachForEach{I: i}
+	pc := pcForEach_ForEachForEach
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcForEach_ForEachForEach:
+			this := types.ForEachArgs{I: env.inForEachForEach.I}
+			zeroOut(&env.inForEachForEach)
+			_ = this
+			env.inForEachStart = inForEachStart{I: this.I}
+			pc = pcForEach_ForEachStart
+			continue
 		case pcForEach_ForEachStart:
 			this, err := unimplementedForEachStart(ctx, env.inForEachStart.I)
 			if err != nil {
@@ -264,6 +284,11 @@ type inFooCall struct {
 	S string
 }
 
+// inForEachForEach is the input of ForEach.ForEach.
+type inForEachForEach struct {
+	I int
+}
+
 // inForEachStart is the input of ForEach.Start.
 type inForEachStart struct {
 	I int
@@ -278,6 +303,12 @@ type inForEachProcess struct {
 // inForEachCollect is the input of ForEach.Collect.
 type inForEachCollect struct {
 	L []int
+}
+
+// inBarBar is the input of Bar.Bar.
+type inBarBar struct {
+	A int
+	B string
 }
 
 // inBarStart is the input of Bar.Start.
@@ -623,10 +654,21 @@ func unimplementedBarEnd(ctx context.Context, _ types.BarEndR) (string, error) {
 
 package types
 
+// ForEachArgs is the type of the parameters of ForEach.
+type ForEachArgs struct {
+	I int
+}
+
 // ForEachStartOut is the type of the return of ForEach.Start.
 type ForEachStartOut struct {
 	L []int
 	S string
+}
+
+// BarArgs is the type of the parameters of Bar.
+type BarArgs struct {
+	A int
+	B string
 }
 
 // BarEndR is the type of the parameter r of Bar.End.
@@ -635,12 +677,7 @@ type BarEndR struct {
 	Tag string
 	I string
 	S struct{}
-	B BarEndRB
-}
-
-// BarEndRB is the type of the parameter r of Bar.End.
-type BarEndRB struct {
-	I int
+	B ForEachArgs
 }
 
 
@@ -656,11 +693,13 @@ import (
 )
 
 type envBar struct {
+	inBarBar inBarBar
+	outBarBar BarArgs
 	inBarStart inBarStart
 	outBarStart string
 	inBarLoop inBarLoop
 	outBarLoop int
-	inForEach inForEachStart
+	inForEach inForEachForEach
 	outForEach int
 	inBarBranch1 inBarBranch1
 	outBarBranch1 string
@@ -675,7 +714,8 @@ type envBar struct {
 }
 
 const (
-	pcBar_BarStart = iota
+	pcBar_BarBar = iota
+	pcBar_BarStart
 	pcBar_BarLoop
 	pcBar_ForEach
 	pcBar_BarBranch1
@@ -689,13 +729,20 @@ const (
 func RunBar(ctx context.Context, a int, b string) (string, error) {
 	var zero string
 	env := &envBar{}
-	env.inBarStart = inBarStart{A: a, B: b}
-	pc := pcBar_BarStart
+	env.inBarBar = inBarBar{A: a, B: b}
+	pc := pcBar_BarBar
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcBar_BarBar:
+			this := BarArgs{A: env.inBarBar.A, B: env.inBarBar.B}
+			zeroOut(&env.inBarBar)
+			_ = this
+			env.inBarStart = inBarStart{A: this.A, B: this.B}
+			pc = pcBar_BarStart
+			continue
 		case pcBar_BarStart:
 			this, err := unimplementedBarStart(ctx, env.inBarStart.A, env.inBarStart.B)
 			if err != nil {
@@ -720,7 +767,7 @@ func RunBar(ctx context.Context, a int, b string) (string, error) {
 					continue
 				}
 			}
-			env.inForEach = inForEachStart{I: this}
+			env.inForEach = inForEachForEach{I: this}
 			pc = pcBar_ForEach
 			continue
 		case pcBar_ForEach:
@@ -807,6 +854,8 @@ import (
 )
 
 type envForEach struct {
+	inForEachForEach inForEachForEach
+	outForEachForEach ForEachArgs
 	inForEachStart inForEachStart
 	outForEachStart ForEachStartOut
 	inForEachCollect inForEachCollect
@@ -816,7 +865,8 @@ type envForEach struct {
 }
 
 const (
-	pcForEach_ForEachStart = iota
+	pcForEach_ForEachForEach = iota
+	pcForEach_ForEachStart
 	pcForEach_ForEachCollect
 	pcForEach_ForEachProcess
 )
@@ -825,13 +875,20 @@ const (
 func RunForEach(ctx context.Context, i int) (int, error) {
 	var zero int
 	env := &envForEach{}
-	env.inForEachStart = inForEachStart{I: i}
-	pc := pcForEach_ForEachStart
+	env.inForEachForEach = inForEachForEach{I: i}
+	pc := pcForEach_ForEachForEach
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcForEach_ForEachForEach:
+			this := ForEachArgs{I: env.inForEachForEach.I}
+			zeroOut(&env.inForEachForEach)
+			_ = this
+			env.inForEachStart = inForEachStart{I: this.I}
+			pc = pcForEach_ForEachStart
+			continue
 		case pcForEach_ForEachStart:
 			this, err := unimplementedForEachStart(ctx, env.inForEachStart.I)
 			if err != nil {
@@ -904,6 +961,11 @@ type inFooCall struct {
 	S string
 }
 
+// inForEachForEach is the input of ForEach.ForEach.
+type inForEachForEach struct {
+	I int
+}
+
 // inForEachStart is the input of ForEach.Start.
 type inForEachStart struct {
 	I int
@@ -918,6 +980,12 @@ type inForEachProcess struct {
 // inForEachCollect is the input of ForEach.Collect.
 type inForEachCollect struct {
 	L []int
+}
+
+// inBarBar is the input of Bar.Bar.
+type inBarBar struct {
+	A int
+	B string
 }
 
 // inBarStart is the input of Bar.Start.
@@ -1262,10 +1330,21 @@ func unimplementedBarEnd(ctx context.Context, _ BarEndR) (string, error) {
 
 package app
 
+// ForEachArgs is the type of the parameters of ForEach.
+type ForEachArgs struct {
+	I int
+}
+
 // ForEachStartOut is the type of the return of ForEach.Start.
 type ForEachStartOut struct {
 	L []int
 	S string
+}
+
+// BarArgs is the type of the parameters of Bar.
+type BarArgs struct {
+	A int
+	B string
 }
 
 // BarEndR is the type of the parameter r of Bar.End.
@@ -1274,12 +1353,7 @@ type BarEndR struct {
 	Tag string
 	I string
 	S struct{}
-	B BarEndRB
-}
-
-// BarEndRB is the type of the parameter r of Bar.End.
-type BarEndRB struct {
-	I int
+	B ForEachArgs
 }
 
 
@@ -1298,11 +1372,13 @@ import (
 )
 
 type envBar struct {
+	inBarBar inBarBar
+	outBarBar types.BarArgs
 	inBarStart inBarStart
 	outBarStart string
 	inBarLoop inBarLoop
 	outBarLoop int
-	inForEach inForEachStart
+	inForEach inForEachForEach
 	outForEach int
 	inBarBranch1 inBarBranch1
 	outBarBranch1 string
@@ -1317,7 +1393,8 @@ type envBar struct {
 }
 
 const (
-	pcBar_BarStart = iota
+	pcBar_BarBar = iota
+	pcBar_BarStart
 	pcBar_BarLoop
 	pcBar_ForEach
 	pcBar_BarBranch1
@@ -1331,13 +1408,20 @@ const (
 func RunBar(ctx context.Context, a int, b string) (string, error) {
 	var zero string
 	env := &envBar{}
-	env.inBarStart = inBarStart{A: a, B: b}
-	pc := pcBar_BarStart
+	env.inBarBar = inBarBar{A: a, B: b}
+	pc := pcBar_BarBar
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcBar_BarBar:
+			this := types.BarArgs{A: env.inBarBar.A, B: env.inBarBar.B}
+			zeroOut(&env.inBarBar)
+			_ = this
+			env.inBarStart = inBarStart{A: this.A, B: this.B}
+			pc = pcBar_BarStart
+			continue
 		case pcBar_BarStart:
 			this, err := unimplementedBarStart(ctx, env.inBarStart.A, env.inBarStart.B)
 			if err != nil {
@@ -1362,7 +1446,7 @@ func RunBar(ctx context.Context, a int, b string) (string, error) {
 					continue
 				}
 			}
-			env.inForEach = inForEachStart{I: this}
+			env.inForEach = inForEachForEach{I: this}
 			pc = pcBar_ForEach
 			continue
 		case pcBar_ForEach:
@@ -1450,6 +1534,8 @@ import (
 )
 
 type envForEach struct {
+	inForEachForEach inForEachForEach
+	outForEachForEach types.ForEachArgs
 	inForEachStart inForEachStart
 	outForEachStart types.ForEachStartOut
 	inForEachCollect inForEachCollect
@@ -1459,7 +1545,8 @@ type envForEach struct {
 }
 
 const (
-	pcForEach_ForEachStart = iota
+	pcForEach_ForEachForEach = iota
+	pcForEach_ForEachStart
 	pcForEach_ForEachCollect
 	pcForEach_ForEachProcess
 )
@@ -1468,13 +1555,20 @@ const (
 func RunForEach(ctx context.Context, i int) (int, error) {
 	var zero int
 	env := &envForEach{}
-	env.inForEachStart = inForEachStart{I: i}
-	pc := pcForEach_ForEachStart
+	env.inForEachForEach = inForEachForEach{I: i}
+	pc := pcForEach_ForEachForEach
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcForEach_ForEachForEach:
+			this := types.ForEachArgs{I: env.inForEachForEach.I}
+			zeroOut(&env.inForEachForEach)
+			_ = this
+			env.inForEachStart = inForEachStart{I: this.I}
+			pc = pcForEach_ForEachStart
+			continue
 		case pcForEach_ForEachStart:
 			this, err := unimplementedForEachStart(ctx, env.inForEachStart.I)
 			if err != nil {
@@ -1551,6 +1645,11 @@ type inFooCall struct {
 	S string
 }
 
+// inForEachForEach is the input of ForEach.ForEach.
+type inForEachForEach struct {
+	I int
+}
+
 // inForEachStart is the input of ForEach.Start.
 type inForEachStart struct {
 	I int
@@ -1565,6 +1664,12 @@ type inForEachProcess struct {
 // inForEachCollect is the input of ForEach.Collect.
 type inForEachCollect struct {
 	L []int
+}
+
+// inBarBar is the input of Bar.Bar.
+type inBarBar struct {
+	A int
+	B string
 }
 
 // inBarStart is the input of Bar.Start.
@@ -1946,10 +2051,21 @@ func main() {
 
 package types
 
+// ForEachArgs is the type of the parameters of ForEach.
+type ForEachArgs struct {
+	I int
+}
+
 // ForEachStartOut is the type of the return of ForEach.Start.
 type ForEachStartOut struct {
 	L []int
 	S string
+}
+
+// BarArgs is the type of the parameters of Bar.
+type BarArgs struct {
+	A int
+	B string
 }
 
 // BarEndR is the type of the parameter r of Bar.End.
@@ -1958,12 +2074,7 @@ type BarEndR struct {
 	Tag string
 	I string
 	S struct{}
-	B BarEndRB
-}
-
-// BarEndRB is the type of the parameter r of Bar.End.
-type BarEndRB struct {
-	I int
+	B ForEachArgs
 }
 
 
@@ -1980,11 +2091,13 @@ import (
 )
 
 type envBar struct {
+	inBarBar inBarBar
+	outBarBar types.BarArgs
 	inBarStart inBarStart
 	outBarStart string
 	inBarLoop inBarLoop
 	outBarLoop int
-	inForEach inForEachStart
+	inForEach inForEachForEach
 	outForEach int
 	inBarBranch1 inBarBranch1
 	outBarBranch1 string
@@ -1999,7 +2112,8 @@ type envBar struct {
 }
 
 const (
-	pcBar_BarStart = iota
+	pcBar_BarBar = iota
+	pcBar_BarStart
 	pcBar_BarLoop
 	pcBar_ForEach
 	pcBar_BarBranch1
@@ -2013,13 +2127,20 @@ const (
 func RunBar(ctx context.Context, a int, b string) (string, error) {
 	var zero string
 	env := &envBar{}
-	env.inBarStart = inBarStart{A: a, B: b}
-	pc := pcBar_BarStart
+	env.inBarBar = inBarBar{A: a, B: b}
+	pc := pcBar_BarBar
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcBar_BarBar:
+			this := types.BarArgs{A: env.inBarBar.A, B: env.inBarBar.B}
+			zeroOut(&env.inBarBar)
+			_ = this
+			env.inBarStart = inBarStart{A: this.A, B: this.B}
+			pc = pcBar_BarStart
+			continue
 		case pcBar_BarStart:
 			this, err := unimplementedBarStart(ctx, env.inBarStart.A, env.inBarStart.B)
 			if err != nil {
@@ -2044,7 +2165,7 @@ func RunBar(ctx context.Context, a int, b string) (string, error) {
 					continue
 				}
 			}
-			env.inForEach = inForEachStart{I: this}
+			env.inForEach = inForEachForEach{I: this}
 			pc = pcBar_ForEach
 			continue
 		case pcBar_ForEach:
@@ -2132,6 +2253,8 @@ import (
 )
 
 type envForEach struct {
+	inForEachForEach inForEachForEach
+	outForEachForEach types.ForEachArgs
 	inForEachStart inForEachStart
 	outForEachStart types.ForEachStartOut
 	inForEachCollect inForEachCollect
@@ -2141,7 +2264,8 @@ type envForEach struct {
 }
 
 const (
-	pcForEach_ForEachStart = iota
+	pcForEach_ForEachForEach = iota
+	pcForEach_ForEachStart
 	pcForEach_ForEachCollect
 	pcForEach_ForEachProcess
 )
@@ -2150,13 +2274,20 @@ const (
 func RunForEach(ctx context.Context, i int) (int, error) {
 	var zero int
 	env := &envForEach{}
-	env.inForEachStart = inForEachStart{I: i}
-	pc := pcForEach_ForEachStart
+	env.inForEachForEach = inForEachForEach{I: i}
+	pc := pcForEach_ForEachForEach
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcForEach_ForEachForEach:
+			this := types.ForEachArgs{I: env.inForEachForEach.I}
+			zeroOut(&env.inForEachForEach)
+			_ = this
+			env.inForEachStart = inForEachStart{I: this.I}
+			pc = pcForEach_ForEachStart
+			continue
 		case pcForEach_ForEachStart:
 			this, err := unimplementedForEachStart(ctx, env.inForEachStart.I)
 			if err != nil {
@@ -2233,6 +2364,11 @@ type inFooCall struct {
 	S string
 }
 
+// inForEachForEach is the input of ForEach.ForEach.
+type inForEachForEach struct {
+	I int
+}
+
 // inForEachStart is the input of ForEach.Start.
 type inForEachStart struct {
 	I int
@@ -2247,6 +2383,12 @@ type inForEachProcess struct {
 // inForEachCollect is the input of ForEach.Collect.
 type inForEachCollect struct {
 	L []int
+}
+
+// inBarBar is the input of Bar.Bar.
+type inBarBar struct {
+	A int
+	B string
 }
 
 // inBarStart is the input of Bar.Start.
@@ -2629,10 +2771,21 @@ func main() {
 
 package types
 
+// ForEachArgs is the type of the parameters of ForEach.
+type ForEachArgs struct {
+	I int
+}
+
 // ForEachStartOut is the type of the return of ForEach.Start.
 type ForEachStartOut struct {
 	L []int
 	S string
+}
+
+// BarArgs is the type of the parameters of Bar.
+type BarArgs struct {
+	A int
+	B string
 }
 
 // BarEndR is the type of the parameter r of Bar.End.
@@ -2641,12 +2794,7 @@ type BarEndR struct {
 	Tag string
 	I string
 	S struct{}
-	B BarEndRB
-}
-
-// BarEndRB is the type of the parameter r of Bar.End.
-type BarEndRB struct {
-	I int
+	B ForEachArgs
 }
 
 

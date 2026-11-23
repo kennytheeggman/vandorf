@@ -1,8 +1,9 @@
 
-        proc P(A): int {
+        proc P(i: int): int {
             func A(i: int): int;
             func B(i: int): int;
             func C(i: int): int;
+            P -> A(i = this.i);
             A -> B(i = this);
             B -> C(i = this);
             C switch { (this < 3) -> A(i = this), else -> D(i = this) };
@@ -10,9 +11,10 @@
         }
         
 ---
-#0 edge #1: call #2(i:int=this:int@148..152) @142..143 text="i = this"
-#0 edge #2: call #3(i:int=this:int@178..182) @172..173 text="i = this"
-#0 edge #3: switch [(this < 3)] ((this:int@209..213 < 3 :int)) -> call #1(i:int=this:int@228..232) @222..223 text="i = this"; [else] else -> call #4(i:int=this:int@249..253) @243..244 text="i = this"
+#0 edge #1: call #2(i:int=this.i:int@153..159) @147..148 text="i = this.i"
+#0 edge #2: call #3(i:int=this:int@185..189) @179..180 text="i = this"
+#0 edge #3: call #4(i:int=this:int@215..219) @209..210 text="i = this"
+#0 edge #4: switch [(this < 3)] ((this:int@246..250 < 3 :int)) -> call #2(i:int=this:int@265..269) @259..260 text="i = this"; [else] else -> call #5(i:int=this:int@286..290) @280..281 text="i = this"
 #0 spawned={}
-#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2, 3, 4] sink=-1
-#0 region_of={1: 0, 2: 0, 3: 0, 4: 0} opens={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2, 3, 4, 5] sink=-1
+#0 region_of={1: 0, 2: 0, 3: 0, 4: 0, 5: 0} opens={}

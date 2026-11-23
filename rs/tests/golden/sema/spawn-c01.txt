@@ -1,7 +1,8 @@
 interface I { func B(n: int): int; } interface J { func B(n: int): int; }
-            proc P(A): int { func A(): int; func B(n: int): int; func C(n: int): string; func L(s: string): void; func D(b: int): int; func E(b: int): int; A -> spawn { detach L(s = "a"), detach L(s = "b") as L2 } join id(A); }
+            proc P(): int { func A(): int; P -> A(); func B(n: int): int; func C(n: int): string; func L(s: string): void; func D(b: int): int; func E(b: int): int; A -> spawn { detach L(s = "a"), detach L(s = "b") as L2 } join id(A); }
 ---
-#2 edge #3: spawn { detach call #6(s:string="a") @250..251 text="s = \"a\"", detach call #10(s:string="b") @269..270 text="s = \"b\"" } join :{  } -> call #9(value:int=#3:int@296..297) @293..295 text="A"
-#2 spawned={6: 3, 10: 3}
-#2 region 0: parent=-1 entry=3 elem=void nodes=[3, 9] sink=-1
-#2 region_of={3: 0, 9: 0} opens={}
+#2 edge #3: call #4() @122..123 text=""
+#2 edge #4: spawn { detach call #7(s:string="a") @259..260 text="s = \"a\"", detach call #11(s:string="b") @278..279 text="s = \"b\"" } join :{  } -> call #10(value:int=#4:int@305..306) @302..304 text="A"
+#2 spawned={7: 4, 11: 4}
+#2 region 0: parent=-1 entry=3 elem=void nodes=[3, 4, 10] sink=-1
+#2 region_of={3: 0, 4: 0, 10: 0} opens={}

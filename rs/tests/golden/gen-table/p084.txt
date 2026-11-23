@@ -1,1 +1,1 @@
-
+#0 BArgs struct {  } (parameters of B)

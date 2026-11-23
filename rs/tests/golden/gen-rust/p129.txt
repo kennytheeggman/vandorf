@@ -93,22 +93,32 @@ fn fan_out<E: Send, R: Send>(xs: Vec<E>, f: impl Fn(E) -> Result<R, Error> + Syn
 
 #[derive(Debug, Clone, Default)]
 struct EnvCalc {
+    in_calc_calc: Option<InCalcCalc>,
+    out_calc_calc: Option<types::CalcArgs>,
     in_calc_a: Option<InCalcA>,
     out_calc_a: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcCalc {
+    CalcCalc,
     CalcA,
 }
 
 /// Runs proc Calc.
 pub fn run_calc(l: types::List<i64>) -> Result<i64, Error> {
     let mut env = EnvCalc::default();
-    env.in_calc_a = Some(InCalcA { l: l });
-    let mut pc = PcCalc::CalcA;
+    env.in_calc_calc = Some(InCalcCalc { l: l });
+    let mut pc = PcCalc::CalcCalc;
     loop {
         match pc {
+            PcCalc::CalcCalc => {
+                let input = take_slot(&mut env.in_calc_calc, "Calc.Calc")?;
+                let this = types::CalcArgs { l: input.l };
+                env.in_calc_a = Some(InCalcA { l: this.l });
+                pc = PcCalc::CalcA;
+                continue;
+            }
             PcCalc::CalcA => {
                 let input = take_slot(&mut env.in_calc_a, "Calc.A")?;
                 let this = unimplemented_calc_a(input.l).map_err(|e| wrap("Calc.A", e.into()))?;
@@ -117,6 +127,12 @@ pub fn run_calc(l: types::List<i64>) -> Result<i64, Error> {
             _ => return Err(format!("Calc: invalid state {pc:?}").into()),
         }
     }
+}
+
+/// Input of Calc.Calc.
+#[derive(Debug, Clone)]
+struct InCalcCalc {
+    l: types::List<i64>,
 }
 
 /// Input of Calc.A.
@@ -295,6 +311,12 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
         }
         self
     }
+}
+
+/// The type of the parameters of Calc.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CalcArgs {
+    pub l: List<i64>,
 }
 
 

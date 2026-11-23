@@ -5,13 +5,37 @@
         {
           "nodes": [
             {
+              "type": 2,
+              "label": "B",
+              "sublabel": "(i: int)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "Q"
             }
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ i: int }",
+          "call": "Q(i: int)",
+          "args": "i = this.i"
+        }
+      ]
     }
   }
 }

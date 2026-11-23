@@ -151,6 +151,12 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
     }
 }
 
+/// The type of the parameters of ForEach.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForEachArgs {
+    pub i: i64,
+}
+
 /// The type of the return of ForEach.Start.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForEachStartOut {
@@ -158,17 +164,18 @@ pub struct ForEachStartOut {
     pub s: Str,
 }
 
+/// The type of the parameters of Bar.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BarArgs {
+    pub a: i64,
+    pub b: Str,
+}
+
 /// The type of the parameter r of Bar.End.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BarEndR {
     I(Str),
     S,
-    B(BarEndRB),
-}
-
-/// The type of the parameter r of Bar.End.
-#[derive(Debug, Clone, PartialEq)]
-pub struct BarEndRB {
-    pub i: i64,
+    B(ForEachArgs),
 }
 

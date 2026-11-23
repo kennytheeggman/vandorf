@@ -5,6 +5,15 @@
         {
           "nodes": [
             {
+              "type": 2,
+              "label": "P",
+              "sublabel": "(acc: []int, i: int)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "S"
             }
@@ -54,6 +63,20 @@
             1,
             0
           ],
+          "valueType": "{ acc: []int, i: int }",
+          "call": "S(acc: []int, i: int)",
+          "args": "acc = this.acc, i = this.i"
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
           "valueType": "St",
           "call": "T(x: int)",
           "args": "x = this.i"
@@ -61,11 +84,11 @@
         {
           "type": 1,
           "source": [
-            1,
+            2,
             0
           ],
           "target": [
-            2,
+            3,
             0
           ],
           "label": "this > 3",
@@ -75,11 +98,11 @@
         {
           "type": 1,
           "source": [
-            1,
+            2,
             0
           ],
           "target": [
-            0,
+            1,
             0
           ],
           "label": "else",
@@ -90,11 +113,11 @@
         {
           "type": 0,
           "source": [
-            2,
+            3,
             0
           ],
           "target": [
-            3,
+            4,
             0
           ],
           "valueType": "int",
@@ -104,11 +127,11 @@
         {
           "type": 0,
           "source": [
-            3,
+            4,
             0
           ],
           "target": [
-            4,
+            5,
             0
           ],
           "valueType": "int",

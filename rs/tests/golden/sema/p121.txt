@@ -1,31 +1,38 @@
 
             type Ctx = { greeting: string };
-            proc Setup(S): Ctx { func S(): Ctx; }
-            proc Hi(B): string { func B(name: string, ctx: Ctx): string; }
+            proc Setup(): Ctx { func S(): Ctx; Setup -> S(); }
+            proc Hi(name: string, ctx: Ctx): string { func B(name: string, ctx: Ctx): string; Hi -> B(name = this.name, ctx = this.ctx); }
             type Req = { method: string, path: string, query: map[string]string, headers: map[string]string, body: string };
-            proc Page(C): { status: int, headers: map[string]string, body: string } {
+            proc Page(ctx: Ctx, req: Req): { status: int, headers: map[string]string, body: string } {
                 func C(ctx: Ctx, req: Req): { status: int, headers: map[string]string, body: string };
+                Page -> C(ctx = this.ctx, req = this.req);
             }
-            proc NoCtx(D): string { func D(name: string): string; }
-            proc WrongCtx(E): string { func E(ctx: string): string; }
-            proc Takes(F): Ctx { func F(n: int): Ctx; }
+            proc NoCtx(name: string): string { func D(name: string): string; NoCtx -> D(name = this.name); }
+            proc WrongCtx(ctx: string): string { func E(ctx: string): string; WrongCtx -> E(ctx = this.ctx); }
+            proc Takes(n: int): Ctx { func F(n: int): Ctx; Takes -> F(n = this.n); }
         
 ---
+#0 edge #1: call #2() @102..103 text=""
 #0 spawned={}
-#0 region 0: parent=-1 entry=1 elem=void nodes=[1] sink=-1
-#0 region_of={1: 0} opens={}
-#2 spawned={}
-#2 region 0: parent=-1 entry=3 elem=void nodes=[3] sink=-1
-#2 region_of={3: 0} opens={}
-#4 spawned={}
-#4 region 0: parent=-1 entry=5 elem=void nodes=[5] sink=-1
-#4 region_of={5: 0} opens={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2] sink=-1
+#0 region_of={1: 0, 2: 0} opens={}
+#3 edge #4: call #5(name:string=this.name:string@218..227, ctx:Ctx=this.ctx:Ctx@235..243) @209..210 text="name = this.name, ctx = this.ctx"
+#3 spawned={}
+#3 region 0: parent=-1 entry=4 elem=void nodes=[4, 5] sink=-1
+#3 region_of={4: 0, 5: 0} opens={}
+#6 edge #7: call #8(ctx:Ctx=this.ctx:Ctx@611..619, req:Req=this.req:Req@627..635) @603..604 text="ctx = this.ctx, req = this.req"
 #6 spawned={}
-#6 region 0: parent=-1 entry=7 elem=void nodes=[7] sink=-1
-#6 region_of={7: 0} opens={}
-#8 spawned={}
-#8 region 0: parent=-1 entry=9 elem=void nodes=[9] sink=-1
-#8 region_of={9: 0} opens={}
-#10 spawned={}
-#10 region 0: parent=-1 entry=11 elem=void nodes=[11] sink=-1
-#10 region_of={11: 0} opens={}
+#6 region 0: parent=-1 entry=7 elem=void nodes=[7, 8] sink=-1
+#6 region_of={7: 0, 8: 0} opens={}
+#9 edge #10: call #11(name:string=this.name:string@747..756) @738..739 text="name = this.name"
+#9 spawned={}
+#9 region 0: parent=-1 entry=10 elem=void nodes=[10, 11] sink=-1
+#9 region_of={10: 0, 11: 0} opens={}
+#12 edge #13: call #14(ctx:string=this.ctx:string@859..867) @851..852 text="ctx = this.ctx"
+#12 spawned={}
+#12 region 0: parent=-1 entry=13 elem=void nodes=[13, 14] sink=-1
+#12 region_of={13: 0, 14: 0} opens={}
+#15 edge #16: call #17(n:int=this.n:int@946..952) @940..941 text="n = this.n"
+#15 spawned={}
+#15 region 0: parent=-1 entry=16 elem=void nodes=[16, 17] sink=-1
+#15 region_of={16: 0, 17: 0} opens={}

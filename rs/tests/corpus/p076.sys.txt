@@ -1,2 +1,3 @@
-proc P(S): int { func S(): map[string]{ x: int }; func T(k: string, x: int): int; func C(l: []int): int; 
+proc P(): int { func S(): map[string]{ x: int }; func T(k: string, x: int): int; func C(l: []int): int; 
+         P -> S();
          S for each (this.keys) -> T(k = this, x = S[this].x); T collect each (T) -> C(l = this); }

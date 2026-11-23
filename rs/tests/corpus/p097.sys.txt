@@ -1,1 +1,1 @@
-proc P(A): int { func A(): []int; A for each (this) -> id(this); }
+proc P(): int { func A(): []int; P -> A(); A for each (this) -> id(this); }

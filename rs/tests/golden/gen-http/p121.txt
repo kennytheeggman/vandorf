@@ -609,6 +609,36 @@ impl Json for types::Req {
     }
 }
 
+impl Json for types::SetupArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("SetupArgs")?;
+        Ok(types::SetupArgs {
+        })
+    }
+}
+
+impl Json for types::HiArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"name\":");
+        self.name.to_json(out);
+        out.push_str(",\"ctx\":");
+        self.ctx.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("HiArgs")?;
+        Ok(types::HiArgs {
+            name: Json::from_json(field(fs, "name")?).map_err(|e| format!("name: {e}"))?,
+            ctx: Json::from_json(field(fs, "ctx")?).map_err(|e| format!("ctx: {e}"))?,
+        })
+    }
+}
+
 impl Json for types::PageOut {
     fn to_json(&self, out: &mut String) {
         out.push('{');
@@ -626,6 +656,69 @@ impl Json for types::PageOut {
             status: Json::from_json(field(fs, "status")?).map_err(|e| format!("status: {e}"))?,
             headers: Json::from_json(field(fs, "headers")?).map_err(|e| format!("headers: {e}"))?,
             body: Json::from_json(field(fs, "body")?).map_err(|e| format!("body: {e}"))?,
+        })
+    }
+}
+
+impl Json for types::PageArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"ctx\":");
+        self.ctx.to_json(out);
+        out.push_str(",\"req\":");
+        self.req.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("PageArgs")?;
+        Ok(types::PageArgs {
+            ctx: Json::from_json(field(fs, "ctx")?).map_err(|e| format!("ctx: {e}"))?,
+            req: Json::from_json(field(fs, "req")?).map_err(|e| format!("req: {e}"))?,
+        })
+    }
+}
+
+impl Json for types::NoCtxArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"name\":");
+        self.name.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("NoCtxArgs")?;
+        Ok(types::NoCtxArgs {
+            name: Json::from_json(field(fs, "name")?).map_err(|e| format!("name: {e}"))?,
+        })
+    }
+}
+
+impl Json for types::WrongCtxArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"ctx\":");
+        self.ctx.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("WrongCtxArgs")?;
+        Ok(types::WrongCtxArgs {
+            ctx: Json::from_json(field(fs, "ctx")?).map_err(|e| format!("ctx: {e}"))?,
+        })
+    }
+}
+
+impl Json for types::TakesArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"n\":");
+        self.n.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("TakesArgs")?;
+        Ok(types::TakesArgs {
+            n: Json::from_json(field(fs, "n")?).map_err(|e| format!("n: {e}"))?,
         })
     }
 }
@@ -1333,6 +1426,36 @@ impl Json for types::Req {
     }
 }
 
+impl Json for types::SetupArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("SetupArgs")?;
+        Ok(types::SetupArgs {
+        })
+    }
+}
+
+impl Json for types::HiArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"name\":");
+        self.name.to_json(out);
+        out.push_str(",\"ctx\":");
+        self.ctx.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("HiArgs")?;
+        Ok(types::HiArgs {
+            name: Json::from_json(field(fs, "name")?).map_err(|e| format!("name: {e}"))?,
+            ctx: Json::from_json(field(fs, "ctx")?).map_err(|e| format!("ctx: {e}"))?,
+        })
+    }
+}
+
 impl Json for types::PageOut {
     fn to_json(&self, out: &mut String) {
         out.push('{');
@@ -1350,6 +1473,69 @@ impl Json for types::PageOut {
             status: Json::from_json(field(fs, "status")?).map_err(|e| format!("status: {e}"))?,
             headers: Json::from_json(field(fs, "headers")?).map_err(|e| format!("headers: {e}"))?,
             body: Json::from_json(field(fs, "body")?).map_err(|e| format!("body: {e}"))?,
+        })
+    }
+}
+
+impl Json for types::PageArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"ctx\":");
+        self.ctx.to_json(out);
+        out.push_str(",\"req\":");
+        self.req.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("PageArgs")?;
+        Ok(types::PageArgs {
+            ctx: Json::from_json(field(fs, "ctx")?).map_err(|e| format!("ctx: {e}"))?,
+            req: Json::from_json(field(fs, "req")?).map_err(|e| format!("req: {e}"))?,
+        })
+    }
+}
+
+impl Json for types::NoCtxArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"name\":");
+        self.name.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("NoCtxArgs")?;
+        Ok(types::NoCtxArgs {
+            name: Json::from_json(field(fs, "name")?).map_err(|e| format!("name: {e}"))?,
+        })
+    }
+}
+
+impl Json for types::WrongCtxArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"ctx\":");
+        self.ctx.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("WrongCtxArgs")?;
+        Ok(types::WrongCtxArgs {
+            ctx: Json::from_json(field(fs, "ctx")?).map_err(|e| format!("ctx: {e}"))?,
+        })
+    }
+}
+
+impl Json for types::TakesArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"n\":");
+        self.n.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("TakesArgs")?;
+        Ok(types::TakesArgs {
+            n: Json::from_json(field(fs, "n")?).map_err(|e| format!("n: {e}"))?,
         })
     }
 }

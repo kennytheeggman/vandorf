@@ -1,4 +1,4 @@
-type A = B; type B = A; proc P(X): int { func X(): int; }
+type A = B; type B = A; proc P(): int { func X(): int; P -> X(); }
 ---
 error: type A refers to itself, so it must be a struct or enum @5..6
 error: type B refers to itself, so it must be a struct or enum @17..18

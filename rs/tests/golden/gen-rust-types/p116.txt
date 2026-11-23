@@ -167,11 +167,36 @@ pub struct Req {
     pub body: Str,
 }
 
+/// The type of the parameters of Setup.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetupArgs {
+}
+
+/// The type of the parameters of Hi.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HiArgs {
+    pub name: Str,
+    pub ctx: Ctx,
+}
+
+/// The type of the parameters of Calc.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CalcArgs {
+    pub n: i64,
+}
+
 /// The type of the return of Page.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PageOut {
     pub status: i64,
     pub headers: Map<Str, Str>,
     pub body: Str,
+}
+
+/// The type of the parameters of Page.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PageArgs {
+    pub ctx: Ctx,
+    pub req: Req,
 }
 

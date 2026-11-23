@@ -11,11 +11,13 @@ import (
 )
 
 type envBar struct {
+	inBarBar inBarBar
+	outBarBar types.BarArgs
 	inBarStart inBarStart
 	outBarStart string
 	inBarLoop inBarLoop
 	outBarLoop int
-	inForEach inForEachStart
+	inForEach inForEachForEach
 	outForEach int
 	inBarBranch1 inBarBranch1
 	outBarBranch1 string
@@ -30,7 +32,8 @@ type envBar struct {
 }
 
 const (
-	pcBar_BarStart = iota
+	pcBar_BarBar = iota
+	pcBar_BarStart
 	pcBar_BarLoop
 	pcBar_ForEach
 	pcBar_BarBranch1
@@ -44,13 +47,20 @@ const (
 func RunBar(ctx context.Context, a int, b string) (string, error) {
 	var zero string
 	env := &envBar{}
-	env.inBarStart = inBarStart{A: a, B: b}
-	pc := pcBar_BarStart
+	env.inBarBar = inBarBar{A: a, B: b}
+	pc := pcBar_BarBar
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcBar_BarBar:
+			this := types.BarArgs{A: env.inBarBar.A, B: env.inBarBar.B}
+			zeroOut(&env.inBarBar)
+			_ = this
+			env.inBarStart = inBarStart{A: this.A, B: this.B}
+			pc = pcBar_BarStart
+			continue
 		case pcBar_BarStart:
 			this, err := unimplementedBarStart(ctx, env.inBarStart.A, env.inBarStart.B)
 			if err != nil {
@@ -75,7 +85,7 @@ func RunBar(ctx context.Context, a int, b string) (string, error) {
 					continue
 				}
 			}
-			env.inForEach = inForEachStart{I: this}
+			env.inForEach = inForEachForEach{I: this}
 			pc = pcBar_ForEach
 			continue
 		case pcBar_ForEach:
@@ -163,6 +173,8 @@ import (
 )
 
 type envForEach struct {
+	inForEachForEach inForEachForEach
+	outForEachForEach types.ForEachArgs
 	inForEachStart inForEachStart
 	outForEachStart types.ForEachStartOut
 	inForEachCollect inForEachCollect
@@ -172,7 +184,8 @@ type envForEach struct {
 }
 
 const (
-	pcForEach_ForEachStart = iota
+	pcForEach_ForEachForEach = iota
+	pcForEach_ForEachStart
 	pcForEach_ForEachCollect
 	pcForEach_ForEachProcess
 )
@@ -181,13 +194,20 @@ const (
 func RunForEach(ctx context.Context, i int) (int, error) {
 	var zero int
 	env := &envForEach{}
-	env.inForEachStart = inForEachStart{I: i}
-	pc := pcForEach_ForEachStart
+	env.inForEachForEach = inForEachForEach{I: i}
+	pc := pcForEach_ForEachForEach
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcForEach_ForEachForEach:
+			this := types.ForEachArgs{I: env.inForEachForEach.I}
+			zeroOut(&env.inForEachForEach)
+			_ = this
+			env.inForEachStart = inForEachStart{I: this.I}
+			pc = pcForEach_ForEachStart
+			continue
 		case pcForEach_ForEachStart:
 			this, err := unimplementedForEachStart(ctx, env.inForEachStart.I)
 			if err != nil {
@@ -940,6 +960,29 @@ func httpPercentDecode(s string) string {
 	return strings.ToValidUTF8(string(out), "�")
 }
 
+func httpEncForEachArgs(b *strings.Builder, x types.ForEachArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"i\":")
+	httpWriteInt(b, x.I)
+	b.WriteByte('}')
+}
+
+func httpDecForEachArgs(v any) (types.ForEachArgs, error) {
+	var x types.ForEachArgs
+	fs, err := httpObject(v, "ForEachArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "i"); err != nil {
+		return x, err
+	} else if y, err := httpReadInt(f); err != nil {
+		return x, errors.New("i: " + err.Error())
+	} else {
+		x.I = y
+	}
+	return x, nil
+}
+
 func httpEncForEachStartOut(b *strings.Builder, x types.ForEachStartOut) {
 	b.WriteByte('{')
 	b.WriteString("\"l\":")
@@ -972,6 +1015,38 @@ func httpDecForEachStartOut(v any) (types.ForEachStartOut, error) {
 	return x, nil
 }
 
+func httpEncBarArgs(b *strings.Builder, x types.BarArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"a\":")
+	httpWriteInt(b, x.A)
+	b.WriteString(",\"b\":")
+	httpWriteString(b, x.B)
+	b.WriteByte('}')
+}
+
+func httpDecBarArgs(v any) (types.BarArgs, error) {
+	var x types.BarArgs
+	fs, err := httpObject(v, "BarArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "a"); err != nil {
+		return x, err
+	} else if y, err := httpReadInt(f); err != nil {
+		return x, errors.New("a: " + err.Error())
+	} else {
+		x.A = y
+	}
+	if f, err := httpField(fs, "b"); err != nil {
+		return x, err
+	} else if y, err := httpReadString(f); err != nil {
+		return x, errors.New("b: " + err.Error())
+	} else {
+		x.B = y
+	}
+	return x, nil
+}
+
 func httpEncBarEndR(b *strings.Builder, x types.BarEndR) {
 	switch x.Tag {
 	case "I":
@@ -982,7 +1057,7 @@ func httpEncBarEndR(b *strings.Builder, x types.BarEndR) {
 		b.WriteString("\"S\"")
 	case "B":
 		b.WriteString("{\"B\":")
-		httpEncBarEndRB(b, x.B)
+		httpEncForEachArgs(b, x.B)
 		b.WriteByte('}')
 	default:
 		b.WriteString("null")
@@ -1011,7 +1086,7 @@ func httpDecBarEndR(v any) (types.BarEndR, error) {
 				x.I = y
 				return x, nil
 			case "B":
-				y, err := httpDecBarEndRB(v[0].Val)
+				y, err := httpDecForEachArgs(v[0].Val)
 				if err != nil {
 					return x, err
 				}
@@ -1023,29 +1098,6 @@ func httpDecBarEndR(v any) (types.BarEndR, error) {
 		}
 	}
 	return x, errors.New("expected a variant of BarEndR: \"Tag\" or {\"Tag\": payload}")
-}
-
-func httpEncBarEndRB(b *strings.Builder, x types.BarEndRB) {
-	b.WriteByte('{')
-	b.WriteString("\"i\":")
-	httpWriteInt(b, x.I)
-	b.WriteByte('}')
-}
-
-func httpDecBarEndRB(v any) (types.BarEndRB, error) {
-	var x types.BarEndRB
-	fs, err := httpObject(v, "BarEndRB")
-	if err != nil {
-		return x, err
-	}
-	if f, err := httpField(fs, "i"); err != nil {
-		return x, err
-	} else if y, err := httpReadInt(f); err != nil {
-		return x, errors.New("i: " + err.Error())
-	} else {
-		x.I = y
-	}
-	return x, nil
 }
 
 // httpCallBar runs proc Bar with the request's parameters.
@@ -1115,6 +1167,11 @@ type inFooCall struct {
 	S string
 }
 
+// inForEachForEach is the input of ForEach.ForEach.
+type inForEachForEach struct {
+	I int
+}
+
 // inForEachStart is the input of ForEach.Start.
 type inForEachStart struct {
 	I int
@@ -1129,6 +1186,12 @@ type inForEachProcess struct {
 // inForEachCollect is the input of ForEach.Collect.
 type inForEachCollect struct {
 	L []int
+}
+
+// inBarBar is the input of Bar.Bar.
+type inBarBar struct {
+	A int
+	B string
 }
 
 // inBarStart is the input of Bar.Start.
@@ -1513,10 +1576,21 @@ func main() {
 
 package types
 
+// ForEachArgs is the type of the parameters of ForEach.
+type ForEachArgs struct {
+	I int
+}
+
 // ForEachStartOut is the type of the return of ForEach.Start.
 type ForEachStartOut struct {
 	L []int
 	S string
+}
+
+// BarArgs is the type of the parameters of Bar.
+type BarArgs struct {
+	A int
+	B string
 }
 
 // BarEndR is the type of the parameter r of Bar.End.
@@ -1525,12 +1599,7 @@ type BarEndR struct {
 	Tag string
 	I string
 	S struct{}
-	B BarEndRB
-}
-
-// BarEndRB is the type of the parameter r of Bar.End.
-type BarEndRB struct {
-	I int
+	B ForEachArgs
 }
 
 

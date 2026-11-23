@@ -1,6 +1,6 @@
 type S = { a: int, b: string, c: { d: int } };
-       proc P(A): S {
-           func A(): S;
+       proc P(): S {
+           func A(): S; P -> A();
            func N(s: S): int;
            func W(w: { a: int, b: string, c: { d: int }, n: int }): int;
            A -> N(s = { ..this, a = 1 });
@@ -8,9 +8,10 @@ type S = { a: int, b: string, c: { d: int } };
            W -> id({ ..A });
        }
 ---
-#0 edge #1: call #2(s:S={a=1,b=this.b:string@222..226,c=this.c:{ d: int }@222..226}) @212..213 text="s = { ..this, a = 1 }"
-#0 edge #2: call #3(w:{ a: int, b: string, c: { d: int }, n: int }={a=#1.a:int@264..265,b=#1.b:string@264..265,c={d=2},n={a=#1.a:int@275..276,b="x",c=#1.c:{ d: int }@275..276}.a@S}) @254..255 text="w = { ..A, n = { ..A, b = \"x\" }.a, c = { ..A.c, d = 2 } }"
-#0 edge #3: call #4(value:S={a=#1.a:int@339..340,b=#1.b:string@339..340,c=#1.c:{ d: int }@339..340}) @332..334 text="{ ..A }"
+#0 edge #1: call #2() @97..98 text=""
+#0 edge #2: call #3(s:S={a=1,b=this.b:string@231..235,c=this.c:{ d: int }@231..235}) @221..222 text="s = { ..this, a = 1 }"
+#0 edge #3: call #4(w:{ a: int, b: string, c: { d: int }, n: int }={a=#2.a:int@273..274,b=#2.b:string@273..274,c={d=2},n={a=#2.a:int@284..285,b="x",c=#2.c:{ d: int }@284..285}.a@S}) @263..264 text="w = { ..A, n = { ..A, b = \"x\" }.a, c = { ..A.c, d = 2 } }"
+#0 edge #4: call #5(value:S={a=#2.a:int@348..349,b=#2.b:string@348..349,c=#2.c:{ d: int }@348..349}) @341..343 text="{ ..A }"
 #0 spawned={}
-#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2, 3, 4] sink=-1
-#0 region_of={1: 0, 2: 0, 3: 0, 4: 0} opens={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2, 3, 4, 5] sink=-1
+#0 region_of={1: 0, 2: 0, 3: 0, 4: 0, 5: 0} opens={}

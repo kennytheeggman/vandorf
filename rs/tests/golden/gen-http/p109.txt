@@ -567,6 +567,27 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+impl Json for types::MainArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"n\":");
+        self.n.to_json(out);
+        out.push_str(",\"verbose\":");
+        self.verbose.to_json(out);
+        out.push_str(",\"name\":");
+        self.name.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("MainArgs")?;
+        Ok(types::MainArgs {
+            n: Json::from_json(field(fs, "n")?).map_err(|e| format!("n: {e}"))?,
+            verbose: Json::from_json(field(fs, "verbose")?).map_err(|e| format!("verbose: {e}"))?,
+            name: Json::from_json(field(fs, "name")?).map_err(|e| format!("name: {e}"))?,
+        })
+    }
+}
+
 /// Runs proc Main with the request's parameters.
 fn call_main(params: &Value) -> Result<String, (u16, String)> {
     let n: i64 = arg(params, "n")?;

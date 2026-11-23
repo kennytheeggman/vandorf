@@ -304,8 +304,8 @@ const TYPEDEF_CASES: &[&str] = &[
 
 const DECL_CASES: &[&str] = &[
     r#"type S = { a: int, b: string, c: { d: int } };
-       proc P(A): S {
-           func A(): S;
+       proc P(): S {
+           func A(): S; P -> A();
            func N(s: S): int;
            func W(w: { a: int, b: string, c: { d: int }, n: int }): int;
            A -> N(s = { ..this, a = 1 });
@@ -315,26 +315,26 @@ const DECL_CASES: &[&str] = &[
     r#"interface IO { func Read(p: string): string = "io.go:Read", "io.rs:read"; func Read(): int; }
        func Top(x: int): R<int>;
        type R<T> = { x: T };
-       proc P(A): int {
-           func A(): int;
-           proc Q(B): int { func B(): int; B -> A(); };
+       proc P(): int {
+           func A(): int; P -> A();
+           proc Q(): int { func B(): int; Q -> B(); B -> A(); };
            A -> Q() as Q2;
            Q2 switch { (this > 0) -> id(1), else -> Q() as Q2 };
        }
-       proc Main(S): int { func S(): int; S -> P(); }"#,
-    "proc P(A): int { func A(): int; func A(): int; }",
-    "proc P(A): int { func B(): int; }",
-    "proc P(A): int { func A(): int; A -> id(1) as X; }",
-    "proc P(A): int { func A(): int; func B(): int; A -> B() as B; }",
-    "proc P(A): int { func A(): int; func B(): int; func C(): int; A -> B() as X; X -> C() as X; }",
-    "proc P(A): int { func A(): int; func B(): int; A -> B() as X; X -> X() as Y; }",
-    "proc P(A): int { func A(): int; A -> Nope() as X; }",
-    "interface I { func F(): int; } proc P(A): int { func A(): int; A -> I() as X; }",
-    "interface I { func F(): int; } proc P(A): int { func A(): int; A -> I.G() as X; }",
-    "proc P(A): int { func A(): int; A -> A.x() as X; }",
-    "func F(): int; func F(): int; proc P(A): int { func A(): int; }",
-    "proc P(A): Q { func A(): int; }",
-    "proc P(A): int { func A(x: Q): int; }",
+       proc Main(): int { func S(): int; Main -> S(); S -> P(); }"#,
+    "proc P(): int { func A(): int; P -> A(); func A(): int; }",
+    "proc P(): int { func B(): int; P -> A(); }",
+    "proc P(): int { func A(): int; P -> A(); A -> id(1) as X; }",
+    "proc P(): int { func A(): int; P -> A(); func B(): int; A -> B() as B; }",
+    "proc P(): int { func A(): int; P -> A(); func B(): int; func C(): int; A -> B() as X; X -> C() as X; }",
+    "proc P(): int { func A(): int; P -> A(); func B(): int; A -> B() as X; X -> X() as Y; }",
+    "proc P(): int { func A(): int; P -> A(); A -> Nope() as X; }",
+    "interface I { func F(): int; } proc P(): int { func A(): int; P -> A(); A -> I() as X; }",
+    "interface I { func F(): int; } proc P(): int { func A(): int; P -> A(); A -> I.G() as X; }",
+    "proc P(): int { func A(): int; P -> A(); A -> A.x() as X; }",
+    "func F(): int; func F(): int; proc P(): int { func A(): int; P -> A(); }",
+    "proc P(): Q { func A(): int; P -> A(); }",
+    "proc P(x: Q): int { func A(x: Q): int; P -> A(x = this.x); }",
 ];
 
 /// Spawn edges in a proc with nodes A..E and L, valid and not.
@@ -378,7 +378,7 @@ fn resolves_typedefs() {
 #[test]
 fn reports_typedef_errors() {
     for (i, src) in TYPEDEF_CASES.iter().enumerate() {
-        let full = format!("{src} proc P(X): int {{ func X(): int; }}");
+        let full = format!("{src} proc P(): int {{ func X(): int; P -> X(); }}");
         common::check("typedefs", &format!("c{i:02}"), &format!("{src}\n---\n{}", vcc_typedefs(&[&full])));
     }
 }
@@ -424,7 +424,7 @@ fn analyzes_programs() {
         check_analysis(name, s);
     }
     for (i, src) in TYPEDEF_CASES.iter().enumerate() {
-        check_analysis(&format!("typedef-c{i:02}"), &format!("{src} proc P(X): int {{ func X(): int; }}"));
+        check_analysis(&format!("typedef-c{i:02}"), &format!("{src} proc P(): int {{ func X(): int; P -> X(); }}"));
     }
     for (i, src) in DECL_CASES.iter().enumerate() {
         check_analysis(&format!("decl-c{i:02}"), src);
@@ -432,14 +432,14 @@ fn analyzes_programs() {
     for (i, edges) in SPAWN_CASES.iter().enumerate() {
         check_analysis(&format!("spawn-c{i:02}"), &format!(
             "interface I {{ func B(n: int): int; }} interface J {{ func B(n: int): int; }}
-            proc P(A): int {{ func A(): int; func B(n: int): int; func C(n: int): string; func L(s: string): void; func D(b: int): int; func E(b: int): int; {edges} }}"
+            proc P(): int {{ func A(): int; P -> A(); func B(n: int): int; func C(n: int): string; func L(s: string): void; func D(b: int): int; func E(b: int): int; {edges} }}"
         ));
     }
 }
 
 #[test]
 fn checks_struct_updates() {
-    let pre = "type S = { a: int, b: string }; func F(x: int): S; proc P(A): int { func A(): S; func N(s: S): int; func M(t: { a: int }): int; func W(w: { a: int, b: string, z: int }): int; func V(v: { a: string, b: string }): int; ";
+    let pre = "type S = { a: int, b: string }; func F(x: int): S; proc P(): int { func A(): S; P -> A(); func N(s: S): int; func M(t: { a: int }): int; func W(w: { a: int, b: string, z: int }): int; func V(v: { a: string, b: string }): int; ";
     for (i, src) in [
         "A -> N(s = { ..F(x = 1), a = 1 });",
         "A -> N(s = { ..this.a, a = 1 });",

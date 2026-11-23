@@ -1,9 +1,11 @@
 
-        proc Main(A): string {
+        proc Main(n: int, verbose: bool, name: string): string {
             func A(n: int, verbose: bool, name: string): string;
+            Main -> A(n = this.n, verbose = this.verbose, name = this.name);
         }
     
 ---
+#0 edge #1: call #2(n:int=this.n:int@157..163, verbose:bool=this.verbose:bool@175..187, name:string=this.name:string@196..205) @151..152 text="n = this.n, verbose = this.verbose, name = this.name"
 #0 spawned={}
-#0 region 0: parent=-1 entry=1 elem=void nodes=[1] sink=-1
-#0 region_of={1: 0} opens={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2] sink=-1
+#0 region_of={1: 0, 2: 0} opens={}

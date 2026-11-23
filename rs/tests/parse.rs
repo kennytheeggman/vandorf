@@ -121,16 +121,11 @@ fn v_func(o: &mut Out, f: &v::Func) {
 fn v_proc(o: &mut Out, p: &v::Proc) {
     o.open("proc");
     v_ident(o, &p.name);
-    match &p.entry {
-        v::OptIdent::Some(e) => v_ident(o, e),
-        v::OptIdent::None => {
-            o.open("params");
-            for f in &p.params {
-                v_field(o, f);
-            }
-            o.close();
-        }
+    o.open("params");
+    for f in &p.params {
+        v_field(o, f);
     }
+    o.close();
     v_ty(o, &p.ret);
     for n in &p.nodes {
         v_node(o, n);
@@ -470,23 +465,23 @@ fn parses_corpus() {
 fn parses_tricky_syntax() {
     for (i, src) in [
         // Precedence, prefix operators and negative literals, postfix chains.
-        r#"proc P(A): int { A switch {
+        r#"proc P(): int { P switch {
             (a || b && !c == d) -> X(i = -3, f = -1.5, g = - x),
             (1 + 2 * -x % 3 - y >= F(n = this.l, m = 2) + 1) -> X(),
             (k in this.m && this.m[k].x + 1 > [:].len && G(this)[0].y) -> X(),
             else -> id({ a = [1, 2,], b = ["k": 1, "j": 2,], c = S(), d = T({ x = this, type = [] }) })
         }; }"#,
         // Patterns and nested switches.
-        r#"proc P(A): int { A switch {
+        r#"proc P(): int { P switch {
             Lit(n) -> switch { (n > 0) -> X(), else -> Y() as Z },
             Neg(Lit(_)) | Add({ l = _, r = Neg(e) }) -> X(),
             Unit() -> X(),
             other -> id(0)
         }; }"#,
         // Spawns: detached and aliased branches, a trailing comma, any join.
-        r#"proc P(A): int { A -> spawn { B(n = this), detach C(s = "x") as C2, D(), } join E(b = this.B); E -> spawn { detach F() } join id(1); }"#,
+        r#"proc P(): int { P -> spawn { B(n = this), detach C(s = "x") as C2, D(), } join E(b = this.B); E -> spawn { detach F() } join id(1); }"#,
         // Types, impls, interfaces, nested procs, collect and for each.
-        r#"proc P(A): int { func A(): int; A -> B(s = { ..this }, t = { ..A.x, y = 1, z = { ..q } }, u = { ..this, }); }"#,
+        r#"proc P(): int { func A(): int; P -> B(s = { ..this }, t = { ..A.x, y = 1, z = { ..q } }, u = { ..this, }); }"#,
         r#"type R<T> = { x: T, pos: int };
         type Pair<A, B> = { l: A, r: map[string]R<B> };
         type L = R<Pair<[]int, R<string>>>;
@@ -494,10 +489,11 @@ fn parses_tricky_syntax() {
         r#"type T = enum { Leaf(int), Node({ type: string, kids: []T, m: map[string]T }) };
         interface Fs { func Read(path: string): string = "a.rs:read", "b.go:Read"; }
         func Top(x: int);
-        proc Outer(A): int {
+        proc Outer(): int {
             func A(): []int;
             func B(i: int): int;
-            proc Inner(C): int { func C(): int; };
+            proc Inner(): int { func C(): int; Inner -> C(); };
+            Outer -> A();
             A for each (this) -> B(i = this);
             B collect each (B) -> Inner();
         };"#,
@@ -509,18 +505,18 @@ fn parses_tricky_syntax() {
 #[test]
 fn reports_syntax_errors() {
     for (src, want) in [
-        ("proc P(A): int { func A(): int; A -> ; }", "expected a call: a name, or id(value), found ';'"),
-        ("proc P(A) int {}", "expected : and the proc's type, found 'int'"),
+        ("proc P(): int { func A(): int; P -> ; }", "expected a call: a name, or id(value), found ';'"),
+        ("proc P() int {}", "expected : and the proc's type, found 'int'"),
         ("func F(x: int) = \"nocolon\";", "expected \"file:function\""),
         ("type T = enum { A, B(int };", "expected ) after the payload, found '}'"),
-        ("proc P(A): int { A switch { (this) -> X() X() }; }", "expected , or }, found 'X'"),
+        ("proc P(): int { P switch { (this) -> X() X() }; }", "expected , or }, found 'X'"),
         ("type R<T>= { x: T };", "write `> =` here: `>=` is the comparison operator"),
         ("type R<T> = { x: T }; func F(): R<int>= \"a.rs:f\";", "write `> =` here"),
         ("type A = R<int;", "expected > to close the type arguments, found ';'"),
         ("type R<> = int;", "expected a type parameter, found '>'"),
         // A proc with params starts its body from its own name.
         ("proc P(a: int): int { func F(x: int): int; F -> id(this); P -> F(x = this.a); }", "43:44: the body of proc P starts from P: write `P -> ..` first, found F"),
-        ("proc P(a int): int {}", "expected ) after the entry, found 'int'"),
+        ("proc P(A): int {}", "expected : after the field name, found ')'"),
     ] {
         let e = vcc::vcc::run_parse(src.into()).unwrap_err().to_string();
         assert!(e.contains(want), "{src}: {e}");

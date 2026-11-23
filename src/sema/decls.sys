@@ -110,14 +110,8 @@ type ProcIn = { cx: Cx, p: Proc, qual: []string, parent: int };
 
 proc DeclareProc(s: ProcIn): Declared {
 	func EmptyGraph(n: int): Graph = "sema_leaf.rs:empty_graph";
-	// The proc's own node, then its signature node if it has one.
+	// The proc's own node, then its signature node `P.P`, its entry.
 	func WithSig(cx: Cx, p: Proc, qual: []string, pid: int, params: []Member): Cx = "sema_leaf.rs:with_sig";
-	func SigNames(p: Proc, pid: int): map[string]int = "sema_leaf.rs:sig_names";
-	func SigLocals(p: Proc, pid: int): []int = "sema_leaf.rs:sig_locals";
-	// The entry: the signature node, or the named entry (-1 if it's not
-	// declared).
-	func EntryId(p: Proc, pid: int, names: map[string]int): int = "sema_leaf.rs:entry_id";
-	func EntryIdent(p: Proc): Ident = "sema_leaf.rs:entry_ident";
 	DeclareProc -> Ty(s = { cx = this.s.cx.ty, t = this.s.p.ret }) as Ret;
 	Ret switch {
 		{ cx = _, t = Some(r) } -> Fields(s = { cx = this.cx, fs = DeclareProc.s.p.params, i = 0, ok = true, acc = [] }) as Params,
@@ -126,17 +120,14 @@ proc DeclareProc(s: ProcIn): Declared {
 	Params switch {
 		{ cx = _, ms = Some(ms) } -> DeclareLocals(s = {
 			cx = WithSig(cx = WithNode(cx = { ..DeclareProc.s.cx, ty = Params.cx }, n = { qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], span = DeclareProc.s.p.name.span, kind = Proc({ parent = DeclareProc.s.parent, entry = -1, ret = UnwrapT(t = Ret.t), locals = [], graph = EmptyGraph(n = 0) }) }), p = DeclareProc.s.p, qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], pid = DeclareProc.s.cx.nodes.len, params = ms),
-			p = DeclareProc.s.p, qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], id = DeclareProc.s.cx.nodes.len, i = 0, names = SigNames(p = DeclareProc.s.p, pid = DeclareProc.s.cx.nodes.len), locals = SigLocals(p = DeclareProc.s.p, pid = DeclareProc.s.cx.nodes.len)
+			p = DeclareProc.s.p, qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], id = DeclareProc.s.cx.nodes.len, i = 0, names = [DeclareProc.s.p.name.name: DeclareProc.s.cx.nodes.len + 1], locals = [DeclareProc.s.cx.nodes.len + 1]
 		}),
 		else -> id({ cx = { ..DeclareProc.s.cx, ty = Params.cx }, id = -1 })
 	};
 	DeclareLocals -> Targets(s = { edges = DeclareProc.s.p.edges, i = 0, acc = [] });
 	Targets -> DeclareIds(s = { cx = DeclareLocals.cx, ts = this, i = 0, n = 0, qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], pid = DeclareProc.s.cx.nodes.len, names = DeclareLocals.names, named = [:], locals = DeclareLocals.locals });
 	DeclareIds -> DeclareAliases(s = { cx = this.cx, ts = Targets, i = 0, p = DeclareProc.s.p, qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], pid = DeclareProc.s.cx.nodes.len, names = this.names, aliased = [:], locals = this.locals });
-	DeclareAliases switch {
-		(EntryId(p = DeclareProc.s.p, pid = DeclareProc.s.cx.nodes.len, names = this.names) >= 0) -> id({ cx = WithProc(cx = SetProc(cx = this.cx, id = DeclareProc.s.cx.nodes.len, entry = EntryId(p = DeclareProc.s.p, pid = DeclareProc.s.cx.nodes.len, names = this.names), locals = this.locals), p = { id = DeclareProc.s.cx.nodes.len, p = DeclareProc.s.p }), id = DeclareProc.s.cx.nodes.len }),
-		else -> id({ cx = { ..this.cx, ty = { ..this.cx.ty, errors = this.cx.ty.errors + [{ msg = "entry " + EntryIdent(p = DeclareProc.s.p).name + " is not declared in proc " + DeclareProc.s.p.name.name, span = EntryIdent(p = DeclareProc.s.p).span }] } }, id = -1 })
-	};
+	DeclareAliases -> id({ cx = WithProc(cx = SetProc(cx = this.cx, id = DeclareProc.s.cx.nodes.len, entry = DeclareProc.s.cx.nodes.len + 1, locals = this.locals), p = { id = DeclareProc.s.cx.nodes.len, p = DeclareProc.s.p }), id = DeclareProc.s.cx.nodes.len });
 }
 
 type Locals = { cx: Cx, names: map[string]int, locals: []int };

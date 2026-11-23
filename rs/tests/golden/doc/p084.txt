@@ -5,6 +5,15 @@
         {
           "nodes": [
             {
+              "type": 2,
+              "label": "B",
+              "sublabel": "()"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "Q",
               "sublabel": "../../go/q.go:Q"
@@ -12,7 +21,21 @@
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{  }",
+          "call": "Q()"
+        }
+      ]
     }
   }
 }

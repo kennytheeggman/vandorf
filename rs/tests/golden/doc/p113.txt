@@ -5,16 +5,49 @@
         {
           "nodes": [
             {
+              "type": 2,
+              "label": "Area",
+              "sublabel": "(s: Shape, k: { n: int })"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "A"
             }
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ s: Shape, k: { n: int } }",
+          "call": "A(s: Shape, k: { n: int })",
+          "args": "s = this.s, k = this.k"
+        }
+      ]
     },
     "Hi": {
       "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "Hi",
+              "sublabel": "(name: string)"
+            }
+          ]
+        },
         {
           "nodes": [
             {
@@ -24,10 +57,34 @@
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ name: string }",
+          "call": "B(name: string)",
+          "args": "name = this.name"
+        }
+      ]
     },
     "Page": {
       "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "Page",
+              "sublabel": "(req: Req)"
+            }
+          ]
+        },
         {
           "nodes": [
             {
@@ -37,7 +94,22 @@
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ req: Req }",
+          "call": "C(req: Req)",
+          "args": "req = this.req"
+        }
+      ]
     }
   }
 }

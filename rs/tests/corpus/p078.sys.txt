@@ -1,2 +1,2 @@
 type T = { x: int };
-proc B(Q): int { func Q(i: int): int; }
+proc B(i: int): int { func Q(i: int): int; B -> Q(i = this.i); }

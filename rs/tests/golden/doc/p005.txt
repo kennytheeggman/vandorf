@@ -5,16 +5,48 @@
         {
           "nodes": [
             {
+              "type": 2,
+              "label": "Outer",
+              "sublabel": "()"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 1,
               "label": "Outer.Inner"
             }
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{  }",
+          "call": "Inner()"
+        }
+      ]
     },
     "Outer.Inner": {
       "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "Inner",
+              "sublabel": "()"
+            }
+          ]
+        },
         {
           "nodes": [
             {
@@ -24,7 +56,21 @@
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{  }",
+          "call": "A()"
+        }
+      ]
     }
   }
 }

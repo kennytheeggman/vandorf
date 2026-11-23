@@ -1,16 +1,18 @@
 
         type Pt = { x: int, y: int };
-        proc P(A): int {
+        proc P(): int {
             func A(): { y: int, x: int };
             func B(p: Pt): Pt;
             func C(p: { x: int, y: int }): int;
+            P -> A();
             A -> B(p = this);
             B -> C(p = this);
         }
         
 ---
-#0 edge #1: call #2(p:Pt=this:{ y: int, x: int }@208..212) @202..203 text="p = this"
-#0 edge #2: call #3(p:{ x: int, y: int }=this:Pt@238..242) @232..233 text="p = this"
+#0 edge #1: call #2() @201..202 text=""
+#0 edge #2: call #3(p:Pt=this:{ y: int, x: int }@229..233) @223..224 text="p = this"
+#0 edge #3: call #4(p:{ x: int, y: int }=this:Pt@259..263) @253..254 text="p = this"
 #0 spawned={}
-#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2, 3] sink=-1
-#0 region_of={1: 0, 2: 0, 3: 0} opens={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2, 3, 4] sink=-1
+#0 region_of={1: 0, 2: 0, 3: 0, 4: 0} opens={}

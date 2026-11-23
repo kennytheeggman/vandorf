@@ -5,6 +5,15 @@
         {
           "nodes": [
             {
+              "type": 2,
+              "label": "Bar",
+              "sublabel": "(a: int, b: string)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "Start"
             }
@@ -75,6 +84,20 @@
             1,
             0
           ],
+          "valueType": "{ a: int, b: string }",
+          "call": "Start(a: int, b: string)",
+          "args": "a = this.a, b = this.b"
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
           "valueType": "string",
           "call": "Loop(s: string)",
           "args": "s = this"
@@ -82,11 +105,11 @@
         {
           "type": 1,
           "source": [
-            1,
+            2,
             0
           ],
           "target": [
-            1,
+            2,
             0
           ],
           "label": "this < 10",
@@ -97,11 +120,11 @@
         {
           "type": 1,
           "source": [
-            1,
+            2,
             0
           ],
           "target": [
-            2,
+            3,
             0
           ],
           "label": "else",
@@ -112,11 +135,11 @@
         {
           "type": 1,
           "source": [
-            2,
+            3,
             0
           ],
           "target": [
-            3,
+            4,
             0
           ],
           "label": "this == 0",
@@ -127,11 +150,11 @@
         {
           "type": 1,
           "source": [
-            2,
+            3,
             0
           ],
           "target": [
-            3,
+            4,
             1
           ],
           "label": "else",
@@ -142,11 +165,11 @@
         {
           "type": 0,
           "source": [
-            3,
+            4,
             0
           ],
           "target": [
-            6,
+            7,
             0
           ],
           "valueType": "string",
@@ -156,11 +179,11 @@
         {
           "type": 0,
           "source": [
-            3,
+            4,
             1
           ],
           "target": [
-            4,
+            5,
             0
           ],
           "valueType": "string",
@@ -170,11 +193,11 @@
         {
           "type": 0,
           "source": [
-            4,
+            5,
             0
           ],
           "target": [
-            5,
+            6,
             0
           ],
           "valueType": "int",
@@ -184,11 +207,11 @@
         {
           "type": 0,
           "source": [
-            5,
+            6,
             0
           ],
           "target": [
-            6,
+            7,
             0
           ],
           "valueType": "void",
@@ -199,6 +222,15 @@
     },
     "ForEach": {
       "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "ForEach",
+              "sublabel": "(i: int)"
+            }
+          ]
+        },
         {
           "nodes": [
             {
@@ -226,13 +258,27 @@
       ],
       "edges": [
         {
-          "type": 2,
+          "type": 0,
           "source": [
             0,
             0
           ],
           "target": [
             1,
+            0
+          ],
+          "valueType": "{ i: int }",
+          "call": "Start(i: int)",
+          "args": "i = this.i"
+        },
+        {
+          "type": 2,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
             0
           ],
           "valueType": "int",
@@ -242,11 +288,11 @@
         {
           "type": 4,
           "source": [
-            1,
+            2,
             0
           ],
           "target": [
-            2,
+            3,
             0
           ],
           "valueType": "[]int",

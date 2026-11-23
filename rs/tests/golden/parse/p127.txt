@@ -1,1 +1,1 @@
-(file(proc Tool @5:9 A @10:11(named string @14:20 @14:20)(func A @28:29(field args @30:34(array(named string @38:44 @38:44) @36:44))(named string @47:53 @47:53))))
+(file(proc Tool @5:9(params(field args @10:14(array(named string @18:24 @18:24) @16:24)))(named string @27:33 @27:33)(func A @41:42(field args @43:47(array(named string @51:57 @51:57) @49:57))(named string @60:66 @60:66))(edge(path Tool @68:72 @68:72)(call(target text="args = this.args"(path A @76:77 @76:77)(arg args @78:82(ref(path this @85:89 args @90:94 @85:94) @85:94)))) @68:95)))

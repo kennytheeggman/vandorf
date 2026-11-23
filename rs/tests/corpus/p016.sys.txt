@@ -1,1 +1,1 @@
-type L = []L; proc P(X): int { func X(): int; }
+type L = []L; proc P(): int { func X(): int; P -> X(); }

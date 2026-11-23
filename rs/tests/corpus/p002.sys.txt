@@ -1,11 +1,12 @@
 
-        proc P(A): int {
+        proc P(): int {
             func A(): enum { L, R };
             func B(): int;
             func C(): int;
             func X(): int;
             func D(): int;
             func E(): int;
+            P -> A();
             A switch { L() -> B(), R() -> C() };
             B -> D();
             C -> X();

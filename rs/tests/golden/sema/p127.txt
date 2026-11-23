@@ -1,5 +1,6 @@
-proc Tool(A): string { func A(args: []string): string; }
+proc Tool(args: []string): string { func A(args: []string): string; Tool -> A(args = this.args); }
 ---
+#0 edge #1: call #2(args:[]string=this.args:[]string@85..94) @76..77 text="args = this.args"
 #0 spawned={}
-#0 region 0: parent=-1 entry=1 elem=void nodes=[1] sink=-1
-#0 region_of={1: 0} opens={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2] sink=-1
+#0 region_of={1: 0, 2: 0} opens={}

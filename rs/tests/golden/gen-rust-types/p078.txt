@@ -157,3 +157,9 @@ pub struct T {
     pub x: i64,
 }
 
+/// The type of the parameters of B.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BArgs {
+    pub i: i64,
+}
+

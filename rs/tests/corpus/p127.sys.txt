@@ -1,1 +1,1 @@
-proc Tool(A): string { func A(args: []string): string; }
+proc Tool(args: []string): string { func A(args: []string): string; Tool -> A(args = this.args); }

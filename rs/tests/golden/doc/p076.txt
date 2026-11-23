@@ -5,6 +5,15 @@
         {
           "nodes": [
             {
+              "type": 2,
+              "label": "P",
+              "sublabel": "()"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "S"
             }
@@ -29,13 +38,26 @@
       ],
       "edges": [
         {
-          "type": 2,
+          "type": 0,
           "source": [
             0,
             0
           ],
           "target": [
             1,
+            0
+          ],
+          "valueType": "{  }",
+          "call": "S()"
+        },
+        {
+          "type": 2,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
             0
           ],
           "valueType": "string",
@@ -45,11 +67,11 @@
         {
           "type": 4,
           "source": [
-            1,
+            2,
             0
           ],
           "target": [
-            2,
+            3,
             0
           ],
           "valueType": "[]int",

@@ -6,7 +6,7 @@ mod common;
 #[test]
 fn renders_snippets() {
     let cases: &[(&str, std::ops::Range<usize>, &[&str])] = &[
-        ("proc P(A): int { func A(: int; }", 24..25, &[]),
+        ("proc P(): int { func A(: int; }", 23..24, &[]),
         ("a\n\tfunc B(): int;\n", 8..9, &["expected: pub fn b()"]),
         ("a\n\tfunc B(): int;\n", 3..17, &["one", "two"]),
         ("type T = { a: int\n", 18..18, &[]),

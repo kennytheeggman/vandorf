@@ -1,12 +1,15 @@
 
-        proc Outer(Inner): int {
-            proc Inner(A): int { func A(): int; };
+        proc Outer(): int {
+            proc Inner(): int { func A(): int; Inner -> A(); };
+            Outer -> Inner();
         }
         
 ---
+#0 edge #1: call #2() @114..119 text=""
 #0 spawned={}
-#0 region 0: parent=-1 entry=1 elem=void nodes=[1] sink=-1
-#0 region_of={1: 0} opens={}
-#1 spawned={}
-#1 region 0: parent=-1 entry=2 elem=void nodes=[2] sink=-1
-#1 region_of={2: 0} opens={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2] sink=-1
+#0 region_of={1: 0, 2: 0} opens={}
+#2 edge #3: call #4() @85..86 text=""
+#2 spawned={}
+#2 region 0: parent=-1 entry=3 elem=void nodes=[3, 4] sink=-1
+#2 region_of={3: 0, 4: 0} opens={}

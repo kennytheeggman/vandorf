@@ -5,6 +5,15 @@
         {
           "nodes": [
             {
+              "type": 2,
+              "label": "P",
+              "sublabel": "()"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "A"
             }
@@ -38,9 +47,8 @@
             1,
             0
           ],
-          "valueType": "S",
-          "call": "N(s: S)",
-          "args": "s = { ..this, a = 1 }"
+          "valueType": "{  }",
+          "call": "A()"
         },
         {
           "type": 0,
@@ -50,6 +58,20 @@
           ],
           "target": [
             2,
+            0
+          ],
+          "valueType": "S",
+          "call": "N(s: S)",
+          "args": "s = { ..this, a = 1 }"
+        },
+        {
+          "type": 0,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            3,
             0
           ],
           "valueType": "int",

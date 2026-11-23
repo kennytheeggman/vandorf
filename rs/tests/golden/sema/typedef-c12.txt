@@ -1,3 +1,3 @@
-type R<T> = { x: int }; proc P(X): int { func X(): int; }
+type R<T> = { x: int }; proc P(): int { func X(): int; P -> X(); }
 ---
 error: type parameter T is unused @7..8

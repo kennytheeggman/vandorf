@@ -1,1 +1,1 @@
-proc P(A): int { func A(): int; A -> id(this) as X; }
+proc P(): int { func A(): int; P -> A(); A -> id(this) as X; }

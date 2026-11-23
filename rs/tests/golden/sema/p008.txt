@@ -1,3 +1,3 @@
-proc P(A): int { func A(): string; }
+proc P(): int { func A(): string; P -> A(); }
 ---
 error: P.A ends proc P but returns string, expected int @5..6

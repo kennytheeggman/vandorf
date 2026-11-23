@@ -168,10 +168,23 @@ pub struct Req {
     pub body: Str,
 }
 
-/// The type of the parameter k of Area.A.
+/// The type of the parameter k of Area.Area.
 #[derive(Debug, Clone, PartialEq)]
-pub struct AreaAK {
+pub struct AreaK {
     pub n: i64,
+}
+
+/// The type of the parameters of Area.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AreaArgs {
+    pub s: Shape,
+    pub k: AreaK,
+}
+
+/// The type of the parameters of Hi.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HiArgs {
+    pub name: Str,
 }
 
 /// The type of the return of Page.
@@ -180,5 +193,11 @@ pub struct PageOut {
     pub status: i64,
     pub headers: Map<Str, Str>,
     pub body: Str,
+}
+
+/// The type of the parameters of Page.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PageArgs {
+    pub req: Req,
 }
 

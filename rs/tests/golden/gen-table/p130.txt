@@ -1,1 +1,2 @@
-#0 PAJoined struct { B: int, B2: int, C: string } (joined branches of P.A's spawn)
+#0 PArgs struct {  } (parameters of P)
+#1 PAJoined struct { B: int, B2: int, C: string } (joined branches of P.A's spawn)

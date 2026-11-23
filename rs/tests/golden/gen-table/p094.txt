@@ -1,1 +1,2 @@
 #0 POut struct { n: int, tags: []string } (return of P)
+#1 PArgs struct {  } (parameters of P)

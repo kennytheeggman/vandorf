@@ -582,6 +582,21 @@ impl Json for types::T {
     }
 }
 
+impl Json for types::BArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"i\":");
+        self.i.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("BArgs")?;
+        Ok(types::BArgs {
+            i: Json::from_json(field(fs, "i")?).map_err(|e| format!("i: {e}"))?,
+        })
+    }
+}
+
 /// Runs proc B with the request's parameters.
 fn call_b(params: &Value) -> Result<String, (u16, String)> {
     let i: i64 = arg(params, "i")?;

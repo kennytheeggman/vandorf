@@ -1,1 +1,1 @@
-proc P(S): int { func S(): int; func T(i: int): int; S switch { A(n) -> T(i = n), else -> T(i = 0) }; }
+proc P(): int { func S(): int; func T(i: int): int; P -> S(); S switch { A(n) -> T(i = n), else -> T(i = 0) }; }

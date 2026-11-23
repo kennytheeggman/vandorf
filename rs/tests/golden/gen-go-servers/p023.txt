@@ -858,6 +858,47 @@ func httpDecRInt(v any) (types.RInt, error) {
 	return x, nil
 }
 
+func httpEncPArgs(b *strings.Builder, x types.PArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"r\":")
+	httpEncRStringList(b, x.R)
+	b.WriteString(",\"s\":")
+	httpEncRStringList(b, x.S)
+	b.WriteString(",\"m\":")
+	httpMapW(httpStringKey, httpEncRInt)(b, x.M)
+	b.WriteByte('}')
+}
+
+func httpDecPArgs(v any) (types.PArgs, error) {
+	var x types.PArgs
+	fs, err := httpObject(v, "PArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "r"); err != nil {
+		return x, err
+	} else if y, err := httpDecRStringList(f); err != nil {
+		return x, errors.New("r: " + err.Error())
+	} else {
+		x.R = y
+	}
+	if f, err := httpField(fs, "s"); err != nil {
+		return x, err
+	} else if y, err := httpDecRStringList(f); err != nil {
+		return x, errors.New("s: " + err.Error())
+	} else {
+		x.S = y
+	}
+	if f, err := httpField(fs, "m"); err != nil {
+		return x, err
+	} else if y, err := httpMapR(httpStringFromKey, httpDecRInt)(f); err != nil {
+		return x, errors.New("m: " + err.Error())
+	} else {
+		x.M = y
+	}
+	return x, nil
+}
+
 // httpCallP runs proc P with the request's parameters.
 func httpCallP(ctx context.Context, params any) (string, int, error) {
 	argR, err := httpArg(params, "r", httpDecRStringList)
@@ -907,6 +948,13 @@ import (
 	"example.com/app/types"
 )
 
+// inPP is the input of P.P.
+type inPP struct {
+	R types.RStringList
+	S types.RStringList
+	M map[string]types.RInt
+}
+
 // inPA is the input of P.A.
 type inPA struct {
 	R types.RStringList
@@ -927,25 +975,35 @@ import (
 )
 
 type envP struct {
+	inPP inPP
+	outPP types.PArgs
 	inPA inPA
 	outPA types.RListInt
 }
 
 const (
-	pcP_PA = iota
+	pcP_PP = iota
+	pcP_PA
 )
 
 // RunP runs proc P.
 func RunP(ctx context.Context, r types.RStringList, s types.RStringList, m map[string]types.RInt) (types.RListInt, error) {
 	var zero types.RListInt
 	env := &envP{}
-	env.inPA = inPA{R: r, S: s, M: m}
-	pc := pcP_PA
+	env.inPP = inPP{R: r, S: s, M: m}
+	pc := pcP_PP
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcP_PP:
+			this := types.PArgs{R: env.inPP.R, S: env.inPP.S, M: env.inPP.M}
+			zeroOut(&env.inPP)
+			_ = this
+			env.inPA = inPA{R: this.R, S: this.S, M: this.M}
+			pc = pcP_PA
+			continue
 		case pcP_PA:
 			this, err := unimplementedPA(ctx, env.inPA.R, env.inPA.S, env.inPA.M)
 			if err != nil {
@@ -1268,6 +1326,13 @@ type RListInt struct {
 type RInt struct {
 	X int
 	Pos int
+}
+
+// PArgs is the type of the parameters of P.
+type PArgs struct {
+	R RStringList
+	S RStringList
+	M map[string]RInt
 }
 
 // Toks is a typedef.

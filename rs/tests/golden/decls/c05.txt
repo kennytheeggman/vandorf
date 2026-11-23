@@ -1,3 +1,3 @@
-proc P(A): int { func A(): int; func B(): int; A -> B() as B; }
+proc P(): int { func A(): int; P -> A(); func B(): int; A -> B() as B; }
 ---
-error: alias B clashes with a node of that name in proc P @59..60
+error: alias B clashes with a node of that name in proc P @68..69

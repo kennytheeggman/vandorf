@@ -1,1 +1,1 @@
-proc P(A): int { func A(): int = "../../x/lf.rs:a"; func B(): int = "../../y/lf.rs:b"; A -> B(); }
+proc P(): int { func A(): int = "../../x/lf.rs:a"; func B(): int = "../../y/lf.rs:b"; P -> A(); A -> B(); }

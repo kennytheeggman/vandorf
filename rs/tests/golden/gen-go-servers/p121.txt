@@ -11,25 +11,35 @@ import (
 )
 
 type envHi struct {
+	inHiHi inHiHi
+	outHiHi types.HiArgs
 	inHiB inHiB
 	outHiB string
 }
 
 const (
-	pcHi_HiB = iota
+	pcHi_HiHi = iota
+	pcHi_HiB
 )
 
 // RunHi runs proc Hi.
 func RunHi(ctx context.Context, name string, ctx_ types.Ctx) (string, error) {
 	var zero string
 	env := &envHi{}
-	env.inHiB = inHiB{Name: name, Ctx: ctx_}
-	pc := pcHi_HiB
+	env.inHiHi = inHiHi{Name: name, Ctx: ctx_}
+	pc := pcHi_HiHi
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcHi_HiHi:
+			this := types.HiArgs{Name: env.inHiHi.Name, Ctx: env.inHiHi.Ctx}
+			zeroOut(&env.inHiHi)
+			_ = this
+			env.inHiB = inHiB{Name: this.Name, Ctx: this.Ctx}
+			pc = pcHi_HiB
+			continue
 		case pcHi_HiB:
 			this, err := unimplementedHiB(ctx, env.inHiB.Name, env.inHiB.Ctx)
 			if err != nil {
@@ -817,6 +827,52 @@ func httpDecReq(v any) (types.Req, error) {
 	return x, nil
 }
 
+func httpEncSetupArgs(b *strings.Builder, x types.SetupArgs) {
+	b.WriteByte('{')
+	b.WriteByte('}')
+}
+
+func httpDecSetupArgs(v any) (types.SetupArgs, error) {
+	var x types.SetupArgs
+	_, err := httpObject(v, "SetupArgs")
+	if err != nil {
+		return x, err
+	}
+	return x, nil
+}
+
+func httpEncHiArgs(b *strings.Builder, x types.HiArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"name\":")
+	httpWriteString(b, x.Name)
+	b.WriteString(",\"ctx\":")
+	httpEncCtx(b, x.Ctx)
+	b.WriteByte('}')
+}
+
+func httpDecHiArgs(v any) (types.HiArgs, error) {
+	var x types.HiArgs
+	fs, err := httpObject(v, "HiArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "name"); err != nil {
+		return x, err
+	} else if y, err := httpReadString(f); err != nil {
+		return x, errors.New("name: " + err.Error())
+	} else {
+		x.Name = y
+	}
+	if f, err := httpField(fs, "ctx"); err != nil {
+		return x, err
+	} else if y, err := httpDecCtx(f); err != nil {
+		return x, errors.New("ctx: " + err.Error())
+	} else {
+		x.Ctx = y
+	}
+	return x, nil
+}
+
 func httpEncPageOut(b *strings.Builder, x types.PageOut) {
 	b.WriteByte('{')
 	b.WriteString("\"status\":")
@@ -854,6 +910,107 @@ func httpDecPageOut(v any) (types.PageOut, error) {
 		return x, errors.New("body: " + err.Error())
 	} else {
 		x.Body = y
+	}
+	return x, nil
+}
+
+func httpEncPageArgs(b *strings.Builder, x types.PageArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"ctx\":")
+	httpEncCtx(b, x.Ctx)
+	b.WriteString(",\"req\":")
+	httpEncReq(b, x.Req)
+	b.WriteByte('}')
+}
+
+func httpDecPageArgs(v any) (types.PageArgs, error) {
+	var x types.PageArgs
+	fs, err := httpObject(v, "PageArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "ctx"); err != nil {
+		return x, err
+	} else if y, err := httpDecCtx(f); err != nil {
+		return x, errors.New("ctx: " + err.Error())
+	} else {
+		x.Ctx = y
+	}
+	if f, err := httpField(fs, "req"); err != nil {
+		return x, err
+	} else if y, err := httpDecReq(f); err != nil {
+		return x, errors.New("req: " + err.Error())
+	} else {
+		x.Req = y
+	}
+	return x, nil
+}
+
+func httpEncNoCtxArgs(b *strings.Builder, x types.NoCtxArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"name\":")
+	httpWriteString(b, x.Name)
+	b.WriteByte('}')
+}
+
+func httpDecNoCtxArgs(v any) (types.NoCtxArgs, error) {
+	var x types.NoCtxArgs
+	fs, err := httpObject(v, "NoCtxArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "name"); err != nil {
+		return x, err
+	} else if y, err := httpReadString(f); err != nil {
+		return x, errors.New("name: " + err.Error())
+	} else {
+		x.Name = y
+	}
+	return x, nil
+}
+
+func httpEncWrongCtxArgs(b *strings.Builder, x types.WrongCtxArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"ctx\":")
+	httpWriteString(b, x.Ctx)
+	b.WriteByte('}')
+}
+
+func httpDecWrongCtxArgs(v any) (types.WrongCtxArgs, error) {
+	var x types.WrongCtxArgs
+	fs, err := httpObject(v, "WrongCtxArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "ctx"); err != nil {
+		return x, err
+	} else if y, err := httpReadString(f); err != nil {
+		return x, errors.New("ctx: " + err.Error())
+	} else {
+		x.Ctx = y
+	}
+	return x, nil
+}
+
+func httpEncTakesArgs(b *strings.Builder, x types.TakesArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"n\":")
+	httpWriteInt(b, x.N)
+	b.WriteByte('}')
+}
+
+func httpDecTakesArgs(v any) (types.TakesArgs, error) {
+	var x types.TakesArgs
+	fs, err := httpObject(v, "TakesArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "n"); err != nil {
+		return x, err
+	} else if y, err := httpReadInt(f); err != nil {
+		return x, errors.New("n: " + err.Error())
+	} else {
+		x.N = y
 	}
 	return x, nil
 }
@@ -988,8 +1145,18 @@ import (
 	"example.com/app/types"
 )
 
+// inSetupSetup is the input of Setup.Setup.
+type inSetupSetup struct {
+}
+
 // inSetupS is the input of Setup.S.
 type inSetupS struct {
+}
+
+// inHiHi is the input of Hi.Hi.
+type inHiHi struct {
+	Name string
+	Ctx types.Ctx
 }
 
 // inHiB is the input of Hi.B.
@@ -998,10 +1165,21 @@ type inHiB struct {
 	Ctx types.Ctx
 }
 
+// inPagePage is the input of Page.Page.
+type inPagePage struct {
+	Ctx types.Ctx
+	Req types.Req
+}
+
 // inPageC is the input of Page.C.
 type inPageC struct {
 	Ctx types.Ctx
 	Req types.Req
+}
+
+// inNoCtxNoCtx is the input of NoCtx.NoCtx.
+type inNoCtxNoCtx struct {
+	Name string
 }
 
 // inNoCtxD is the input of NoCtx.D.
@@ -1009,9 +1187,19 @@ type inNoCtxD struct {
 	Name string
 }
 
+// inWrongCtxWrongCtx is the input of WrongCtx.WrongCtx.
+type inWrongCtxWrongCtx struct {
+	Ctx string
+}
+
 // inWrongCtxE is the input of WrongCtx.E.
 type inWrongCtxE struct {
 	Ctx string
+}
+
+// inTakesTakes is the input of Takes.Takes.
+type inTakesTakes struct {
+	N int
 }
 
 // inTakesF is the input of Takes.F.
@@ -1028,28 +1216,39 @@ package app
 import (
 	"context"
 	"fmt"
+	"example.com/app/types"
 )
 
 type envNoCtx struct {
+	inNoCtxNoCtx inNoCtxNoCtx
+	outNoCtxNoCtx types.NoCtxArgs
 	inNoCtxD inNoCtxD
 	outNoCtxD string
 }
 
 const (
-	pcNoCtx_NoCtxD = iota
+	pcNoCtx_NoCtxNoCtx = iota
+	pcNoCtx_NoCtxD
 )
 
 // RunNoCtx runs proc NoCtx.
 func RunNoCtx(ctx context.Context, name string) (string, error) {
 	var zero string
 	env := &envNoCtx{}
-	env.inNoCtxD = inNoCtxD{Name: name}
-	pc := pcNoCtx_NoCtxD
+	env.inNoCtxNoCtx = inNoCtxNoCtx{Name: name}
+	pc := pcNoCtx_NoCtxNoCtx
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcNoCtx_NoCtxNoCtx:
+			this := types.NoCtxArgs{Name: env.inNoCtxNoCtx.Name}
+			zeroOut(&env.inNoCtxNoCtx)
+			_ = this
+			env.inNoCtxD = inNoCtxD{Name: this.Name}
+			pc = pcNoCtx_NoCtxD
+			continue
 		case pcNoCtx_NoCtxD:
 			this, err := unimplementedNoCtxD(ctx, env.inNoCtxD.Name)
 			if err != nil {
@@ -1077,25 +1276,35 @@ import (
 )
 
 type envPage struct {
+	inPagePage inPagePage
+	outPagePage types.PageArgs
 	inPageC inPageC
 	outPageC types.PageOut
 }
 
 const (
-	pcPage_PageC = iota
+	pcPage_PagePage = iota
+	pcPage_PageC
 )
 
 // RunPage runs proc Page.
 func RunPage(ctx context.Context, ctx_ types.Ctx, req types.Req) (types.PageOut, error) {
 	var zero types.PageOut
 	env := &envPage{}
-	env.inPageC = inPageC{Ctx: ctx_, Req: req}
-	pc := pcPage_PageC
+	env.inPagePage = inPagePage{Ctx: ctx_, Req: req}
+	pc := pcPage_PagePage
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcPage_PagePage:
+			this := types.PageArgs{Ctx: env.inPagePage.Ctx, Req: env.inPagePage.Req}
+			zeroOut(&env.inPagePage)
+			_ = this
+			env.inPageC = inPageC{Ctx: this.Ctx, Req: this.Req}
+			pc = pcPage_PageC
+			continue
 		case pcPage_PageC:
 			this, err := unimplementedPageC(ctx, env.inPageC.Ctx, env.inPageC.Req)
 			if err != nil {
@@ -1338,25 +1547,35 @@ import (
 )
 
 type envSetup struct {
+	inSetupSetup inSetupSetup
+	outSetupSetup types.SetupArgs
 	inSetupS inSetupS
 	outSetupS types.Ctx
 }
 
 const (
-	pcSetup_SetupS = iota
+	pcSetup_SetupSetup = iota
+	pcSetup_SetupS
 )
 
 // RunSetup runs proc Setup.
 func RunSetup(ctx context.Context) (types.Ctx, error) {
 	var zero types.Ctx
 	env := &envSetup{}
-	env.inSetupS = inSetupS{}
-	pc := pcSetup_SetupS
+	env.inSetupSetup = inSetupSetup{}
+	pc := pcSetup_SetupSetup
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcSetup_SetupSetup:
+			this := types.SetupArgs{}
+			zeroOut(&env.inSetupSetup)
+			_ = this
+			env.inSetupS = inSetupS{}
+			pc = pcSetup_SetupS
+			continue
 		case pcSetup_SetupS:
 			this, err := unimplementedSetupS(ctx)
 			if err != nil {
@@ -1444,25 +1663,35 @@ import (
 )
 
 type envTakes struct {
+	inTakesTakes inTakesTakes
+	outTakesTakes types.TakesArgs
 	inTakesF inTakesF
 	outTakesF types.Ctx
 }
 
 const (
-	pcTakes_TakesF = iota
+	pcTakes_TakesTakes = iota
+	pcTakes_TakesF
 )
 
 // RunTakes runs proc Takes.
 func RunTakes(ctx context.Context, n int) (types.Ctx, error) {
 	var zero types.Ctx
 	env := &envTakes{}
-	env.inTakesF = inTakesF{N: n}
-	pc := pcTakes_TakesF
+	env.inTakesTakes = inTakesTakes{N: n}
+	pc := pcTakes_TakesTakes
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcTakes_TakesTakes:
+			this := types.TakesArgs{N: env.inTakesTakes.N}
+			zeroOut(&env.inTakesTakes)
+			_ = this
+			env.inTakesF = inTakesF{N: this.N}
+			pc = pcTakes_TakesF
+			continue
 		case pcTakes_TakesF:
 			this, err := unimplementedTakesF(ctx, env.inTakesF.N)
 			if err != nil {
@@ -1486,28 +1715,39 @@ package app
 import (
 	"context"
 	"fmt"
+	"example.com/app/types"
 )
 
 type envWrongCtx struct {
+	inWrongCtxWrongCtx inWrongCtxWrongCtx
+	outWrongCtxWrongCtx types.WrongCtxArgs
 	inWrongCtxE inWrongCtxE
 	outWrongCtxE string
 }
 
 const (
-	pcWrongCtx_WrongCtxE = iota
+	pcWrongCtx_WrongCtxWrongCtx = iota
+	pcWrongCtx_WrongCtxE
 )
 
 // RunWrongCtx runs proc WrongCtx.
 func RunWrongCtx(ctx context.Context, ctx_ string) (string, error) {
 	var zero string
 	env := &envWrongCtx{}
-	env.inWrongCtxE = inWrongCtxE{Ctx: ctx_}
-	pc := pcWrongCtx_WrongCtxE
+	env.inWrongCtxWrongCtx = inWrongCtxWrongCtx{Ctx: ctx_}
+	pc := pcWrongCtx_WrongCtxWrongCtx
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcWrongCtx_WrongCtxWrongCtx:
+			this := types.WrongCtxArgs{Ctx: env.inWrongCtxWrongCtx.Ctx}
+			zeroOut(&env.inWrongCtxWrongCtx)
+			_ = this
+			env.inWrongCtxE = inWrongCtxE{Ctx: this.Ctx}
+			pc = pcWrongCtx_WrongCtxE
+			continue
 		case pcWrongCtx_WrongCtxE:
 			this, err := unimplementedWrongCtxE(ctx, env.inWrongCtxE.Ctx)
 			if err != nil {
@@ -1589,11 +1829,42 @@ type Req struct {
 	Body string
 }
 
+// SetupArgs is the type of the parameters of Setup.
+type SetupArgs struct {
+}
+
+// HiArgs is the type of the parameters of Hi.
+type HiArgs struct {
+	Name string
+	Ctx Ctx
+}
+
 // PageOut is the type of the return of Page.
 type PageOut struct {
 	Status int
 	Headers map[string]string
 	Body string
+}
+
+// PageArgs is the type of the parameters of Page.
+type PageArgs struct {
+	Ctx Ctx
+	Req Req
+}
+
+// NoCtxArgs is the type of the parameters of NoCtx.
+type NoCtxArgs struct {
+	Name string
+}
+
+// WrongCtxArgs is the type of the parameters of WrongCtx.
+type WrongCtxArgs struct {
+	Ctx string
+}
+
+// TakesArgs is the type of the parameters of Takes.
+type TakesArgs struct {
+	N int
 }
 
 
@@ -1614,25 +1885,35 @@ import (
 )
 
 type envHi struct {
+	inHiHi inHiHi
+	outHiHi types.HiArgs
 	inHiB inHiB
 	outHiB string
 }
 
 const (
-	pcHi_HiB = iota
+	pcHi_HiHi = iota
+	pcHi_HiB
 )
 
 // RunHi runs proc Hi.
 func RunHi(ctx context.Context, name string, ctx_ types.Ctx) (string, error) {
 	var zero string
 	env := &envHi{}
-	env.inHiB = inHiB{Name: name, Ctx: ctx_}
-	pc := pcHi_HiB
+	env.inHiHi = inHiHi{Name: name, Ctx: ctx_}
+	pc := pcHi_HiHi
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcHi_HiHi:
+			this := types.HiArgs{Name: env.inHiHi.Name, Ctx: env.inHiHi.Ctx}
+			zeroOut(&env.inHiHi)
+			_ = this
+			env.inHiB = inHiB{Name: this.Name, Ctx: this.Ctx}
+			pc = pcHi_HiB
+			continue
 		case pcHi_HiB:
 			this, err := unimplementedHiB(ctx, env.inHiB.Name, env.inHiB.Ctx)
 			if err != nil {
@@ -2420,6 +2701,52 @@ func httpDecReq(v any) (types.Req, error) {
 	return x, nil
 }
 
+func httpEncSetupArgs(b *strings.Builder, x types.SetupArgs) {
+	b.WriteByte('{')
+	b.WriteByte('}')
+}
+
+func httpDecSetupArgs(v any) (types.SetupArgs, error) {
+	var x types.SetupArgs
+	_, err := httpObject(v, "SetupArgs")
+	if err != nil {
+		return x, err
+	}
+	return x, nil
+}
+
+func httpEncHiArgs(b *strings.Builder, x types.HiArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"name\":")
+	httpWriteString(b, x.Name)
+	b.WriteString(",\"ctx\":")
+	httpEncCtx(b, x.Ctx)
+	b.WriteByte('}')
+}
+
+func httpDecHiArgs(v any) (types.HiArgs, error) {
+	var x types.HiArgs
+	fs, err := httpObject(v, "HiArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "name"); err != nil {
+		return x, err
+	} else if y, err := httpReadString(f); err != nil {
+		return x, errors.New("name: " + err.Error())
+	} else {
+		x.Name = y
+	}
+	if f, err := httpField(fs, "ctx"); err != nil {
+		return x, err
+	} else if y, err := httpDecCtx(f); err != nil {
+		return x, errors.New("ctx: " + err.Error())
+	} else {
+		x.Ctx = y
+	}
+	return x, nil
+}
+
 func httpEncPageOut(b *strings.Builder, x types.PageOut) {
 	b.WriteByte('{')
 	b.WriteString("\"status\":")
@@ -2457,6 +2784,107 @@ func httpDecPageOut(v any) (types.PageOut, error) {
 		return x, errors.New("body: " + err.Error())
 	} else {
 		x.Body = y
+	}
+	return x, nil
+}
+
+func httpEncPageArgs(b *strings.Builder, x types.PageArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"ctx\":")
+	httpEncCtx(b, x.Ctx)
+	b.WriteString(",\"req\":")
+	httpEncReq(b, x.Req)
+	b.WriteByte('}')
+}
+
+func httpDecPageArgs(v any) (types.PageArgs, error) {
+	var x types.PageArgs
+	fs, err := httpObject(v, "PageArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "ctx"); err != nil {
+		return x, err
+	} else if y, err := httpDecCtx(f); err != nil {
+		return x, errors.New("ctx: " + err.Error())
+	} else {
+		x.Ctx = y
+	}
+	if f, err := httpField(fs, "req"); err != nil {
+		return x, err
+	} else if y, err := httpDecReq(f); err != nil {
+		return x, errors.New("req: " + err.Error())
+	} else {
+		x.Req = y
+	}
+	return x, nil
+}
+
+func httpEncNoCtxArgs(b *strings.Builder, x types.NoCtxArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"name\":")
+	httpWriteString(b, x.Name)
+	b.WriteByte('}')
+}
+
+func httpDecNoCtxArgs(v any) (types.NoCtxArgs, error) {
+	var x types.NoCtxArgs
+	fs, err := httpObject(v, "NoCtxArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "name"); err != nil {
+		return x, err
+	} else if y, err := httpReadString(f); err != nil {
+		return x, errors.New("name: " + err.Error())
+	} else {
+		x.Name = y
+	}
+	return x, nil
+}
+
+func httpEncWrongCtxArgs(b *strings.Builder, x types.WrongCtxArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"ctx\":")
+	httpWriteString(b, x.Ctx)
+	b.WriteByte('}')
+}
+
+func httpDecWrongCtxArgs(v any) (types.WrongCtxArgs, error) {
+	var x types.WrongCtxArgs
+	fs, err := httpObject(v, "WrongCtxArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "ctx"); err != nil {
+		return x, err
+	} else if y, err := httpReadString(f); err != nil {
+		return x, errors.New("ctx: " + err.Error())
+	} else {
+		x.Ctx = y
+	}
+	return x, nil
+}
+
+func httpEncTakesArgs(b *strings.Builder, x types.TakesArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"n\":")
+	httpWriteInt(b, x.N)
+	b.WriteByte('}')
+}
+
+func httpDecTakesArgs(v any) (types.TakesArgs, error) {
+	var x types.TakesArgs
+	fs, err := httpObject(v, "TakesArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "n"); err != nil {
+		return x, err
+	} else if y, err := httpReadInt(f); err != nil {
+		return x, errors.New("n: " + err.Error())
+	} else {
+		x.N = y
 	}
 	return x, nil
 }
@@ -2552,8 +2980,18 @@ import (
 	"example.com/app/types"
 )
 
+// inSetupSetup is the input of Setup.Setup.
+type inSetupSetup struct {
+}
+
 // inSetupS is the input of Setup.S.
 type inSetupS struct {
+}
+
+// inHiHi is the input of Hi.Hi.
+type inHiHi struct {
+	Name string
+	Ctx types.Ctx
 }
 
 // inHiB is the input of Hi.B.
@@ -2562,10 +3000,21 @@ type inHiB struct {
 	Ctx types.Ctx
 }
 
+// inPagePage is the input of Page.Page.
+type inPagePage struct {
+	Ctx types.Ctx
+	Req types.Req
+}
+
 // inPageC is the input of Page.C.
 type inPageC struct {
 	Ctx types.Ctx
 	Req types.Req
+}
+
+// inNoCtxNoCtx is the input of NoCtx.NoCtx.
+type inNoCtxNoCtx struct {
+	Name string
 }
 
 // inNoCtxD is the input of NoCtx.D.
@@ -2573,9 +3022,19 @@ type inNoCtxD struct {
 	Name string
 }
 
+// inWrongCtxWrongCtx is the input of WrongCtx.WrongCtx.
+type inWrongCtxWrongCtx struct {
+	Ctx string
+}
+
 // inWrongCtxE is the input of WrongCtx.E.
 type inWrongCtxE struct {
 	Ctx string
+}
+
+// inTakesTakes is the input of Takes.Takes.
+type inTakesTakes struct {
+	N int
 }
 
 // inTakesF is the input of Takes.F.
@@ -2592,28 +3051,39 @@ package app
 import (
 	"context"
 	"fmt"
+	"example.com/app/types"
 )
 
 type envNoCtx struct {
+	inNoCtxNoCtx inNoCtxNoCtx
+	outNoCtxNoCtx types.NoCtxArgs
 	inNoCtxD inNoCtxD
 	outNoCtxD string
 }
 
 const (
-	pcNoCtx_NoCtxD = iota
+	pcNoCtx_NoCtxNoCtx = iota
+	pcNoCtx_NoCtxD
 )
 
 // RunNoCtx runs proc NoCtx.
 func RunNoCtx(ctx context.Context, name string) (string, error) {
 	var zero string
 	env := &envNoCtx{}
-	env.inNoCtxD = inNoCtxD{Name: name}
-	pc := pcNoCtx_NoCtxD
+	env.inNoCtxNoCtx = inNoCtxNoCtx{Name: name}
+	pc := pcNoCtx_NoCtxNoCtx
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcNoCtx_NoCtxNoCtx:
+			this := types.NoCtxArgs{Name: env.inNoCtxNoCtx.Name}
+			zeroOut(&env.inNoCtxNoCtx)
+			_ = this
+			env.inNoCtxD = inNoCtxD{Name: this.Name}
+			pc = pcNoCtx_NoCtxD
+			continue
 		case pcNoCtx_NoCtxD:
 			this, err := unimplementedNoCtxD(ctx, env.inNoCtxD.Name)
 			if err != nil {
@@ -2641,25 +3111,35 @@ import (
 )
 
 type envPage struct {
+	inPagePage inPagePage
+	outPagePage types.PageArgs
 	inPageC inPageC
 	outPageC types.PageOut
 }
 
 const (
-	pcPage_PageC = iota
+	pcPage_PagePage = iota
+	pcPage_PageC
 )
 
 // RunPage runs proc Page.
 func RunPage(ctx context.Context, ctx_ types.Ctx, req types.Req) (types.PageOut, error) {
 	var zero types.PageOut
 	env := &envPage{}
-	env.inPageC = inPageC{Ctx: ctx_, Req: req}
-	pc := pcPage_PageC
+	env.inPagePage = inPagePage{Ctx: ctx_, Req: req}
+	pc := pcPage_PagePage
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcPage_PagePage:
+			this := types.PageArgs{Ctx: env.inPagePage.Ctx, Req: env.inPagePage.Req}
+			zeroOut(&env.inPagePage)
+			_ = this
+			env.inPageC = inPageC{Ctx: this.Ctx, Req: this.Req}
+			pc = pcPage_PageC
+			continue
 		case pcPage_PageC:
 			this, err := unimplementedPageC(ctx, env.inPageC.Ctx, env.inPageC.Req)
 			if err != nil {
@@ -2902,25 +3382,35 @@ import (
 )
 
 type envSetup struct {
+	inSetupSetup inSetupSetup
+	outSetupSetup types.SetupArgs
 	inSetupS inSetupS
 	outSetupS types.Ctx
 }
 
 const (
-	pcSetup_SetupS = iota
+	pcSetup_SetupSetup = iota
+	pcSetup_SetupS
 )
 
 // RunSetup runs proc Setup.
 func RunSetup(ctx context.Context) (types.Ctx, error) {
 	var zero types.Ctx
 	env := &envSetup{}
-	env.inSetupS = inSetupS{}
-	pc := pcSetup_SetupS
+	env.inSetupSetup = inSetupSetup{}
+	pc := pcSetup_SetupSetup
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcSetup_SetupSetup:
+			this := types.SetupArgs{}
+			zeroOut(&env.inSetupSetup)
+			_ = this
+			env.inSetupS = inSetupS{}
+			pc = pcSetup_SetupS
+			continue
 		case pcSetup_SetupS:
 			this, err := unimplementedSetupS(ctx)
 			if err != nil {
@@ -3008,25 +3498,35 @@ import (
 )
 
 type envTakes struct {
+	inTakesTakes inTakesTakes
+	outTakesTakes types.TakesArgs
 	inTakesF inTakesF
 	outTakesF types.Ctx
 }
 
 const (
-	pcTakes_TakesF = iota
+	pcTakes_TakesTakes = iota
+	pcTakes_TakesF
 )
 
 // RunTakes runs proc Takes.
 func RunTakes(ctx context.Context, n int) (types.Ctx, error) {
 	var zero types.Ctx
 	env := &envTakes{}
-	env.inTakesF = inTakesF{N: n}
-	pc := pcTakes_TakesF
+	env.inTakesTakes = inTakesTakes{N: n}
+	pc := pcTakes_TakesTakes
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcTakes_TakesTakes:
+			this := types.TakesArgs{N: env.inTakesTakes.N}
+			zeroOut(&env.inTakesTakes)
+			_ = this
+			env.inTakesF = inTakesF{N: this.N}
+			pc = pcTakes_TakesF
+			continue
 		case pcTakes_TakesF:
 			this, err := unimplementedTakesF(ctx, env.inTakesF.N)
 			if err != nil {
@@ -3050,28 +3550,39 @@ package app
 import (
 	"context"
 	"fmt"
+	"example.com/app/types"
 )
 
 type envWrongCtx struct {
+	inWrongCtxWrongCtx inWrongCtxWrongCtx
+	outWrongCtxWrongCtx types.WrongCtxArgs
 	inWrongCtxE inWrongCtxE
 	outWrongCtxE string
 }
 
 const (
-	pcWrongCtx_WrongCtxE = iota
+	pcWrongCtx_WrongCtxWrongCtx = iota
+	pcWrongCtx_WrongCtxE
 )
 
 // RunWrongCtx runs proc WrongCtx.
 func RunWrongCtx(ctx context.Context, ctx_ string) (string, error) {
 	var zero string
 	env := &envWrongCtx{}
-	env.inWrongCtxE = inWrongCtxE{Ctx: ctx_}
-	pc := pcWrongCtx_WrongCtxE
+	env.inWrongCtxWrongCtx = inWrongCtxWrongCtx{Ctx: ctx_}
+	pc := pcWrongCtx_WrongCtxWrongCtx
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcWrongCtx_WrongCtxWrongCtx:
+			this := types.WrongCtxArgs{Ctx: env.inWrongCtxWrongCtx.Ctx}
+			zeroOut(&env.inWrongCtxWrongCtx)
+			_ = this
+			env.inWrongCtxE = inWrongCtxE{Ctx: this.Ctx}
+			pc = pcWrongCtx_WrongCtxE
+			continue
 		case pcWrongCtx_WrongCtxE:
 			this, err := unimplementedWrongCtxE(ctx, env.inWrongCtxE.Ctx)
 			if err != nil {
@@ -3146,11 +3657,42 @@ type Req struct {
 	Body string
 }
 
+// SetupArgs is the type of the parameters of Setup.
+type SetupArgs struct {
+}
+
+// HiArgs is the type of the parameters of Hi.
+type HiArgs struct {
+	Name string
+	Ctx Ctx
+}
+
 // PageOut is the type of the return of Page.
 type PageOut struct {
 	Status int
 	Headers map[string]string
 	Body string
+}
+
+// PageArgs is the type of the parameters of Page.
+type PageArgs struct {
+	Ctx Ctx
+	Req Req
+}
+
+// NoCtxArgs is the type of the parameters of NoCtx.
+type NoCtxArgs struct {
+	Name string
+}
+
+// WrongCtxArgs is the type of the parameters of WrongCtx.
+type WrongCtxArgs struct {
+	Ctx string
+}
+
+// TakesArgs is the type of the parameters of Takes.
+type TakesArgs struct {
+	N int
 }
 
 

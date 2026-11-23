@@ -17,10 +17,9 @@ type Node = enum { Func(Func), Proc(Proc) };
 type Func = { name: Ident, params: []Field, ret: OptType, imps: []ImplRef };
 // `file:function`, `file` relative to the .sys file.
 type ImplRef = { file: string, function: string, span: Span };
-// `proc P(a: int): T { P -> .. }`: params, and the body starts from P, the
-// signature node. The older `proc P(Entry): T` names an entry and has no
-// params.
-type Proc = { name: Ident, entry: OptIdent, params: []Field, ret: TypeExpr, nodes: []Node, edges: []Edge };
+// `proc P(a: int): T { P -> .. }`: the body starts from P, the signature
+// node.
+type Proc = { name: Ident, params: []Field, ret: TypeExpr, nodes: []Node, edges: []Edge };
 
 type Field = { name: Ident, ty: TypeExpr };
 type TypeExpr = { kind: TypeKind, span: Span };

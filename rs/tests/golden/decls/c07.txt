@@ -1,3 +1,3 @@
-proc P(A): int { func A(): int; func B(): int; A -> B() as X; X -> X() as Y; }
+proc P(): int { func A(): int; P -> A(); func B(): int; A -> B() as X; X -> X() as Y; }
 ---
-error: X is itself an alias; alias the node it instances @67..68
+error: X is itself an alias; alias the node it instances @76..77

@@ -93,22 +93,32 @@ fn fan_out<E: Send, R: Send>(xs: Vec<E>, f: impl Fn(E) -> Result<R, Error> + Syn
 
 #[derive(Debug, Clone, Default)]
 struct EnvSetup {
+    in_setup_setup: Option<InSetupSetup>,
+    out_setup_setup: Option<types::SetupArgs>,
     in_setup_s: Option<InSetupS>,
     out_setup_s: Option<types::Ctx>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcSetup {
+    SetupSetup,
     SetupS,
 }
 
 /// Runs proc Setup.
 pub fn run_setup() -> Result<types::Ctx, Error> {
     let mut env = EnvSetup::default();
-    env.in_setup_s = Some(InSetupS {  });
-    let mut pc = PcSetup::SetupS;
+    env.in_setup_setup = Some(InSetupSetup {  });
+    let mut pc = PcSetup::SetupSetup;
     loop {
         match pc {
+            PcSetup::SetupSetup => {
+                let input = take_slot(&mut env.in_setup_setup, "Setup.Setup")?;
+                let this = types::SetupArgs {  };
+                env.in_setup_s = Some(InSetupS {  });
+                pc = PcSetup::SetupS;
+                continue;
+            }
             PcSetup::SetupS => {
                 let input = take_slot(&mut env.in_setup_s, "Setup.S")?;
                 let this = unimplemented_setup_s().map_err(|e| wrap("Setup.S", e.into()))?;
@@ -123,22 +133,32 @@ pub fn run_setup() -> Result<types::Ctx, Error> {
 
 #[derive(Debug, Clone, Default)]
 struct EnvHi {
+    in_hi_hi: Option<InHiHi>,
+    out_hi_hi: Option<types::HiArgs>,
     in_hi_b: Option<InHiB>,
     out_hi_b: Option<types::Str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcHi {
+    HiHi,
     HiB,
 }
 
 /// Runs proc Hi.
 pub fn run_hi(name: types::Str, ctx: types::Ctx) -> Result<types::Str, Error> {
     let mut env = EnvHi::default();
-    env.in_hi_b = Some(InHiB { name: name, ctx: ctx });
-    let mut pc = PcHi::HiB;
+    env.in_hi_hi = Some(InHiHi { name: name, ctx: ctx });
+    let mut pc = PcHi::HiHi;
     loop {
         match pc {
+            PcHi::HiHi => {
+                let input = take_slot(&mut env.in_hi_hi, "Hi.Hi")?;
+                let this = types::HiArgs { name: input.name, ctx: input.ctx };
+                env.in_hi_b = Some(InHiB { name: this.name, ctx: this.ctx });
+                pc = PcHi::HiB;
+                continue;
+            }
             PcHi::HiB => {
                 let input = take_slot(&mut env.in_hi_b, "Hi.B")?;
                 let this = unimplemented_hi_b(input.name, input.ctx).map_err(|e| wrap("Hi.B", e.into()))?;
@@ -153,22 +173,32 @@ pub fn run_hi(name: types::Str, ctx: types::Ctx) -> Result<types::Str, Error> {
 
 #[derive(Debug, Clone, Default)]
 struct EnvCalc {
+    in_calc_calc: Option<InCalcCalc>,
+    out_calc_calc: Option<types::CalcArgs>,
     in_calc_c: Option<InCalcC>,
     out_calc_c: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcCalc {
+    CalcCalc,
     CalcC,
 }
 
 /// Runs proc Calc.
 pub fn run_calc(n: i64) -> Result<i64, Error> {
     let mut env = EnvCalc::default();
-    env.in_calc_c = Some(InCalcC { n: n });
-    let mut pc = PcCalc::CalcC;
+    env.in_calc_calc = Some(InCalcCalc { n: n });
+    let mut pc = PcCalc::CalcCalc;
     loop {
         match pc {
+            PcCalc::CalcCalc => {
+                let input = take_slot(&mut env.in_calc_calc, "Calc.Calc")?;
+                let this = types::CalcArgs { n: input.n };
+                env.in_calc_c = Some(InCalcC { n: this.n });
+                pc = PcCalc::CalcC;
+                continue;
+            }
             PcCalc::CalcC => {
                 let input = take_slot(&mut env.in_calc_c, "Calc.C")?;
                 let this = unimplemented_calc_c(input.n).map_err(|e| wrap("Calc.C", e.into()))?;
@@ -183,22 +213,32 @@ pub fn run_calc(n: i64) -> Result<i64, Error> {
 
 #[derive(Debug, Clone, Default)]
 struct EnvPage {
+    in_page_page: Option<InPagePage>,
+    out_page_page: Option<types::PageArgs>,
     in_page_p: Option<InPageP>,
     out_page_p: Option<types::PageOut>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcPage {
+    PagePage,
     PageP,
 }
 
 /// Runs proc Page.
 pub fn run_page(ctx: types::Ctx, req: types::Req) -> Result<types::PageOut, Error> {
     let mut env = EnvPage::default();
-    env.in_page_p = Some(InPageP { ctx: ctx, req: req });
-    let mut pc = PcPage::PageP;
+    env.in_page_page = Some(InPagePage { ctx: ctx, req: req });
+    let mut pc = PcPage::PagePage;
     loop {
         match pc {
+            PcPage::PagePage => {
+                let input = take_slot(&mut env.in_page_page, "Page.Page")?;
+                let this = types::PageArgs { ctx: input.ctx, req: input.req };
+                env.in_page_p = Some(InPageP { ctx: this.ctx, req: this.req });
+                pc = PcPage::PageP;
+                continue;
+            }
             PcPage::PageP => {
                 let input = take_slot(&mut env.in_page_p, "Page.P")?;
                 let this = unimplemented_page_p(input.ctx, input.req).map_err(|e| wrap("Page.P", e.into()))?;
@@ -209,9 +249,21 @@ pub fn run_page(ctx: types::Ctx, req: types::Req) -> Result<types::PageOut, Erro
     }
 }
 
+/// Input of Setup.Setup.
+#[derive(Debug, Clone)]
+struct InSetupSetup {
+}
+
 /// Input of Setup.S.
 #[derive(Debug, Clone)]
 struct InSetupS {
+}
+
+/// Input of Hi.Hi.
+#[derive(Debug, Clone)]
+struct InHiHi {
+    name: types::Str,
+    ctx: types::Ctx,
 }
 
 /// Input of Hi.B.
@@ -221,10 +273,23 @@ struct InHiB {
     ctx: types::Ctx,
 }
 
+/// Input of Calc.Calc.
+#[derive(Debug, Clone)]
+struct InCalcCalc {
+    n: i64,
+}
+
 /// Input of Calc.C.
 #[derive(Debug, Clone)]
 struct InCalcC {
     n: i64,
+}
+
+/// Input of Page.Page.
+#[derive(Debug, Clone)]
+struct InPagePage {
+    ctx: types::Ctx,
+    req: types::Req,
 }
 
 /// Input of Page.P.
@@ -443,12 +508,37 @@ pub struct Req {
     pub body: Str,
 }
 
+/// The type of the parameters of Setup.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetupArgs {
+}
+
+/// The type of the parameters of Hi.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HiArgs {
+    pub name: Str,
+    pub ctx: Ctx,
+}
+
+/// The type of the parameters of Calc.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CalcArgs {
+    pub n: i64,
+}
+
 /// The type of the return of Page.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PageOut {
     pub status: i64,
     pub headers: Map<Str, Str>,
     pub body: Str,
+}
+
+/// The type of the parameters of Page.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PageArgs {
+    pub ctx: Ctx,
+    pub req: Req,
 }
 
 

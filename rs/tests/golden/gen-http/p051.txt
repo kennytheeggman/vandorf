@@ -600,6 +600,18 @@ impl Json for types::POut {
     }
 }
 
+impl Json for types::PArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("PArgs")?;
+        Ok(types::PArgs {
+        })
+    }
+}
+
 /// Runs proc P with the request's parameters.
 fn call_p(params: &Value) -> Result<String, (u16, String)> {
     let result = super::run_p().map_err(|e| (500, e.to_string()))?;

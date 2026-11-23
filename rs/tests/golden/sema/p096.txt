@@ -1,6 +1,7 @@
-proc P(A): int { func A(): int; A -> id(this) as X; }
+proc P(): int { func A(): int; P -> A(); A -> id(this) as X; }
 ---
-#0 edge #1: call #2(value:int=this:int@40..44) @37..39 text="this"
+#0 edge #1: call #2() @36..37 text=""
+#0 edge #2: call #3(value:int=this:int@49..53) @46..48 text="this"
 #0 spawned={}
-#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2] sink=-1
-#0 region_of={1: 0, 2: 0} opens={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2, 3] sink=-1
+#0 region_of={1: 0, 2: 0, 3: 0} opens={}

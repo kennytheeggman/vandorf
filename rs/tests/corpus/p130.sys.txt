@@ -1,11 +1,12 @@
 
-        proc P(A): int {
+        proc P(): int {
             func A(): int;
             func B(n: int): int;
             func C(n: int): string;
             func L(s: string): void;
             func S(n: int): void;
             func D(b: int, b2: int, c: string): int;
+            P -> A();
             A -> spawn { B(n = this), B(n = this + 1) as B2, C(n = this), S(n = 1), detach L(s = "x") } join D(b = this.B, b2 = this.B2, c = this.C);
         }
         

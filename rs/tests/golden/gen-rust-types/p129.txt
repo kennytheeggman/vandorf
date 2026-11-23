@@ -151,3 +151,9 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
     }
 }
 
+/// The type of the parameters of Calc.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CalcArgs {
+    pub l: List<i64>,
+}
+

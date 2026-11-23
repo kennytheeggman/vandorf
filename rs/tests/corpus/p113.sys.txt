@@ -1,9 +1,10 @@
 
             type Shape = enum { Dot, Circle(float) };
-            proc Area(A): float { func A(s: Shape, k: { n: int }): float; }
-            proc Hi(B): string { func B(name: string): string; }
+            proc Area(s: Shape, k: { n: int }): float { func A(s: Shape, k: { n: int }): float; Area -> A(s = this.s, k = this.k); }
+            proc Hi(name: string): string { func B(name: string): string; Hi -> B(name = this.name); }
             type Req = { method: string, path: string, query: map[string]string, headers: map[string]string, body: string };
-            proc Page(C): { status: int, headers: map[string]string, body: string } {
+            proc Page(req: Req): { status: int, headers: map[string]string, body: string } {
                 func C(req: Req): { status: int, headers: map[string]string, body: string };
+                Page -> C(req = this.req);
             }
         

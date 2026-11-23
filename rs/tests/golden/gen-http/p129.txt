@@ -567,6 +567,21 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+impl Json for types::CalcArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"l\":");
+        self.l.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("CalcArgs")?;
+        Ok(types::CalcArgs {
+            l: Json::from_json(field(fs, "l")?).map_err(|e| format!("l: {e}"))?,
+        })
+    }
+}
+
 /// Runs proc Calc with the request's parameters.
 fn call_calc(params: &Value) -> Result<String, (u16, String)> {
     let l: types::List<i64> = arg(params, "l")?;

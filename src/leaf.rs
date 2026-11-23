@@ -577,14 +577,10 @@ pub fn inner_span(toks: List<Tok>, from: i64, to: i64) -> Result<Span, String> {
     })
 }
 
-/// A proc with params starts its body from its signature node, its own
-/// name: the first edge must leave it.
-pub fn starts_at_sig(
-    name: Ident,
-    entry: OptIdent,
-    edges: List<Edge>,
-) -> Result<List<Edge>, String> {
-    if let (OptIdent::None, Some(e)) = (&entry, edges.first()) {
+/// A proc starts its body from its signature node, its own name: the first
+/// edge must leave it.
+pub fn starts_at_sig(name: Ident, edges: List<Edge>) -> Result<List<Edge>, String> {
+    if let Some(e) = edges.first() {
         let src = &e.source;
         if src.segs.len() != 1 || src.segs[0].name != name.name {
             let shown = src

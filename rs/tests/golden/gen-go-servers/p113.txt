@@ -11,25 +11,35 @@ import (
 )
 
 type envArea struct {
+	inAreaArea inAreaArea
+	outAreaArea types.AreaArgs
 	inAreaA inAreaA
 	outAreaA float64
 }
 
 const (
-	pcArea_AreaA = iota
+	pcArea_AreaArea = iota
+	pcArea_AreaA
 )
 
 // RunArea runs proc Area.
-func RunArea(ctx context.Context, s types.Shape, k types.AreaAK) (float64, error) {
+func RunArea(ctx context.Context, s types.Shape, k types.AreaK) (float64, error) {
 	var zero float64
 	env := &envArea{}
-	env.inAreaA = inAreaA{S: s, K: k}
-	pc := pcArea_AreaA
+	env.inAreaArea = inAreaArea{S: s, K: k}
+	pc := pcArea_AreaArea
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcArea_AreaArea:
+			this := types.AreaArgs{S: env.inAreaArea.S, K: env.inAreaArea.K}
+			zeroOut(&env.inAreaArea)
+			_ = this
+			env.inAreaA = inAreaA{S: this.S, K: this.K}
+			pc = pcArea_AreaA
+			continue
 		case pcArea_AreaA:
 			this, err := unimplementedAreaA(ctx, env.inAreaA.S, env.inAreaA.K)
 			if err != nil {
@@ -53,28 +63,39 @@ package app
 import (
 	"context"
 	"fmt"
+	"example.com/app/types"
 )
 
 type envHi struct {
+	inHiHi inHiHi
+	outHiHi types.HiArgs
 	inHiB inHiB
 	outHiB string
 }
 
 const (
-	pcHi_HiB = iota
+	pcHi_HiHi = iota
+	pcHi_HiB
 )
 
 // RunHi runs proc Hi.
 func RunHi(ctx context.Context, name string) (string, error) {
 	var zero string
 	env := &envHi{}
-	env.inHiB = inHiB{Name: name}
-	pc := pcHi_HiB
+	env.inHiHi = inHiHi{Name: name}
+	pc := pcHi_HiHi
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcHi_HiHi:
+			this := types.HiArgs{Name: env.inHiHi.Name}
+			zeroOut(&env.inHiHi)
+			_ = this
+			env.inHiB = inHiB{Name: this.Name}
+			pc = pcHi_HiB
+			continue
 		case pcHi_HiB:
 			this, err := unimplementedHiB(ctx, env.inHiB.Name)
 			if err != nil {
@@ -880,16 +901,16 @@ func httpDecReq(v any) (types.Req, error) {
 	return x, nil
 }
 
-func httpEncAreaAK(b *strings.Builder, x types.AreaAK) {
+func httpEncAreaK(b *strings.Builder, x types.AreaK) {
 	b.WriteByte('{')
 	b.WriteString("\"n\":")
 	httpWriteInt(b, x.N)
 	b.WriteByte('}')
 }
 
-func httpDecAreaAK(v any) (types.AreaAK, error) {
-	var x types.AreaAK
-	fs, err := httpObject(v, "AreaAK")
+func httpDecAreaK(v any) (types.AreaK, error) {
+	var x types.AreaK
+	fs, err := httpObject(v, "AreaK")
 	if err != nil {
 		return x, err
 	}
@@ -899,6 +920,61 @@ func httpDecAreaAK(v any) (types.AreaAK, error) {
 		return x, errors.New("n: " + err.Error())
 	} else {
 		x.N = y
+	}
+	return x, nil
+}
+
+func httpEncAreaArgs(b *strings.Builder, x types.AreaArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"s\":")
+	httpEncShape(b, x.S)
+	b.WriteString(",\"k\":")
+	httpEncAreaK(b, x.K)
+	b.WriteByte('}')
+}
+
+func httpDecAreaArgs(v any) (types.AreaArgs, error) {
+	var x types.AreaArgs
+	fs, err := httpObject(v, "AreaArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "s"); err != nil {
+		return x, err
+	} else if y, err := httpDecShape(f); err != nil {
+		return x, errors.New("s: " + err.Error())
+	} else {
+		x.S = y
+	}
+	if f, err := httpField(fs, "k"); err != nil {
+		return x, err
+	} else if y, err := httpDecAreaK(f); err != nil {
+		return x, errors.New("k: " + err.Error())
+	} else {
+		x.K = y
+	}
+	return x, nil
+}
+
+func httpEncHiArgs(b *strings.Builder, x types.HiArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"name\":")
+	httpWriteString(b, x.Name)
+	b.WriteByte('}')
+}
+
+func httpDecHiArgs(v any) (types.HiArgs, error) {
+	var x types.HiArgs
+	fs, err := httpObject(v, "HiArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "name"); err != nil {
+		return x, err
+	} else if y, err := httpReadString(f); err != nil {
+		return x, errors.New("name: " + err.Error())
+	} else {
+		x.Name = y
 	}
 	return x, nil
 }
@@ -944,13 +1020,36 @@ func httpDecPageOut(v any) (types.PageOut, error) {
 	return x, nil
 }
 
+func httpEncPageArgs(b *strings.Builder, x types.PageArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"req\":")
+	httpEncReq(b, x.Req)
+	b.WriteByte('}')
+}
+
+func httpDecPageArgs(v any) (types.PageArgs, error) {
+	var x types.PageArgs
+	fs, err := httpObject(v, "PageArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "req"); err != nil {
+		return x, err
+	} else if y, err := httpDecReq(f); err != nil {
+		return x, errors.New("req: " + err.Error())
+	} else {
+		x.Req = y
+	}
+	return x, nil
+}
+
 // httpCallArea runs proc Area with the request's parameters.
 func httpCallArea(ctx context.Context, params any) (string, int, error) {
 	argS, err := httpArg(params, "s", httpDecShape)
 	if err != nil {
 		return "", 400, err
 	}
-	argK, err := httpArg(params, "k", httpDecAreaAK)
+	argK, err := httpArg(params, "k", httpDecAreaK)
 	if err != nil {
 		return "", 400, err
 	}
@@ -1023,15 +1122,31 @@ import (
 	"example.com/app/types"
 )
 
+// inAreaArea is the input of Area.Area.
+type inAreaArea struct {
+	S types.Shape
+	K types.AreaK
+}
+
 // inAreaA is the input of Area.A.
 type inAreaA struct {
 	S types.Shape
-	K types.AreaAK
+	K types.AreaK
+}
+
+// inHiHi is the input of Hi.Hi.
+type inHiHi struct {
+	Name string
 }
 
 // inHiB is the input of Hi.B.
 type inHiB struct {
 	Name string
+}
+
+// inPagePage is the input of Page.Page.
+type inPagePage struct {
+	Req types.Req
 }
 
 // inPageC is the input of Page.C.
@@ -1052,25 +1167,35 @@ import (
 )
 
 type envPage struct {
+	inPagePage inPagePage
+	outPagePage types.PageArgs
 	inPageC inPageC
 	outPageC types.PageOut
 }
 
 const (
-	pcPage_PageC = iota
+	pcPage_PagePage = iota
+	pcPage_PageC
 )
 
 // RunPage runs proc Page.
 func RunPage(ctx context.Context, req types.Req) (types.PageOut, error) {
 	var zero types.PageOut
 	env := &envPage{}
-	env.inPageC = inPageC{Req: req}
-	pc := pcPage_PageC
+	env.inPagePage = inPagePage{Req: req}
+	pc := pcPage_PagePage
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcPage_PagePage:
+			this := types.PageArgs{Req: env.inPagePage.Req}
+			zeroOut(&env.inPagePage)
+			_ = this
+			env.inPageC = inPageC{Req: this.Req}
+			pc = pcPage_PageC
+			continue
 		case pcPage_PageC:
 			this, err := unimplementedPageC(ctx, env.inPageC.Req)
 			if err != nil {
@@ -1313,9 +1438,9 @@ import (
 )
 
 // unimplementedAreaA stands in for Area.A, which names no .go implementation. Write
-//	func Name(ctx context.Context, s types.Shape, k types.AreaAK) (float64, error)
+//	func Name(ctx context.Context, s types.Shape, k types.AreaK) (float64, error)
 // and add `= "file.go:Name"` to its declaration.
-func unimplementedAreaA(ctx context.Context, _ types.Shape, _ types.AreaAK) (float64, error) {
+func unimplementedAreaA(ctx context.Context, _ types.Shape, _ types.AreaK) (float64, error) {
 	var zero float64
 	return zero, errors.New("Area.A is not implemented")
 }
@@ -1400,9 +1525,20 @@ type Req struct {
 	Body string
 }
 
-// AreaAK is the type of the parameter k of Area.A.
-type AreaAK struct {
+// AreaK is the type of the parameter k of Area.Area.
+type AreaK struct {
 	N int
+}
+
+// AreaArgs is the type of the parameters of Area.
+type AreaArgs struct {
+	S Shape
+	K AreaK
+}
+
+// HiArgs is the type of the parameters of Hi.
+type HiArgs struct {
+	Name string
 }
 
 // PageOut is the type of the return of Page.
@@ -1410,6 +1546,11 @@ type PageOut struct {
 	Status int
 	Headers map[string]string
 	Body string
+}
+
+// PageArgs is the type of the parameters of Page.
+type PageArgs struct {
+	Req Req
 }
 
 

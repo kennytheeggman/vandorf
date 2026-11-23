@@ -151,8 +151,8 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
     }
 }
 
-/// The type of the joined branches of P.A's spawn.
+/// The type of the parameters of P.
 #[derive(Debug, Clone, PartialEq)]
-pub struct PAJoined {
+pub struct PArgs {
 }
 

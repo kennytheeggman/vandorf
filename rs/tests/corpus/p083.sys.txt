@@ -1,1 +1,1 @@
-proc A(S): int { func S(): int = "impl.go:S"; S -> B(); }
+proc A(): int { func S(): int = "impl.go:S"; A -> S(); S -> B(); }

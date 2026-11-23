@@ -5,13 +5,37 @@
         {
           "nodes": [
             {
+              "type": 2,
+              "label": "Main",
+              "sublabel": "(n: int, verbose: bool, name: string)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "A"
             }
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ n: int, verbose: bool, name: string }",
+          "call": "A(n: int, verbose: bool, name: string)",
+          "args": "n = this.n, verbose = this.verbose, name = this.name"
+        }
+      ]
     }
   }
 }

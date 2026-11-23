@@ -1,19 +1,23 @@
 
             type Shape = enum { Dot, Circle(float) };
-            proc Area(A): float { func A(s: Shape, k: { n: int }): float; }
-            proc Hi(B): string { func B(name: string): string; }
+            proc Area(s: Shape, k: { n: int }): float { func A(s: Shape, k: { n: int }): float; Area -> A(s = this.s, k = this.k); }
+            proc Hi(name: string): string { func B(name: string): string; Hi -> B(name = this.name); }
             type Req = { method: string, path: string, query: map[string]string, headers: map[string]string, body: string };
-            proc Page(C): { status: int, headers: map[string]string, body: string } {
+            proc Page(req: Req): { status: int, headers: map[string]string, body: string } {
                 func C(req: Req): { status: int, headers: map[string]string, body: string };
+                Page -> C(req = this.req);
             }
         
 ---
+#0 edge #1: call #2(s:Shape=this.s:Shape@165..171, k:{ n: int }=this.k:{ n: int }@177..183) @159..160 text="s = this.s, k = this.k"
 #0 spawned={}
-#0 region 0: parent=-1 entry=1 elem=void nodes=[1] sink=-1
-#0 region_of={1: 0} opens={}
-#2 spawned={}
-#2 region 0: parent=-1 entry=3 elem=void nodes=[3] sink=-1
-#2 region_of={3: 0} opens={}
-#4 spawned={}
-#4 region 0: parent=-1 entry=5 elem=void nodes=[5] sink=-1
-#4 region_of={5: 0} opens={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2] sink=-1
+#0 region_of={1: 0, 2: 0} opens={}
+#3 edge #4: call #5(name:string=this.name:string@277..286) @268..269 text="name = this.name"
+#3 spawned={}
+#3 region 0: parent=-1 entry=4 elem=void nodes=[4, 5] sink=-1
+#3 region_of={4: 0, 5: 0} opens={}
+#6 edge #7: call #8(req:Req=this.req:Req@634..642) @626..627 text="req = this.req"
+#6 spawned={}
+#6 region 0: parent=-1 entry=7 elem=void nodes=[7, 8] sink=-1
+#6 region_of={7: 0, 8: 0} opens={}

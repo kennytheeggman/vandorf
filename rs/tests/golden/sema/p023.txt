@@ -2,11 +2,13 @@
         type R<T> = { x: T, pos: int };
         type List<T> = enum { Nil, Cons({ h: T, t: List<T> }) };
         type Toks = R<[]string>;
-        proc P(A): R<List<int>> {
+        proc P(r: Toks, s: R<[]string>, m: map[string]R<int>): R<List<int>> {
             func A(r: Toks, s: R<[]string>, m: map[string]R<int>): R<List<int>>;
+            P -> A(r = this.r, s = this.s, m = this.m);
         }
         
 ---
+#0 edge #1: call #2(r:Toks=this.r:Toks@321..327, s:R<[]string>=this.s:R<[]string>@333..339, m:map[string]R<int>=this.m:map[string]R<int>@345..351) @315..316 text="r = this.r, s = this.s, m = this.m"
 #0 spawned={}
-#0 region 0: parent=-1 entry=1 elem=void nodes=[1] sink=-1
-#0 region_of={1: 0} opens={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2] sink=-1
+#0 region_of={1: 0, 2: 0} opens={}

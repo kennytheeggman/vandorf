@@ -5,16 +5,49 @@
         {
           "nodes": [
             {
+              "type": 2,
+              "label": "Hi",
+              "sublabel": "(name: string, ctx: Ctx)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "B"
             }
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ name: string, ctx: Ctx }",
+          "call": "B(name: string, ctx: Ctx)",
+          "args": "name = this.name, ctx = this.ctx"
+        }
+      ]
     },
     "NoCtx": {
       "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "NoCtx",
+              "sublabel": "(name: string)"
+            }
+          ]
+        },
         {
           "nodes": [
             {
@@ -24,10 +57,34 @@
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ name: string }",
+          "call": "D(name: string)",
+          "args": "name = this.name"
+        }
+      ]
     },
     "Page": {
       "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "Page",
+              "sublabel": "(ctx: Ctx, req: Req)"
+            }
+          ]
+        },
         {
           "nodes": [
             {
@@ -37,10 +94,34 @@
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ ctx: Ctx, req: Req }",
+          "call": "C(ctx: Ctx, req: Req)",
+          "args": "ctx = this.ctx, req = this.req"
+        }
+      ]
     },
     "Setup": {
       "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "Setup",
+              "sublabel": "()"
+            }
+          ]
+        },
         {
           "nodes": [
             {
@@ -50,10 +131,33 @@
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{  }",
+          "call": "S()"
+        }
+      ]
     },
     "Takes": {
       "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "Takes",
+              "sublabel": "(n: int)"
+            }
+          ]
+        },
         {
           "nodes": [
             {
@@ -63,10 +167,34 @@
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ n: int }",
+          "call": "F(n: int)",
+          "args": "n = this.n"
+        }
+      ]
     },
     "WrongCtx": {
       "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "WrongCtx",
+              "sublabel": "(ctx: string)"
+            }
+          ]
+        },
         {
           "nodes": [
             {
@@ -76,7 +204,22 @@
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ ctx: string }",
+          "call": "E(ctx: string)",
+          "args": "ctx = this.ctx"
+        }
+      ]
     }
   }
 }
