@@ -73,6 +73,19 @@ proc Calc(Build): int {
   It's the identity func, built in, so procs don't need an identity leaf per
   result type. Each `id(..)` is its own node (drawn as `id`).
 
+- **Spawns** run nodes concurrently:
+  `A -> spawn { Fetch(url = this.a), Fetch(url = this.b) as F2, detach Log(line = "go") } join Merge(x = this.Fetch, y = this.F2);`.
+  Each branch is one node called with A's output as `this`. The join runs once
+  the joined branches have finished, with `this` their outputs by node name
+  (void ones left out); if one fails, the proc fails. A `detach`ed branch runs
+  on its own: nothing waits for it, its output goes nowhere, and a failure is
+  only logged, so a strip of detached branches is fire and forget (the join
+  runs at once). A branch runs only in its spawn: it has no edge of its own,
+  and its output is the join's alone. Rust runs branches on threads (joined
+  ones scoped to the step), Go on goroutines (detached ones outlive the
+  request's cancellation). The diagram draws a spawn as a row of dotted cells,
+  detached ones faded.
+
 Field, parameter and argument names may be keywords (`{ type: string }`).
 
 An edge may only read outputs of nodes that ran on every path to it (the
@@ -236,11 +249,13 @@ naming where the func is declared and printing the expected signature.
 ## HTTP servers
 
 ```toml
-[http.api]                   # rs/src/bin/api.rs; Rust only, for now
+[http.api]                   # a server per configured backend
 addr = "127.0.0.1:8099"
 setup = "Setup"              # optional: its result is each route's ctx
 routes = { "POST /api/measure" = "Measure", "GET /api/hello" = "Hello" }
 static = { "/" = "web/index.html" }
+# go = "go/cmd/api"          # Go main package; default <go.out>/../cmd/<name>
+# rust = "bin/api.rs"        # under the crate's src/; default bin/<name>.rs
 ```
 
 Each route runs a top-level proc through its typed `run_<proc>`; only the
@@ -258,10 +273,20 @@ parameter `ctx` of exactly its type, which the server fills (a request's
 `ctx` is ignored). The context is read-only; state that changes between
 requests belongs behind an interface.
 
-`vandorf build` writes `http.rs` into the module (the JSON codec, std-only
-server and a `handle_<name>` per server) and the server's executable, which
-listens on `addr` unless given `--addr host:port`. The demo's `[http.api]`
-serves `sys/api.sys`.
+`vandorf build` generates the server for each configured backend, with the
+same routes, JSON and responses:
+
+- **Go**: `http_vandorf.go` in the code package (the JSON codec, a
+  `net/http` server and an `HTTPHandle<Name>` per server, standard library
+  only) and a `package main` per server. Static files are written into the
+  main package as strings (`go:embed` can't reach outside its directory), so
+  rebuild after changing one.
+- **Rust**: `http.rs` in the module (the JSON codec, std-only server and a
+  `handle_<name>` per server) and the server's executable under the crate's
+  `src/`.
+
+Each listens on `addr` unless given `--addr host:port`. The demo's
+`[http.api]` serves `sys/api.sys`.
 
 ## Bins
 

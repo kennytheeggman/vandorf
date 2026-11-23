@@ -19,12 +19,13 @@
 //! post = ["cargo build --manifest-path rs/Cargo.toml"]
 //! test = ["cargo test --manifest-path rs/Cargo.toml"]
 //!
-//! [http.api]                 # an HTTP server (Rust only, for now)
+//! [http.api]                 # an HTTP server, per configured backend
 //! addr = "127.0.0.1:8080"
 //! setup = "Setup"            # runs once before serving; its result is each route's ctx
 //! routes = { "POST /api/calc" = "Calc" }   # a route runs a top-level proc
 //! raw = { "GET /" = "Page" }                # its proc takes and returns HTTP
 //! static = { "/" = "web/index.html" }      # files served as they are
+//! go = "go/cmd/api"          # Go main package; default <go.out>/../cmd/<name>
 //! rust = "bin/api.rs"        # under the crate's src/; default bin/<name>.rs
 //!
 //! [bin.demo]                 # an executable per configured backend
@@ -53,7 +54,7 @@ use std::path::{Component, Path, PathBuf};
 
 pub const MANIFEST: &str = "vandorf.toml";
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub project: Meta,
@@ -66,7 +67,7 @@ pub struct Manifest {
 }
 
 /// `[http.<name>]`: an HTTP server whose routes run top-level procs.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Server {
     pub addr: String,
@@ -86,11 +87,13 @@ pub struct Server {
     /// the executable. Paths are relative to the manifest.
     #[serde(default, rename = "static")]
     pub statics: BTreeMap<String, String>,
+    /// Go main package; default <go.out>/../cmd/<name>.
+    pub go: Option<String>,
     /// Rust file under the crate's src/; default bin/<name>.rs.
     pub rust: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Bin {
     #[serde(default = "default_entry")]
@@ -103,7 +106,7 @@ fn default_entry() -> String {
     crate::codegen::MAIN_PROC.into()
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Meta {
     pub name: String,
@@ -115,7 +118,7 @@ fn default_sources() -> Vec<String> {
     vec![".".into()]
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GoTarget {
     pub out: String,
@@ -130,7 +133,7 @@ pub struct GoTarget {
     pub test: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RustTarget {
     pub out: String,
@@ -143,7 +146,7 @@ pub struct RustTarget {
     pub test: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Project {
     /// The manifest's directory, absolute.
     pub root: PathBuf,

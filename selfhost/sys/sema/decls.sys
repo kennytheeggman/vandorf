@@ -172,10 +172,13 @@ proc Targets(At): []Target {
 		Call(t) -> At(s = { edges = At.edges, i = At.i + 1, acc = At.acc + [t] }),
 		Collect(c) -> At(s = { edges = At.edges, i = At.i + 1, acc = At.acc + [c.target] }),
 		ForEach(f) -> At(s = { edges = At.edges, i = At.i + 1, acc = At.acc + [f.target] }),
+		Spawn(sp) -> At(s = { edges = At.edges, i = At.i + 1, acc = At.acc + SpawnTargets(branches = sp.branches, join = sp.join) }),
 		Match(arms) -> ArmTargets(s = { stack = [arms], acc = At.acc })
 	};
 	ArmTargets -> At(s = { edges = At.edges, i = At.i + 1, acc = this });
 }
+
+func SpawnTargets(branches: []Branch, join: Target): []Target = "sema_leaf.rs:spawn_targets";
 
 // The targets of arms, depth first: `stack` holds the arm lists still to
 // visit, innermost last.

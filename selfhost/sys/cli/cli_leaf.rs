@@ -102,6 +102,7 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
                     routes: table("routes"),
                     raw: table("raw"),
                     statics: table("static"),
+                    go: opt(v.get("go")),
                     rust: opt(v.get("rust")),
                 },
             ));
@@ -501,6 +502,7 @@ const SERVER: Fields = &[
     ("routes", Kind::StrMap, false),
     ("raw", Kind::StrMap, false),
     ("static", Kind::StrMap, false),
+    ("go", Kind::Str, false),
     ("rust", Kind::Str, false),
 ];
 const META: Fields = &[("name", Kind::Str, true), ("sources", Kind::Strs, false)];
@@ -745,6 +747,7 @@ pub fn impl_checks(
         checks.push(ImplCheck {
             path: slash(&path).into(),
             function: i.function.clone(),
+            keyword: "fn".into(),
             missing: warn(format!(
                 "{qual} is implemented in {shown}, which does not exist"
             ))?,
@@ -757,9 +760,196 @@ pub fn impl_checks(
     Ok(checks.into())
 }
 
-/// Whether src defines `fn function` (or a generic `fn function<`).
-pub fn defines_fn(src: Str, function: Str) -> Result<bool, String> {
+/// Whether src defines `fn function` (or a generic `fn function<` /
+/// `func Function[T any](`); keyword is fn or func.
+pub fn defines_fn(src: Str, function: Str, keyword: Str) -> Result<bool, String> {
     Ok(["(", "<", "["]
         .iter()
-        .any(|open| src.contains(&format!("fn {function}{open}"))))
+        .any(|open| src.contains(&format!("{keyword} {function}{open}"))))
+}
+
+pub fn has_rust(m: Manifest) -> Result<bool, String> {
+    Ok(matches!(m.rust, MaybeRust::Some(_)))
+}
+
+pub fn go_tests(m: Manifest) -> Result<List<Str>, String> {
+    Ok(match m.go {
+        MaybeGo::Some(g) => g.test,
+        MaybeGo::None => List::default(),
+    })
+}
+
+pub fn rust_tests(m: Manifest) -> Result<List<Str>, String> {
+    Ok(match m.rust {
+        MaybeRust::Some(r) => r.test,
+        MaybeRust::None => List::default(),
+    })
+}
+
+pub fn unwrap_or(m: MaybeStr, d: Str) -> Result<Str, String> {
+    Ok(match m {
+        MaybeStr::Some(s) => s,
+        MaybeStr::None => d,
+    })
+}
+
+pub fn go_out_dir(root: Str, g: GoTarget) -> Result<Str, String> {
+    join(root, g.out)
+}
+
+/// The program with implementation paths relative to out.
+pub fn rebased_to(c: Checked, out: Str) -> Result<Program, String> {
+    let d = dirs(c.project.root.clone(), c.project.paths.clone())?;
+    rebase_impls(c.prog.clone(), d, out)
+}
+
+pub fn go_package(g: GoTarget, out: Str) -> Result<Str, String> {
+    if let MaybeStr::Some(p) = g.package {
+        return Ok(p);
+    }
+    let base = Path::new(&*out)
+        .file_name()
+        .map_or("generated".into(), |n| n.to_string_lossy().into_owned());
+    let s: String = base
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    Ok(if s.starts_with(|c: char| c.is_ascii_digit()) {
+        format!("p{s}")
+    } else {
+        s
+    }
+    .into())
+}
+
+/// [go]'s module, else go.mod's module path (root: go.mod's directory, ""
+/// if none) followed by out's directories below root.
+pub fn go_import_base(g: GoTarget, root: Str, gomod: Str, out: Str) -> Result<MaybeStr, String> {
+    if let MaybeStr::Some(m) = g.module {
+        return Ok(MaybeStr::Some(m));
+    }
+    if root.is_empty() {
+        return Ok(MaybeStr::None);
+    }
+    let Some(module) = gomod.lines().find_map(|l| l.trim().strip_prefix("module ")) else {
+        return Ok(MaybeStr::None);
+    };
+    let mut segs = vec![module.trim().trim_matches('"').to_string()];
+    segs.extend(rel_segs(root, out)?.iter().map(|s| s.to_string()));
+    Ok(MaybeStr::Some(segs.join("/").into()))
+}
+
+pub fn go_main_specs(
+    c: Checked,
+    g: GoTarget,
+    names: List<Str>,
+) -> Result<List<GoMainSpec>, String> {
+    let root = c.project.root.clone();
+    let out = join(root.clone(), g.out.clone())?;
+    names
+        .iter()
+        .map(|name| {
+            let b = &c.project.manifest.bins[name];
+            let dir = match &b.go {
+                MaybeStr::Some(d) => d.to_string(),
+                MaybeStr::None => format!("{}/../cmd/{name}", g.out),
+            };
+            Ok(GoMainSpec {
+                name: name.clone(),
+                entry: b.entry.clone(),
+                path: relative(join(root.clone(), dir.into())?, out.clone())?,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()
+        .map(List::from)
+}
+
+/// A server's main package: [http.*]'s go, by default
+/// <go.out>/../cmd/<name>, relative to go.out.
+pub fn go_server_path(c: Checked, g: GoTarget, name: Str) -> Result<Str, String> {
+    let root = c.project.root.clone();
+    let out = join(root.clone(), g.out.clone())?;
+    let dir = match &c.project.manifest.http[&name].go {
+        MaybeStr::Some(d) => d.to_string(),
+        MaybeStr::None => format!("{}/../cmd/{name}", g.out),
+    };
+    relative(join(root, dir.into())?, out)
+}
+
+pub fn no_go_specs(_n: i64) -> Result<ResGoServerSpecList, String> {
+    Ok(ResGoServerSpecList::Ok(List::default()))
+}
+
+pub fn go_out_files(out: Str, files: List<GoFile>) -> Result<List<OutFile>, String> {
+    files
+        .iter()
+        .map(|f| {
+            Ok(OutFile {
+                path: join(join(out.clone(), f.dir.clone())?, f.name.clone())?,
+                text: f.text.clone(),
+                kind: f.kind.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()
+        .map(List::from)
+}
+
+/// For each func implemented in Go: as impl_checks, for `func`.
+#[allow(clippy::too_many_arguments)]
+pub fn go_impl_checks(
+    prog: Program,
+    t: Table,
+    g: GoTarget,
+    out: Str,
+    import_base: MaybeStr,
+    root: Str,
+    paths: List<Str>,
+    srcs: List<Str>,
+) -> Result<List<ImplCheck>, String> {
+    let package = go_package(g.clone(), out.clone())?;
+    let types_dir = unwrap_or(g.types_dir.clone(), "types".into())?;
+    let setup = super::go_leaf::go_setup(package, import_base, types_dir)?;
+    let out_dir = normalize(Path::new(&*out));
+    let mut checks = vec![];
+    for (id, n) in prog.nodes.iter().enumerate() {
+        let NodeKind::Func(_) = &n.kind else { continue };
+        let MaybeImpl::Some(i) = super::gen_leaf::rs_impl(n.clone(), "go".into())? else {
+            continue;
+        };
+        let path = normalize(&out_dir.join(&*i.file));
+        let shown = relative(slash(&path).into(), root.clone())?;
+        let qual = super::sema_leaf::qual_name(n.clone())?;
+        let sig = super::go_leaf::go_signature(
+            prog.clone(),
+            t.clone(),
+            setup.tq.clone(),
+            id as i64,
+            i.function.clone(),
+        )?;
+        let f = n.span.file as usize;
+        let warn = |msg: String| -> Result<Str, String> {
+            snippet(
+                "warning".into(),
+                msg.into(),
+                paths.get(f).cloned().unwrap_or_else(|| "?".into()),
+                srcs.get(f).cloned().unwrap_or_default(),
+                n.span.at,
+                n.span.end,
+                vec![Str::from(format!("expected: {sig}").as_str())].into(),
+            )
+        };
+        checks.push(ImplCheck {
+            path: slash(&path).into(),
+            function: i.function.clone(),
+            keyword: "func".into(),
+            missing: warn(format!(
+                "{qual} is implemented in {shown}, which does not exist"
+            ))?,
+            undefined: warn(format!(
+                "{qual} is implemented by func {} in {shown}, which does not define it",
+                i.function
+            ))?,
+        });
+    }
+    Ok(checks.into())
 }

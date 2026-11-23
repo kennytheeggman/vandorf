@@ -368,6 +368,7 @@ pub fn empty_graph(_n: i64) -> Result<Graph, String> {
         regions: List::default(),
         region_of: Map::default(),
         opens: Map::default(),
+        spawned: Map::default(),
     })
 }
 
@@ -1017,6 +1018,12 @@ fn calls_of(e: &SEdge) -> Vec<Call> {
             arms.iter().for_each(|a| arm_leaves(a, &mut out));
             out
         }
+        SEdge::Spawn(s) => s
+            .branches
+            .iter()
+            .map(|b| b.call.clone())
+            .chain([s.join.clone()])
+            .collect(),
     }
 }
 
@@ -1181,7 +1188,115 @@ fn successors(g: &Graph, n: i64) -> Vec<i64> {
                 _ => vec![],
             }
         }
+        // The branches run inside the spawner's step.
+        Some(SEdge::Spawn(s)) => vec![s.join.target],
         Some(SEdge::Collect(_)) | None => vec![],
+    }
+}
+
+// ---- Spawns ----
+
+fn diag(msg: String, span: Span) -> Diag {
+    Diag {
+        msg: msg.into(),
+        span,
+    }
+}
+
+fn qual(nodes: &List<NodeDecl>, n: i64) -> String {
+    let q: Vec<&str> = nodes[n as usize].qual.iter().map(|s| &**s).collect();
+    q.join(".")
+}
+
+/// A spawn's targets as written: the branches', then the join's.
+pub fn spawn_targets(branches: List<Branch>, join: Target) -> Result<List<Target>, String> {
+    Ok(branches
+        .iter()
+        .map(|b| b.target.clone())
+        .chain([join])
+        .collect())
+}
+
+pub fn has_id(t: Target) -> Result<bool, String> {
+    Ok(matches!(t.id, OptValue::Some(_)))
+}
+
+pub fn has_branch_target(out: List<SBranch>, n: i64) -> Result<bool, String> {
+    Ok(out.iter().any(|b| b.call.target == n))
+}
+
+pub fn last_name(n: NodeDecl) -> Result<Str, String> {
+    Ok(n.qual.last().cloned().unwrap_or_default())
+}
+
+/// The first `this.X` argument of the join naming a detached branch X.
+pub fn detached_ref(
+    join: Target,
+    out: List<SBranch>,
+    nodes: List<NodeDecl>,
+) -> Result<OptIdent, String> {
+    for a in join.args.iter() {
+        let ValueKind::Ref(path) = &*a.value.kind else {
+            continue;
+        };
+        let (Some(this), Some(x)) = (path.segs.first(), path.segs.get(1)) else {
+            continue;
+        };
+        let detached = |b: &SBranch| {
+            b.detach
+                && nodes[b.call.target as usize]
+                    .qual
+                    .last()
+                    .is_some_and(|l| *l == x.name)
+        };
+        if &*this.name == "this" && out.iter().any(detached) {
+            return Ok(OptIdent::Some(x.clone()));
+        }
+    }
+    Ok(OptIdent::None)
+}
+
+/// Records each spawn's branches: each runs in one branch only, with no
+/// edge of its own. Spawners in node order.
+pub fn with_spawned(g: Graph, nodes: List<NodeDecl>) -> Result<ResGraph, String> {
+    let mut spawned: std::collections::BTreeMap<i64, i64> = Default::default();
+    for (&src, e) in g.edges.iter() {
+        let SEdge::Spawn(s) = e else { continue };
+        for b in s.branches.iter() {
+            let n = b.call.target;
+            if spawned.insert(n, src).is_some() {
+                let msg = format!(
+                    "{} runs in more than one spawn branch; name each with `as`",
+                    qual(&nodes, n)
+                );
+                return Ok(ResGraph::Err(diag(msg, b.call.span.clone())));
+            }
+            if g.edges.contains_key(&n) {
+                let msg = format!(
+                    "{} runs in a spawn, so it can't have an edge of its own: its output goes to the join",
+                    qual(&nodes, n)
+                );
+                return Ok(ResGraph::Err(diag(msg, b.call.span.clone())));
+            }
+        }
+    }
+    Ok(ResGraph::Ok(Graph {
+        spawned: spawned.into_iter().collect(),
+        ..g
+    }))
+}
+
+/// Fails if a branch is also reached as a step of the proc.
+pub fn spawn_reach(g: Graph, nodes: List<NodeDecl>, span: Span) -> Result<ResGraph, String> {
+    match g.spawned.keys().find(|n| g.region_of.contains_key(n)) {
+        Some(&n) => {
+            let msg = format!(
+                "{} runs in a spawn and is also called directly; name one with `as`",
+                qual(&nodes, n)
+            );
+            Ok(ResGraph::Err(diag(msg, span)))
+        }
+        None => Ok(ResGraph::Ok(g)),
     }
 }
 

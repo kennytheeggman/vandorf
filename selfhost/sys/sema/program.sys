@@ -32,7 +32,10 @@ type Graph = {
 	regions: []Region,
 	region_of: map[int]int,
 	// For each source node -> the region it opens.
-	opens: map[int]int
+	opens: map[int]int,
+	// Spawn branch node -> the node whose spawn runs it. Branches are in no
+	// region: they run inside their spawner's step.
+	spawned: map[int]int
 };
 
 // sink: the node whose collect closes the region, or -1.
@@ -42,8 +45,13 @@ type SEdge = enum {
 	Call(Call),
 	Match([]SArm),
 	ForEach({ dim: Expr, elem: Type, call: Call }),
-	Collect(Call)
+	Collect(Call),
+	// The branches run concurrently; join runs once the joined ones have,
+	// with this of type joined: their outputs by node name (void ones left
+	// out).
+	Spawn({ branches: []SBranch, join: Call, joined: Type })
 };
+type SBranch = { call: Call, detach: bool };
 
 type SArm = { test: Test, label: string, body: SBody };
 type Test = enum { Pat(SPat), Cond(Expr), Else };

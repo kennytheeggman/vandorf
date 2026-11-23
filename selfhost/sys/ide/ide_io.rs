@@ -139,6 +139,36 @@ pub fn try_parse(src: Str, file: i64) -> Result<ResFile, String> {
     })
 }
 
+// ---- Checks ----
+
+/// Checks kept, most recently used first.
+const CHECKS_KEPT: usize = 8;
+
+fn checks() -> &'static Mutex<Vec<(Str, UnitCheck)>> {
+    static CHECKS: OnceLock<Mutex<Vec<(Str, UnitCheck)>>> = OnceLock::new();
+    CHECKS.get_or_init(|| Mutex::new(vec![]))
+}
+
+pub fn check_get(key: Str) -> Result<MaybeCheck, String> {
+    let mut cs = checks().lock().unwrap();
+    Ok(match cs.iter().position(|(k, _)| *k == key) {
+        Some(i) => {
+            let hit = cs.remove(i);
+            cs.insert(0, hit.clone());
+            MaybeCheck::Some(hit.1)
+        }
+        None => MaybeCheck::None,
+    })
+}
+
+pub fn check_put(key: Str, c: UnitCheck) -> Result<bool, String> {
+    let mut cs = checks().lock().unwrap();
+    cs.retain(|(k, _)| *k != key);
+    cs.insert(0, (key, c));
+    cs.truncate(CHECKS_KEPT);
+    Ok(true)
+}
+
 // ---- Terminals ----
 
 /// Output kept per terminal, for reconnecting panels.

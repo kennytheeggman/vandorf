@@ -259,6 +259,38 @@ pub fn editor_name(j: Json) -> Result<Str, String> {
         .unwrap_or_else(|| s("<editor>")))
 }
 
+/// A unit's sources as a cache key: two hashes, so a collision is out of
+/// reach.
+pub fn check_key(srcs: List<Str>) -> Result<Str, String> {
+    use std::hash::{Hash, Hasher};
+    let hash = |seed: &str| {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        seed.hash(&mut h);
+        for s in srcs.iter() {
+            (**s).hash(&mut h);
+        }
+        h.finish()
+    };
+    Ok(format!("{:016x}{:016x}", hash("a"), hash("b")).into())
+}
+
+/// The program of a check that failed to parse: none.
+pub fn no_program(_n: i64) -> Result<Program, String> {
+    Ok(Program {
+        types: List::default(),
+        nodes: List::default(),
+        globals: Map::default(),
+        top: List::default(),
+    })
+}
+
+/// Whether the request wants generated code: unless it says `previews: false`.
+pub fn wants_previews(j: Json) -> Result<bool, String> {
+    Ok(
+        !matches!(&j, Json::Obj(fs) if fs.iter().any(|f| &*f.key == "previews" && f.value == Json::Bool(false))),
+    )
+}
+
 pub fn project_name_json(p: MaybeProject) -> Result<Json, String> {
     Ok(match p {
         MaybeProject::Some(p) => Json::Str(p.manifest.name),
@@ -266,11 +298,83 @@ pub fn project_name_json(p: MaybeProject) -> Result<Json, String> {
     })
 }
 
-pub fn go_preview(p: MaybeProject) -> Result<Json, String> {
-    error_json(match p {
-        MaybeProject::Some(p) if !p.manifest.has_go => s("not configured in vandorf.toml"),
-        _ => s("vcc doesn't generate Go yet"),
+pub fn unwrap_go(g: MaybeGo) -> Result<GoTarget, String> {
+    match g {
+        MaybeGo::Some(g) => Ok(g),
+        MaybeGo::None => Err("no [go]".into()),
+    }
+}
+
+pub fn nominal_go_mains(prog: Program) -> Result<List<GoMainSpec>, String> {
+    Ok(if super::gen_leaf::find_top(prog, s("Main"))? >= 0 {
+        vec![GoMainSpec {
+            name: s("main"),
+            entry: s("Main"),
+            path: s("main"),
+        }]
+        .into()
+    } else {
+        List::default()
     })
+}
+
+pub fn go_output_json(o: GoOut, prog: Program, t: Table, setup: GoSetup) -> Result<Json, String> {
+    if let MaybeStr::Some(e) = o.err {
+        return error_json(e);
+    }
+    let files = |fs: Vec<&GoFile>| {
+        obj(fs
+            .into_iter()
+            .map(|f| (&*f.name, Json::Str(f.text.clone())))
+            .collect())
+    };
+    let of = |kind: &str| {
+        o.files
+            .iter()
+            .filter(|f| &*f.kind == kind)
+            .collect::<Vec<_>>()
+    };
+    let artifact = |kind: &str, dir: Str, fs: Vec<&GoFile>| {
+        obj(vec![
+            ("kind", jstr(kind)),
+            ("dir", Json::Str(dir)),
+            ("files", files(fs)),
+        ])
+    };
+    let mut artifacts = vec![
+        artifact("types", setup.dir.clone(), of("types")),
+        artifact("code", s(""), of("code")),
+    ];
+    for m in of("main") {
+        artifacts.push(artifact("main", m.dir.clone(), vec![m]));
+    }
+    let mut impls = vec![];
+    for (id, n) in prog.nodes.iter().enumerate() {
+        let NodeKind::Func(_) = &n.kind else { continue };
+        let MaybeImpl::Some(i) = super::gen_leaf::rs_impl(n.clone(), s("go"))? else {
+            continue;
+        };
+        impls.push(obj(vec![
+            ("node", Json::Str(super::sema_leaf::qual_name(n.clone())?)),
+            ("file", Json::Str(i.file.clone())),
+            ("function", Json::Str(i.function.clone())),
+            (
+                "signature",
+                Json::Str(super::go_leaf::go_signature(
+                    prog.clone(),
+                    t.clone(),
+                    setup.tq.clone(),
+                    id as i64,
+                    i.function.clone(),
+                )?),
+            ),
+        ]));
+    }
+    Ok(obj(vec![
+        ("ok", Json::Bool(true)),
+        ("artifacts", Json::Arr(artifacts.into())),
+        ("impls", Json::Arr(impls.into())),
+    ]))
 }
 
 // ---- Positions ----

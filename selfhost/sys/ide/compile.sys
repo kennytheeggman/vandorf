@@ -1,5 +1,6 @@
 // POST /api/compile {source} or {path}: the document, symbols and generated
-// code, or diagnostics. If the file belongs to a project (a vandorf.toml at
+// code, or diagnostics; with previews: false, no generated code (the
+// diagram's part, quick). If the file belongs to a project (a vandorf.toml at
 // or above it, inside the source directory), the whole project is compiled
 // with the editor's text in place of the file, and previewed with the
 // manifest's settings; otherwise just the text, with nominal output
@@ -7,8 +8,9 @@
 
 type MaybeProject = enum { None, Some(Project) };
 // The files compiled: names as shown, texts, the root names are relative to,
-// and which is the editor's.
-type Unit = { names: []string, srcs: []string, root: string, here: int, project: MaybeProject };
+// and which is the editor's; previews: whether to generate code.
+type Unit = { names: []string, srcs: []string, root: string, here: int, project: MaybeProject, previews: bool };
+func WantsPreviews(j: Json): bool = "ide_leaf.rs:wants_previews";
 
 func NonBlank(m: MaybeStr): bool = "ide_leaf.rs:non_blank";
 func NonEmpty(m: MaybeStr): bool = "ide_leaf.rs:non_empty";
@@ -34,7 +36,7 @@ proc CompileRoute(At): HttpResponse {
 	};
 	Text switch {
 		(NonEmpty(m = JsonStr(j = UnwrapJ(r = ParseJson), key = "path"))) -> ResolvePath(s = { base = Session.Base, p = UnwrapS(m = JsonStr(j = UnwrapJ(r = ParseJson), key = "path")) }),
-		else -> CompileUnit(s = { base = Session.Base, unit = { names = [EditorName(j = UnwrapJ(r = ParseJson))], srcs = [this], root = Session.Base, here = 0, project = None() } }) as Single
+		else -> CompileUnit(s = { base = Session.Base, unit = { names = [EditorName(j = UnwrapJ(r = ParseJson))], srcs = [this], root = Session.Base, here = 0, project = None(), previews = WantsPreviews(j = UnwrapJ(r = ParseJson)) } }) as Single
 	};
 	ResolvePath switch {
 		Ok(abs) -> FindUp(s = { dir = Parent(p = abs), marker = "vandorf.toml" }),
@@ -42,12 +44,12 @@ proc CompileRoute(At): HttpResponse {
 	};
 	FindUp switch {
 		(this != "" && (this == Session.Base || HasPrefix(s = this, prefix = Session.Base + "/"))) -> LoadProject(path = JoinP(a = this, b = "vandorf.toml")),
-		else -> CompileUnit(s = { base = Session.Base, unit = { names = [EditorName(j = UnwrapJ(r = ParseJson))], srcs = [Text], root = Session.Base, here = 0, project = None() } }) as Alone
+		else -> CompileUnit(s = { base = Session.Base, unit = { names = [EditorName(j = UnwrapJ(r = ParseJson))], srcs = [Text], root = Session.Base, here = 0, project = None(), previews = WantsPreviews(j = UnwrapJ(r = ParseJson)) } }) as Alone
 	};
 	LoadProject switch {
 		Ok(p) -> switch {
 			(PathIndex(paths = p.paths, root = p.root, abs = UnwrapR2(r = ResolvePath)) < 0) -> id(ApiErr(msg = UnwrapR2(r = ResolvePath) + " is not under the sources of " + JoinP(a = FindUp, b = "vandorf.toml"))),
-			else -> CompileUnit(s = { base = Session.Base, unit = { names = p.paths, srcs = SetAt(xs = p.srcs, i = PathIndex(paths = p.paths, root = p.root, abs = UnwrapR2(r = ResolvePath)), x = Text), root = p.root, here = PathIndex(paths = p.paths, root = p.root, abs = UnwrapR2(r = ResolvePath)), project = Some({ ..p, srcs = SetAt(xs = p.srcs, i = PathIndex(paths = p.paths, root = p.root, abs = UnwrapR2(r = ResolvePath)), x = Text) }) } }) as InProject
+			else -> CompileUnit(s = { base = Session.Base, unit = { names = p.paths, srcs = SetAt(xs = p.srcs, i = PathIndex(paths = p.paths, root = p.root, abs = UnwrapR2(r = ResolvePath)), x = Text), root = p.root, here = PathIndex(paths = p.paths, root = p.root, abs = UnwrapR2(r = ResolvePath)), project = Some({ ..p, srcs = SetAt(xs = p.srcs, i = PathIndex(paths = p.paths, root = p.root, abs = UnwrapR2(r = ResolvePath)), x = Text) }), previews = WantsPreviews(j = UnwrapJ(r = ParseJson)) } }) as InProject
 		},
 		Err(e) -> id(ApiErr(msg = e.msg))
 	};
@@ -57,34 +59,59 @@ proc CompileRoute(At): HttpResponse {
 func EditorName(j: Json): string = "ide_leaf.rs:editor_name";
 func UnwrapR2(r: Res<string>): string = "ide_leaf.rs:unwrap_res_string";
 
+// What a unit is checked from, as a cache key: its sources (their names
+// and the file asked about only change how the result is shown).
+func CheckKey(srcs: []string): string = "ide_leaf.rs:check_key";
+func NoProgram(n: int): Program = "ide_leaf.rs:no_program";
+
 proc CompileUnit(At): HttpResponse {
 	func At(s: { base: string, unit: Unit }): { base: string, unit: Unit } = "../leaf.rs:same";
-	At -> ParseUnit(s = { srcs = this.unit.srcs, i = 0, file = { types = [], interfaces = [], nodes = [] }, errors = [] });
+	// The unit's check: kept from an earlier compile, or made and kept.
+	func Have(c: UnitCheck): UnitCheck = "../leaf.rs:same";
+	At -> Checks.Get(key = CheckKey(srcs = this.unit.srcs));
+	Checks.Get switch {
+		Some(c) -> Have(c = c),
+		else -> ParseUnit(s = { srcs = At.unit.srcs, i = 0, file = { types = [], interfaces = [], nodes = [] }, errors = [] })
+	};
 	ParseUnit switch {
-		(this.errors.len > 0) -> Diagnostics(s = { unit = At.unit, errors = this.errors }) as ParseErrors,
+		(this.errors.len > 0) -> Checks.Put(key = CheckKey(srcs = At.unit.srcs), c = { parse_errors = this.errors, sema_errors = [], prog = NoProgram(n = 0) }) as KeepParse,
 		else -> Analyze(s = { srcs = At.unit.srcs, file = this.file })
 	};
-	Analyze switch {
-		(this.errors.len > 0) -> Diagnostics(s = { unit = At.unit, errors = this.errors }) as SemaErrors,
+	Analyze -> Checks.Put(key = CheckKey(srcs = At.unit.srcs), c = { parse_errors = [], sema_errors = this.errors, prog = this.prog }) as KeepSema;
+	KeepParse -> Have(c = { parse_errors = ParseUnit.errors, sema_errors = [], prog = NoProgram(n = 0) });
+	KeepSema -> Have(c = { parse_errors = [], sema_errors = Analyze.errors, prog = Analyze.prog });
+	Have switch {
+		(this.parse_errors.len > 0) -> Diagnostics(s = { unit = At.unit, errors = this.parse_errors }) as ParseErrors,
+		(this.sema_errors.len > 0) -> Diagnostics(s = { unit = At.unit, errors = this.sema_errors }) as SemaErrors,
 		else -> Symbols(s = { base = At.base, unit = At.unit, prog = this.prog })
 	};
-	Symbols -> RustPreview(s = { unit = At.unit, prog = Analyze.prog });
-	RustPreview -> DocumentJson(prog = Analyze.prog);
+	Symbols switch {
+		(At.unit.previews) -> RustPreview(s = { unit = At.unit, prog = Have.prog }),
+		else -> DocumentJson(prog = Have.prog) as DiagramOnly
+	};
+	RustPreview -> GoPreview(s = { unit = At.unit, prog = Have.prog });
+	GoPreview -> DocumentJson(prog = Have.prog);
+	DiagramOnly -> id(Api(j = Obj([
+		{ key = "ok", value = Bool(true) },
+		{ key = "name", value = Str(At.unit.names[At.unit.here]) },
+		{ key = "project", value = ProjectName(p = At.unit.project) },
+		{ key = "grids", value = Num(Procs(nodes = Have.prog.nodes).len) },
+		{ key = "document", value = this },
+		{ key = "symbols", value = Symbols }
+	])));
 	DocumentJson -> id(Api(j = Obj([
 		{ key = "ok", value = Bool(true) },
 		{ key = "name", value = Str(At.unit.names[At.unit.here]) },
 		{ key = "project", value = ProjectName(p = At.unit.project) },
-		{ key = "grids", value = Num(Procs(nodes = Analyze.prog.nodes).len) },
+		{ key = "grids", value = Num(Procs(nodes = Have.prog.nodes).len) },
 		{ key = "document", value = this },
 		{ key = "symbols", value = Symbols },
-		{ key = "go", value = GoPreview(p = At.unit.project) },
+		{ key = "go", value = GoPreview },
 		{ key = "rust", value = RustPreview }
 	])));
 }
 
 func ProjectName(p: MaybeProject): Json = "ide_leaf.rs:project_name_json";
-// vcc doesn't generate Go yet; or [go] isn't configured.
-func GoPreview(p: MaybeProject): Json = "ide_leaf.rs:go_preview";
 
 // Each file parsed, its errors kept (they're diagnostics, not failures).
 proc ParseUnit(At): { file: File, errors: []Diag } {
@@ -198,6 +225,50 @@ proc RustPreview(At): Json {
 }
 
 func UnwrapPr(p: MaybeProject): Project = "ide_leaf.rs:unwrap_project";
+
+// What vcc build would generate in Go: with [go]'s settings, or nominal
+// ones (package app in example.com/app) for a file outside a project.
+proc GoPreview(At): Json {
+	func At(s: { unit: Unit, prog: Program }): { unit: Unit, prog: Program } = "../leaf.rs:same";
+	func P(p: MaybeProject): MaybeProject = "../leaf.rs:same";
+	func G(g: MaybeGo): MaybeGo = "../leaf.rs:same";
+	func Base(b: MaybeStr): MaybeStr = "../leaf.rs:same";
+	func NominalGoMains(prog: Program): []GoMainSpec = "ide_leaf.rs:nominal_go_mains";
+	func UnwrapG(g: MaybeGo): GoTarget = "ide_leaf.rs:unwrap_go";
+	func Dirs(root: string, paths: []string): []string = "../cli/cli_leaf.rs:dirs";
+	At -> P(p = this.unit.project);
+	P switch {
+		Some(p) -> G(g = p.manifest.go),
+		else -> GoPreviewJson(s = { prog = At.prog, package = "app", import_base = Some("example.com/app"), types_dir = "types", mains = NominalGoMains(prog = At.prog), servers = [] }) as Nominal
+	};
+	G switch {
+		Some(g) -> FindUp(s = { dir = JoinP(a = At.unit.root, b = g.out), marker = "go.mod" }),
+		else -> id(Obj([{ key = "ok", value = Bool(false) }, { key = "error", value = Str("not configured in vandorf.toml") }]))
+	};
+	FindUp switch {
+		(this == "") -> Base(b = GoImportBase(g = UnwrapG(g = G), root = "", gomod = "", out = JoinP(a = At.unit.root, b = UnwrapG(g = G).out))),
+		else -> Fs.Read(path = JoinP(a = this, b = "go.mod"))
+	};
+	Fs.Read -> Base(b = GoImportBase(g = UnwrapG(g = G), root = FindUp, gomod = this, out = JoinP(a = At.unit.root, b = UnwrapG(g = G).out)));
+	Base -> GoPreviewJson(s = {
+		prog = RebaseImpls(prog = At.prog, dirs = Dirs(root = At.unit.root, paths = At.unit.names), out = JoinP(a = At.unit.root, b = UnwrapG(g = G).out)),
+		package = GoPackage(g = UnwrapG(g = G), out = JoinP(a = At.unit.root, b = UnwrapG(g = G).out)),
+		import_base = this,
+		types_dir = UnwrapOr(m = UnwrapG(g = G).types_dir, d = "types"),
+		mains = GoMainSpecs(c = { project = UnwrapPr(p = P), prog = At.prog }, g = UnwrapG(g = G), names = UnwrapPr(p = P).manifest.bins.keys),
+		servers = []
+	}) as Configured;
+}
+
+// The generated files as JSON (artifacts: types, code, mains) and the
+// implementations they call; or the error.
+proc GoPreviewJson(At): Json {
+	func At(s: GoGenIn): GoGenIn = "../leaf.rs:same";
+	func Output(o: GoOut, prog: Program, t: Table, setup: GoSetup): Json = "ide_leaf.rs:go_output_json";
+	At -> GoGenerate(s = this);
+	GoGenerate -> BuildTable(prog = At.prog);
+	BuildTable -> id(Output(o = GoGenerate, prog = At.prog, t = this, setup = GoSetupOf(package = At.package, import_base = At.import_base, types_dir = At.types_dir)));
+}
 
 // The generated files as JSON: artifacts (types, code, mains) and the
 // implementations they call; or the error.

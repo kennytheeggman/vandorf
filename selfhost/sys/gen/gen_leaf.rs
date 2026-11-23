@@ -807,7 +807,7 @@ fn conds_of(a: &SArm, out: &mut Vec<Expr>) {
     }
 }
 
-fn refs_of(e: &Expr, out: &mut Vec<i64>) {
+pub(super) fn refs_of(e: &Expr, out: &mut Vec<i64>) {
     let parts = super::sema_leaf::expr_parts(e.clone()).unwrap_or_default();
     if let Expr::Ref(r) = e {
         if let Root::Node(n) = &r.root {
@@ -835,6 +835,12 @@ fn edge_reads(g: &Graph, n: i64) -> Vec<i64> {
                 arms.iter().for_each(|a| arm_leaves_of(a, &mut out));
                 out
             }
+            SEdge::Spawn(s) => s
+                .branches
+                .iter()
+                .map(|b| b.call.clone())
+                .chain([s.join.clone()])
+                .collect(),
         };
         for c in calls {
             exprs.extend(c.args.iter().map(|a| a.value.clone()));
@@ -859,6 +865,8 @@ pub fn read_nodes(g: Graph) -> Result<Map<i64, bool>, String> {
 fn succs(g: &Graph, n: i64) -> Vec<i64> {
     match g.edges.get(&n) {
         None | Some(SEdge::Collect(_)) => vec![],
+        // The branches run inside the spawner's step.
+        Some(SEdge::Spawn(s)) => vec![s.join.target],
         Some(SEdge::ForEach(f)) => {
             let sink = g.regions[g.opens[&n] as usize].sink;
             let mut out = vec![f.call.target];
@@ -1244,6 +1252,110 @@ pub fn node_head(g: RGen, pid: i64, n: i64, run: Str) -> Result<List<Line>, Stri
             format!("env.out_{id} = Some(this.clone());").into(),
         ));
     }
+    Ok(out.into())
+}
+
+pub fn spawn_join(e: SEdge) -> Result<Call, String> {
+    match e {
+        SEdge::Spawn(s) => Ok(s.join.clone()),
+        _ => err("spawn_join"),
+    }
+}
+
+pub fn spawn_joins(prog: Program) -> Result<List<SpawnJoin>, String> {
+    let mut out = vec![];
+    for n in prog.nodes.iter() {
+        let NodeKind::Proc(p) = &n.kind else { continue };
+        for (&src, e) in p.graph.edges.iter() {
+            if let SEdge::Spawn(s) = e {
+                out.push(SpawnJoin {
+                    src,
+                    joined: s.joined.clone(),
+                });
+            }
+        }
+    }
+    Ok(out.into())
+}
+
+fn spawn_var(i: i64, name: &str) -> String {
+    format!("a{i}_{}", rust_local(name.into()).unwrap())
+}
+
+pub fn spawn_arg_lines(
+    i: i64,
+    args: List<CallArg>,
+    values: List<Str>,
+) -> Result<List<Line>, String> {
+    Ok(args
+        .iter()
+        .zip(values.iter())
+        .map(|(a, v)| Line::L(format!("let {} = {v};", spawn_var(i, &a.name)).into()))
+        .collect())
+}
+
+pub fn spawn_arg_vars(i: i64, args: List<CallArg>) -> Result<Str, String> {
+    let vars: Vec<String> = args.iter().map(|a| spawn_var(i, &a.name)).collect();
+    Ok(vars.join(", ").into())
+}
+
+pub fn spawn_threads(
+    g: RGen,
+    branches: List<SBranch>,
+    joined: Type,
+    calls: List<Str>,
+) -> Result<List<Line>, String> {
+    let l = |s: String| Line::L(s.into());
+    let mut out = vec![];
+    for (i, b) in branches.iter().enumerate().filter(|(_, b)| b.detach) {
+        let _ = b;
+        out.push(l(format!(
+            "thread_builder().spawn(move || if let Err(e) = {} {{ eprintln!(\"error: {{}}\", describe_error(&e)); }}).expect(\"cannot spawn a thread\");",
+            calls[i]
+        )));
+    }
+    out.push(l(
+        "let this = std::thread::scope(|s| -> Result<_, Error> {".into()
+    ));
+    let waited: Vec<usize> = (0..branches.len())
+        .filter(|&i| !branches[i].detach)
+        .collect();
+    for &i in &waited {
+        out.push(l(format!(
+            "let h{i} = thread_builder().spawn_scoped(s, move || {}).expect(\"cannot spawn a thread\");",
+            calls[i]
+        )));
+    }
+    for &i in &waited {
+        out.push(l(format!(
+            "let r{i} = h{i}.join().unwrap_or_else(|p| std::panic::resume_unwind(p))?;"
+        )));
+    }
+    let Type::Struct(ms) = &joined else {
+        return err("spawn_threads");
+    };
+    let mut fields = vec![];
+    for &i in &waited {
+        let name = g.prog.nodes[branches[i].call.target as usize]
+            .qual
+            .last()
+            .cloned()
+            .unwrap_or_default();
+        if ms.iter().any(|m| m.name == name) {
+            let v = if boxed(&g.table, &joined, &name) {
+                format!("std::sync::Arc::new(r{i})")
+            } else {
+                format!("r{i}")
+            };
+            fields.push(format!("{}: {v}", rust_ident(name)?));
+        }
+    }
+    out.push(l(format!(
+        "Ok({} {{ {} }})",
+        rust_type(g.table.clone(), joined.clone())?,
+        fields.join(", ")
+    )));
+    out.push(l("})?;".into()));
     Ok(out.into())
 }
 
@@ -2412,20 +2524,20 @@ pub fn route_docs(srv: ServerSpec) -> Result<List<Line>, String> {
     Ok(out.into())
 }
 
-const RAW_REQUEST: &[(&str, &str)] = &[
+pub(super) const RAW_REQUEST: &[(&str, &str)] = &[
     ("method", "string"),
     ("path", "string"),
     ("query", "map[string]string"),
     ("headers", "map[string]string"),
     ("body", "string"),
 ];
-const RAW_RESPONSE: &[(&str, &str)] = &[
+pub(super) const RAW_RESPONSE: &[(&str, &str)] = &[
     ("status", "int"),
     ("headers", "map[string]string"),
     ("body", "string"),
 ];
 
-fn show_type(t: &Type) -> String {
+pub(super) fn show_type(t: &Type) -> String {
     crate::vcc::run_show_type(t.clone())
         .map(|s| s.to_string())
         .unwrap_or_default()
@@ -2458,7 +2570,7 @@ pub fn raw_shape_error(
 }
 
 /// Whether t is a struct of exactly these fields (a raw request or response).
-fn raw_shape(prog: &Program, t: &Type, want: &[(&str, &str)]) -> bool {
+pub(super) fn raw_shape(prog: &Program, t: &Type, want: &[(&str, &str)]) -> bool {
     let defs = &prog.types;
     match unfold(t, defs) {
         Type::Struct(fs) => {
@@ -2474,7 +2586,7 @@ fn raw_shape(prog: &Program, t: &Type, want: &[(&str, &str)]) -> bool {
     }
 }
 
-fn show_shape(fs: &[(&str, &str)]) -> String {
+pub(super) fn show_shape(fs: &[(&str, &str)]) -> String {
     format!(
         "{{ {} }}",
         fs.iter()

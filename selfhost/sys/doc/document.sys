@@ -71,7 +71,7 @@ type SweepIn = { prog: Program, pid: int, g: Graph, l: Layout };
 proc Sweep(At): Layout {
 	func At(s: SweepIn): SweepIn = "../leaf.rs:same";
 	At switch {
-		(this.l.rows.len > this.g.region_of.len + 1 || Frontier(l = this.l, g = this.g).len == 0) -> id(this.l),
+		(this.l.rows.len > this.g.region_of.len + this.g.spawned.len + 1 || Frontier(l = this.l, g = this.g).len == 0) -> id(this.l),
 		else -> Sources(s = { at = this, srcs = Frontier(l = this.l, g = this.g), last = this.l.rows.len - 1, row = this.l.rows.len, l = { ..this.l, rows = this.l.rows + [[]] }, i = 0 })
 	};
 	Sources -> At(s = { prog = At.prog, pid = At.pid, g = At.g, l = this });
@@ -126,7 +126,16 @@ proc Downstream(At): map[int]bool {
 proc EdgeTargets(At): []Out {
 	func At(s: { prog: Program, g: Graph, src: int }): { prog: Program, g: Graph, src: int } = "../leaf.rs:same";
 	func E(e: SEdge): SEdge = "../leaf.rs:same";
-	At -> ShowType(t = NodeRet(nodes = this.prog.nodes, n = this.src)) as Ret;
+	// A spawner's edges, one to each branch.
+	func SpawnOuts(branches: []SBranch, value: string): []Out = "doc_leaf.rs:spawn_outs";
+	// A branch leads on to its spawn's join.
+	func BranchOuts(g: Graph, src: int, value: string): []Out = "doc_leaf.rs:branch_outs";
+	func Joined(g: Graph, src: int): Type = "doc_leaf.rs:joined_type";
+	At switch {
+		(this.src in this.g.spawned) -> ShowType(t = Joined(g = this.g, src = this.src)) as JoinedType,
+		else -> ShowType(t = NodeRet(nodes = this.prog.nodes, n = this.src)) as Ret
+	};
+	JoinedType -> id(BranchOuts(g = At.g, src = At.src, value = this));
 	Ret -> E(e = At.g.edges[At.src]);
 	E switch {
 		Call(c) -> switch {
@@ -135,7 +144,8 @@ proc EdgeTargets(At): []Out {
 		},
 		Match(arms) -> MatchOuts(s = { paths = ArmPaths(arms = arms), value = Ret, i = 0, acc = [] }),
 		ForEach(f) -> ShowType(t = f.elem) as Elem,
-		Collect(c) -> id([{ ty = 4, target = c.target, label = None(), value = "[]" + Ret, args = c.text }])
+		Collect(c) -> id([{ ty = 4, target = c.target, label = None(), value = "[]" + Ret, args = c.text }]),
+		Spawn(sp) -> id(SpawnOuts(branches = sp.branches, value = Ret))
 	};
 	Elem -> id([{ ty = 2, target = ForEachCall(e = E).target, label = None(), value = this, args = ForEachCall(e = E).text }]);
 }

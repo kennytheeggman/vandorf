@@ -50,8 +50,8 @@
 //! declared order and the result is printed.
 
 use super::types::{Shape, TyRef, TypeTable};
-use super::{Artifact, ImplUse, MainSpec, Output, Writer, exported, gname, join_path, quote, snake};
-use crate::sema::{Arm, BinOp, Body, Call, Edge, Expr, Graph, NodeId, NodeKind, Pat, PatKind, Program, Query, Ref, RegionId, Root, Test, UnOp};
+use super::{Artifact, ImplUse, MainSpec, Output, Writer, exported, gname, join_path, live_after, quote, read_nodes, snake};
+use crate::sema::{Arm, BinOp, Body, Branch, Call, Edge, Expr, NodeId, NodeKind, Pat, PatKind, Program, Query, Ref, RegionId, Root, Test, UnOp};
 use crate::types::{Prim, Type};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
@@ -304,13 +304,13 @@ pub const RAW_REQUEST: &[(&str, &str)] =
     &[("method", "string"), ("path", "string"), ("query", "map[string]string"), ("headers", "map[string]string"), ("body", "string")];
 pub const RAW_RESPONSE: &[(&str, &str)] = &[("status", "int"), ("headers", "map[string]string"), ("body", "string")];
 
-fn show_shape(fs: &[(&str, &str)]) -> String {
+pub(crate) fn show_shape(fs: &[(&str, &str)]) -> String {
     format!("{{ {} }}", fs.iter().map(|(n, t)| format!("{n}: {t}")).collect::<Vec<_>>().join(", "))
 }
 
 /// Whether `t` is a struct of exactly these fields (a raw request or
 /// response).
-fn raw_shape(prog: &Program, t: &Type, want: &[(&str, &str)]) -> bool {
+pub(crate) fn raw_shape(prog: &Program, t: &Type, want: &[(&str, &str)]) -> bool {
     let defs = &prog.types;
     matches!(t.unfold(defs), Type::Struct(fs) if fs.len() == want.len()
         && want.iter().all(|(n, w)| fs.iter().any(|(f, ft)| f == n && ft.to_string() == *w || f == n && ft.unfold(defs).to_string() == *w)))
@@ -1194,8 +1194,62 @@ impl Gen<'_> {
                 let Some(Edge::Collect(c)) = proc.graph.edges.get(&sink) else { unreachable!() };
                 self.transition(w, pid, c);
             }
+            Some(Edge::Spawn { branches, join, joined }) => {
+                self.emit_spawn(w, branches, joined)?;
+                self.transition(w, pid, join);
+            }
         }
         w.line("}");
+        Ok(())
+    }
+
+    /// A spawn's branches, each a call of its node: detached ones on threads
+    /// of their own, which log a failure; joined ones on scoped threads
+    /// this step waits for, failing if any fails. `this` becomes the joined
+    /// outputs. The arguments are all built first, from the spawner's step.
+    fn emit_spawn(&mut self, w: &mut Writer, branches: &[Branch], joined: &Type) -> Result<(), String> {
+        let prog = self.prog;
+        let mut calls = vec![];
+        for (i, b) in branches.iter().enumerate() {
+            let n = b.call.target;
+            let mut args = vec![];
+            for a in &b.call.args {
+                let v = self.value(&a.value, &a.param);
+                let var = format!("a{i}_{}", local(&a.name));
+                w.line(&format!("let {var} = {v};"));
+                args.push(var);
+            }
+            let base = prog.base(n);
+            let callee = match prog.node(base).kind {
+                NodeKind::Proc(_) => format!("run_{}", snake(&gname(prog, base))),
+                _ => self.callee(n)?,
+            };
+            calls.push(format!("{callee}({}).map_err(|e| wrap({}, e.into()))", args.join(", "), quote(&prog.node(n).qual_name())));
+        }
+        for i in (0..branches.len()).filter(|&i| branches[i].detach) {
+            w.line(&format!(
+                "thread_builder().spawn(move || if let Err(e) = {} {{ eprintln!(\"error: {{}}\", describe_error(&e)); }}).expect(\"cannot spawn a thread\");",
+                calls[i],
+            ));
+        }
+        w.line("let this = std::thread::scope(|s| -> Result<_, Error> {");
+        let waited: Vec<usize> = (0..branches.len()).filter(|&i| !branches[i].detach).collect();
+        for &i in &waited {
+            w.line(&format!("let h{i} = thread_builder().spawn_scoped(s, move || {}).expect(\"cannot spawn a thread\");", calls[i]));
+        }
+        for &i in &waited {
+            w.line(&format!("let r{i} = h{i}.join().unwrap_or_else(|p| std::panic::resume_unwind(p))?;"));
+        }
+        let mut fields = vec![];
+        for &i in &waited {
+            let name = prog.node(branches[i].call.target).name();
+            if joined.field(name, &prog.types).is_some() {
+                let v = if self.is_boxed(joined, name) { format!("std::sync::Arc::new(r{i})") } else { format!("r{i}") };
+                fields.push(format!("{}: {v}", rust_ident(name)));
+            }
+        }
+        w.line(&format!("Ok({} {{ {} }})", self.rust_type(joined), fields.join(", ")));
+        w.line("})?;");
         Ok(())
     }
 
@@ -1335,68 +1389,6 @@ impl Gen<'_> {
         w.line(&format!("pc = Pc{}::{target};", gname(self.prog, pid)));
         w.line("continue;");
     }
-}
-
-/// Nodes whose output some edge of `g` reads.
-fn read_nodes(g: &Graph) -> HashSet<NodeId> {
-    g.edges.keys().flat_map(|&n| edge_reads(g, n)).collect()
-}
-
-/// Nodes whose output the edge from `n` reads (conditions, `for each`
-/// arrays and arguments).
-fn edge_reads(g: &Graph, n: NodeId) -> HashSet<NodeId> {
-    let mut exprs: Vec<&Expr> = vec![];
-    match g.edges.get(&n) {
-        None => {}
-        Some(Edge::Match(arms)) => arms.iter().for_each(|a| exprs.extend(a.conds())),
-        Some(Edge::ForEach { dim, .. }) => exprs.push(dim),
-        Some(_) => {}
-    }
-    if let Some(e) = g.edges.get(&n) {
-        for c in e.calls() {
-            exprs.extend(c.args.iter().map(|a| &a.value));
-        }
-    }
-    let mut refs = vec![];
-    for e in exprs {
-        e.refs(&mut refs);
-    }
-    refs.into_iter().filter_map(|r| if let Root::Node(m) = r.root { Some(m) } else { None }).collect()
-}
-
-/// States that can run after `n` in the same env: its calls' targets, and
-/// for a `for each` both the region (run on copies of the env, so its reads
-/// count) and the `collect` target. A region's sink ends its element.
-fn successors(g: &Graph, n: NodeId) -> Vec<NodeId> {
-    match g.edges.get(&n) {
-        None | Some(Edge::Collect(_)) => vec![],
-        Some(Edge::ForEach { call, .. }) => {
-            let sink = g.regions[g.opens[&n]].sink.unwrap();
-            let mut out = vec![call.target];
-            if let Some(Edge::Collect(c)) = g.edges.get(&sink) {
-                out.push(c.target);
-            }
-            out
-        }
-        Some(e) => e.calls().iter().map(|c| c.target).collect(),
-    }
-}
-
-/// Whether `m`'s slot can still be read once control moves to `target`:
-/// some state reachable from it reads `m` before `m` runs again.
-fn live_after(g: &Graph, target: NodeId, m: NodeId) -> bool {
-    let mut seen = HashSet::new();
-    let mut stack = vec![target];
-    while let Some(x) = stack.pop() {
-        if x == m || !seen.insert(x) {
-            continue;
-        }
-        if edge_reads(g, x).contains(&m) {
-            return true;
-        }
-        stack.extend(successors(g, x));
-    }
-    false
 }
 
 /// The Rust variable of a switch-arm binding.

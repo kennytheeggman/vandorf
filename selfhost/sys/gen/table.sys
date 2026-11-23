@@ -45,13 +45,27 @@ func IsAliasNode(n: NodeDecl): bool = "../sema/sema_leaf.rs:is_alias";
 func FindBoxed(t: Table): map[string]bool = "gen_leaf.rs:find_boxed";
 
 // The table for a program: its typedefs first, then every func parameter
-// and every node's return.
+// and every node's return, then what each spawn's join receives.
 proc BuildTable(At): Table {
 	func At(prog: Program): Program = "../leaf.rs:same";
 	func Reserved(types: []TypeDef): map[string]bool = "gen_leaf.rs:reserved";
 	At -> TypedefTypes(s = { t = { types = [], aliases = [], by_key = [:], boxed = [:], reserved = Reserved(types = this.types), defs = this.types }, i = 0 });
 	TypedefTypes -> NodeTypes(s = { t = this, prog = At, i = 0 });
-	NodeTypes -> id({ ..this, boxed = FindBoxed(t = this) });
+	NodeTypes -> JoinedTypes(s = { t = this, prog = At, joins = SpawnJoins(prog = At), i = 0 });
+	JoinedTypes -> id({ ..this, boxed = FindBoxed(t = this) });
+}
+
+type SpawnJoin = { src: int, joined: Type };
+// Each spawn's joined type, by proc, spawners in node order.
+func SpawnJoins(prog: Program): []SpawnJoin = "gen_leaf.rs:spawn_joins";
+
+proc JoinedTypes(At): Table {
+	func At(s: { t: Table, prog: Program, joins: []SpawnJoin, i: int }): { t: Table, prog: Program, joins: []SpawnJoin, i: int } = "../leaf.rs:same";
+	At switch {
+		(this.i == this.joins.len) -> id(this.t),
+		else -> Register(s = { t = this.t, ty = this.joins[this.i].joined, hint = Gname(n = this.prog.nodes[this.joins[this.i].src]) + "Joined", origin = "joined branches of " + QualName(n = this.prog.nodes[this.joins[this.i].src]) + "'s spawn" })
+	};
+	Register -> At(s = { t = this.t, prog = At.prog, joins = At.joins, i = At.i + 1 });
 }
 
 proc TypedefTypes(At): Table {

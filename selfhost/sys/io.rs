@@ -75,6 +75,21 @@ pub fn rustfmt(files: List<Str>) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Runs gofmt -w over the files if it's installed.
+pub fn gofmt(files: List<Str>) -> Result<bool, String> {
+    let paths: Vec<&str> = files.iter().map(|f| &**f).collect();
+    match std::process::Command::new("gofmt")
+        .arg("-w")
+        .args(&paths)
+        .status()
+    {
+        Ok(s) if !s.success() => eprintln!("note: gofmt failed ({s})"),
+        Ok(_) => {}
+        Err(e) => eprintln!("note: gofmt not run ({e})"),
+    }
+    Ok(true)
+}
+
 pub fn shell(cmd: Str, dir: Str) -> Result<super::types::ResString, String> {
     use super::types::{Diag, ResString, Span};
     let mut c = std::process::Command::new(if cfg!(windows) { "cmd" } else { "sh" });

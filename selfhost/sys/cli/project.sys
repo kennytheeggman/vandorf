@@ -8,7 +8,7 @@ type GoTarget = { out: string, package: MaybeStr, module: MaybeStr, types_dir: M
 type MaybeGo = enum { None, Some(GoTarget) };
 // `[http.<name>]`, as written. setup: a proc run before serving, whose
 // result each route takes as ctx.
-type ServerDecl = { addr: string, setup: MaybeStr, routes: map[string]string, raw: map[string]string, statics: map[string]string, rust: MaybeStr };
+type ServerDecl = { addr: string, setup: MaybeStr, routes: map[string]string, raw: map[string]string, statics: map[string]string, go: MaybeStr, rust: MaybeStr };
 type RustTarget = { out: string, module_dir: MaybeStr, post: []string, test: []string };
 type MaybeRust = enum { None, Some(RustTarget) };
 type Bin = { entry: string, go: MaybeStr, rust: MaybeStr };

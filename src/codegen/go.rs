@@ -22,6 +22,17 @@
 //! `for each` region (see [`crate::sema::Region`]) compiles to its own state
 //! machine run once per element, concurrently, on a copy of the env; the
 //! parent resumes at the collect target with the ordered results as `this`.
+//! Slots are cleared once spent (an input after its node runs, an output at
+//! its last read, as in the Rust backend), so the collector can reclaim what
+//! they held.
+//!
+//! Values are immutable, and slices, maps and strings share what they point
+//! to, so copies are cheap. Arrays built by `+` (`sliceConcat` in the
+//! runtime) also keep a reserve of spare capacity, hidden from every slice
+//! handed out (each is clipped to its length, so implementations see plain
+//! slices and an append of theirs copies): a `+` whose left side is the
+//! newest extension of its array appends into the reserve, so `acc + [x]`
+//! in a loop costs amortized O(1). Maps still copy on `+` and `-`.
 //!
 //! # Implementations
 //!
@@ -44,8 +55,8 @@
 //! printing its result.
 
 use super::types::{Shape, TyRef, TypeTable};
-use super::{Artifact, ImplUse, MainSpec, Output, Writer, dir_of, exported, gname, join_path, quote};
-use crate::sema::{Arm, BinOp, Body, Call, Edge, Expr, NodeId, NodeKind, Pat, PatKind, Program, Query, Ref, RegionId, Root, Test, UnOp};
+use super::{Artifact, ImplUse, MainSpec, Output, Writer, dir_of, exported, gname, join_path, last_reads, quote, read_nodes};
+use crate::sema::{Arm, BinOp, Body, Branch, Call, Edge, Expr, NodeId, NodeKind, Pat, PatKind, Program, Query, Ref, RegionId, Root, Test, UnOp};
 use crate::types::{Prim, Type};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
@@ -62,11 +73,16 @@ pub struct GoOptions {
     pub types_dir: String,
     /// Executables to generate, each a `package main` in its own directory.
     pub mains: Vec<MainSpec>,
+    /// HTTP servers to generate: together `http_vandorf.go` in the code
+    /// package, and each a `package main` in its own directory.
+    pub servers: Vec<GoServer>,
 }
+
+pub use super::go_http::GoServer;
 
 impl GoOptions {
     pub fn new(package: impl Into<String>, import_base: Option<String>) -> GoOptions {
-        GoOptions { package: package.into(), import_base, types_dir: "types".into(), mains: vec![] }
+        GoOptions { package: package.into(), import_base, types_dir: "types".into(), mains: vec![], servers: vec![] }
     }
 }
 
@@ -169,11 +185,16 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<Output, String> {
         body.push('\n');
         body.push_str(h);
     }
-    let imports = ["cmp", "context", "fmt", "slices", "sync"].iter().map(|i| (i.to_string(), None)).collect();
+    let imports = ["cmp", "context", "fmt", "os", "runtime", "slices", "sync", "unsafe"].iter().map(|i| (i.to_string(), None)).collect();
     files.insert("runtime_vandorf.go".into(), file(&body, imports));
 
     if let Some(e) = g.failed.take() {
         return Err(e);
+    }
+    if !opts.servers.is_empty() {
+        let body = super::go_http::http_body(prog, &table, &g.tq, &opts.servers)?;
+        let imports = super::go_http::HTTP_IMPORTS.iter().map(|i| (i.to_string(), None)).collect();
+        files.insert("http_vandorf.go".into(), file(&body, imports));
     }
     let impls = prog
         .nodes
@@ -190,7 +211,10 @@ pub fn generate(prog: &Program, opts: &GoOptions) -> Result<Output, String> {
             NodeKind::Proc(_) | NodeKind::Alias(_) | NodeKind::Id(_) => None,
         })
         .collect();
-    let mains = opts.mains.iter().map(|m| main_artifact(prog, opts, m)).collect::<Result<_, _>>()?;
+    let mut mains: Vec<Artifact> = opts.mains.iter().map(|m| main_artifact(prog, opts, m)).collect::<Result<_, _>>()?;
+    for srv in &opts.servers {
+        mains.push(super::go_http::server_main(srv, &opts.package, opts.import_base.as_deref(), header)?);
+    }
     Ok(Output { types, code: Artifact { dir: String::new(), files }, mains, impls })
 }
 
@@ -850,7 +874,14 @@ impl Gen<'_> {
             w.line(&format!("return zero, fmt.Errorf({}, err)", quote(&format!("{qual}: %w"))));
             w.line("}");
         }
-        w.line(&format!("env.out{id} = this"));
+        // The input is spent; the output is kept only for the edges that
+        // read it, and let go at its last read (see transition).
+        w.line(&format!("zeroOut(&env.in{id})"));
+        if read_nodes(&proc.graph).contains(&n) {
+            w.line(&format!("env.out{id} = this"));
+        } else {
+            w.line("_ = this");
+        }
 
         let Some(edge) = proc.graph.edges.get(&n) else {
             let e = self.coerce("this", ret, &proc.ret);
@@ -884,7 +915,88 @@ impl Gen<'_> {
                 self.transition(w, pid, c);
                 w.line("}");
             }
+            Edge::Spawn { branches, join, joined } => {
+                w.line("{");
+                self.emit_spawn(w, branches, joined)?;
+                self.transition(w, pid, join);
+                w.line("}");
+            }
         }
+        Ok(())
+    }
+
+    /// A spawn's branches, each a call of its node: detached ones through
+    /// spawnDetached, joined ones through joinAll, which this step waits
+    /// for. `this` becomes the joined outputs. The arguments are all built
+    /// first, from the spawner's step.
+    fn emit_spawn(&mut self, w: &mut Writer, branches: &[Branch], joined: &Type) -> Result<(), String> {
+        let prog = self.prog;
+        let mut calls = vec![];
+        for (i, b) in branches.iter().enumerate() {
+            let n = b.call.target;
+            let mut call = match prog.node(prog.base(n)).kind {
+                NodeKind::Proc(_) => format!("Run{}", gname(prog, prog.base(n))),
+                _ => self.callee(n)?,
+            };
+            call.push_str("(ctx");
+            for a in &b.call.args {
+                let v = self.value(w, &a.value, &a.param);
+                let var = format!("a{i}{}", exported(&a.name));
+                w.line(&format!("{var} := {v}"));
+                write!(call, ", {var}").unwrap();
+            }
+            call.push(')');
+            // Void funcs return only an error.
+            let err_only = matches!(prog.node(prog.base(n)).kind, NodeKind::Func(_)) && prog.ret(n).is_void();
+            calls.push((call, err_only, quote(&format!("{}: %w", prog.node(n).qual_name()))));
+        }
+        for i in (0..branches.len()).filter(|&i| branches[i].detach) {
+            let (call, err_only, wrap) = &calls[i];
+            let run = if *err_only { format!("err := {call}") } else { format!("_, err := {call}") };
+            w.line(&format!("spawnDetached(ctx, func(ctx context.Context) error {{"));
+            w.line(&run);
+            w.line("if err != nil {");
+            w.line(&format!("return fmt.Errorf({wrap}, err)"));
+            w.line("}");
+            w.line("return nil");
+            w.line("})");
+        }
+        let waited: Vec<usize> = (0..branches.len()).filter(|&i| !branches[i].detach).collect();
+        let mut fields = vec![];
+        for &i in &waited {
+            let n = branches[i].call.target;
+            let name = prog.node(n).name();
+            if joined.field(name, &prog.types).is_some() {
+                w.line(&format!("var r{i} {}", self.go_type(prog.ret(n))));
+                let boxed = self.table.index(joined).is_some_and(|j| self.table.is_boxed(j, name));
+                fields.push(format!("{}: {}", exported(name), if boxed { format!("ptrTo(r{i})") } else { format!("r{i}") }));
+            }
+        }
+        w.line("if err := joinAll(ctx,");
+        for &i in &waited {
+            let (call, err_only, wrap) = &calls[i];
+            let n = branches[i].call.target;
+            let kept = joined.field(prog.node(n).name(), &prog.types).is_some();
+            w.line("func(ctx context.Context) error {");
+            match (err_only, kept) {
+                (true, _) => w.line(&format!("err := {call}")),
+                (false, true) => {
+                    w.line("var err error");
+                    w.line(&format!("r{i}, err = {call}"));
+                }
+                (false, false) => w.line(&format!("_, err := {call}")),
+            }
+            w.line("if err != nil {");
+            w.line(&format!("return fmt.Errorf({wrap}, err)"));
+            w.line("}");
+            w.line("return nil");
+            w.line("},");
+        }
+        w.line("); err != nil {");
+        w.line("return zero, err");
+        w.line("}");
+        w.line(&format!("this := {}{{{}}}", self.go_type(joined), fields.join(", ")));
+        w.line("_ = this");
         Ok(())
     }
 
@@ -972,6 +1084,10 @@ impl Gen<'_> {
     fn transition(&mut self, w: &mut Writer, pid: NodeId, c: &Call) {
         let input = self.input(w, c);
         w.line(&format!("env.in{} = {input}", gname(self.prog, c.target)));
+        // Outputs no later state reads, so the collector can reclaim them.
+        for n in last_reads(&self.prog.proc(pid).graph, c) {
+            w.line(&format!("zeroOut(&env.out{})", gname(self.prog, n)));
+        }
         w.line(&format!("pc = {}", pc_name(self.prog, pid, c.target)));
         w.line("continue");
     }
@@ -1095,10 +1211,61 @@ func mapMerge[K comparable, V any](a, b map[K]V) map[K]V {
 	return r
 }
 
-// sliceConcat returns a new slice with a's elements, then b's.
+// Arrays that sliceConcat builds keep spare capacity in reserve. The
+// reserve is hidden from every slice handed out, whose capacity is clipped
+// to its length, so code that appends to one (implementations included)
+// always copies. reserves records each such array by the address of its
+// first element: how much of it is filled. A + whose left side ends
+// exactly there appends into the reserve; any other copies. So values
+// never change where anyone can see, and a loop like acc + [x] costs
+// amortized O(1) per element. A finalizer drops an array's entry when it's
+// freed, before its address can be reused.
+type reserve struct{ filled, cap int }
+
+var (
+	reservesMu sync.Mutex
+	reserves   = map[uintptr]reserve{}
+)
+
+// sliceConcat returns a new slice with a's elements, then b's; neither
+// changes.
 func sliceConcat[E any](a, b []E) []E {
-	r := make([]E, 0, len(a)+len(b))
-	return append(append(r, a...), b...)
+	n := len(a) + len(b)
+	var zero E
+	size := int(unsafe.Sizeof(zero))
+	if size == 0 {
+		// All zero-size arrays share one address: nothing to reserve.
+		return make([]E, n)
+	}
+	if p := unsafe.SliceData(a); p != nil {
+		base := uintptr(unsafe.Pointer(p))
+		reservesMu.Lock()
+		if r, ok := reserves[base]; ok && r.filled == len(a) && n <= r.cap {
+			reserves[base] = reserve{n, r.cap}
+			reservesMu.Unlock()
+			full := unsafe.Slice(p, r.cap)
+			copy(full[len(a):n], b)
+			return full[:n:n]
+		}
+		reservesMu.Unlock()
+	}
+	// Room to double, and over 16 bytes: the tiny allocator's blocks may
+	// never be finalized.
+	c := max(2*n, 16/size+1)
+	r := make([]E, n, c)
+	copy(r, a)
+	copy(r[len(a):], b)
+	p := unsafe.SliceData(r)
+	base := uintptr(unsafe.Pointer(p))
+	reservesMu.Lock()
+	reserves[base] = reserve{n, c}
+	reservesMu.Unlock()
+	runtime.SetFinalizer(p, func(*E) {
+		reservesMu.Lock()
+		delete(reserves, base)
+		reservesMu.Unlock()
+	})
+	return r[:n:n]
 }
 
 // mapRemove returns a new map without the keys ks.
@@ -1117,6 +1284,48 @@ func mapRemove[K comparable, V any](m map[K]V, ks []K) map[K]V {
 // itself.
 func ptrTo[T any](v T) *T {
 	return &v
+}
+
+// zeroOut clears a slot no later state reads, so the garbage collector can
+// reclaim what it held.
+func zeroOut[T any](p *T) {
+	var zero T
+	*p = zero
+}
+
+// joinAll runs fs concurrently and waits for all of them: a spawn's joined
+// branches. The first error cancels the rest and is returned.
+func joinAll(ctx context.Context, fs ...func(context.Context) error) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var (
+		wg    sync.WaitGroup
+		once  sync.Once
+		first error
+	)
+	for _, f := range fs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := f(ctx); err != nil {
+				once.Do(func() { first = err; cancel() })
+			}
+		}()
+	}
+	wg.Wait()
+	return first
+}
+
+// spawnDetached runs f on a goroutine of its own, a spawn's detached branch:
+// nothing waits for it, it outlives ctx's cancellation, and a failure is
+// only reported.
+func spawnDetached(ctx context.Context, f func(context.Context) error) {
+	ctx = context.WithoutCancel(ctx)
+	go func() {
+		if err := f(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		}
+	}()
 }
 
 // fanOut runs f over xs concurrently and returns the results in input order.

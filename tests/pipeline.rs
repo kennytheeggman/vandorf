@@ -902,6 +902,62 @@ mod codegen {
     }
 
     #[test]
+    fn go_http_servers_route_and_pass_ctx() {
+        let src = r#"
+            type Ctx = { greeting: string };
+            proc Setup(S): Ctx { func S(): Ctx; }
+            proc Hi(B): string { func B(name: string, ctx: Ctx): string; }
+            proc Calc(C): int { func C(n: int): int; }
+            type Req = { method: string, path: string, query: map[string]string, headers: map[string]string, body: string };
+            proc Page(P): { status: int, headers: map[string]string, body: string } {
+                func P(ctx: Ctx, req: Req): { status: int, headers: map[string]string, body: string };
+            }
+        "#;
+        let prog = vandorf::compile("t.sys", src).unwrap();
+        let plain = go::GoServer {
+            name: "api".into(),
+            addr: "127.0.0.1:9".into(),
+            routes: vec![("POST".into(), "/calc".into(), "Calc".into())],
+            statics: vec![("/".into(), "web/index.html".into(), "text/html; charset=utf-8".into(), "<p>\"hi\"\r\n".into())],
+            path: "../cmd/api".into(),
+            ..Default::default()
+        };
+        let web = go::GoServer {
+            name: "web-api".into(),
+            setup: Some("Setup".into()),
+            routes: vec![("GET".into(), "/hi".into(), "Hi".into())],
+            raw: vec![("GET".into(), "/".into(), "Page".into())],
+            statics: vec![],
+            path: "../cmd/web".into(),
+            ..plain.clone()
+        };
+        let mut opts = go::GoOptions::new("app", Some("example.com/app".into()));
+        opts.servers = vec![plain.clone(), web];
+        let out = go::generate(&prog, &opts).unwrap();
+        let http = &out.code.files["http_vandorf.go"];
+        assert!(http.contains("func httpCallCalc(ctx context.Context, params any) (string, int, error) {"), "{http}");
+        assert!(http.contains("case \"POST /calc\":\n\t\treturn httpJSONRoute(ctx, req, httpCallCalc), true"), "{http}");
+        // ctx comes from the setup, never from the request.
+        assert!(http.contains("var httpCtxWeb_api types.Ctx") && http.contains("func HTTPSetupWeb_api(ctx context.Context) error {"), "{http}");
+        assert!(http.contains("argCtx := httpCtxWeb_api") && !http.contains("httpArg(params, \"ctx\""), "{http}");
+        assert!(http.contains("res, err := RunPage(ctx, httpCtxWeb_api, r)"), "{http}");
+        let mains: Vec<(&str, &String)> = out.mains.iter().map(|a| (a.dir.as_str(), &a.files["main_vandorf.go"])).collect();
+        let api = mains.iter().find(|m| m.0 == "../cmd/api").unwrap().1;
+        assert!(api.contains("{Path: \"/\", Type: \"text/html; charset=utf-8\", Body: \"<p>\\\"hi\\\"\\r\\n\"},"), "{api}");
+        assert!(api.contains("app.HTTPRun(\"127.0.0.1:9\", app.HTTPHandleApi, statics)"), "{api}");
+        let web = mains.iter().find(|m| m.0 == "../cmd/web").unwrap().1;
+        assert!(web.contains("app.HTTPRunSetup(\"127.0.0.1:9\", app.HTTPSetupWeb_api, app.HTTPHandleWeb_api, statics)"), "{web}");
+        // The same checks as Rust's.
+        let bad = go::GoServer { raw: vec![("GET".into(), "/".into(), "Calc".into())], ..plain.clone() };
+        opts.servers = vec![bad];
+        let e = go::generate(&prog, &opts).unwrap_err();
+        assert!(e.contains("raw route proc Calc must take one {"), "{e}");
+        opts.servers = vec![go::GoServer { setup: Some("Setup".into()), ..plain }];
+        let e = go::generate(&prog, &opts).unwrap_err();
+        assert!(e.contains("route proc Calc must take ctx: Ctx, its setup proc Setup's result"), "{e}");
+    }
+
+    #[test]
     fn rust_http_setup_passes_its_result_as_ctx() {
         let src = r#"
             type Ctx = { greeting: string };
@@ -971,5 +1027,74 @@ mod codegen {
         assert!(go::generate(&no_main, &opts).unwrap_err().contains("calc runs proc Calc, but there is no top-level proc Calc"));
         let arr = vandorf::compile("t.sys", "proc Calc(A): int { func A(l: []int): int; }").unwrap();
         assert!(go::generate(&arr, &opts).unwrap_err().contains("parameter l"));
+    }
+}
+
+#[test]
+fn spawn_runs_branches_in_a_row_and_joins() {
+    let doc = document::generate(&compile(
+        r#"
+        proc P(A): int {
+            func A(): int;
+            func B(n: int): int;
+            func C(n: int): string;
+            func L(s: string): void;
+            func S(n: int): void;
+            func D(b: int, b2: int, c: string): int;
+            A -> spawn { B(n = this), B(n = this + 1) as B2, C(n = this), S(n = 1), detach L(s = "x") } join D(b = this.B, b2 = this.B2, c = this.C);
+        }
+        "#,
+    ));
+    let g = &doc.grids["P"];
+    assert_eq!(labels(g), vec![vec!["A"], vec!["B", "B2", "C", "S", "L"], vec!["D"]]);
+    let types: Vec<EdgeType> = g.edges.iter().map(|e| e.ty).collect();
+    use EdgeType::{Join, Spawn};
+    assert_eq!(types, vec![Spawn, Spawn, Spawn, Spawn, Spawn, Join, Join, Join, Join]);
+    let marks: Vec<Option<&str>> = g.rows[1].nodes.iter().map(|n| n.branch).collect();
+    assert_eq!(marks, vec![Some("joined"); 4].into_iter().chain([Some("detached")]).collect::<Vec<_>>());
+    // The join receives the joined branches' outputs; void ones are waited for but carry nothing.
+    let join = g.edges.iter().find(|e| e.ty == Join).unwrap();
+    assert_eq!(join.value_type.as_deref(), Some("{ B: int, B2: int, C: string }"));
+}
+
+#[test]
+fn spawn_of_detached_branches_passes_on_at_once() {
+    let doc = document::generate(&compile(
+        r#"
+        proc P(A): int {
+            func A(): int;
+            func L(s: string): void;
+            A -> spawn { detach L(s = "a"), detach L(s = "b") as L2 } join id(A);
+        }
+        "#,
+    ));
+    let g = &doc.grids["P"];
+    assert_eq!(labels(g), vec![vec!["A"], vec!["L", "L2"], vec!["id"]]);
+    let types: Vec<EdgeType> = g.edges.iter().map(|e| e.ty).collect();
+    assert_eq!(types, vec![EdgeType::Spawn, EdgeType::Spawn, EdgeType::Pass]);
+}
+
+#[test]
+fn spawn_errors() {
+    let cases = [
+        // A branch has no edge of its own.
+        ("A -> spawn { B(n = 1) } join D(b = this.B); B -> D(b = this);", "can't have an edge of its own"),
+        // Its output is only the join's.
+        ("A -> spawn { B(n = 1) } join D(b = this.B); D -> E(b = B);", "only visible to the join, as this.B"),
+        ("A -> spawn { B(n = 1), B(n = 2) } join D(b = this.B);", "runs twice in this spawn"),
+        ("A -> spawn { B(n = 1) } join D(b = this.B); D -> B(n = this);", "also called directly"),
+        ("A -> spawn { id(1) } join D(b = 1);", "can't run in a spawn branch"),
+        // A detached branch's output goes nowhere.
+        ("A -> spawn { detach B(n = 1) } join D(b = this.B);", "B is detached, so the join doesn't get its output"),
+        ("A -> spawn { B(n = 1) } join D(b = this.C);", "C"),
+        ("A -> spawn { I.B(n = 1), J.B(n = 2) } join D(b = this.B);", "two joined branches are named B"),
+    ];
+    for (edges, want) in cases {
+        let src = format!(
+            "interface I {{ func B(n: int): int; }} interface J {{ func B(n: int): int; }}
+            proc P(A): int {{ func A(): int; func B(n: int): int; func D(b: int): int; func E(b: int): int; {edges} }}"
+        );
+        let e = compile_err(&src);
+        assert!(e.contains(want), "{edges}\n{e}");
     }
 }

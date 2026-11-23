@@ -214,14 +214,25 @@ $('banner').onclick = function(){ setMode('text'); };
 
 /* ---------- compile ---------- */
 var seq = 0, timer = null;
+/* The diagram first, without the generated code; then, in the
+   background, the code too, only for the status line's "codegen failed". */
 function compile(){
-  var my = ++seq;
+  var my = ++seq, source = editor.get();
   status('Compiling…');
-  fetch('/api/compile', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path: S.path, source: editor.get() }) })
-    .then(function(r){ return r.json(); })
-    .then(function(res){ if (my === seq) show(res); })
-    .catch(function(e){ if (my === seq) status('Network error: ' + e, 'bad'); });
+  var req = function(previews){
+    return fetch('/api/compile', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: S.path, source: source, previews: previews }) }).then(function(r){ return r.json(); });
+  };
+  req(false).then(function(res){
+    if (my !== seq) return;
+    show(res);
+    if (res.ok) return req(true).then(function(full){ if (my === seq && full.ok) codegenStatus(full); });
+  }).catch(function(e){ if (my === seq) status('Network error: ' + e, 'bad'); });
+}
+function codegenStatus(res){
+  var failed = [res.go && res.go.ok === false && res.go.error !== 'not configured in vandorf.toml' ? 'Go' : null,
+                res.rust && res.rust.ok === false && res.rust.error !== 'not configured in vandorf.toml' ? 'Rust' : null].filter(Boolean);
+  status('OK' + (failed.length ? ' · ' + failed.join(', ') + ' codegen failed' : ''), failed.length ? 'bad' : 'ok');
 }
 function show(res){
   S.res = res;
@@ -250,9 +261,7 @@ function show(res){
   }
   d.classList.remove('on'); d.innerHTML = ''; $('banner').classList.remove('on');
   S.good = res;
-  var failed = [res.go && res.go.ok === false && res.go.error !== 'not configured in vandorf.toml' ? 'Go' : null,
-                res.rust && res.rust.ok === false && res.rust.error !== 'not configured in vandorf.toml' ? 'Rust' : null].filter(Boolean);
-  status('OK' + (failed.length ? ' · ' + failed.join(', ') + ' codegen failed' : ''), failed.length ? 'bad' : 'ok');
+  codegenStatus(res);
   if (!S.proc || !res.document.grids[S.proc]){
     var mine = procsHere();
     if (S.proc && !res.document.grids[S.proc]) status('proc ' + S.proc + ' is gone', 'bad');
@@ -416,7 +425,7 @@ function locLink(loc){
   return (loc.file === S.path ? '' : loc.file.split('/').pop() + ':') + 'line ' + (loc.line + 1);
 }
 var BADGE = { proc: 'P', func: 'ƒ', type: 'T', interface: 'I', edge: 'E', switch: '◇', builtin: 'B', none: 'i' };
-var EDGE_KIND = { call: 'calls', match: 'match arm', expand: 'expands', continue: 'continues', collect: 'collects' };
+var EDGE_KIND = { call: 'calls', match: 'match arm', expand: 'expands', continue: 'continues', collect: 'collects', spawn: 'spawns', join: 'joins', pass: 'passes on' };
 function nodeRef(n){
   if (!n) return '';
   var k = n.kind === 'proc' ? 'proc' : n.kind === 'func' ? (n.iface ? 'interface' : 'func') : null;

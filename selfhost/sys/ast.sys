@@ -38,8 +38,11 @@ type EdgeKind = enum {
 	Call(Target),
 	Match([]Arm),
 	Collect({ dim: Ident, target: Target }),
-	ForEach({ dim: Value, target: Target })
+	ForEach({ dim: Value, target: Target }),
+	Spawn({ branches: []Branch, join: Target })
 };
+// detach: nothing waits for the branch.
+type Branch = { detach: bool, target: Target };
 
 // `head` spans the arm's head, for diagram labels.
 type Arm = { head: Head, span: Span, body: Body };

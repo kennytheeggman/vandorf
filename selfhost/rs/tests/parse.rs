@@ -206,6 +206,17 @@ fn r_edge(o: &mut Out, e: &r::Edge) {
             r_value(o, dim);
             r_target(o, target);
         }
+        r::EdgeKind::Spawn { branches, join } => {
+            o.open("spawn");
+            for b in branches {
+                o.open(if b.detach { "detach" } else { "branch" });
+                r_target(o, &b.target);
+                o.close();
+            }
+            o.open("join");
+            r_target(o, join);
+            o.close();
+        }
     }
     o.close();
     o.span(e.span.start, e.span.end);
@@ -550,6 +561,17 @@ fn v_edge(o: &mut Out, e: &v::Edge) {
             v_value(o, &f.dim);
             v_target(o, &f.target);
         }
+        v::EdgeKind::Spawn(sp) => {
+            o.open("spawn");
+            for b in sp.branches.iter() {
+                o.open(if b.detach { "detach" } else { "branch" });
+                v_target(o, &b.target);
+                o.close();
+            }
+            o.open("join");
+            v_target(o, &sp.join);
+            o.close();
+        }
     }
     o.close();
     sp(o, &e.span);
@@ -795,6 +817,8 @@ fn parses_tricky_syntax_like_the_reference() {
             Unit() -> X(),
             other -> id(0)
         }; }"#,
+        // Spawns: detached and aliased branches, a trailing comma, any join.
+        r#"proc P(A): int { A -> spawn { B(n = this), detach C(s = "x") as C2, D(), } join E(b = this.B); E -> spawn { detach F() } join id(1); }"#,
         // Types, impls, interfaces, nested procs, collect and for each.
         r#"proc P(A): int { func A(): int; A -> B(s = { ..this }, t = { ..A.x, y = 1, z = { ..q } }, u = { ..this, }); }"#,
         r#"type R<T> = { x: T, pos: int };
