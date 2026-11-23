@@ -85,7 +85,11 @@ function build(){
       d.dirs[k] = c; squash(c);
     });
   })(root);
-  return root;
+  // The working directory is the top row, so a manifest there (a project
+  // opened from its own directory) has its project row too.
+  root.name = (data.root || '').replace(/\/+$/, '').split('/').pop() || '/';
+  root.path = '';
+  return { dirs: { '': root }, files: [] };
 }
 
 function hl(s, q){
