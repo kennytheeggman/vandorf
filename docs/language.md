@@ -7,11 +7,12 @@ in any order. Comments run from `//` to the end of the line.
 ```
 type Expr = enum { Lit(int), Neg(Expr), Add({ l: Expr, r: Expr }) };
 
-proc Calc(Build): int {
+proc Calc(base: int): int {
 	func Build(base: int): Expr = "../go/app/impl.go:Build", "../rs/src/impls.rs:build";
 	func Eval(e: Expr, scale: int): int = "../go/app/impl.go:Eval", "../rs/src/impls.rs:eval";
 	func Total(xs: []int): int = "../go/app/impl.go:Total", "../rs/src/impls.rs:total";
 
+	Calc -> Build(base = this.base);
 	Build -> Eval(e = Add({ l = Neg(this), r = Lit(10) }), scale = 1);
 	Eval -> Eval(e = Build, scale = 2) as Twice;
 	Twice -> Total(xs = [Eval, Twice, 100]);
@@ -57,24 +58,57 @@ A proc calls one as `Foo.Call(s = this)`, and later edges name its node
 
 ## Procs
 
-A proc is a graph of nodes. Its header names its **entry**, the first node
-to run, and its result type:
+A proc is a graph of nodes. It's declared like a func, except that a body
+takes the place of `= "file:function"`:
 
 ```
-proc Main(Start): string {
+proc Main(a: int, b: string): string {
 	func Start(a: int, b: string): { a: int, b: string } = "../go/app/impl.go:Args", "../rs/src/impls.rs:args";
 
+	Main -> Start(a = this.a, b = this.b);
 	Start -> Bar(a = this.a, b = this.b);
 }
 ```
 
-- A proc's parameters are its entry's: `Main` takes `a` and `b`, and calling
-  it as a node (`Main(a = 1, b = "x")`) runs `Start` with them.
+- The header is the proc's **signature**: its parameters and its result
+  type. Callers call it like a func: `Main(a = 1, b = "x")`.
+- The proc's own name is its **signature node**, the first node to run.
+  Its output is its parameters, by name: `this.a` on its edge, `Main.b`
+  anywhere after. The body must start from it: its first edge leaves
+  `Main` (`Main -> ..`, `Main switch { .. }`, `Main for each ..`), or it's
+  an error at that edge.
 - The body declares funcs (and nested procs), then **edges**.
 - A proc ends at a node with no outgoing edge, whose result is the proc's,
   so every such node returns the proc's type; or with `id(value)`, below.
-- Procs are nodes too: an edge can call another proc, or the same one
-  recursively (`Neg(e) -> Classify(e = e) as Inner`).
+- Procs are nodes too: an edge can call another proc, or the same one.
+
+### Loops and recursion
+
+Inside a proc, its own name is the signature node, so:
+
+- A bare `-> Main(..)` is a back edge to the signature node: a **loop**,
+  running the body again with new parameters.
+- `-> Main(..) as Inner` is a **recursive call**: a separate instance of
+  the proc, which returns to `Inner` (the usual rule for aliases, below).
+
+```
+proc Count(n: int, acc: int): int {
+	Count switch {
+		(this.n == 0) -> id(this.acc),
+		else -> Count(n = this.n - 1, acc = this.acc + this.n)
+	};
+}
+
+proc Fib(n: int): int {
+	func Add(a: int, b: int): int;
+	Fib switch {
+		(this.n < 2) -> id(this.n),
+		else -> Fib(n = this.n - 1) as A
+	};
+	A -> Fib(n = Fib.n - 2) as B;
+	B -> Add(a = A, b = this);
+}
+```
 
 ## Edges
 
@@ -107,6 +141,37 @@ again.
 type: `A switch { (this > 0) -> id({ n = this, tags = [] }), .. }`. It's the
 identity func, built in, so procs don't need an identity func per result
 type. Each `id(..)` is its own node, drawn as a dot.
+
+`id(value) as N` is a node N whose output is the value. Unlike a bare
+`id(..)` it can have an edge of its own, so it doesn't end the proc: it
+binds a value to a name, to switch on or read later, or merges several
+branches into one node. Every `id(..) as N` in a proc is the same node;
+its type is that of the values passed to it, which must agree.
+
+```
+Merge switch {
+	{ e = A(x) } -> id(x) as D,
+	{ e = B(x) } -> id(x + 1) as D
+};
+D -> G(x = this);
+```
+
+That makes loop heads in the middle of a proc, too:
+
+```
+proc Sum(xs: []int): int {
+	Sum -> id({ i = 0, acc = 0 }) as L;
+	L switch {
+		(L.i == Sum.xs.len) -> id(L.acc),
+		else -> id({ i = L.i + 1, acc = L.acc + Sum.xs[L.i] }) as L
+	};
+}
+```
+
+The type comes from the first value that has one of its own, so a struct
+literal there (`{ i = 0, acc = 0 }`) has its fields' types; an empty `[]`
+or `[:]` has none, so write the first value with an element, or pass it
+through a typed node.
 
 ### For each
 

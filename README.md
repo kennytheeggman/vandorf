@@ -65,10 +65,11 @@ entry = "Main"
 
 ```
 // sys/main.sys
-proc Main(Greet): string {
+proc Main(name: string): string {
 	func Greet(name: string): string = "../rs/src/impls.rs:greet";
 	func Shout(s: string): string = "../rs/src/impls.rs:shout";
 
+	Main -> Greet(name = this.name);
 	Greet -> Shout(s = this);
 }
 ```
@@ -103,9 +104,10 @@ pub fn shout(s: Str) -> Result<Str, String> {
 }
 ```
 
-`Main` takes `Greet`'s parameters from the command line, runs it, then
-`Shout` with its result: `cargo run --bin hello -- world` (in `rs/`)
-prints `HELLO, WORLD!`.
+`Main` is declared like a func: its parameters come from the command line,
+and its body starts from its own name, whose output is them (`this.name`).
+It runs `Greet`, then `Shout` with its result: `cargo run --bin hello --
+world` (in `rs/`) prints `HELLO, WORLD!`.
 
 ## Examples
 
@@ -138,8 +140,9 @@ that the arms cover every value. `id(value)` ends the proc with a value, and
 ```
 type Expr = enum { Lit(int), Neg(Expr), Add({ l: Expr, r: Expr }) };
 
-proc Classify(Look): string {
+proc Classify(e: Expr): string {
 	...
+	Classify -> Look(e = this.e);
 	Look switch {
 		Lit(n) -> switch {
 			(Small(i = n) && n % 2 == 0) -> id("small even"),

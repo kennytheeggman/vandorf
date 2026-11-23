@@ -58,7 +58,8 @@ source ─▶ lex ─▶ parse ─▶ sema ─┬─▶ doc ─▶ the visualize
 
 ### Parsing
 
-Every parse proc takes the tokens and a position, and ends with
+Every parse proc takes the tokens and a position, goes first to a local
+`At` (the position as a `Cur`), and ends with
 `id({ x = <what it parsed>, pos = <the next token> })`. Lists are loops: a
 back edge to a loop head that carries the items so far. Steps that check a
 token fail with "expected <what>, found <token>"; a switch's `else` arm
@@ -67,7 +68,10 @@ usually goes to one, so the error says what would have been accepted.
 ### Sema
 
 Every func and proc declaration is a node, by index into `Program.nodes`,
-and every proc has a graph of typed edges. Typedefs are named by index into
+and every proc has a graph of typed edges. A proc's entry is its signature
+node, `P.P`, a local of P named like it; `id(..)` targets are nodes too,
+and an `id(..) as N`'s type is found from the values passed to it before
+the rest of its proc's graph is checked. Typedefs are named by index into
 the program's typedefs; each instance of a generic typedef is its own. Errors
 carry spans, which `vcc` renders with the line and a caret.
 
