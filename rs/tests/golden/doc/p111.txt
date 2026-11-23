@@ -1,0 +1,65 @@
+{
+  "grids": {
+    "P": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "A",
+              "sublabel": "../../leaves/lf.rs:a"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "B",
+              "sublabel": "../../leaves/lf.rs:b"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "C",
+              "sublabel": "../impls.rs:c"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "int",
+          "call": "B(n: int)",
+          "args": "n = this"
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "int",
+          "call": "C(n: int)",
+          "args": "n = this"
+        }
+      ]
+    }
+  }
+}

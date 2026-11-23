@@ -1,0 +1,83 @@
+// vcc: the vandorf compiler, in vandorf (src/main.rs in the reference).
+//
+//   vcc check          checks the project around the working directory
+//   vcc doc            prints its visualizer document
+//   vcc build [bin]    generates its Go and Rust (and every bin, or just
+//                      bin), running each language's post commands
+//   vcc test           builds it all, then runs each language's test commands
+//   vcc --help         prints the usage
+//
+// -C <dir>, anywhere and any number of times, runs the command as if
+// started in <dir>. Mistakes in the command line fail, pointing at --help.
+// What a command prints is said explicitly (Console.Out and Console.Note),
+// so it goes where the reference sends it.
+proc Vcc(Args): void {
+	func Args(argv: []string): []string = "leaf.rs:same_strs";
+	func Opts(argv: []string): CliOpts = "cli/cli_leaf.rs:split_c";
+	Args -> Opts(argv = this);
+	Opts switch {
+		(this.err != "") -> Usage(msg = this.err),
+		else -> ChangeDirs(s = { dirs = this.dirs, i = 0 })
+	};
+	ChangeDirs switch {
+		Ok(_) -> Cmd(argv = Opts.rest),
+		Err(e) -> Usage(msg = e.msg)
+	};
+	// The command, without its -Cs.
+	func Cmd(argv: []string): []string = "leaf.rs:same_strs";
+	func Help(n: int): string = "cli/cli_leaf.rs:usage";
+	func FirstFlag(args: []string): string = "cli/cli_leaf.rs:first_flag";
+	Cmd switch {
+		(this.len == 0) -> Usage(msg = Help(n = 0)) as NoCommand,
+		(this[0] == "-h" || this[0] == "--help" || this[0] == "help") -> Console.Out(text = Help(n = 0)),
+		(FirstFlag(args = this) != "") -> Usage(msg = "unknown flag " + FirstFlag(args = this) + " (see vcc --help)") as BadFlag,
+		(this.len == 1 && this[0] == "check") -> CheckProject(n = 0) as ForCheck,
+		(this.len == 1 && this[0] == "doc") -> CheckProject(n = 0) as ForDoc,
+		(this.len >= 1 && this.len <= 2 && this[0] == "build") -> CheckProject(n = 0) as ForBuild,
+		(this.len == 1 && this[0] == "test") -> CheckProject(n = 0) as ForTest,
+		(this[0] == "check" || this[0] == "doc" || this[0] == "build" || this[0] == "test") -> Usage(msg = "too many arguments for " + this[0] + " (see vcc --help)") as TooMany,
+		else -> Usage(msg = "unknown command " + this[0] + " (see vcc --help)")
+	};
+	ForCheck switch {
+		Ok(c) -> Console.Note(line = "ok: " + Itoa(i = c.project.paths.len) + " files, " + Itoa(i = Procs(nodes = c.prog.nodes).len) + " procs"),
+		Err(e) -> Usage(msg = e.msg)
+	};
+	ForDoc switch {
+		Ok(c) -> Document(prog = c.prog),
+		Err(e) -> Usage(msg = e.msg)
+	};
+	Document -> Console.Out(text = this) as Printed;
+	ForTest switch {
+		Ok(c) -> Test(s = c),
+		Err(e) -> Usage(msg = e.msg)
+	};
+	func Quiet(s: string): void = "cli/cli_leaf.rs:quiet";
+	Test -> Quiet(s = this) as Tested;
+	Build -> Quiet(s = this) as Built;
+	ForBuild switch {
+		Ok(c) -> switch {
+			(Cmd.len == 2) -> Build(s = { c = c, only = Cmd[1] }),
+			else -> Build(s = { c = c, only = "" })
+		},
+		Err(e) -> Usage(msg = e.msg)
+	};
+}
+
+type CliOpts = { dirs: []string, rest: []string, err: string };
+
+// Changes into each dir in turn (each relative to the last).
+proc ChangeDirs(At): Res<string> {
+	func At(s: { dirs: []string, i: int }): { dirs: []string, i: int } = "leaf.rs:same";
+	At switch {
+		(this.i == this.dirs.len) -> id(Ok("")),
+		else -> Fs.Chdir(path = this.dirs[this.i])
+	};
+	Fs.Chdir switch {
+		Ok(_) -> At(s = { ..At, i = At.i + 1 }),
+		Err(e) -> id(Err(e))
+	};
+}
+
+// Fails with msg (rendered diagnostics without their first `error: `,
+// which the executable prints).
+func Usage(msg: string): void = "cli/cli_leaf.rs:fail_report";

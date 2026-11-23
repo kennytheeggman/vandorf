@@ -1,0 +1,56 @@
+{
+  "grids": {
+    "P": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "S"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "T"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "label": "{ a = _, b = Y(n) }",
+          "valueType": "{ a: bool, b: enum { X, Y(int) } }",
+          "call": "T(i: int)",
+          "args": "i = n"
+        },
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "label": "{ a = _, b = X() }",
+          "valueType": "{ a: bool, b: enum { X, Y(int) } }",
+          "call": "T(i: int)",
+          "args": "i = 0"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,1 @@
++ needs two operands of the same type (int, float, string), found int and float

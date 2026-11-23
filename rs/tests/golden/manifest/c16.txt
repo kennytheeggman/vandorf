@@ -1,0 +1,8 @@
+[project]
+name = "x"
+[http.w]
+addr = "a"
+route = {}
+
+---
+unknown field `route`, expected one of `addr`, `setup`, `routes`, `raw`, `static`, `go`, `rust`

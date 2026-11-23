@@ -1,0 +1,121 @@
+{
+  "grids": {
+    "P": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "S"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "T"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "K"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "L"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "id"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "St",
+          "call": "T(x: int)",
+          "args": "x = this.i"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "label": "this > 3",
+          "valueType": "int",
+          "call": "K()"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            0,
+            0
+          ],
+          "label": "else",
+          "valueType": "int",
+          "call": "S(acc: []int, i: int)",
+          "args": "acc = S.acc + [this], i = S.i + 1"
+        },
+        {
+          "type": 0,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            3,
+            0
+          ],
+          "valueType": "int",
+          "call": "L(x: int)",
+          "args": "x = S.i"
+        },
+        {
+          "type": 0,
+          "source": [
+            3,
+            0
+          ],
+          "target": [
+            4,
+            0
+          ],
+          "valueType": "int",
+          "call": "id1(value: []int)",
+          "args": "S.acc + [this]"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,3 @@
+proc P(A): int { func A(): int; A -> id("s"); }
+---
+error: id: expected int, found a string literal @40..43

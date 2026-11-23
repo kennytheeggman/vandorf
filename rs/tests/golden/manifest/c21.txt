@@ -1,0 +1,7 @@
+[project]
+name = "x"
+[build]
+post = []
+
+---
+unknown field `build`, expected one of `project`, `go`, `rust`, `bin`, `http`

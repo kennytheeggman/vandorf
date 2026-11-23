@@ -1,0 +1,3 @@
+type U = void;
+---
+error: type U names void @5..6

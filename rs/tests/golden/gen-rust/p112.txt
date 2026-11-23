@@ -1,0 +1,1 @@
+error: P.B: ../../y/lf.rs and ../../x/lf.rs are both outside the crate's src/ and would both be module lf

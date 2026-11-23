@@ -1,0 +1,5 @@
+[project]
+name = true
+
+---
+invalid type: boolean `true`, expected a string

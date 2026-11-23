@@ -1,0 +1,1 @@
+proc P(A): int { func A(): int; func B(r: enum { X }): int; A -> B(r = Y(this)); }

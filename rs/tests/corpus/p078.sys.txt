@@ -1,0 +1,2 @@
+type T = { x: int };
+proc B(Q): int { func Q(i: int): int; }

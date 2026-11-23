@@ -1,0 +1,5 @@
+error: msg
+ --> f.sys:1:25
+  |
+1 | proc P(A): int { func A(: int; }
+  |                         ^

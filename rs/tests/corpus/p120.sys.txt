@@ -1,0 +1,1 @@
+route proc Calc must take ctx: Ctx, its setup proc Setup's result

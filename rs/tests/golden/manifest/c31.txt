@@ -1,0 +1,7 @@
+[project]
+name = "x"
+[bin]
+a = 1
+
+---
+invalid type: integer `1`, expected struct Bin

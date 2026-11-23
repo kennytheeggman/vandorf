@@ -1,0 +1,14 @@
+
+        proc P(A): { n: int, tags: []string } {
+            func A(): int;
+            func B(i: int): []int;
+            func C(i: int): int;
+            A switch {
+                (this > 0) -> id({ n = this, tags = ["pos"] }),
+                (this == 0) -> B(i = this),
+                else -> id({ n = -this, tags = [] })
+            };
+            B for each (this) -> C(i = this);
+            C collect each (C) -> id({ n = this.len, tags = ["many"] });
+        }
+        

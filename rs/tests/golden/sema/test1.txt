@@ -1,0 +1,53 @@
+interface Foo {
+	func Call(s: string): int;
+}
+
+proc ForEach(Start): int {
+	func Start(i: int): { l: []int, s: string };
+	func Process(i: int, l: []int): int;
+	func Collect(l: []int): int;
+
+	Start for each (Start.l) -> Process(i = this, l = Start.l);
+	Process collect each (Process) -> Collect(l = this);
+}
+
+proc Bar(Start): string {
+	func Start(a: int, b: string): string;
+	func Loop(s: string): int;
+	func Branch1(i: int): string;
+	func Branch2Begin(i: int): string;
+	func Branch2End(i: int);
+	func End(r: enum { I(string), S, B({i: int}) }): string;
+
+	Start -> Loop(s = this);
+	Loop switch {
+		(this < 10) -> Loop(s = Start),
+		else -> ForEach(i = this)
+	};
+	ForEach switch {
+		(this == 0) -> Branch1(i = this),
+		else -> Branch2Begin(i = this)
+	};
+	Branch2Begin -> Foo.Call(s = this);
+	Foo.Call -> Branch2End(i = this);
+	Branch2End -> End(r = S());
+	Branch1 -> End(r = I(this));
+}
+
+---
+#1 edge #2: for each #2.l:[]int@206..213 :int -> call #3(i:int=this:int@230..234, l:[]int=#2.l:[]int@240..247) @218..225 text="i = this, l = Start.l"
+#1 edge #3: collect -> call #4(l:[]int=this:[]int@297..301) @285..292 text="l = this"
+#1 spawned={}
+#1 region 0: parent=-1 entry=2 elem=void nodes=[2, 4] sink=-1
+#1 region 1: parent=0 entry=3 elem=int nodes=[3] sink=3
+#1 region_of={2: 0, 3: 1, 4: 0} opens={2: 1}
+#5 edge #0: call #10(i:int=this:int@816..820) @801..811 text="i = this"
+#5 edge #1: switch [(this == 0)] ((this:int@681..685 == 0 :int)) -> call #8(i:int=this:int@707..711) @695..702 text="i = this"; [else] else -> call #9(i:int=this:int@741..745) @724..736 text="i = this"
+#5 edge #6: call #7(s:string=this:string@572..576) @563..567 text="s = this"
+#5 edge #7: switch [(this < 10)] ((this:int@597..601 < 10 :int)) -> call #7(s:string=#6:string@620..625) @611..615 text="s = Start"; [else] else -> call #1(i:int=this:int@650..654) @638..645 text="i = this"
+#5 edge #8: call #11(r:enum { I(string), S, B({ i: int }) }=I(this:string@874..878)) @864..867 text="r = I(this)"
+#5 edge #9: call #0(s:string=this:string@781..785) @768..776 text="s = this"
+#5 edge #10: call #11(r:enum { I(string), S, B({ i: int }) }=S()) @838..841 text="r = S()"
+#5 spawned={}
+#5 region 0: parent=-1 entry=6 elem=void nodes=[6, 7, 1, 8, 9, 11, 0, 10] sink=-1
+#5 region_of={0: 0, 1: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0, 11: 0} opens={}

@@ -1,0 +1,4 @@
+interface I { func B(n: int): int; } interface J { func B(n: int): int; }
+            proc P(A): int { func A(): int; func B(n: int): int; func C(n: int): string; func L(s: string): void; func D(b: int): int; func E(b: int): int; A -> spawn { B(n = 1) } join D(b = this.B); D -> spawn { B(n = 2) } join E(b = this.B); }
+---
+error: P.B runs in more than one spawn branch; name each with `as` @287..288

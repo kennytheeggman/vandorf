@@ -1,0 +1,6 @@
+#0 RStringList struct { x: []string, pos: int } (typedef R<[]string>)
+#1 ListInt enum { Nil: void, Cons*: #2 } (typedef List<int>)
+#2 ListIntCons struct { h: int, t*: #1 } (typedef List<int>)
+#3 RListInt struct { x: #1, pos: int } (typedef R<List<int>>)
+#4 RInt struct { x: int, pos: int } (typedef R<int>)
+alias Toks = #0

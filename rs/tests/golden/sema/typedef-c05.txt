@@ -1,0 +1,3 @@
+type E = enum { A, A }; proc P(X): int { func X(): int; }
+---
+error: duplicate variant A @19..20

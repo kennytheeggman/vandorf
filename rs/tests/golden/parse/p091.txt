@@ -1,0 +1,1 @@
+(file(func A @5:6(named int @10:13 @10:13))(func D @20:21(field i @22:23(array(named int @27:30 @27:30) @25:30))(named int @33:36 @33:36)))

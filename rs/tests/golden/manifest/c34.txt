@@ -1,0 +1,9 @@
+[project]
+name = "x"
+[http.w]
+addr = "a"
+setup = "Setup"
+routes = { "GET /" = "P" }
+
+---
+

@@ -1,0 +1,4 @@
+proc P(A): int { func A(): int; func B(i: int): int; func C(i: int): int;
+        A switch { (this > 0) -> B(i = this) as D, else -> C(i = this) as D }; }
+---
+error: D is already an alias of B @148..149

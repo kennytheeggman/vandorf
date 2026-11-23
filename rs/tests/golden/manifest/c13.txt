@@ -1,0 +1,8 @@
+[project]
+name = "x"
+[go]
+out = "a"
+modul = "m"
+
+---
+unknown field `modul`, expected one of `out`, `package`, `module`, `types_dir`, `post`, `test`

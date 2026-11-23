@@ -1,0 +1,34 @@
+// I/O: the only impure part of vcc. Everything else is pure: procs, and
+// leaf funcs in the *_leaf.rs next to the .sys using them.
+
+interface Fs {
+	func Read(path: string): string = "io.rs:read";
+	// Writes text to path, creating its directory.
+	func Write(path: string, text: string): bool = "io.rs:write";
+	func IsFile(path: string): bool = "io.rs:is_file";
+	func IsDir(path: string): bool = "io.rs:is_dir";
+	// The working directory, and changing it (for -C).
+	func Cwd(n: int): string = "io.rs:cwd";
+	func Chdir(path: string): Res<string> = "io.rs:chdir";
+	// The .sys files under dir, skipping hidden directories and build output.
+	func Walk(dir: string): []string = "io.rs:walk";
+}
+
+interface Tools {
+	// Formats Rust files, if rustfmt is installed.
+	func Rustfmt(files: []string): bool = "io.rs:rustfmt";
+	// Formats Go files, if gofmt is installed.
+	func Gofmt(files: []string): bool = "io.rs:gofmt";
+	// Runs cmd with the platform's shell (sh -c, or cmd /C on Windows) in
+	// dir, on this process's terminal; Err with why if it fails.
+	func Shell(cmd: string, dir: string): Res<string> = "io.rs:shell";
+}
+
+interface Console {
+	// A line on stderr.
+	func Err(line: string): bool = "io.rs:eprint";
+	// A command's output, on stdout, and a closing note on stderr; each ends
+	// a proc that returns nothing.
+	func Out(text: string): void = "io.rs:print_out";
+	func Note(line: string): void = "io.rs:eprint_note";
+}

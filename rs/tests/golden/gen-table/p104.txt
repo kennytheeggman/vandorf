@@ -1,0 +1,3 @@
+#0 RStringList struct { x: []string, pos: int } (typedef R<[]string>)
+#1 RInt struct { x: int, pos: int } (typedef R<int>)
+alias Toks = #0

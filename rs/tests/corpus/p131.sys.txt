@@ -1,0 +1,7 @@
+
+        proc P(A): int {
+            func A(): int;
+            func L(s: string): void;
+            A -> spawn { detach L(s = "a"), detach L(s = "b") as L2 } join id(A);
+        }
+        

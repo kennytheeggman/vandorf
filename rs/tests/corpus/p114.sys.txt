@@ -1,0 +1,1 @@
+raw route proc Hi must take one { method: string, path: string, query: map[string]string, headers: map[string]string, body: string }

@@ -1,0 +1,1 @@
+func A(): int; func B(i: int): int; func C(i: int): int; func D(i: int): int; func E(i: int): int;

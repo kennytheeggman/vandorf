@@ -1,0 +1,1 @@
+(file(proc P @5:6 A @7:8(named int @11:14 @11:14)(func A @22:23(named string @27:33 @27:33))(func B @40:41(field i @42:43(named int @45:48 @45:48))(named int @51:54 @51:54))(edge(path A @56:57 @56:57)(call(target text="i = this"(path B @61:62 @61:62)(arg i @63:64(ref(path this @67:71 @67:71) @67:71)))) @56:72)))

@@ -1,0 +1,1 @@
+proc P(S): int { func S(): { m: map[string]int }; func T(b: bool): int; S -> T(b = 1 in this.m); }

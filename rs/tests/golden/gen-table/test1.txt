@@ -1,0 +1,3 @@
+#0 ForEachStartOut struct { l: []int, s: string } (return of ForEach.Start)
+#1 BarEndR enum { I: string, S: void, B: #2 } (parameter r of Bar.End)
+#2 BarEndRB struct { i: int } (parameter r of Bar.End)

@@ -1,0 +1,1 @@
+proc B(Q): int { func Q(): int = "../../go/q.go:Q"; }

@@ -1,0 +1,1 @@
+#0 St struct { acc: []int, i: int } (typedef St)

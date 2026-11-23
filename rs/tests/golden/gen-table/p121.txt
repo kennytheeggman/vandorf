@@ -1,0 +1,3 @@
+#0 Ctx struct { greeting: string } (typedef Ctx)
+#1 Req struct { method: string, path: string, query: map[string]string, headers: map[string]string, body: string } (typedef Req)
+#2 PageOut struct { status: int, headers: map[string]string, body: string } (return of Page)

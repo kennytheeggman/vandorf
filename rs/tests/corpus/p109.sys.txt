@@ -1,0 +1,5 @@
+
+        proc Main(A): string {
+            func A(n: int, verbose: bool, name: string): string;
+        }
+    

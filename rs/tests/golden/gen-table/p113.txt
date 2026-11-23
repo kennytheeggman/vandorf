@@ -1,0 +1,4 @@
+#0 Shape enum { Dot: void, Circle: float } (typedef Shape)
+#1 Req struct { method: string, path: string, query: map[string]string, headers: map[string]string, body: string } (typedef Req)
+#2 AreaAK struct { n: int } (parameter k of Area.A)
+#3 PageOut struct { status: int, headers: map[string]string, body: string } (return of Page)

@@ -1,0 +1,3 @@
+type E = enum { A, A };
+---
+error: duplicate variant A @19..20

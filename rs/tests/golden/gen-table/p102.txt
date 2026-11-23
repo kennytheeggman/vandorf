@@ -1,0 +1,1 @@
+#0 PAOut struct { n: int } (return of P.A)

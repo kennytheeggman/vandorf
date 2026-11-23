@@ -1,0 +1,7 @@
+proc P(S): int { func S(): { a: bool, b: enum { X, Y(int) } }; func T(i: int): int; 
+         S switch { { a = _, b = Y(n) } -> T(i = n), { a = _, b = X() } -> T(i = 0) }; }
+---
+#0 edge #1: switch [{ a = _, b = Y(n) }] {a=_:bool,b=Y($n:int):enum { X, Y(int) }}:{ a: bool, b: enum { X, Y(int) } } -> call #2(i:int=$n:int@134..135) @128..129 text="i = n"; [{ a = _, b = X() }] {a=_:bool,b=X():enum { X, Y(int) }}:{ a: bool, b: enum { X, Y(int) } } -> call #2(i:int=0) @160..161 text="i = 0"
+#0 spawned={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2] sink=-1
+#0 region_of={1: 0, 2: 0} opens={}

@@ -1,0 +1,19 @@
+
+            type Shape = enum { Dot, Circle(float) };
+            proc Area(A): float { func A(s: Shape, k: { n: int }): float; }
+            proc Hi(B): string { func B(name: string): string; }
+            type Req = { method: string, path: string, query: map[string]string, headers: map[string]string, body: string };
+            proc Page(C): { status: int, headers: map[string]string, body: string } {
+                func C(req: Req): { status: int, headers: map[string]string, body: string };
+            }
+        
+---
+#0 spawned={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1] sink=-1
+#0 region_of={1: 0} opens={}
+#2 spawned={}
+#2 region 0: parent=-1 entry=3 elem=void nodes=[3] sink=-1
+#2 region_of={3: 0} opens={}
+#4 spawned={}
+#4 region 0: parent=-1 entry=5 elem=void nodes=[5] sink=-1
+#4 region_of={5: 0} opens={}

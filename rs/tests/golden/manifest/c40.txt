@@ -1,0 +1,8 @@
+[project]
+name = "x"
+[go]
+out = "a"
+test = "go test"
+
+---
+invalid type: string "go test", expected a sequence

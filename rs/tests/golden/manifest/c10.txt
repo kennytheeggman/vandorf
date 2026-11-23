@@ -1,0 +1,6 @@
+[project]
+name = "x"
+[rust]
+
+---
+missing field `out`

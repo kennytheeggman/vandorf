@@ -1,0 +1,6 @@
+type S = { a: int, b: string }; func F(x: int): S; proc P(A): int { func A(): S; func N(s: S): int; func M(t: { a: int }): int; func W(w: { a: int, b: string, z: int }): int; func V(v: { a: string, b: string }): int; A -> W(w = { ..this, z = 3 }); }
+---
+#1 edge #2: call #5(w:{ a: int, b: string, z: int }={a=this.a:int@232..236,b=this.b:string@232..236,z=3}) @222..223 text="w = { ..this, z = 3 }"
+#1 spawned={}
+#1 region 0: parent=-1 entry=2 elem=void nodes=[2, 5] sink=-1
+#1 region_of={2: 0, 5: 0} opens={}

@@ -1,0 +1,755 @@
+{
+  "grids": {
+    "Bar": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Start",
+              "sublabel": "../go/app/impl.go:Repeat · ../rs/src/impls.rs:repeat"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Loop",
+              "sublabel": "../go/app/impl.go:Grow · ../rs/src/impls.rs:grow"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 1,
+              "label": "ForEach"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Branch1"
+            },
+            {
+              "type": 0,
+              "label": "Branch2Begin",
+              "sublabel": "../go/app/impl.go:Describe · ../rs/src/impls.rs:describe"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Foo.Call",
+              "sublabel": "../go/effects/foo.go:Call · ../rs/src/effects.rs:call",
+              "interface": "Foo"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Branch2End",
+              "sublabel": "../go/app/impl.go:Log · ../rs/src/impls.rs:log"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "End",
+              "sublabel": "../go/app/impl.go:Finish · ../rs/src/impls.rs:finish"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "string",
+          "call": "Loop(s: string)",
+          "args": "s = this"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "label": "this < 10",
+          "valueType": "int",
+          "call": "Loop(s: string)",
+          "args": "s = Start"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "label": "else",
+          "valueType": "int",
+          "call": "ForEach(i: int)",
+          "args": "i = this"
+        },
+        {
+          "type": 1,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            3,
+            0
+          ],
+          "label": "this == 0",
+          "valueType": "int",
+          "call": "Branch1(i: int)",
+          "args": "i = this"
+        },
+        {
+          "type": 1,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            3,
+            1
+          ],
+          "label": "else",
+          "valueType": "int",
+          "call": "Branch2Begin(i: int)",
+          "args": "i = this"
+        },
+        {
+          "type": 0,
+          "source": [
+            3,
+            0
+          ],
+          "target": [
+            6,
+            0
+          ],
+          "valueType": "string",
+          "call": "End(r: Outcome)",
+          "args": "r = I(this)"
+        },
+        {
+          "type": 0,
+          "source": [
+            3,
+            1
+          ],
+          "target": [
+            4,
+            0
+          ],
+          "valueType": "string",
+          "call": "Foo.Call(s: string)",
+          "args": "s = this"
+        },
+        {
+          "type": 0,
+          "source": [
+            4,
+            0
+          ],
+          "target": [
+            5,
+            0
+          ],
+          "valueType": "int",
+          "call": "Branch2End(i: int)",
+          "args": "i = this"
+        },
+        {
+          "type": 0,
+          "source": [
+            5,
+            0
+          ],
+          "target": [
+            6,
+            0
+          ],
+          "valueType": "void",
+          "call": "End(r: Outcome)",
+          "args": "r = S()"
+        }
+      ]
+    },
+    "Calc": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Build",
+              "sublabel": "../go/app/impl.go:Build · ../rs/src/impls.rs:build"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Eval",
+              "sublabel": "../go/app/impl.go:Eval · ../rs/src/impls.rs:eval"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Twice",
+              "sublabel": "instance of Eval"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Total",
+              "sublabel": "../go/app/impl.go:Total · ../rs/src/impls.rs:total"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "Expr",
+          "call": "Eval(e: Expr, scale: int)",
+          "args": "e = Add({ l = Neg(this), r = Lit(10) }), scale = 1"
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "int",
+          "call": "Twice(e: Expr, scale: int)",
+          "args": "e = Build, scale = 2"
+        },
+        {
+          "type": 0,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            3,
+            0
+          ],
+          "valueType": "int",
+          "call": "Total(xs: []int)",
+          "args": "xs = [Eval, Twice, 100]"
+        }
+      ]
+    },
+    "Classify": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Look",
+              "sublabel": "../go/app/impl.go:Look · ../rs/src/impls.rs:look"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "id"
+            },
+            {
+              "type": 0,
+              "label": "id"
+            },
+            {
+              "type": 0,
+              "label": "id"
+            },
+            {
+              "type": 1,
+              "label": "Inner",
+              "sublabel": "instance of Classify"
+            },
+            {
+              "type": 0,
+              "label": "id"
+            },
+            {
+              "type": 0,
+              "label": "id"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "id"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "label": "Lit(n) → Small(i = n) && n % 2 == 0",
+          "valueType": "Expr",
+          "call": "id1(value: string)",
+          "args": "\"small even\""
+        },
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            1
+          ],
+          "label": "Lit(n) → else",
+          "valueType": "Expr",
+          "call": "id2(value: string)",
+          "args": "\"literal\""
+        },
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            2
+          ],
+          "label": "Neg(Lit(_))",
+          "valueType": "Expr",
+          "call": "id3(value: string)",
+          "args": "\"negated literal\""
+        },
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            3
+          ],
+          "label": "Neg(e)",
+          "valueType": "Expr",
+          "call": "Inner(e: Expr)",
+          "args": "e = e"
+        },
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            4
+          ],
+          "label": "Add({ l = Lit(_), r = Lit(_) })",
+          "valueType": "Expr",
+          "call": "id4(value: string)",
+          "args": "\"sum of literals\""
+        },
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            5
+          ],
+          "label": "Add(_)",
+          "valueType": "Expr",
+          "call": "id5(value: string)",
+          "args": "\"something else\""
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            3
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "string",
+          "call": "id6(value: string)",
+          "args": "\"minus \" + Inner"
+        }
+      ]
+    },
+    "ForEach": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Start",
+              "sublabel": "../go/app/impl.go:Range · ../rs/src/impls.rs:range"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Process",
+              "sublabel": "../go/app/impl.go:Square · ../rs/src/impls.rs:square"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Collect",
+              "sublabel": "../go/app/impl.go:Sum · ../rs/src/impls.rs:sum"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 2,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "int",
+          "call": "Process(i: int, l: []int)",
+          "args": "i = this, l = Start.l"
+        },
+        {
+          "type": 4,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "[]int",
+          "call": "Collect(l: []int)",
+          "args": "l = this"
+        }
+      ]
+    },
+    "Hello": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Greet",
+              "sublabel": "../go/app/impl.go:Greet · ../rs/src/impls.rs:greet"
+            }
+          ]
+        }
+      ],
+      "edges": []
+    },
+    "Main": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Start",
+              "sublabel": "../go/app/impl.go:Args · ../rs/src/impls.rs:args"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 1,
+              "label": "Bar"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ a: int, b: string }",
+          "call": "Bar(a: int, b: string)",
+          "args": "a = this.a, b = this.b"
+        }
+      ]
+    },
+    "Measure": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Shapes",
+              "sublabel": "../go/app/impl.go:Shapes · ../rs/src/impls.rs:shapes"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Area",
+              "sublabel": "../go/app/impl.go:Area · ../rs/src/impls.rs:area"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Step",
+              "sublabel": "../go/app/impl.go:Step · ../rs/src/impls.rs:step"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "id"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 2,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "Shape",
+          "call": "Area(s: Shape)",
+          "args": "s = this"
+        },
+        {
+          "type": 4,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "[]Measured",
+          "call": "Step(f: Fold)",
+          "args": "f = { xs = this, r = { count = 0, total = 0.0, kinds = [:] }, i = 0 }"
+        },
+        {
+          "type": 1,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            3,
+            0
+          ],
+          "label": "this.i == this.xs.len",
+          "valueType": "Fold",
+          "call": "id1(value: Report)",
+          "args": "this.r"
+        },
+        {
+          "type": 1,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "label": "this.xs[this.i].kind in this.r.kinds",
+          "valueType": "Fold",
+          "call": "Step(f: Fold)",
+          "args": "f = { ..this, i = this.i + 1, r = { ..this.r, count = this.r.count + 1, total = this.r.total + this.xs[this.i].area, kinds = this.r.kinds + [this.xs[this.i].kind: this.r.kinds[this.xs[this.i].kind] + 1] } }"
+        },
+        {
+          "type": 1,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "label": "else",
+          "valueType": "Fold",
+          "call": "Step(f: Fold)",
+          "args": "f = { ..this, i = this.i + 1, r = { ..this.r, count = this.r.count + 1, total = this.r.total + this.xs[this.i].area, kinds = this.r.kinds + [this.xs[this.i].kind: 1] } }"
+        }
+      ]
+    },
+    "Resolve": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Declare",
+              "sublabel": "../go/app/impl.go:Declare · ../rs/src/impls.rs:declare"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Adjust",
+              "sublabel": "../go/app/impl.go:Adjust · ../rs/src/impls.rs:adjust"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Found",
+              "sublabel": "../go/app/impl.go:Found · ../rs/src/impls.rs:found"
+            },
+            {
+              "type": 0,
+              "label": "Missing",
+              "sublabel": "../go/app/impl.go:Missing · ../rs/src/impls.rs:missing"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ scope: Scope, query: string }",
+          "call": "Adjust(scope: Scope, query: string)",
+          "args": "scope = this.scope + [\"len\": { slot = this.scope.len, kind = \"builtin\" }] - [\"tmp\"], query = this.query"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "label": "this.query in this.scope",
+          "valueType": "{ scope: Scope, query: string }",
+          "call": "Found(name: string, slot: int, kind: string, total: int)",
+          "args": "name = this.query, slot = this.scope[this.query].slot, kind = this.scope[this.query].kind, total = this.scope.len"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            1
+          ],
+          "label": "else",
+          "valueType": "{ scope: Scope, query: string }",
+          "call": "Missing(name: string, known: []string)",
+          "args": "name = this.query, known = this.scope.keys"
+        }
+      ]
+    }
+  }
+}

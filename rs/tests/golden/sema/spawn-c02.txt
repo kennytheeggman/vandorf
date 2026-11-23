@@ -1,0 +1,7 @@
+interface I { func B(n: int): int; } interface J { func B(n: int): int; }
+            proc P(A): int { func A(): int; func B(n: int): int; func C(n: int): string; func L(s: string): void; func D(b: int): int; func E(b: int): int; A -> spawn { L(s = "a") } join D(b = A); }
+---
+#2 edge #3: spawn { call #6(s:string="a") @243..244 text="s = \"a\"" } join :{  } -> call #7(b:int=#3:int@267..268) @261..262 text="b = A"
+#2 spawned={6: 3}
+#2 region 0: parent=-1 entry=3 elem=void nodes=[3, 7] sink=-1
+#2 region_of={3: 0, 7: 0} opens={}

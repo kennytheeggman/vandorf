@@ -1,0 +1,1 @@
+this.xs has type []int, but []string is expected

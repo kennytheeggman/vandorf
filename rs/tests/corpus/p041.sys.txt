@@ -1,0 +1,1 @@
+type W<T> = W<T>; type A = W<int>;

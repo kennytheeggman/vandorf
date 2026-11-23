@@ -1,0 +1,4 @@
+type R<T> = { x: Q };
+---
+error: unknown type Q @17..18
+error: type parameter T is unused @7..8

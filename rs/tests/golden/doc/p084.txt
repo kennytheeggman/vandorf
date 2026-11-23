@@ -1,0 +1,18 @@
+{
+  "grids": {
+    "B": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Q",
+              "sublabel": "../../go/q.go:Q"
+            }
+          ]
+        }
+      ],
+      "edges": []
+    }
+  }
+}

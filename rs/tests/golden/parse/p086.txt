@@ -1,0 +1,1 @@
+(file(func A @5:6(named int @10:13 @10:13))(func B @20:21(field i @22:23(named int @25:28 @25:28))(named int @31:34 @31:34))(func C @41:42(field i @43:44(named int @46:49 @46:49))(named int @52:55 @52:55))(func D @62:63(field i @64:65(named int @67:70 @67:70))(named int @73:76 @73:76))(func E @83:84(field i @85:86(named int @88:91 @88:91))(named int @94:97 @94:97)))

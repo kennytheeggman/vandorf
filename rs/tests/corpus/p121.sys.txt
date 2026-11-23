@@ -1,0 +1,12 @@
+
+            type Ctx = { greeting: string };
+            proc Setup(S): Ctx { func S(): Ctx; }
+            proc Hi(B): string { func B(name: string, ctx: Ctx): string; }
+            type Req = { method: string, path: string, query: map[string]string, headers: map[string]string, body: string };
+            proc Page(C): { status: int, headers: map[string]string, body: string } {
+                func C(ctx: Ctx, req: Req): { status: int, headers: map[string]string, body: string };
+            }
+            proc NoCtx(D): string { func D(name: string): string; }
+            proc WrongCtx(E): string { func E(ctx: string): string; }
+            proc Takes(F): Ctx { func F(n: int): Ctx; }
+        

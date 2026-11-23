@@ -1,0 +1,43 @@
+{
+  "grids": {
+    "Area": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "A"
+            }
+          ]
+        }
+      ],
+      "edges": []
+    },
+    "Hi": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "B"
+            }
+          ]
+        }
+      ],
+      "edges": []
+    },
+    "Page": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "C"
+            }
+          ]
+        }
+      ],
+      "edges": []
+    }
+  }
+}

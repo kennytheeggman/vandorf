@@ -1,0 +1,3 @@
+proc P(A): int { func A(): int; A -> id(this) as X; }
+---
+error: id ends the proc, so it can't be named @49..50

@@ -1,0 +1,6 @@
+type S = { a: int }; proc P(A): { a: int, n: int } { func A(): S; A -> id({ ..this, n = 2 }); }
+---
+#0 edge #1: call #2(value:{ a: int, n: int }={a=this.a:int@78..82,n=2}) @71..73 text="{ ..this, n = 2 }"
+#0 spawned={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2] sink=-1
+#0 region_of={1: 0, 2: 0} opens={}

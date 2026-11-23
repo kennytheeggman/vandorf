@@ -1,0 +1,7 @@
+Shape (Shape) = enum { Dot, Circle(float), Rect({ w: float, h: float }) }
+Report (Report) = { count: int, total: float, kinds: map[string]int }
+Measured (Measured) = { kind: string, area: float }
+Fold (Fold) = { xs: []Measured, r: Report, i: int }
+Expr (Expr, recursive) = enum { Lit(int), Neg(Expr), Add({ l: Expr, r: Expr }) }
+Outcome (Outcome) = enum { I(string), S, B({ i: int }) }
+Scope (Scope) = map[string]{ slot: int, kind: string }

@@ -1,0 +1,3 @@
+proc P(A): int { func A(): int; func B(i: int): int; A -> B(i = this) as B2; B2 -> B2(i = this) as B3; }
+---
+error: B2 is itself an alias; alias the node it instances @83..85

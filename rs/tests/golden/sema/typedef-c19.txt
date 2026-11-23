@@ -1,0 +1,3 @@
+type R<T> = { x: T }; type A = R<void>; proc P(X): int { func X(): int; }
+---
+error: void can't be a type argument @33..37

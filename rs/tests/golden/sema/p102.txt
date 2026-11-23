@@ -1,0 +1,12 @@
+
+        proc P(A): int {
+            func A(): { n: int } = "a.go:A", "../impls/a.rs:a";
+            func B(i: int): int = "../other/b.go:B";
+            A -> B(i = A.n);
+        }
+    
+---
+#0 edge #1: call #2(i:int=#1.n:int@166..169) @160..161 text="i = A.n"
+#0 spawned={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2] sink=-1
+#0 region_of={1: 0, 2: 0} opens={}

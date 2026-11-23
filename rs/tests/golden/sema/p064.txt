@@ -1,0 +1,3 @@
+proc P(S): int { func S(): int; func T(i: int): int; S switch { A(n) -> T(i = n), else -> T(i = 0) }; }
+---
+error: this matches a int, which isn't an enum, so A(..) can't match it @64..65

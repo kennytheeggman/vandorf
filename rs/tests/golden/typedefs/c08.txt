@@ -1,0 +1,7 @@
+type R<T> = { x: T, pos: int }; type L<T> = enum { Nil, Cons({ h: T, t: L<T> }) }; type X = R<L<[]int>>; type Y = map[string]R<int>;
+---
+X (X) = R<L<[]int>>
+Y (Y) = map[string]R<int>
+L<[]int> (LIntList, recursive) = enum { Nil, Cons({ h: []int, t: L<[]int> }) }
+R<L<[]int>> (RLIntList) = { x: L<[]int>, pos: int }
+R<int> (RInt) = { x: int, pos: int }

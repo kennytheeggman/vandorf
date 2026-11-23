@@ -1,0 +1,5 @@
+type R<T> = { x: T, pos: int }; type L<T> = enum { Nil, Cons({ h: T, t: L<T> }) }; type X = R<L<[]int>>; type Y = map[string]R<int>; proc P(X): int { func X(): int; }
+---
+#0 spawned={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1] sink=-1
+#0 region_of={1: 0} opens={}

@@ -1,0 +1,8 @@
+[project]
+name = "x"
+[http.w]
+addr = "a"
+go = 1
+
+---
+invalid type: integer `1`, expected a string

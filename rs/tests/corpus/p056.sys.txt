@@ -1,0 +1,1 @@
+type T = {{ a: int, b: enum {{ X, Y(string) }} }}; proc P(A): int {{ func A(): int; func B(t: T, f: float, l: []string): int; A -> B({args}); }}

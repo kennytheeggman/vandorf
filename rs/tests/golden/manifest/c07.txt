@@ -1,0 +1,6 @@
+[project]
+name = "x"
+name = "y"
+
+---
+duplicate key `name` in table `project`

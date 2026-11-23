@@ -1,0 +1,12 @@
+
+        type R<T> = { x: T, pos: int };
+        type List<T> = enum { Nil, Cons({ h: T, t: List<T> }) };
+        type Toks = R<[]string>;
+        proc P(A): R<List<int>> {
+            func A(r: Toks, s: R<[]string>, m: map[string]R<int>): R<List<int>>;
+        }
+        
+---
+#0 spawned={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1] sink=-1
+#0 region_of={1: 0} opens={}

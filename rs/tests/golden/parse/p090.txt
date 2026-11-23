@@ -1,0 +1,1 @@
+(file(func A @5:6(named int @10:13 @10:13)))

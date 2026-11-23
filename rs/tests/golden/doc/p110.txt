@@ -1,0 +1,17 @@
+{
+  "grids": {
+    "Tool": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "A"
+            }
+          ]
+        }
+      ],
+      "edges": []
+    }
+  }
+}

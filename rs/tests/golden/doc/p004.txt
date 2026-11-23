@@ -1,0 +1,18 @@
+{
+  "grids": {
+    "P": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "A",
+              "sublabel": "a/b.go:DoA"
+            }
+          ]
+        }
+      ],
+      "edges": []
+    }
+  }
+}

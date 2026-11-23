@@ -1,0 +1,1 @@
+#0 PAOut enum { L: void, R: void } (return of P.A)

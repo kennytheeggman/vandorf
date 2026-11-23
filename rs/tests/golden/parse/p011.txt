@@ -1,0 +1,1 @@
+(file(proc P @5:6 A @7:8(named int @11:14 @11:14)(func A @22:23(named int @27:30 @27:30))(func B @37:38(field r @39:40(enum(variant X @49:50) @42:52))(named int @55:58 @55:58))(edge(path A @60:61 @60:61)(call(target text="r = Y(this)"(path B @65:66 @65:66)(arg r @67:68(apply(path Y @71:72 @71:72)(arg(ref(path this @73:77 @73:77) @73:77)) @71:78)))) @60:79)))

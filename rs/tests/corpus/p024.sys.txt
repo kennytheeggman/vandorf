@@ -1,0 +1,1 @@
+proc P(X): int { func X(): int; }

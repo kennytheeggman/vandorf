@@ -1,0 +1,1 @@
+(file(proc A @5:6 S @7:8(named int @11:14 @11:14)(func S @22:23(named int @27:30 @27:30)(impl rs/src/impls.rs s @33:52))))

@@ -1,0 +1,17 @@
+{
+  "grids": {
+    "Main": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "A"
+            }
+          ]
+        }
+      ],
+      "edges": []
+    }
+  }
+}

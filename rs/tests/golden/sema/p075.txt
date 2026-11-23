@@ -1,0 +1,3 @@
+proc P(S): int { func S(): { m: map[string]int }; func T(b: bool): int; S -> T(b = 1 in this.m); }
+---
+error: argument b of P.T: expected string, found an int literal @83..84

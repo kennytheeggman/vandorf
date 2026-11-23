@@ -1,0 +1,3 @@
+type int = string;
+---
+error: int is a built-in type @5..8

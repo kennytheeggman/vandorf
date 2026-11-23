@@ -1,0 +1,4 @@
+proc P(A): int { func A(x: Q): int; }
+---
+error: unknown type Q @27..28
+error: entry A is not declared in proc P @7..8

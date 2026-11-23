@@ -1,0 +1,53 @@
+interface Foo {
+	func Call(s: string): int;
+}
+
+proc ForEach(Start): int {
+	func Start(i: int): { l: []int, s: string };
+	func Process(i: int, l: []int): int;
+	func Collect(l: []int): int;
+
+	Start for each (Start.l) -> Process(i = this, l = Start.l);
+	Process collect each (Process) -> Collect(l = this);
+}
+
+proc Bar(Start): string {
+	func Start(a: int, b: string): string;
+	func Loop(s: string): int;
+	func Branch1(i: int): string;
+	func Branch2Begin(i: int): string;
+	func Branch2End(i: int);
+	func End(r: enum { I(string), S, B({i: int}) }): string;
+
+	Start -> Loop(s = this);
+	Loop switch {
+		(this < 10) -> Loop(s = Start),
+		else -> ForEach(i = this)
+	};
+	ForEach switch {
+		(this == 0) -> Branch1(i = this),
+		else -> Branch2Begin(i = this)
+	};
+	Branch2Begin -> Foo.Call(s = this);
+	Foo.Call -> Branch2End(i = this);
+	Branch2End -> End(r = S());
+	Branch1 -> End(r = I(this));
+}
+
+---
+Foo.Call @22..26 func (s: string): int = 
+ForEach @52..59 proc parent=-1 entry=2 ret=int locals=[2, 3, 4]
+ForEach.Start @80..85 func (i: int): { l: []int, s: string } = 
+ForEach.Process @126..133 func (i: int, l: []int): int = 
+ForEach.Collect @164..171 func (l: []int): int = 
+Bar @312..315 proc parent=-1 entry=6 ret=string locals=[6, 7, 8, 9, 10, 11]
+Bar.Start @339..344 func (a: int, b: string): string = 
+Bar.Loop @379..383 func (s: string): int = 
+Bar.Branch1 @407..414 func (i: int): string = 
+Bar.Branch2Begin @438..450 func (i: int): string = 
+Bar.Branch2End @474..484 func (i: int): void = 
+Bar.End @500..503 func (r: enum { I(string), S, B({ i: int }) }): string = 
+global Bar = 5
+global Foo = interface {"Call": 0}
+global ForEach = 1
+top [1, 5]

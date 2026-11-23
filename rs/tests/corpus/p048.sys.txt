@@ -1,0 +1,1 @@
+type Id<T> = T; proc Q(X): int { func X(v: Id<void>): int; }

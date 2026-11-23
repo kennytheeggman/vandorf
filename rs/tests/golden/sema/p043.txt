@@ -1,0 +1,3 @@
+type R<T> = { x: T }; type A = R<{ a: int }>;
+---
+error: a type argument can't be a struct or enum written out: name it with a typedef @33..43

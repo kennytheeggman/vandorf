@@ -1,0 +1,7 @@
+[project]
+name = "x"
+[bin.a]
+entri = "A"
+
+---
+unknown field `entri`, expected one of `entry`, `go`, `rust`

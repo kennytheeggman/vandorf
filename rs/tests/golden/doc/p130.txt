@@ -1,0 +1,182 @@
+{
+  "grids": {
+    "P": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "A"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "B",
+              "branch": "joined"
+            },
+            {
+              "type": 0,
+              "label": "B2",
+              "sublabel": "instance of B",
+              "branch": "joined"
+            },
+            {
+              "type": 0,
+              "label": "C",
+              "branch": "joined"
+            },
+            {
+              "type": 0,
+              "label": "S",
+              "branch": "joined"
+            },
+            {
+              "type": 0,
+              "label": "L",
+              "branch": "detached"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "D"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 5,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "int",
+          "call": "B(n: int)",
+          "args": "n = this"
+        },
+        {
+          "type": 5,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            1
+          ],
+          "valueType": "int",
+          "call": "B2(n: int)",
+          "args": "n = this + 1"
+        },
+        {
+          "type": 5,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            2
+          ],
+          "valueType": "int",
+          "call": "C(n: int)",
+          "args": "n = this"
+        },
+        {
+          "type": 5,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            3
+          ],
+          "valueType": "int",
+          "call": "S(n: int)",
+          "args": "n = 1"
+        },
+        {
+          "type": 5,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            4
+          ],
+          "valueType": "int",
+          "call": "L(s: string)",
+          "args": "s = \"x\""
+        },
+        {
+          "type": 6,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "{ B: int, B2: int, C: string }",
+          "call": "D(b: int, b2: int, c: string)",
+          "args": "b = this.B, b2 = this.B2, c = this.C"
+        },
+        {
+          "type": 6,
+          "source": [
+            1,
+            1
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "{ B: int, B2: int, C: string }",
+          "call": "D(b: int, b2: int, c: string)",
+          "args": "b = this.B, b2 = this.B2, c = this.C"
+        },
+        {
+          "type": 6,
+          "source": [
+            1,
+            2
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "{ B: int, B2: int, C: string }",
+          "call": "D(b: int, b2: int, c: string)",
+          "args": "b = this.B, b2 = this.B2, c = this.C"
+        },
+        {
+          "type": 6,
+          "source": [
+            1,
+            3
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "{ B: int, B2: int, C: string }",
+          "call": "D(b: int, b2: int, c: string)",
+          "args": "b = this.B, b2 = this.B2, c = this.C"
+        }
+      ]
+    }
+  }
+}

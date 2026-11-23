@@ -1,0 +1,5 @@
+[project]
+name = ["x"]
+
+---
+invalid type: sequence, expected a string

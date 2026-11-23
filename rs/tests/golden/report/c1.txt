@@ -1,0 +1,6 @@
+error: msg
+ --> f.sys:2:7
+  |
+2 |     func B(): int;
+  |          ^
+  = expected: pub fn b()

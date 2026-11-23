@@ -1,0 +1,30 @@
+{
+  "grids": {
+    "Outer": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 1,
+              "label": "Outer.Inner"
+            }
+          ]
+        }
+      ],
+      "edges": []
+    },
+    "Outer.Inner": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "A"
+            }
+          ]
+        }
+      ],
+      "edges": []
+    }
+  }
+}
