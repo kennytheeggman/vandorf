@@ -5,7 +5,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Calc",
               "sublabel": "(n: int)"
             }
@@ -42,7 +42,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Hi",
               "sublabel": "(name: string, ctx: Ctx)"
             }
@@ -79,7 +79,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Page",
               "sublabel": "(ctx: Ctx, req: Req)"
             }
@@ -116,7 +116,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Setup",
               "sublabel": "()"
             }

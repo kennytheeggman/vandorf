@@ -5,7 +5,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Bar",
               "sublabel": "(a: int, b: string)"
             }
@@ -231,7 +231,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Calc",
               "sublabel": "(base: int)"
             }
@@ -338,7 +338,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Classify",
               "sublabel": "(e: Expr)"
             }
@@ -517,7 +517,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "ForEach",
               "sublabel": "(i: int)"
             }
@@ -601,7 +601,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Hello",
               "sublabel": "(name: string, times: int)"
             }
@@ -639,7 +639,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Main",
               "sublabel": "(a: int, b: string)"
             }
@@ -699,7 +699,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Measure",
               "sublabel": "(shapes: []Shape)"
             }
@@ -836,7 +836,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Resolve",
               "sublabel": "(names: []string, query: string)"
             }

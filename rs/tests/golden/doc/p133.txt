@@ -5,7 +5,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Greet",
               "sublabel": "(name: string, times: int)"
             }
@@ -42,7 +42,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Main",
               "sublabel": "()"
             }

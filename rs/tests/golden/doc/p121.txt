@@ -5,7 +5,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Hi",
               "sublabel": "(name: string, ctx: Ctx)"
             }
@@ -42,7 +42,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "NoCtx",
               "sublabel": "(name: string)"
             }
@@ -79,7 +79,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Page",
               "sublabel": "(ctx: Ctx, req: Req)"
             }
@@ -116,7 +116,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Setup",
               "sublabel": "()"
             }
@@ -152,7 +152,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Takes",
               "sublabel": "(n: int)"
             }
@@ -189,7 +189,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "WrongCtx",
               "sublabel": "(ctx: string)"
             }

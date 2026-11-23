@@ -5,7 +5,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Area",
               "sublabel": "(s: Shape, k: { n: int })"
             }
@@ -42,7 +42,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Hi",
               "sublabel": "(name: string)"
             }
@@ -79,7 +79,7 @@
         {
           "nodes": [
             {
-              "type": 2,
+              "type": 3,
               "label": "Page",
               "sublabel": "(req: Req)"
             }

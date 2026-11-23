@@ -363,9 +363,10 @@ fn node_json(prog: &Program, pid: i64, n: i64) -> Json {
         }
         // `id(..) as N`: a node named N.
         NodeKind::Id(_) => (0, display(prog, pid, n), Some("id".to_string())),
-        // The proc's signature node: drawn as its header, with its params.
+        // The proc's signature node (type 3): drawn as its header, with its
+        // params.
         NodeKind::Sig(s) => (
-            2,
+            3,
             decl.qual.last().map_or(String::new(), |l| l.to_string()),
             Some(show_params(&s.params)),
         ),
