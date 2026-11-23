@@ -94,7 +94,7 @@ fn fan_out<E: Send, R: Send>(xs: Vec<E>, f: impl Fn(E) -> Result<R, Error> + Syn
 #[derive(Debug, Clone, Default)]
 struct EnvMerge {
     in_merge_merge: Option<InMergeMerge>,
-    out_merge_merge: Option<types::MergeMergeOut>,
+    out_merge_merge: Option<types::MergeArgs>,
     in_merge_d: Option<InMergeD>,
     out_merge_d: Option<i64>,
     in_merge_g: Option<InMergeG>,
@@ -117,7 +117,7 @@ pub fn run_merge(e: types::E) -> Result<i64, Error> {
         match pc {
             PcMerge::MergeMerge => {
                 let input = take_slot(&mut env.in_merge_merge, "Merge.Merge")?;
-                let this = types::MergeMergeOut { e: input.e };
+                let this = types::MergeArgs { e: input.e };
                 if (matches!((&(&this).e), types::E::A(..))) {
                     let b_x = (match (&(&this).e) { types::E::A(p) => p, _ => unreachable!() }).clone();
                     env.in_merge_d = Some(InMergeD { value: b_x });
@@ -154,7 +154,7 @@ pub fn run_merge(e: types::E) -> Result<i64, Error> {
 #[derive(Debug, Clone, Default)]
 struct EnvSum {
     in_sum_sum: Option<InSumSum>,
-    out_sum_sum: Option<types::SumSumOut>,
+    out_sum_sum: Option<types::SumArgs>,
     in_sum_l: Option<InSumL>,
     out_sum_l: Option<types::SumLOut>,
     in_sum_id1: Option<InSumId1>,
@@ -177,7 +177,7 @@ pub fn run_sum(xs: types::List<i64>) -> Result<i64, Error> {
         match pc {
             PcSum::SumSum => {
                 let input = take_slot(&mut env.in_sum_sum, "Sum.Sum")?;
-                let this = types::SumSumOut { xs: input.xs };
+                let this = types::SumArgs { xs: input.xs };
                 env.out_sum_sum = Some(this.clone());
                 env.in_sum_l = Some(InSumL { value: types::SumLOut { i: 0_i64, acc: 0_i64 } });
                 pc = PcSum::SumL;
@@ -423,15 +423,15 @@ pub enum E {
     B(i64),
 }
 
-/// The type of the return of Merge.Merge.
+/// The type of the parameters of Merge.
 #[derive(Debug, Clone, PartialEq)]
-pub struct MergeMergeOut {
+pub struct MergeArgs {
     pub e: E,
 }
 
-/// The type of the return of Sum.Sum.
+/// The type of the parameters of Sum.
 #[derive(Debug, Clone, PartialEq)]
-pub struct SumSumOut {
+pub struct SumArgs {
     pub xs: List<i64>,
 }
 

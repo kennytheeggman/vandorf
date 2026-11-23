@@ -158,15 +158,15 @@ pub enum E {
     B(i64),
 }
 
-/// The type of the return of Merge.Merge.
+/// The type of the parameters of Merge.
 #[derive(Debug, Clone, PartialEq)]
-pub struct MergeMergeOut {
+pub struct MergeArgs {
     pub e: E,
 }
 
-/// The type of the return of Sum.Sum.
+/// The type of the parameters of Sum.
 #[derive(Debug, Clone, PartialEq)]
-pub struct SumSumOut {
+pub struct SumArgs {
     pub xs: List<i64>,
 }
 

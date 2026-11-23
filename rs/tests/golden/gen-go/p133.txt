@@ -12,7 +12,7 @@ import (
 
 type envGreet struct {
 	inGreetGreet inGreetGreet
-	outGreetGreet types.GreetGreetOut
+	outGreetGreet types.GreetArgs
 	inGreetRepeat inGreetRepeat
 	outGreetRepeat string
 }
@@ -34,7 +34,7 @@ func RunGreet(ctx context.Context, name string, times int) (string, error) {
 		}
 		switch pc {
 		case pcGreet_GreetGreet:
-			this := types.GreetGreetOut{Name: env.inGreetGreet.Name, Times: env.inGreetGreet.Times}
+			this := types.GreetArgs{Name: env.inGreetGreet.Name, Times: env.inGreetGreet.Times}
 			zeroOut(&env.inGreetGreet)
 			env.outGreetGreet = this
 			env.inGreetRepeat = inGreetRepeat{S: ("hello " + this.Name), N: env.outGreetGreet.Times}
@@ -91,7 +91,7 @@ import (
 
 type envMain struct {
 	inMainMain inMainMain
-	outMainMain types.MainMainOut
+	outMainMain types.MainArgs
 	inGreet inGreetGreet
 	outGreet string
 }
@@ -113,7 +113,7 @@ func RunMain(ctx context.Context) (string, error) {
 		}
 		switch pc {
 		case pcMain_MainMain:
-			this := types.MainMainOut{}
+			this := types.MainArgs{}
 			zeroOut(&env.inMainMain)
 			_ = this
 			env.inGreet = inGreetGreet{Name: "x", Times: 2}
@@ -373,14 +373,14 @@ func unimplementedGreetRepeat(ctx context.Context, _ string, _ int) (string, err
 
 package types
 
-// GreetGreetOut is the type of the return of Greet.Greet.
-type GreetGreetOut struct {
+// GreetArgs is the type of the parameters of Greet.
+type GreetArgs struct {
 	Name string
 	Times int
 }
 
-// MainMainOut is the type of the return of Main.Main.
-type MainMainOut struct {
+// MainArgs is the type of the parameters of Main.
+type MainArgs struct {
 }
 
 
@@ -397,7 +397,7 @@ import (
 
 type envGreet struct {
 	inGreetGreet inGreetGreet
-	outGreetGreet GreetGreetOut
+	outGreetGreet GreetArgs
 	inGreetRepeat inGreetRepeat
 	outGreetRepeat string
 }
@@ -419,7 +419,7 @@ func RunGreet(ctx context.Context, name string, times int) (string, error) {
 		}
 		switch pc {
 		case pcGreet_GreetGreet:
-			this := GreetGreetOut{Name: env.inGreetGreet.Name, Times: env.inGreetGreet.Times}
+			this := GreetArgs{Name: env.inGreetGreet.Name, Times: env.inGreetGreet.Times}
 			zeroOut(&env.inGreetGreet)
 			env.outGreetGreet = this
 			env.inGreetRepeat = inGreetRepeat{S: ("hello " + this.Name), N: env.outGreetGreet.Times}
@@ -475,7 +475,7 @@ import (
 
 type envMain struct {
 	inMainMain inMainMain
-	outMainMain MainMainOut
+	outMainMain MainArgs
 	inGreet inGreetGreet
 	outGreet string
 }
@@ -497,7 +497,7 @@ func RunMain(ctx context.Context) (string, error) {
 		}
 		switch pc {
 		case pcMain_MainMain:
-			this := MainMainOut{}
+			this := MainArgs{}
 			zeroOut(&env.inMainMain)
 			_ = this
 			env.inGreet = inGreetGreet{Name: "x", Times: 2}
@@ -757,14 +757,14 @@ func unimplementedGreetRepeat(ctx context.Context, _ string, _ int) (string, err
 
 package app
 
-// GreetGreetOut is the type of the return of Greet.Greet.
-type GreetGreetOut struct {
+// GreetArgs is the type of the parameters of Greet.
+type GreetArgs struct {
 	Name string
 	Times int
 }
 
-// MainMainOut is the type of the return of Main.Main.
-type MainMainOut struct {
+// MainArgs is the type of the parameters of Main.
+type MainArgs struct {
 }
 
 
@@ -784,7 +784,7 @@ import (
 
 type envGreet struct {
 	inGreetGreet inGreetGreet
-	outGreetGreet types.GreetGreetOut
+	outGreetGreet types.GreetArgs
 	inGreetRepeat inGreetRepeat
 	outGreetRepeat string
 }
@@ -806,7 +806,7 @@ func RunGreet(ctx context.Context, name string, times int) (string, error) {
 		}
 		switch pc {
 		case pcGreet_GreetGreet:
-			this := types.GreetGreetOut{Name: env.inGreetGreet.Name, Times: env.inGreetGreet.Times}
+			this := types.GreetArgs{Name: env.inGreetGreet.Name, Times: env.inGreetGreet.Times}
 			zeroOut(&env.inGreetGreet)
 			env.outGreetGreet = this
 			env.inGreetRepeat = inGreetRepeat{S: ("hello " + this.Name), N: env.outGreetGreet.Times}
@@ -863,7 +863,7 @@ import (
 
 type envMain struct {
 	inMainMain inMainMain
-	outMainMain types.MainMainOut
+	outMainMain types.MainArgs
 	inGreet inGreetGreet
 	outGreet string
 }
@@ -885,7 +885,7 @@ func RunMain(ctx context.Context) (string, error) {
 		}
 		switch pc {
 		case pcMain_MainMain:
-			this := types.MainMainOut{}
+			this := types.MainArgs{}
 			zeroOut(&env.inMainMain)
 			_ = this
 			env.inGreet = inGreetGreet{Name: "x", Times: 2}
@@ -1182,14 +1182,14 @@ func main() {
 
 package types
 
-// GreetGreetOut is the type of the return of Greet.Greet.
-type GreetGreetOut struct {
+// GreetArgs is the type of the parameters of Greet.
+type GreetArgs struct {
 	Name string
 	Times int
 }
 
-// MainMainOut is the type of the return of Main.Main.
-type MainMainOut struct {
+// MainArgs is the type of the parameters of Main.
+type MainArgs struct {
 }
 
 
@@ -1207,7 +1207,7 @@ import (
 
 type envGreet struct {
 	inGreetGreet inGreetGreet
-	outGreetGreet types.GreetGreetOut
+	outGreetGreet types.GreetArgs
 	inGreetRepeat inGreetRepeat
 	outGreetRepeat string
 }
@@ -1229,7 +1229,7 @@ func RunGreet(ctx context.Context, name string, times int) (string, error) {
 		}
 		switch pc {
 		case pcGreet_GreetGreet:
-			this := types.GreetGreetOut{Name: env.inGreetGreet.Name, Times: env.inGreetGreet.Times}
+			this := types.GreetArgs{Name: env.inGreetGreet.Name, Times: env.inGreetGreet.Times}
 			zeroOut(&env.inGreetGreet)
 			env.outGreetGreet = this
 			env.inGreetRepeat = inGreetRepeat{S: ("hello " + this.Name), N: env.outGreetGreet.Times}
@@ -1286,7 +1286,7 @@ import (
 
 type envMain struct {
 	inMainMain inMainMain
-	outMainMain types.MainMainOut
+	outMainMain types.MainArgs
 	inGreet inGreetGreet
 	outGreet string
 }
@@ -1308,7 +1308,7 @@ func RunMain(ctx context.Context) (string, error) {
 		}
 		switch pc {
 		case pcMain_MainMain:
-			this := types.MainMainOut{}
+			this := types.MainArgs{}
 			zeroOut(&env.inMainMain)
 			_ = this
 			env.inGreet = inGreetGreet{Name: "x", Times: 2}
@@ -1598,14 +1598,14 @@ func main() {
 
 package types
 
-// GreetGreetOut is the type of the return of Greet.Greet.
-type GreetGreetOut struct {
+// GreetArgs is the type of the parameters of Greet.
+type GreetArgs struct {
 	Name string
 	Times int
 }
 
-// MainMainOut is the type of the return of Main.Main.
-type MainMainOut struct {
+// MainArgs is the type of the parameters of Main.
+type MainArgs struct {
 }
 
 

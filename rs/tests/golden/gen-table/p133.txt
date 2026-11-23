@@ -1,2 +1,2 @@
-#0 GreetGreetOut struct { name: string, times: int } (return of Greet.Greet)
-#1 MainMainOut struct {  } (return of Main.Main)
+#0 GreetArgs struct { name: string, times: int } (parameters of Greet)
+#1 MainArgs struct {  } (parameters of Main)

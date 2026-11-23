@@ -567,7 +567,7 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-impl Json for types::GreetGreetOut {
+impl Json for types::GreetArgs {
     fn to_json(&self, out: &mut String) {
         out.push('{');
         out.push_str("\"name\":");
@@ -577,22 +577,22 @@ impl Json for types::GreetGreetOut {
         out.push('}');
     }
     fn from_json(v: &Value) -> Result<Self, String> {
-        let fs = v.object("GreetGreetOut")?;
-        Ok(types::GreetGreetOut {
+        let fs = v.object("GreetArgs")?;
+        Ok(types::GreetArgs {
             name: Json::from_json(field(fs, "name")?).map_err(|e| format!("name: {e}"))?,
             times: Json::from_json(field(fs, "times")?).map_err(|e| format!("times: {e}"))?,
         })
     }
 }
 
-impl Json for types::MainMainOut {
+impl Json for types::MainArgs {
     fn to_json(&self, out: &mut String) {
         out.push('{');
         out.push('}');
     }
     fn from_json(v: &Value) -> Result<Self, String> {
-        let fs = v.object("MainMainOut")?;
-        Ok(types::MainMainOut {
+        let fs = v.object("MainArgs")?;
+        Ok(types::MainArgs {
         })
     }
 }

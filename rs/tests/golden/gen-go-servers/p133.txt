@@ -12,7 +12,7 @@ import (
 
 type envGreet struct {
 	inGreetGreet inGreetGreet
-	outGreetGreet types.GreetGreetOut
+	outGreetGreet types.GreetArgs
 	inGreetRepeat inGreetRepeat
 	outGreetRepeat string
 }
@@ -34,7 +34,7 @@ func RunGreet(ctx context.Context, name string, times int) (string, error) {
 		}
 		switch pc {
 		case pcGreet_GreetGreet:
-			this := types.GreetGreetOut{Name: env.inGreetGreet.Name, Times: env.inGreetGreet.Times}
+			this := types.GreetArgs{Name: env.inGreetGreet.Name, Times: env.inGreetGreet.Times}
 			zeroOut(&env.inGreetGreet)
 			env.outGreetGreet = this
 			env.inGreetRepeat = inGreetRepeat{S: ("hello " + this.Name), N: env.outGreetGreet.Times}
@@ -746,7 +746,7 @@ func httpPercentDecode(s string) string {
 	return strings.ToValidUTF8(string(out), "�")
 }
 
-func httpEncGreetGreetOut(b *strings.Builder, x types.GreetGreetOut) {
+func httpEncGreetArgs(b *strings.Builder, x types.GreetArgs) {
 	b.WriteByte('{')
 	b.WriteString("\"name\":")
 	httpWriteString(b, x.Name)
@@ -755,9 +755,9 @@ func httpEncGreetGreetOut(b *strings.Builder, x types.GreetGreetOut) {
 	b.WriteByte('}')
 }
 
-func httpDecGreetGreetOut(v any) (types.GreetGreetOut, error) {
-	var x types.GreetGreetOut
-	fs, err := httpObject(v, "GreetGreetOut")
+func httpDecGreetArgs(v any) (types.GreetArgs, error) {
+	var x types.GreetArgs
+	fs, err := httpObject(v, "GreetArgs")
 	if err != nil {
 		return x, err
 	}
@@ -778,14 +778,14 @@ func httpDecGreetGreetOut(v any) (types.GreetGreetOut, error) {
 	return x, nil
 }
 
-func httpEncMainMainOut(b *strings.Builder, x types.MainMainOut) {
+func httpEncMainArgs(b *strings.Builder, x types.MainArgs) {
 	b.WriteByte('{')
 	b.WriteByte('}')
 }
 
-func httpDecMainMainOut(v any) (types.MainMainOut, error) {
-	var x types.MainMainOut
-	_, err := httpObject(v, "MainMainOut")
+func httpDecMainArgs(v any) (types.MainArgs, error) {
+	var x types.MainArgs
+	_, err := httpObject(v, "MainArgs")
 	if err != nil {
 		return x, err
 	}
@@ -876,7 +876,7 @@ import (
 
 type envMain struct {
 	inMainMain inMainMain
-	outMainMain types.MainMainOut
+	outMainMain types.MainArgs
 	inGreet inGreetGreet
 	outGreet string
 }
@@ -898,7 +898,7 @@ func RunMain(ctx context.Context) (string, error) {
 		}
 		switch pc {
 		case pcMain_MainMain:
-			this := types.MainMainOut{}
+			this := types.MainArgs{}
 			zeroOut(&env.inMainMain)
 			_ = this
 			env.inGreet = inGreetGreet{Name: "x", Times: 2}
@@ -1197,14 +1197,14 @@ func main() {
 
 package types
 
-// GreetGreetOut is the type of the return of Greet.Greet.
-type GreetGreetOut struct {
+// GreetArgs is the type of the parameters of Greet.
+type GreetArgs struct {
 	Name string
 	Times int
 }
 
-// MainMainOut is the type of the return of Main.Main.
-type MainMainOut struct {
+// MainArgs is the type of the parameters of Main.
+type MainArgs struct {
 }
 
 

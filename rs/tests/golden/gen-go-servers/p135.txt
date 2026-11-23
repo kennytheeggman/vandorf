@@ -737,16 +737,16 @@ func httpDecE(v any) (types.E, error) {
 	return x, errors.New("expected a variant of E: \"Tag\" or {\"Tag\": payload}")
 }
 
-func httpEncMergeMergeOut(b *strings.Builder, x types.MergeMergeOut) {
+func httpEncMergeArgs(b *strings.Builder, x types.MergeArgs) {
 	b.WriteByte('{')
 	b.WriteString("\"e\":")
 	httpEncE(b, x.E)
 	b.WriteByte('}')
 }
 
-func httpDecMergeMergeOut(v any) (types.MergeMergeOut, error) {
-	var x types.MergeMergeOut
-	fs, err := httpObject(v, "MergeMergeOut")
+func httpDecMergeArgs(v any) (types.MergeArgs, error) {
+	var x types.MergeArgs
+	fs, err := httpObject(v, "MergeArgs")
 	if err != nil {
 		return x, err
 	}
@@ -760,16 +760,16 @@ func httpDecMergeMergeOut(v any) (types.MergeMergeOut, error) {
 	return x, nil
 }
 
-func httpEncSumSumOut(b *strings.Builder, x types.SumSumOut) {
+func httpEncSumArgs(b *strings.Builder, x types.SumArgs) {
 	b.WriteByte('{')
 	b.WriteString("\"xs\":")
 	httpListW(httpWriteInt)(b, x.Xs)
 	b.WriteByte('}')
 }
 
-func httpDecSumSumOut(v any) (types.SumSumOut, error) {
-	var x types.SumSumOut
-	fs, err := httpObject(v, "SumSumOut")
+func httpDecSumArgs(v any) (types.SumArgs, error) {
+	var x types.SumArgs
+	fs, err := httpObject(v, "SumArgs")
 	if err != nil {
 		return x, err
 	}
@@ -917,7 +917,7 @@ import (
 
 type envMerge struct {
 	inMergeMerge inMergeMerge
-	outMergeMerge types.MergeMergeOut
+	outMergeMerge types.MergeArgs
 	inMergeD inMergeD
 	outMergeD int
 	inMergeG inMergeG
@@ -942,7 +942,7 @@ func RunMerge(ctx context.Context, e types.E) (int, error) {
 		}
 		switch pc {
 		case pcMerge_MergeMerge:
-			this := types.MergeMergeOut{E: env.inMergeMerge.E}
+			this := types.MergeArgs{E: env.inMergeMerge.E}
 			zeroOut(&env.inMergeMerge)
 			_ = this
 			if this.E.Tag == "A" {
@@ -1229,7 +1229,7 @@ import (
 
 type envSum struct {
 	inSumSum inSumSum
-	outSumSum types.SumSumOut
+	outSumSum types.SumArgs
 	inSumL inSumL
 	outSumL types.SumLOut
 	inSumId1 inSumId1
@@ -1254,7 +1254,7 @@ func RunSum(ctx context.Context, xs []int) (int, error) {
 		}
 		switch pc {
 		case pcSum_SumSum:
-			this := types.SumSumOut{Xs: env.inSumSum.Xs}
+			this := types.SumArgs{Xs: env.inSumSum.Xs}
 			zeroOut(&env.inSumSum)
 			env.outSumSum = this
 			env.inSumL = inSumL{Value: types.SumLOut{I: 0, Acc: 0}}
@@ -1344,13 +1344,13 @@ type E struct {
 	B int
 }
 
-// MergeMergeOut is the type of the return of Merge.Merge.
-type MergeMergeOut struct {
+// MergeArgs is the type of the parameters of Merge.
+type MergeArgs struct {
 	E E
 }
 
-// SumSumOut is the type of the return of Sum.Sum.
-type SumSumOut struct {
+// SumArgs is the type of the parameters of Sum.
+type SumArgs struct {
 	Xs []int
 }
 

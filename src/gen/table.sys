@@ -86,13 +86,18 @@ proc TypedefTypes(At): Table {
 proc NodeTypes(At): Table {
 	func At(s: { t: Table, prog: Program, i: int }): { t: Table, prog: Program, i: int } = "../leaf.rs:same";
 	func ParamsIfFunc(n: NodeDecl): []Member = "gen_leaf.rs:func_params";
+	// What a node's types are named after: the node, or for a signature
+	// node its proc (`PS` for P's param s, `PArgs` for its output).
+	func HintBase(nodes: []NodeDecl, n: int): string = "gen_leaf.rs:hint_base";
+	func RetHint(nodes: []NodeDecl, n: int): string = "gen_leaf.rs:ret_hint";
+	func RetOrigin(nodes: []NodeDecl, n: int): string = "gen_leaf.rs:ret_origin";
 	At switch {
 		(this.i == this.prog.nodes.len) -> id(this.t),
-		else -> RegisterParams(s = { t = this.t, ps = ParamsIfFunc(n = this.prog.nodes[this.i]), g = Gname(n = this.prog.nodes[this.i]), q = QualName(n = this.prog.nodes[this.i]), j = 0 })
+		else -> RegisterParams(s = { t = this.t, ps = ParamsIfFunc(n = this.prog.nodes[this.i]), g = HintBase(nodes = this.prog.nodes, n = this.i), q = QualName(n = this.prog.nodes[this.i]), j = 0 })
 	};
 	RegisterParams switch {
 		(IsAliasNode(n = At.prog.nodes[At.i])) -> At(s = { t = this, prog = At.prog, i = At.i + 1 }),
-		else -> Register(s = { t = this, ty = NodeRet(nodes = At.prog.nodes, n = At.i), hint = Gname(n = At.prog.nodes[At.i]) + "Out", origin = "return of " + QualName(n = At.prog.nodes[At.i]) })
+		else -> Register(s = { t = this, ty = NodeRet(nodes = At.prog.nodes, n = At.i), hint = RetHint(nodes = At.prog.nodes, n = At.i), origin = RetOrigin(nodes = At.prog.nodes, n = At.i) })
 	};
 	Register -> At(s = { t = this.t, prog = At.prog, i = At.i + 1 });
 }

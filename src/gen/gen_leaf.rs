@@ -154,8 +154,33 @@ pub fn gname(n: NodeDecl) -> Result<Str, String> {
 pub fn func_params(n: NodeDecl) -> Result<List<Member>, String> {
     Ok(match n.kind {
         NodeKind::Func(f) => f.params,
+        NodeKind::Sig(s) => s.params,
         _ => List::default(),
     })
+}
+
+pub fn hint_base(nodes: List<NodeDecl>, n: i64) -> Result<Str, String> {
+    match &nodes[n as usize].kind {
+        NodeKind::Sig(s) => gname(nodes[s.pid as usize].clone()),
+        _ => gname(nodes[n as usize].clone()),
+    }
+}
+
+pub fn ret_hint(nodes: List<NodeDecl>, n: i64) -> Result<Str, String> {
+    let base = hint_base(nodes.clone(), n)?;
+    Ok(match &nodes[n as usize].kind {
+        NodeKind::Sig(_) => format!("{base}Args"),
+        _ => format!("{base}Out"),
+    }
+    .into())
+}
+
+pub fn ret_origin(nodes: List<NodeDecl>, n: i64) -> Result<Str, String> {
+    Ok(match &nodes[n as usize].kind {
+        NodeKind::Sig(s) => format!("parameters of {}", qn(&nodes, s.pid)),
+        _ => format!("return of {}", qn(&nodes, n)),
+    }
+    .into())
 }
 
 // ---- Text ----

@@ -94,7 +94,7 @@ fn fan_out<E: Send, R: Send>(xs: Vec<E>, f: impl Fn(E) -> Result<R, Error> + Syn
 #[derive(Debug, Clone, Default)]
 struct EnvCount {
     in_count_count: Option<InCountCount>,
-    out_count_count: Option<types::CountCountOut>,
+    out_count_count: Option<types::CountArgs>,
     in_count_id1: Option<InCountId1>,
     out_count_id1: Option<i64>,
 }
@@ -114,7 +114,7 @@ pub fn run_count(n: i64, acc: i64) -> Result<i64, Error> {
         match pc {
             PcCount::CountCount => {
                 let input = take_slot(&mut env.in_count_count, "Count.Count")?;
-                let this = types::CountCountOut { n: input.n, acc: input.acc };
+                let this = types::CountArgs { n: input.n, acc: input.acc };
                 if (this.n.clone() == 0_i64) {
                     env.in_count_id1 = Some(InCountId1 { value: this.acc });
                     pc = PcCount::CountId1;
@@ -139,7 +139,7 @@ pub fn run_count(n: i64, acc: i64) -> Result<i64, Error> {
 #[derive(Debug, Clone, Default)]
 struct EnvFib {
     in_fib_fib: Option<InFibFib>,
-    out_fib_fib: Option<types::FibFibOut>,
+    out_fib_fib: Option<types::FibArgs>,
     in_fib_id1: Option<InFibId1>,
     out_fib_id1: Option<i64>,
     in_fib_a: Option<InFibFib>,
@@ -168,7 +168,7 @@ pub fn run_fib(n: i64) -> Result<i64, Error> {
         match pc {
             PcFib::FibFib => {
                 let input = take_slot(&mut env.in_fib_fib, "Fib.Fib")?;
-                let this = types::FibFibOut { n: input.n };
+                let this = types::FibArgs { n: input.n };
                 env.out_fib_fib = Some(this.clone());
                 if (this.n.clone() < 2_i64) {
                     env.in_fib_id1 = Some(InFibId1 { value: this.n });
@@ -415,16 +415,16 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
     }
 }
 
-/// The type of the return of Count.Count.
+/// The type of the parameters of Count.
 #[derive(Debug, Clone, PartialEq)]
-pub struct CountCountOut {
+pub struct CountArgs {
     pub n: i64,
     pub acc: i64,
 }
 
-/// The type of the return of Fib.Fib.
+/// The type of the parameters of Fib.
 #[derive(Debug, Clone, PartialEq)]
-pub struct FibFibOut {
+pub struct FibArgs {
     pub n: i64,
 }
 

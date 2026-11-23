@@ -52,7 +52,7 @@ import (
 
 type envMerge struct {
 	inMergeMerge inMergeMerge
-	outMergeMerge types.MergeMergeOut
+	outMergeMerge types.MergeArgs
 	inMergeD inMergeD
 	outMergeD int
 	inMergeG inMergeG
@@ -77,7 +77,7 @@ func RunMerge(ctx context.Context, e types.E) (int, error) {
 		}
 		switch pc {
 		case pcMerge_MergeMerge:
-			this := types.MergeMergeOut{E: env.inMergeMerge.E}
+			this := types.MergeArgs{E: env.inMergeMerge.E}
 			zeroOut(&env.inMergeMerge)
 			_ = this
 			if this.E.Tag == "A" {
@@ -364,7 +364,7 @@ import (
 
 type envSum struct {
 	inSumSum inSumSum
-	outSumSum types.SumSumOut
+	outSumSum types.SumArgs
 	inSumL inSumL
 	outSumL types.SumLOut
 	inSumId1 inSumId1
@@ -389,7 +389,7 @@ func RunSum(ctx context.Context, xs []int) (int, error) {
 		}
 		switch pc {
 		case pcSum_SumSum:
-			this := types.SumSumOut{Xs: env.inSumSum.Xs}
+			this := types.SumArgs{Xs: env.inSumSum.Xs}
 			zeroOut(&env.inSumSum)
 			env.outSumSum = this
 			env.inSumL = inSumL{Value: types.SumLOut{I: 0, Acc: 0}}
@@ -440,13 +440,13 @@ type E struct {
 	B int
 }
 
-// MergeMergeOut is the type of the return of Merge.Merge.
-type MergeMergeOut struct {
+// MergeArgs is the type of the parameters of Merge.
+type MergeArgs struct {
 	E E
 }
 
-// SumSumOut is the type of the return of Sum.Sum.
-type SumSumOut struct {
+// SumArgs is the type of the parameters of Sum.
+type SumArgs struct {
 	Xs []int
 }
 
@@ -506,7 +506,7 @@ import (
 
 type envMerge struct {
 	inMergeMerge inMergeMerge
-	outMergeMerge MergeMergeOut
+	outMergeMerge MergeArgs
 	inMergeD inMergeD
 	outMergeD int
 	inMergeG inMergeG
@@ -531,7 +531,7 @@ func RunMerge(ctx context.Context, e E) (int, error) {
 		}
 		switch pc {
 		case pcMerge_MergeMerge:
-			this := MergeMergeOut{E: env.inMergeMerge.E}
+			this := MergeArgs{E: env.inMergeMerge.E}
 			zeroOut(&env.inMergeMerge)
 			_ = this
 			if this.E.Tag == "A" {
@@ -817,7 +817,7 @@ import (
 
 type envSum struct {
 	inSumSum inSumSum
-	outSumSum SumSumOut
+	outSumSum SumArgs
 	inSumL inSumL
 	outSumL SumLOut
 	inSumId1 inSumId1
@@ -842,7 +842,7 @@ func RunSum(ctx context.Context, xs []int) (int, error) {
 		}
 		switch pc {
 		case pcSum_SumSum:
-			this := SumSumOut{Xs: env.inSumSum.Xs}
+			this := SumArgs{Xs: env.inSumSum.Xs}
 			zeroOut(&env.inSumSum)
 			env.outSumSum = this
 			env.inSumL = inSumL{Value: SumLOut{I: 0, Acc: 0}}
@@ -893,13 +893,13 @@ type E struct {
 	B int
 }
 
-// MergeMergeOut is the type of the return of Merge.Merge.
-type MergeMergeOut struct {
+// MergeArgs is the type of the parameters of Merge.
+type MergeArgs struct {
 	E E
 }
 
-// SumSumOut is the type of the return of Sum.Sum.
-type SumSumOut struct {
+// SumArgs is the type of the parameters of Sum.
+type SumArgs struct {
 	Xs []int
 }
 

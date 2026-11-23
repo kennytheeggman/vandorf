@@ -597,7 +597,7 @@ impl Json for types::E {
     }
 }
 
-impl Json for types::MergeMergeOut {
+impl Json for types::MergeArgs {
     fn to_json(&self, out: &mut String) {
         out.push('{');
         out.push_str("\"e\":");
@@ -605,14 +605,14 @@ impl Json for types::MergeMergeOut {
         out.push('}');
     }
     fn from_json(v: &Value) -> Result<Self, String> {
-        let fs = v.object("MergeMergeOut")?;
-        Ok(types::MergeMergeOut {
+        let fs = v.object("MergeArgs")?;
+        Ok(types::MergeArgs {
             e: Json::from_json(field(fs, "e")?).map_err(|e| format!("e: {e}"))?,
         })
     }
 }
 
-impl Json for types::SumSumOut {
+impl Json for types::SumArgs {
     fn to_json(&self, out: &mut String) {
         out.push('{');
         out.push_str("\"xs\":");
@@ -620,8 +620,8 @@ impl Json for types::SumSumOut {
         out.push('}');
     }
     fn from_json(v: &Value) -> Result<Self, String> {
-        let fs = v.object("SumSumOut")?;
-        Ok(types::SumSumOut {
+        let fs = v.object("SumArgs")?;
+        Ok(types::SumArgs {
             xs: Json::from_json(field(fs, "xs")?).map_err(|e| format!("xs: {e}"))?,
         })
     }

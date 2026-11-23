@@ -1,2 +1,2 @@
-#0 CountCountOut struct { n: int, acc: int } (return of Count.Count)
-#1 FibFibOut struct { n: int } (return of Fib.Fib)
+#0 CountArgs struct { n: int, acc: int } (parameters of Count)
+#1 FibArgs struct { n: int } (parameters of Fib)

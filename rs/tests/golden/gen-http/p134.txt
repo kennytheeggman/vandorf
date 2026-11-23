@@ -567,7 +567,7 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-impl Json for types::CountCountOut {
+impl Json for types::CountArgs {
     fn to_json(&self, out: &mut String) {
         out.push('{');
         out.push_str("\"n\":");
@@ -577,15 +577,15 @@ impl Json for types::CountCountOut {
         out.push('}');
     }
     fn from_json(v: &Value) -> Result<Self, String> {
-        let fs = v.object("CountCountOut")?;
-        Ok(types::CountCountOut {
+        let fs = v.object("CountArgs")?;
+        Ok(types::CountArgs {
             n: Json::from_json(field(fs, "n")?).map_err(|e| format!("n: {e}"))?,
             acc: Json::from_json(field(fs, "acc")?).map_err(|e| format!("acc: {e}"))?,
         })
     }
 }
 
-impl Json for types::FibFibOut {
+impl Json for types::FibArgs {
     fn to_json(&self, out: &mut String) {
         out.push('{');
         out.push_str("\"n\":");
@@ -593,8 +593,8 @@ impl Json for types::FibFibOut {
         out.push('}');
     }
     fn from_json(v: &Value) -> Result<Self, String> {
-        let fs = v.object("FibFibOut")?;
-        Ok(types::FibFibOut {
+        let fs = v.object("FibArgs")?;
+        Ok(types::FibArgs {
             n: Json::from_json(field(fs, "n")?).map_err(|e| format!("n: {e}"))?,
         })
     }

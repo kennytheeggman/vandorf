@@ -94,7 +94,7 @@ fn fan_out<E: Send, R: Send>(xs: Vec<E>, f: impl Fn(E) -> Result<R, Error> + Syn
 #[derive(Debug, Clone, Default)]
 struct EnvGreet {
     in_greet_greet: Option<InGreetGreet>,
-    out_greet_greet: Option<types::GreetGreetOut>,
+    out_greet_greet: Option<types::GreetArgs>,
     in_greet_repeat: Option<InGreetRepeat>,
     out_greet_repeat: Option<types::Str>,
 }
@@ -114,7 +114,7 @@ pub fn run_greet(name: types::Str, times: i64) -> Result<types::Str, Error> {
         match pc {
             PcGreet::GreetGreet => {
                 let input = take_slot(&mut env.in_greet_greet, "Greet.Greet")?;
-                let this = types::GreetGreetOut { name: input.name, times: input.times };
+                let this = types::GreetArgs { name: input.name, times: input.times };
                 env.out_greet_greet = Some(this.clone());
                 let slot_greet_greet = take_slot(&mut env.out_greet_greet, "Greet.Greet")?;
                 env.in_greet_repeat = Some(InGreetRepeat { s: types::Str::from(format!("{}{}", types::Str::from("hello "), this.name)), n: slot_greet_greet.times });
@@ -136,7 +136,7 @@ pub fn run_greet(name: types::Str, times: i64) -> Result<types::Str, Error> {
 #[derive(Debug, Clone, Default)]
 struct EnvMain {
     in_main_main: Option<InMainMain>,
-    out_main_main: Option<types::MainMainOut>,
+    out_main_main: Option<types::MainArgs>,
     in_greet: Option<InGreetGreet>,
     out_greet: Option<types::Str>,
 }
@@ -156,7 +156,7 @@ pub fn run_main() -> Result<types::Str, Error> {
         match pc {
             PcMain::MainMain => {
                 let input = take_slot(&mut env.in_main_main, "Main.Main")?;
-                let this = types::MainMainOut {  };
+                let this = types::MainArgs {  };
                 env.in_greet = Some(InGreetGreet { name: types::Str::from("x"), times: 2_i64 });
                 pc = PcMain::Greet;
                 continue;
@@ -362,16 +362,16 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
     }
 }
 
-/// The type of the return of Greet.Greet.
+/// The type of the parameters of Greet.
 #[derive(Debug, Clone, PartialEq)]
-pub struct GreetGreetOut {
+pub struct GreetArgs {
     pub name: Str,
     pub times: i64,
 }
 
-/// The type of the return of Main.Main.
+/// The type of the parameters of Main.
 #[derive(Debug, Clone, PartialEq)]
-pub struct MainMainOut {
+pub struct MainArgs {
 }
 
 

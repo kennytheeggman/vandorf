@@ -151,15 +151,15 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
     }
 }
 
-/// The type of the return of Greet.Greet.
+/// The type of the parameters of Greet.
 #[derive(Debug, Clone, PartialEq)]
-pub struct GreetGreetOut {
+pub struct GreetArgs {
     pub name: Str,
     pub times: i64,
 }
 
-/// The type of the return of Main.Main.
+/// The type of the parameters of Main.
 #[derive(Debug, Clone, PartialEq)]
-pub struct MainMainOut {
+pub struct MainArgs {
 }
 

@@ -151,16 +151,16 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
     }
 }
 
-/// The type of the return of Count.Count.
+/// The type of the parameters of Count.
 #[derive(Debug, Clone, PartialEq)]
-pub struct CountCountOut {
+pub struct CountArgs {
     pub n: i64,
     pub acc: i64,
 }
 
-/// The type of the return of Fib.Fib.
+/// The type of the parameters of Fib.
 #[derive(Debug, Clone, PartialEq)]
-pub struct FibFibOut {
+pub struct FibArgs {
     pub n: i64,
 }
 

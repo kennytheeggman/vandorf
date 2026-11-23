@@ -12,7 +12,7 @@ import (
 
 type envCount struct {
 	inCountCount inCountCount
-	outCountCount types.CountCountOut
+	outCountCount types.CountArgs
 	inCountId1 inCountId1
 	outCountId1 int
 }
@@ -34,7 +34,7 @@ func RunCount(ctx context.Context, n int, acc int) (int, error) {
 		}
 		switch pc {
 		case pcCount_CountCount:
-			this := types.CountCountOut{N: env.inCountCount.N, Acc: env.inCountCount.Acc}
+			this := types.CountArgs{N: env.inCountCount.N, Acc: env.inCountCount.Acc}
 			zeroOut(&env.inCountCount)
 			_ = this
 			{
@@ -72,7 +72,7 @@ import (
 
 type envFib struct {
 	inFibFib inFibFib
-	outFibFib types.FibFibOut
+	outFibFib types.FibArgs
 	inFibId1 inFibId1
 	outFibId1 int
 	inFibA inFibFib
@@ -103,7 +103,7 @@ func RunFib(ctx context.Context, n int) (int, error) {
 		}
 		switch pc {
 		case pcFib_FibFib:
-			this := types.FibFibOut{N: env.inFibFib.N}
+			this := types.FibArgs{N: env.inFibFib.N}
 			zeroOut(&env.inFibFib)
 			env.outFibFib = this
 			{
@@ -848,7 +848,7 @@ func httpPercentDecode(s string) string {
 	return strings.ToValidUTF8(string(out), "�")
 }
 
-func httpEncCountCountOut(b *strings.Builder, x types.CountCountOut) {
+func httpEncCountArgs(b *strings.Builder, x types.CountArgs) {
 	b.WriteByte('{')
 	b.WriteString("\"n\":")
 	httpWriteInt(b, x.N)
@@ -857,9 +857,9 @@ func httpEncCountCountOut(b *strings.Builder, x types.CountCountOut) {
 	b.WriteByte('}')
 }
 
-func httpDecCountCountOut(v any) (types.CountCountOut, error) {
-	var x types.CountCountOut
-	fs, err := httpObject(v, "CountCountOut")
+func httpDecCountArgs(v any) (types.CountArgs, error) {
+	var x types.CountArgs
+	fs, err := httpObject(v, "CountArgs")
 	if err != nil {
 		return x, err
 	}
@@ -880,16 +880,16 @@ func httpDecCountCountOut(v any) (types.CountCountOut, error) {
 	return x, nil
 }
 
-func httpEncFibFibOut(b *strings.Builder, x types.FibFibOut) {
+func httpEncFibArgs(b *strings.Builder, x types.FibArgs) {
 	b.WriteByte('{')
 	b.WriteString("\"n\":")
 	httpWriteInt(b, x.N)
 	b.WriteByte('}')
 }
 
-func httpDecFibFibOut(v any) (types.FibFibOut, error) {
-	var x types.FibFibOut
-	fs, err := httpObject(v, "FibFibOut")
+func httpDecFibArgs(v any) (types.FibArgs, error) {
+	var x types.FibArgs
+	fs, err := httpObject(v, "FibArgs")
 	if err != nil {
 		return x, err
 	}
@@ -1267,14 +1267,14 @@ func main() {
 
 package types
 
-// CountCountOut is the type of the return of Count.Count.
-type CountCountOut struct {
+// CountArgs is the type of the parameters of Count.
+type CountArgs struct {
 	N int
 	Acc int
 }
 
-// FibFibOut is the type of the return of Fib.Fib.
-type FibFibOut struct {
+// FibArgs is the type of the parameters of Fib.
+type FibArgs struct {
 	N int
 }
 
