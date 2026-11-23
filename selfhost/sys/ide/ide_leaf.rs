@@ -259,6 +259,31 @@ pub fn editor_name(j: Json) -> Result<Str, String> {
         .unwrap_or_else(|| s("<editor>")))
 }
 
+/// A unit's sources as a cache key: two hashes, so a collision is out of
+/// reach.
+pub fn check_key(srcs: List<Str>) -> Result<Str, String> {
+    use std::hash::{Hash, Hasher};
+    let hash = |seed: &str| {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        seed.hash(&mut h);
+        for s in srcs.iter() {
+            (**s).hash(&mut h);
+        }
+        h.finish()
+    };
+    Ok(format!("{:016x}{:016x}", hash("a"), hash("b")).into())
+}
+
+/// The program of a check that failed to parse: none.
+pub fn no_program(_n: i64) -> Result<Program, String> {
+    Ok(Program {
+        types: List::default(),
+        nodes: List::default(),
+        globals: Map::default(),
+        top: List::default(),
+    })
+}
+
 /// Whether the request wants generated code: unless it says `previews: false`.
 pub fn wants_previews(j: Json) -> Result<bool, String> {
     Ok(

@@ -47,6 +47,19 @@ interface Term {
 	func Kill(id: int): bool = "ide_io.rs:term_kill";
 }
 
+// A compile unit's sources, parsed and checked: the parse errors, or the
+// sema errors, or the program.
+type UnitCheck = { parse_errors: []Diag, sema_errors: []Diag, prog: Program };
+type MaybeCheck = enum { None, Some(UnitCheck) };
+
+// Checks kept by the sources they were made from (CheckKey), so a project's
+// tabs, and a recompile with nothing changed, skip parsing and sema.
+interface Checks {
+	func Get(key: string): MaybeCheck = "ide_io.rs:check_get";
+	// Keeps a check, dropping the least recently used past eight.
+	func Put(key: string, c: UnitCheck): bool = "ide_io.rs:check_put";
+}
+
 // Parses a file, a failure being a value.
 func TryParse(src: string, file: int): Res<File> = "ide_io.rs:try_parse";
 func Compact(j: Json): string = "../doc/doc_leaf.rs:compact";
