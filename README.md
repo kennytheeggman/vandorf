@@ -1,14 +1,17 @@
-# vandorf (Rust)
+# vandorf
 
-Proof-of-concept Rust rewrite of the vandorf compiler.
+The vandorf compiler, vcc, written in vandorf: `src/` is its .sys and the
+Rust leaves next to them, `rs/` the crate they generate into, `web/` the IDE's
+pages, and `rs/tests` its tests (golden files in `rs/tests/golden`;
+`VCC_BLESS=1` records new output, to review in the diff).
 
 ```
 cd examples/demo
-cargo run -- check                   # the project in vandorf.toml
-cargo run -- build                   # both backends and both bins (or: build calc);
+vcc check                            # the project in vandorf.toml
+vcc build                            # both backends and both bins (or: build calc);
                                      # generated code isn't checked in, so this comes first
-cargo run -- doc > doc.json          # visualizer document
-cargo run -- serve                   # IDE on :8080 (explorer, diagram/text tabs, terminal)
+vcc doc > doc.json                   # visualizer document
+ide                                  # IDE on :8080 (explorer, diagram/text tabs, terminal)
 
 (cd go && go test ./... && go run ./cmd/demo 1 ab && go run ./cmd/calc 3)        # end:S, 115
 (cd rs && cargo test && cargo run --bin demo -- 1 ab && cargo run --bin calc -- 3)  # end:S, 115
@@ -16,11 +19,28 @@ cargo run -- serve                   # IDE on :8080 (explorer, diagram/text tabs
 
 Every command works on a project (a `vandorf.toml`, below). `-C <dir>`,
 anywhere in a command, runs it as if started in `<dir>`:
-`vandorf check -C examples/demo`.
+`vcc check -C examples/demo`.
 
-Pipeline: `parser` (chumsky, source → `ast`) → `sema` (name resolution,
-`this` typing, for-each regions) → `document` (grid layout, same JSON as the Go
-`ui/document`) and `codegen::{go, rust}`.
+Pipeline (src/): `parse*` (source → AST) → `sema` (name resolution, `this`
+typing, for-each regions) → `doc` (grid layout, the visualizer's JSON) and
+`gen` (Go and Rust).
+
+## Bootstrapping
+
+vcc builds itself, but its generated Rust (`rs/src/vcc`, `rs/src/bin`) isn't
+checked in, so the first vcc comes from the reference compiler: a Rust
+implementation in `src/` up to commit caf0938 (what comments mean by "the
+reference"). It builds this layout too:
+
+```
+git worktree add /tmp/vandorf-ref caf0938
+cargo build --release --manifest-path /tmp/vandorf-ref/Cargo.toml
+/tmp/vandorf-ref/target/release/vandorf build    # here: generates rs/, builds vcc
+rs/target/debug/vcc build                         # vcc rebuilds itself identically
+```
+
+Once the language moves past what the reference reads, bootstrap from a vcc
+built at an older commit instead.
 
 ## Language additions
 
@@ -176,7 +196,7 @@ out = "go/app"             # code package; types in out/types
 out = "rs/src/app"         # a module under the crate's src/
 # module_dir (out relative to src/; default from Cargo.toml)
 post = ["cargo build --manifest-path rs/Cargo.toml"]   # after generating Rust
-test = ["cargo test --manifest-path rs/Cargo.toml"]    # run by vandorf test
+test = ["cargo test --manifest-path rs/Cargo.toml"]    # run by vcc test
 
 [bin.demo]                 # an executable per backend, running a proc
 entry = "Main"             # default "Main"
@@ -184,9 +204,9 @@ entry = "Main"             # default "Main"
 # rust = "bin/demo.rs"     # under the crate's src/; default bin/<name>.rs
 ```
 
-`vandorf build` generates the libraries and every bin; `vandorf build calc`
+`vcc build` generates the libraries and every bin; `vcc build calc`
 the libraries and that bin. After generating a language it runs that
-language's `post` commands ([go] takes them too). `vandorf test` builds
+language's `post` commands ([go] takes them too). `vcc test` builds
 everything, then runs each language's `test` commands. Commands are shell
 commands run in order in the manifest's directory; the first that fails fails
 the command. Errors name the file they're in. The workbench
@@ -194,8 +214,8 @@ compiles a project file together with the rest of its project.
 
 ## Workbench
 
-`vandorf serve [--addr 127.0.0.1:8080]` serves an IDE on the working
-directory: an explorer, diagram and text tabs with live compile, the
+`ide [--addr 127.0.0.1:8080]`, built alongside vcc in rs/, serves an IDE
+on the working directory: an explorer, diagram and text tabs with live compile, the
 visualizer (also standalone at `/viz`), the generated Go and Rust and the
 implementation signatures each backend expects, and terminals, which are
 offered only when it listens on a loopback address.
@@ -235,7 +255,7 @@ against its output directory.
   `func Range(ctx context.Context, i int) (types.ForEachStartOut, error)`;
   void funcs return just `error`.
 - **Rust**: mapped to a module path (`src/impls.rs` → `crate::impls`; the
-  output's place under `src/` comes from `Cargo.toml`, or `--module-dir`).
+  output's place under `src/` comes from `Cargo.toml`, or `[rust]`'s `module_dir`).
   A file outside the crate's `src/` is mounted in the generated `mod.rs`
   (`#[path = "../../leaves/io.rs"] mod io;`) and called as `super::io::f`;
   its stem must be unique among such files.
@@ -243,7 +263,7 @@ against its output directory.
   `E: Into<Box<dyn Error + Send + Sync>>`; void is `()`.
 
 Funcs without a reference for a backend call a generated stub that returns an
-error. `vandorf build` warns when a referenced file or function is missing,
+error. `vcc build` warns when a referenced file or function is missing,
 naming where the func is declared and printing the expected signature.
 
 ## HTTP servers
@@ -273,7 +293,7 @@ parameter `ctx` of exactly its type, which the server fills (a request's
 `ctx` is ignored). The context is read-only; state that changes between
 requests belongs behind an interface.
 
-`vandorf build` generates the server for each configured backend, with the
+`vcc build` generates the server for each configured backend, with the
 same routes, JSON and responses:
 
 - **Go**: `http_vandorf.go` in the code package (the JSON codec, a

@@ -413,9 +413,9 @@ fn ast(src: &str) -> String {
 }
 
 fn sys_files() -> Vec<std::path::PathBuf> {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let mut out = vec![];
-    for dir in ["examples/demo/sys", "selfhost/sys", "tests/fixtures"] {
+    for dir in ["examples/demo/sys", "src"] {
         for e in std::fs::read_dir(root.join(dir)).unwrap() {
             let p = e.unwrap().path();
             if p.extension().is_some_and(|x| x == "sys") {
@@ -448,7 +448,7 @@ fn parses_corpus() {
         }
         common::check("parse", &name, &ast(&src));
     }
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/demo/sys");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/demo/sys");
     let mut demo: Vec<_> = std::fs::read_dir(&root).unwrap().map(|e| e.unwrap().path()).filter(|p| p.extension().is_some_and(|x| x == "sys")).collect();
     demo.sort();
     for f in demo {

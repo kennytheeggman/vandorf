@@ -30,7 +30,7 @@ pub fn corpus() -> Vec<(String, String)> {
 /// A project's .sys files under the repository root, as `vandorf.toml`'s
 /// sources name them, in path order.
 pub fn project_sources(dir: &str) -> Vec<String> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(dir);
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(dir);
     let manifest = std::fs::read_to_string(root.join("vandorf.toml")).unwrap();
     let table: toml::Table = manifest.parse().unwrap();
     let sources: Vec<String> = table["project"]
