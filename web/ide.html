@@ -138,8 +138,8 @@ body.dragging iframe{ pointer-events:none }
             <div class="seg" id="sDrawerSide"><button data-v="left">Left</button><button data-v="bottom">Bottom</button><button data-v="right">Right</button></div></div>
         </section>
         <section id="sToolchain"><h3>Toolchain</h3>
-          <div class="opt col"><div><label for="sCompiler">Compiler</label><div class="desc">What Check, Build and Test run. Empty means <code>vandorf</code>.</div></div>
-            <div class="path"><input id="sCompiler" placeholder="vandorf, or a path such as selfhost/rs/target/release/vcc" spellcheck="false" autocomplete="off"><button class="outline" id="sCompilerTest" title="Run it with --help in the terminal">Test</button></div></div>
+          <div class="opt col"><div><label for="sCompiler">Compiler</label><div class="desc">What Check, Build and Test run. Empty means <code>vcc</code>, from the PATH.</div></div>
+            <div class="path"><input id="sCompiler" placeholder="vcc, or a path such as rs/target/release/vcc" spellcheck="false" autocomplete="off"><button class="outline" id="sCompilerTest" title="Run it with --help in the terminal">Test</button></div></div>
           <div class="opt col"><div><label>Check runs</label></div><div class="cmd" id="sCmd"></div></div>
         </section>
         <section id="sKeys"><h3>Shortcuts</h3>
@@ -227,7 +227,7 @@ var srcRoot = '';
    has cd'd to. */
 function compilerCmd(){
   var p = (store('vandorf.ide.compiler') || '').trim();
-  if (!p) return 'vandorf';
+  if (!p) return 'vcc';
   if (p.indexOf('/') < 0 || /^(\/|~|[A-Za-z]:[\\/])/.test(p) || !srcRoot) return p;
   return srcRoot.replace(/\/$/, '') + '/' + p.replace(/^\.\//, '');
 }
