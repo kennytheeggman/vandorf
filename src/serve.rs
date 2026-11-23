@@ -15,7 +15,9 @@
 //! - `GET /api/source?path=..`  one file's text (any file under the source dir)
 //! - `POST /api/compile`  `{source}` or `{path}` -> document, symbols and
 //!   generated code, or diagnostics. Same response shape as the Go
-//!   visualizer server, plus `symbols`.
+//!   visualizer server, plus `symbols`. With `previews: false`, no generated
+//!   code (`go`, `rust`): the diagram's part, which is cached by the
+//!   sources it was checked from, so it comes back fast.
 //! - `POST /api/save`     `{path, source}`: writes an existing `.sys` file, or
 //!   an existing `vandorf.toml` if the new text is a valid manifest
 //! - `POST /api/term`, `GET /api/term/read?id=&from=`, `POST /api/term/input?id=`,
@@ -32,7 +34,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Duration;
 use tiny_http::{Header, Method, Request, Response, Server};
 use vandorf::codegen::go::GoOptions;
@@ -63,6 +65,7 @@ struct State {
     term: bool,
     terms: Mutex<HashMap<u32, Arc<Term>>>,
     next_term: AtomicU32,
+    compiles: Mutex<Vec<(CompileKey, Arc<OnceLock<Arc<Compiled>>>)>>,
 }
 
 pub fn serve(opts: Options) -> Result<(), String> {
@@ -82,6 +85,7 @@ pub fn serve(opts: Options) -> Result<(), String> {
         term,
         terms: Mutex::new(HashMap::new()),
         next_term: AtomicU32::new(1),
+        compiles: Mutex::new(vec![]),
     });
     eprintln!(
         "vandorf IDE on http://{}  (sources: {}{})",
@@ -152,7 +156,7 @@ fn handle(mut req: Request, st: &State) {
         (Method::Get, "/api/source") => api(query_param(query, "path")
             .ok_or_else(|| "missing ?path=".to_string())
             .and_then(|p| read_source(base, &p).map(|src| json!({ "ok": true, "path": p, "source": src })))),
-        (Method::Post, "/api/compile") => api(body(&mut req).and_then(|b| compile(base, &b))),
+        (Method::Post, "/api/compile") => api(body(&mut req).and_then(|b| compile(st, &b))),
         (Method::Post, "/api/save") if authorized(&req, st) => api(body(&mut req).and_then(|b| save(base, &b))),
         (Method::Post, "/api/save") => forbidden(),
         (_, p) if p.starts_with("/api/term") => {
@@ -649,7 +653,29 @@ fn term_api(req: &mut Request, st: &State, path: &str, query: &str) -> tiny_http
 /// project is compiled with the editor's text in place of the file, and
 /// previewed with the manifest's settings; otherwise just the text, with
 /// nominal output locations. Nothing is written.
-fn compile(base: &Path, body: &str) -> Result<Value, String> {
+/// What a compile is checked from: every source's path and text, and the
+/// manifest (not the file asked about: a project's files share one check).
+/// Two hashes, so a collision is out of reach.
+type CompileKey = (u64, u64);
+
+/// A compile, checked: the response without generated code (or the
+/// diagnostics) and without what depends on the file asked about, and what
+/// the previews are generated from.
+struct Compiled {
+    response: Value,
+    /// The source index of each diagnostic, for its `here`.
+    diag_files: Vec<usize>,
+    paths: Vec<String>,
+    prog: Option<Program>,
+    proj: Option<project::Project>,
+    dirs: Vec<PathBuf>,
+}
+
+/// Compiles kept, most recent first.
+const COMPILES_KEPT: usize = 8;
+
+fn compile(st: &State, body: &str) -> Result<Value, String> {
+    let base = &st.base;
     let req: Value = serde_json::from_str(body).map_err(|e| format!("bad request: {e}"))?;
     let path = req["path"].as_str().filter(|p| !p.is_empty());
     let text = match (req["source"].as_str(), path) {
@@ -659,6 +685,7 @@ fn compile(base: &Path, body: &str) -> Result<Value, String> {
     };
     let abs = path.map(|p| resolve(base, p)).transpose()?;
     let manifest = abs.as_ref().and_then(|a| project::find(a.parent()?)).filter(|m| m.starts_with(base));
+    let manifest_text = manifest.as_ref().map(|m| std::fs::read_to_string(m).unwrap_or_default());
 
     let (files, dirs, proj, here) = match manifest {
         Some(m) => {
@@ -677,7 +704,51 @@ fn compile(base: &Path, body: &str) -> Result<Value, String> {
         }
     };
 
-    let mut prog = match vandorf::check_files(&files) {
+    // Requests for the same inputs (tabs of one project, a recompile with
+    // nothing changed) share one check; concurrent ones wait for it.
+    let key = {
+        let hash = |seed: &str| {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (seed, &manifest_text, &dirs).hash(&mut h);
+            for f in &files {
+                (&f.path, &f.text).hash(&mut h);
+            }
+            h.finish()
+        };
+        (hash("a"), hash("b"))
+    };
+    let cell = {
+        let mut cs = st.compiles.lock().unwrap();
+        let cell = match cs.iter().position(|(k, _)| *k == key) {
+            Some(i) => cs.remove(i).1,
+            None => Arc::new(OnceLock::new()),
+        };
+        cs.insert(0, (key, cell.clone()));
+        cs.truncate(COMPILES_KEPT);
+        cell
+    };
+    let c = cell.get_or_init(|| Arc::new(check(base, files, dirs, proj))).clone();
+    let mut out = c.response.clone();
+    if c.prog.is_none() {
+        for (d, &f) in out["diagnostics"].as_array_mut().into_iter().flatten().zip(&c.diag_files) {
+            d["here"] = json!(f == here);
+        }
+        return Ok(out);
+    }
+    out["name"] = json!(c.paths[here]);
+    if req["previews"] != false {
+        let (go, rust) = previews(&c);
+        out["go"] = go;
+        out["rust"] = rust;
+    }
+    Ok(out)
+}
+
+/// Checks the sources: the document and symbols, or the diagnostics.
+fn check(base: &Path, files: Vec<vandorf::Source>, dirs: Vec<PathBuf>, proj: Option<project::Project>) -> Compiled {
+    let paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
+    let prog = match vandorf::check_files(&files) {
         Ok(p) => p,
         Err(diags) => {
             // 200 with ok:false, so the client can still read the diagnostics.
@@ -688,25 +759,39 @@ fn compile(base: &Path, body: &str) -> Result<Value, String> {
                     json!({
                         "msg": d.msg,
                         "file": files[d.file].path,
-                        "here": d.file == here,
                         "from": line_col(src, d.span.start),
                         "to": line_col(src, d.span.end),
                     })
                 })
                 .collect();
-            return Ok(json!({ "ok": false, "error": vandorf::render(&files, &diags), "diagnostics": list }));
+            let response = json!({ "ok": false, "error": vandorf::render(&files, &diags), "diagnostics": list });
+            let diag_files = diags.iter().map(|d| d.file).collect();
+            return Compiled { response, diag_files, paths, prog: None, proj, dirs };
         }
     };
-
     let doc = vandorf::document::generate(&prog);
-    // Before previewing, which rebases impl paths onto the outputs.
     let roots: Vec<PathBuf> = match &proj {
         Some(p) => vec![p.root.clone(); files.len()],
         None => vec![base.to_path_buf(); files.len()],
     };
     let syms = symbols(base, &prog, &files, &roots);
-    let (go, rust) = match &proj {
-        Some(p) => preview_project(p, &mut prog, &dirs),
+    let response = json!({
+        "ok": true,
+        "project": proj.as_ref().map(|p| p.manifest.project.name.clone()),
+        "grids": doc.grids.len(),
+        "document": doc,
+        "symbols": syms,
+    });
+    Compiled { response, diag_files: vec![], paths, prog: Some(prog), proj, dirs }
+}
+
+/// The generated Go and Rust of a checked compile. Not cached: they also
+/// depend on go.mod and Cargo.toml.
+fn previews(c: &Compiled) -> (Value, Value) {
+    // Previewing rebases impl paths onto the outputs: on a copy.
+    let mut prog = c.prog.clone().unwrap();
+    let (go, rust) = match &c.proj {
+        Some(p) => preview_project(p, &mut prog, &c.dirs),
         None => {
             // Nominal locations: impl paths stay as written, as if the
             // output were next to the file.
@@ -727,16 +812,7 @@ fn compile(base: &Path, body: &str) -> Result<Value, String> {
         }
     };
     let none = || Err("not configured in vandorf.toml".to_string());
-    Ok(json!({
-        "ok": true,
-        "name": files[here].path,
-        "project": proj.as_ref().map(|p| p.manifest.project.name.clone()),
-        "grids": doc.grids.len(),
-        "document": doc,
-        "symbols": syms,
-        "go": output_json(go.unwrap_or_else(none)),
-        "rust": output_json(rust.unwrap_or_else(none)),
-    }))
+    (output_json(go.unwrap_or_else(none)), output_json(rust.unwrap_or_else(none)))
 }
 
 /// A backend's output, if the project configures it.

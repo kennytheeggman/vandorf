@@ -23,7 +23,7 @@ fn err<T>(span: Span, msg: impl Into<String>) -> Result<T, Error> {
     Err(Error { msg: msg.into(), span })
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Program {
     /// `type` declarations; [`Type::Named`] indexes into this.
     pub types: Vec<TypeDef>,
@@ -33,13 +33,13 @@ pub struct Program {
     pub top_procs: Vec<NodeId>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Global {
     Interface(BTreeMap<String, NodeId>),
     Node(NodeId),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NodeDecl {
     /// Qualified name: `["Foo", "Call"]` for an interface func, `["Bar", "Start"]`
     /// for a func local to proc `Bar`, `["Bar"]` for a top-level proc.
@@ -57,7 +57,7 @@ impl NodeDecl {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum NodeKind {
     Func(FuncDecl),
     Proc(ProcDecl),
@@ -70,7 +70,7 @@ pub enum NodeKind {
     Id(Vec<(String, Type)>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FuncDecl {
     pub params: Vec<(String, Type)>,
     pub ret: Type,
@@ -84,7 +84,7 @@ impl FuncDecl {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProcDecl {
     pub parent: Option<NodeId>,
     pub entry: NodeId,
@@ -94,7 +94,7 @@ pub struct ProcDecl {
     pub graph: Graph,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Graph {
     /// Outgoing edge of each source node (at most one per node).
     pub edges: HashMap<NodeId, Edge>,
@@ -111,7 +111,7 @@ pub struct Graph {
 
 /// One state machine in the generated code: the proc body, or the part of
 /// the graph run once per element of a `for each`, up to its `collect`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Region {
     pub parent: Option<RegionId>,
     pub entry: NodeId,

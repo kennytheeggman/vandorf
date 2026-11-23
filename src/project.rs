@@ -54,7 +54,7 @@ use std::path::{Component, Path, PathBuf};
 
 pub const MANIFEST: &str = "vandorf.toml";
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub project: Meta,
@@ -67,7 +67,7 @@ pub struct Manifest {
 }
 
 /// `[http.<name>]`: an HTTP server whose routes run top-level procs.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Server {
     pub addr: String,
@@ -93,7 +93,7 @@ pub struct Server {
     pub rust: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Bin {
     #[serde(default = "default_entry")]
@@ -106,7 +106,7 @@ fn default_entry() -> String {
     crate::codegen::MAIN_PROC.into()
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Meta {
     pub name: String,
@@ -118,7 +118,7 @@ fn default_sources() -> Vec<String> {
     vec![".".into()]
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GoTarget {
     pub out: String,
@@ -133,7 +133,7 @@ pub struct GoTarget {
     pub test: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RustTarget {
     pub out: String,
@@ -146,7 +146,7 @@ pub struct RustTarget {
     pub test: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Project {
     /// The manifest's directory, absolute.
     pub root: PathBuf,

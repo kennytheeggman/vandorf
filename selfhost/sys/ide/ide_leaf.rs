@@ -259,6 +259,13 @@ pub fn editor_name(j: Json) -> Result<Str, String> {
         .unwrap_or_else(|| s("<editor>")))
 }
 
+/// Whether the request wants generated code: unless it says `previews: false`.
+pub fn wants_previews(j: Json) -> Result<bool, String> {
+    Ok(
+        !matches!(&j, Json::Obj(fs) if fs.iter().any(|f| &*f.key == "previews" && f.value == Json::Bool(false))),
+    )
+}
+
 pub fn project_name_json(p: MaybeProject) -> Result<Json, String> {
     Ok(match p {
         MaybeProject::Some(p) => Json::Str(p.manifest.name),
