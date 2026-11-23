@@ -144,28 +144,54 @@ pub fn try_parse(src: Str, file: i64) -> Result<ResFile, String> {
 /// Checks kept, most recently used first.
 const CHECKS_KEPT: usize = 8;
 
-fn checks() -> &'static Mutex<Vec<(Str, UnitCheck)>> {
-    static CHECKS: OnceLock<Mutex<Vec<(Str, UnitCheck)>>> = OnceLock::new();
-    CHECKS.get_or_init(|| Mutex::new(vec![]))
+/// How long a request waits for another's check before making its own (if
+/// that one never puts it, say because its proc failed).
+const CLAIM_WAIT: Duration = Duration::from_secs(60);
+
+#[derive(Default)]
+struct CheckStore {
+    done: Vec<(Str, UnitCheck)>,
+    /// Keys a request is making a check for.
+    making: Vec<Str>,
 }
 
-pub fn check_get(key: Str) -> Result<MaybeCheck, String> {
-    let mut cs = checks().lock().unwrap();
-    Ok(match cs.iter().position(|(k, _)| *k == key) {
-        Some(i) => {
-            let hit = cs.remove(i);
-            cs.insert(0, hit.clone());
-            MaybeCheck::Some(hit.1)
+fn checks() -> &'static (Mutex<CheckStore>, Condvar) {
+    static CHECKS: OnceLock<(Mutex<CheckStore>, Condvar)> = OnceLock::new();
+    CHECKS.get_or_init(|| (Mutex::new(CheckStore::default()), Condvar::new()))
+}
+
+/// The check of key, kept or once made by another request; None when this
+/// request is to make it (or has waited too long for another's).
+pub fn check_claim(key: Str) -> Result<MaybeCheck, String> {
+    let (store, ready) = checks();
+    let mut cs = store.lock().unwrap();
+    let deadline = std::time::Instant::now() + CLAIM_WAIT;
+    loop {
+        if let Some(i) = cs.done.iter().position(|(k, _)| *k == key) {
+            let hit = cs.done.remove(i);
+            cs.done.insert(0, hit.clone());
+            return Ok(MaybeCheck::Some(hit.1));
         }
-        None => MaybeCheck::None,
-    })
+        if !cs.making.contains(&key) {
+            cs.making.push(key);
+            return Ok(MaybeCheck::None);
+        }
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            return Ok(MaybeCheck::None);
+        }
+        cs = ready.wait_timeout(cs, deadline - now).unwrap().0;
+    }
 }
 
 pub fn check_put(key: Str, c: UnitCheck) -> Result<bool, String> {
-    let mut cs = checks().lock().unwrap();
-    cs.retain(|(k, _)| *k != key);
-    cs.insert(0, (key, c));
-    cs.truncate(CHECKS_KEPT);
+    let (store, ready) = checks();
+    let mut cs = store.lock().unwrap();
+    cs.making.retain(|k| *k != key);
+    cs.done.retain(|(k, _)| *k != key);
+    cs.done.insert(0, (key, c));
+    cs.done.truncate(CHECKS_KEPT);
+    ready.notify_all();
     Ok(true)
 }
 

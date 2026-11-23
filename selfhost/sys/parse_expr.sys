@@ -93,8 +93,10 @@ proc PAtom(At): R<Value> {
 		(IsSym(t = this.tok, s = "{")) -> PArgList(toks = this.toks, pos = this.pos + 1) as StructArgs,
 		(IsSym(t = this.tok, s = "[")) -> PBracket(toks = this.toks, pos = this.pos + 1),
 		(IsSym(t = this.tok, s = "(")) -> PExpr(toks = this.toks, pos = this.pos + 1) as Paren,
-		else -> PPath(toks = this.toks, pos = this.pos)
+		(this.tok.kind == "ident") -> PPath(toks = this.toks, pos = this.pos),
+		else -> NotAtom(toks = this.toks, pos = this.pos, what = "an expression")
 	};
+	func NotAtom(toks: []Tok, pos: int, what: string): R<Value> = "leaf.rs:expected_value";
 	StructArgs -> Expect(toks = At.toks, pos = this.pos, text = "}", what = ", or }") as StructClose;
 	// `{ ..base }` or `{ ..base, f = v, .. }`
 	UpdateBase -> At(toks = At.toks, pos = this.pos) as AfterBase;

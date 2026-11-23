@@ -68,8 +68,8 @@ proc CompileUnit(At): HttpResponse {
 	func At(s: { base: string, unit: Unit }): { base: string, unit: Unit } = "../leaf.rs:same";
 	// The unit's check: kept from an earlier compile, or made and kept.
 	func Have(c: UnitCheck): UnitCheck = "../leaf.rs:same";
-	At -> Checks.Get(key = CheckKey(srcs = this.unit.srcs));
-	Checks.Get switch {
+	At -> Checks.Claim(key = CheckKey(srcs = this.unit.srcs));
+	Checks.Claim switch {
 		Some(c) -> Have(c = c),
 		else -> ParseUnit(s = { srcs = At.unit.srcs, i = 0, file = { types = [], interfaces = [], nodes = [] }, errors = [] })
 	};

@@ -78,8 +78,10 @@ proc PTarget(At): R<Target> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	At switch {
 		(IsWord(t = this.tok, s = "id")) -> Expect(toks = this.toks, pos = this.pos + 1, text = "(", what = "( after id") as IdOpen,
-		else -> PPath(toks = this.toks, pos = this.pos)
+		(this.tok.kind == "ident") -> PPath(toks = this.toks, pos = this.pos),
+		else -> NotTarget(toks = this.toks, pos = this.pos, what = "a call: a name, or id(value)")
 	};
+	func NotTarget(toks: []Tok, pos: int, what: string): R<Target> = "leaf.rs:expected_target";
 	IdOpen -> PExpr(toks = this.toks, pos = this.pos) as IdValue;
 	IdValue -> Expect(toks = At.toks, pos = this.pos, text = ")", what = ") after id's value") as IdClose;
 	IdClose -> PAlias(toks = this.toks, pos = this.pos) as IdAlias;

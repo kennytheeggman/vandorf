@@ -95,7 +95,17 @@ pub fn lex(src: Str, file: i64) -> Result<List<Tok>, String> {
             i += 1;
             loop {
                 match src[i..].chars().next() {
-                    None | Some('\n') => return Err(format!("{start}: unterminated string")),
+                    None => {
+                        return Err(format!(
+                            "{i}:{i}: expected \" to close the string, found the end of the file"
+                        ));
+                    }
+                    Some('\n') => {
+                        return Err(format!(
+                            "{i}:{}: expected \" to close the string, found the end of the line",
+                            i + 1
+                        ));
+                    }
                     Some('"') => {
                         i += 1;
                         break;
@@ -106,7 +116,15 @@ pub fn lex(src: Str, file: i64) -> Result<List<Tok>, String> {
                             Some('"') => '"',
                             Some('n') => '\n',
                             Some('t') => '\t',
-                            _ => return Err(format!("{i}: unknown escape")),
+                            found => {
+                                let (at, end) = (i + 1, i + 1 + found.map_or(0, char::len_utf8));
+                                let found = found.map_or("the end of the file".to_string(), |c| {
+                                    format!("'{c}'")
+                                });
+                                return Err(format!(
+                                    "{at}:{end}: expected \\, \", n or t after \\, found {found}"
+                                ));
+                            }
                         });
                         i += 2;
                     }
@@ -125,7 +143,10 @@ pub fn lex(src: Str, file: i64) -> Result<List<Tok>, String> {
             toks.push(tok("sym", &src[start..i], start, i, file));
         } else {
             let ch = src[i..].chars().next().unwrap();
-            return Err(format!("{i}: unexpected character {ch:?}"));
+            return Err(format!(
+                "{i}:{}: expected a name, number, string or symbol, found '{ch}'",
+                i + ch.len_utf8()
+            ));
         }
     }
     toks.push(tok("eof", "", b.len(), b.len(), file));
@@ -352,6 +373,15 @@ fn matched(
         tok: t.clone(),
         prev: t,
     })
+}
+
+/// Fails at toks[pos]: what was expected there instead.
+pub fn expected_value(toks: List<Tok>, pos: i64, what: Str) -> Result<RValue, String> {
+    matched(toks, pos, |_| false, &what).map(|_| unreachable!())
+}
+
+pub fn expected_target(toks: List<Tok>, pos: i64, what: Str) -> Result<RTarget, String> {
+    matched(toks, pos, |_| false, &what).map(|_| unreachable!())
 }
 
 pub fn expect(toks: List<Tok>, pos: i64, text: Str, what: Str) -> Result<Cur, String> {

@@ -55,8 +55,11 @@ type MaybeCheck = enum { None, Some(UnitCheck) };
 // Checks kept by the sources they were made from (CheckKey), so a project's
 // tabs, and a recompile with nothing changed, skip parsing and sema.
 interface Checks {
-	func Get(key: string): MaybeCheck = "ide_io.rs:check_get";
-	// Keeps a check, dropping the least recently used past eight.
+	// The check of key: kept, or once another request making it has put it
+	// (waiting for that). None: this request is to make it and Put it.
+	func Claim(key: string): MaybeCheck = "ide_io.rs:check_claim";
+	// Keeps a check, dropping the least recently used past eight, and wakes
+	// the requests waiting for it.
 	func Put(key: string, c: UnitCheck): bool = "ide_io.rs:check_put";
 }
 

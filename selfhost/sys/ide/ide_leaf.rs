@@ -259,6 +259,14 @@ pub fn editor_name(j: Json) -> Result<Str, String> {
         .unwrap_or_else(|| s("<editor>")))
 }
 
+/// Whether q[k] is a terminal dimension: an integer in 1..=65535.
+pub fn is_dim(s: QueryIntS) -> Result<bool, String> {
+    Ok(s.q
+        .get(&s.k)
+        .and_then(|v| v.parse::<u16>().ok())
+        .is_some_and(|n| n > 0))
+}
+
 /// A unit's sources as a cache key: two hashes, so a collision is out of
 /// reach.
 pub fn check_key(srcs: List<Str>) -> Result<Str, String> {

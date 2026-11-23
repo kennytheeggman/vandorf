@@ -589,6 +589,46 @@ pub fn manifest_error(text: Str) -> Result<Str, String> {
     Ok(check_table(&t, MANIFEST).err().unwrap_or_default().into())
 }
 
+const USAGE: &str = "\
+usage:
+  vcc build [<bin>]            # libraries, and every bin or just <bin>
+  vcc test                     # build, then each language's test commands
+  vcc check
+  vcc doc                      # the visualizer document, on stdout
+
+Each works on the project: the nearest vandorf.toml in the current directory
+or its parents (see the README for its fields). A project's .sys files share
+one namespace. -C <dir>, anywhere in a command, runs it as if started in <dir>.
+
+build generates what the manifest configures: [go] and [rust] libraries (the
+types and the procs), an executable per [bin.<name>] running its entry proc
+with the command-line arguments, and per [http.<name>] a server for each
+language (which takes --addr to listen elsewhere). Impl paths in
+`= \"file:function\"` are relative to the .sys file naming them; each backend
+uses the reference with its extension (.go / .rs). After generating a
+language, build runs that language's `post` commands; test runs each
+language's `test` commands. They run in the manifest's directory; the first
+that fails fails the command.
+
+The IDE is the ide executable built alongside vcc: ide [--addr 127.0.0.1:8080],
+on the working directory. It offers terminals only when listening on a
+loopback address.";
+
+/// vcc's usage, printed by --help.
+pub fn usage(_n: i64) -> Result<Str, String> {
+    Ok(USAGE.into())
+}
+
+/// The first argument after the command that is a flag, or "".
+pub fn first_flag(args: List<Str>) -> Result<Str, String> {
+    Ok(args
+        .iter()
+        .skip(1)
+        .find(|a| a.starts_with('-'))
+        .cloned()
+        .unwrap_or_default())
+}
+
 /// Takes the `-C <dir>`s out of argv (anywhere, in order).
 pub fn split_c(argv: List<Str>) -> Result<CliOpts, String> {
     let (mut dirs, mut rest, mut err) = (vec![], vec![], String::new());
@@ -600,7 +640,7 @@ pub fn split_c(argv: List<Str>) -> Result<CliOpts, String> {
         }
         match it.next() {
             Some(d) => dirs.push(d.clone()),
-            None => err = "-C needs a value".into(),
+            None => err = "-C needs a value (see vcc --help)".into(),
         }
     }
     Ok(CliOpts {
@@ -692,8 +732,14 @@ pub fn render_errors(errors: List<Diag>, paths: List<Str>, srcs: List<Str>) -> R
 
 /// Fails with msg; rendered diagnostics lose their first `error: `, which
 /// the executable prints anyway.
-pub fn fail_report(msg: Str) -> Result<Str, String> {
+pub fn fail_report(msg: Str) -> Result<(), String> {
     Err(msg.strip_prefix("error: ").unwrap_or(&msg).to_string())
+}
+
+/// A command's result, which isn't printed: build and test say nothing when
+/// they succeed.
+pub fn quiet(_s: Str) -> Result<(), String> {
+    Ok(())
 }
 
 /// For each func implemented in Rust: its file (absolute), function, and

@@ -14,6 +14,9 @@ func OkJson(n: int): HttpResponse = "ide_leaf.rs:ok_json";
 func QueryInt(s: { q: map[string]string, k: string }): int = "ide_leaf.rs:query_int";
 // Whether the request names a terminal: ?id= a number.
 func HasId(q: map[string]string): bool = "ide_leaf.rs:has_id";
+func IdIn(ids: []int, id: int): bool = "../sema/sema_leaf.rs:has_int";
+// q[k] is a terminal dimension: an integer in 1..=65535.
+func Dim(s: { q: map[string]string, k: string }): bool = "ide_leaf.rs:is_dim";
 
 // POST /api/term?cwd=..: a new terminal in cwd if it's a directory under the
 // source directory, else in the source directory.
@@ -93,11 +96,13 @@ proc TermResizeRoute(At): HttpResponse {
 	At -> TermGate(req = this);
 	TermGate switch {
 		Shut(r) -> id(r),
-		else -> switch {
-			(!HasId(q = At.query)) -> id(ApiErr(msg = "no such terminal")),
-			(QueryInt(s = { q = At.query, k = "cols" }) > 0 && QueryInt(s = { q = At.query, k = "rows" }) > 0) -> Term.Resize(id = QueryInt(s = { q = At.query, k = "id" }), cols = QueryInt(s = { q = At.query, k = "cols" }), rows = QueryInt(s = { q = At.query, k = "rows" })),
-			else -> id(ApiErr(msg = "need cols and rows"))
-		}
+		else -> Term.List(n = 0)
+	};
+	// The terminal first, then its size (each a u16 above zero).
+	Term.List switch {
+		(!HasId(q = At.query) || !IdIn(ids = this, id = QueryInt(s = { q = At.query, k = "id" }))) -> id(ApiErr(msg = "no such terminal")),
+		(Dim(s = { q = At.query, k = "cols" }) && Dim(s = { q = At.query, k = "rows" })) -> Term.Resize(id = QueryInt(s = { q = At.query, k = "id" }), cols = QueryInt(s = { q = At.query, k = "cols" }), rows = QueryInt(s = { q = At.query, k = "rows" })),
+		else -> id(ApiErr(msg = "need cols and rows"))
 	};
 	Term.Resize switch {
 		Ok(_) -> id(OkJson(n = 0)),

@@ -120,6 +120,16 @@ pub fn eprint(line: Str) -> Result<bool, String> {
     Ok(true)
 }
 
+pub fn print_out(text: Str) -> Result<(), String> {
+    println!("{text}");
+    Ok(())
+}
+
+pub fn eprint_note(line: Str) -> Result<(), String> {
+    eprintln!("{line}");
+    Ok(())
+}
+
 pub fn chdir(path: Str) -> Result<super::types::ResString, String> {
     use super::types::{Diag, ResString, Span};
     Ok(match std::env::set_current_dir(&*path) {

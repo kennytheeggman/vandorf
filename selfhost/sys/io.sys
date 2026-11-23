@@ -27,4 +27,8 @@ interface Tools {
 interface Console {
 	// A line on stderr.
 	func Err(line: string): bool = "io.rs:eprint";
+	// A command's output, on stdout, and a closing note on stderr; each ends
+	// a proc that returns nothing.
+	func Out(text: string): void = "io.rs:print_out";
+	func Note(line: string): void = "io.rs:eprint_note";
 }
