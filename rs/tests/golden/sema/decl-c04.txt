@@ -1,3 +1,6 @@
 proc P(A): int { func A(): int; A -> id(1) as X; }
 ---
-error: id ends the proc, so it can't be named @46..47
+#0 edge #1: call #2(value:int=1) @37..39 text="1"
+#0 spawned={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2] sink=-1
+#0 region_of={1: 0, 2: 0} opens={}

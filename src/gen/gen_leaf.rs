@@ -617,7 +617,7 @@ pub fn float_lit(f: f64) -> Result<Str, String> {
 
 pub fn in_type(nodes: List<NodeDecl>, n: i64) -> Result<Str, String> {
     match &nodes[n as usize].kind {
-        NodeKind::Func(_) | NodeKind::Id(_) => {
+        NodeKind::Func(_) | NodeKind::Id(_) | NodeKind::Sig(_) => {
             Ok(format!("In{}", gname(nodes[n as usize].clone())?).into())
         }
         NodeKind::Proc(p) => in_type(nodes.clone(), p.entry),
@@ -1220,6 +1220,25 @@ fn params_of(nodes: &List<NodeDecl>, n: i64) -> List<Member> {
     super::sema_leaf::node_params(nodes.clone(), n).unwrap()
 }
 
+/// A signature node's output: its input's fields, as the struct of them.
+pub fn sig_value(g: RGen, n: i64) -> Result<Str, String> {
+    let nodes = &g.prog.nodes;
+    let ty = super::sema_leaf::node_ret(nodes.clone(), n)?;
+    let fields = params_of(nodes, n)
+        .iter()
+        .map(|m| {
+            let f = rust_ident_of(&m.name);
+            if boxed(&g.table, &ty, &m.name) {
+                format!("{f}: std::sync::Arc::new(input.{f})")
+            } else {
+                format!("{f}: input.{f}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(format!("let this = {} {{ {fields} }};", rtype(&g.table, &ty)?).into())
+}
+
 pub fn input_args(nodes: List<NodeDecl>, n: i64) -> Result<Str, String> {
     Ok(params_of(&nodes, n)
         .iter()
@@ -1576,7 +1595,10 @@ pub fn procs_file(g: RGen, body: Str) -> Result<Str, String> {
     let l = |s: String| Line::L(s.into());
     for (id, n) in nodes.iter().enumerate() {
         let id = id as i64;
-        if matches!(n.kind, NodeKind::Func(_) | NodeKind::Id(_)) {
+        if matches!(
+            n.kind,
+            NodeKind::Func(_) | NodeKind::Id(_) | NodeKind::Sig(_)
+        ) {
             ls.push(l(format!("/// Input of {}.", qn(nodes, id))));
             ls.push(l("#[derive(Debug, Clone)]".into()));
             ls.push(l(format!("struct {} {{", in_type(nodes.clone(), id)?)));

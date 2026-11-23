@@ -32,6 +32,7 @@ fn vcc_nodes(cx: &v::Cx) -> Vec<String> {
                 }
                 K::Alias(b) => format!("alias of {b}"),
                 K::Id(ps) => format!("id ({})", vcc_members(ps)),
+                K::Sig(s) => format!("sig of {} ({})", s.pid, vcc_members(&s.params)),
             };
             let qual: Vec<&str> = n.qual.iter().map(|s| &**s).collect();
             format!("{} @{}..{} {kind}", qual.join("."), n.span.at, n.span.end)

@@ -431,7 +431,7 @@ proc GNode(At): GGen {
 	At -> K(k = this.g.prog.nodes[BaseOf(nodes = this.g.prog.nodes, n = this.n)].kind);
 	K switch {
 		Proc(_) -> GNodeBody(s = { g = At.g, pid = At.pid, n = At.n, call = "Run" + Gname(n = At.g.prog.nodes[BaseOf(nodes = At.g.prog.nodes, n = At.n)]) }),
-		Id(_) -> GNodeBody(s = { g = At.g, pid = At.pid, n = At.n, call = "" }),
+		Id(_) | Sig(_) -> GNodeBody(s = { g = At.g, pid = At.pid, n = At.n, call = "" }),
 		else -> GCallee(s = { g = At.g, n = At.n })
 	};
 	// A callee error here stops the generator.

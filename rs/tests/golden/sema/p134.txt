@@ -1,0 +1,30 @@
+// A bare self-edge is a loop back to the signature node; an aliased one is
+// a recursive call.
+proc Count(n: int, acc: int): int {
+	Count switch {
+		(this.n == 0) -> id(this.acc),
+		else -> Count(n = this.n - 1, acc = this.acc + this.n)
+	};
+}
+
+proc Fib(n: int): int {
+	func Add(a: int, b: int): int;
+	Fib switch {
+		(this.n < 2) -> id(this.n),
+		else -> Fib(n = this.n - 1) as A
+	};
+	A -> Fib(n = Fib.n - 2) as B;
+	B -> Add(a = A, b = this);
+}
+
+---
+#0 edge #1: switch [(this.n == 0)] ((this.n:int@152..158 == 0 :int)) -> call #2(value:int=this.acc:int@171..179) @168..170 text="this.acc"; [else] else -> call #1(n:int=(this.n:int@202..208 - 1 :int), acc:int=(this.acc:int@220..228 + this.n:int@231..237 :int)) @192..197 text="n = this.n - 1, acc = this.acc + this.n"
+#0 spawned={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2] sink=-1
+#0 region_of={1: 0, 2: 0} opens={}
+#3 edge #4: switch [(this.n < 2)] ((this.n:int@319..325 < 2 :int)) -> call #6(value:int=this.n:int@337..343) @334..336 text="this.n"; [else] else -> call #7(n:int=(this.n:int@364..370 - 1 :int)) @356..359 text="n = this.n - 1"
+#3 edge #7: call #8(n:int=(#4.n:int@399..404 - 2 :int)) @391..394 text="n = Fib.n - 2"
+#3 edge #8: call #5(a:int=#7:int@430..431, b:int=this:int@437..441) @422..425 text="a = A, b = this"
+#3 spawned={}
+#3 region 0: parent=-1 entry=4 elem=void nodes=[4, 6, 7, 8, 5] sink=-1
+#3 region_of={4: 0, 5: 0, 6: 0, 7: 0, 8: 0} opens={}

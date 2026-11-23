@@ -1,0 +1,160 @@
+{
+  "grids": {
+    "Count": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "Count",
+              "sublabel": "(n: int, acc: int)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "id"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "label": "this.n == 0",
+          "valueType": "{ n: int, acc: int }",
+          "call": "id1(value: int)",
+          "args": "this.acc"
+        },
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            0,
+            0
+          ],
+          "label": "else",
+          "valueType": "{ n: int, acc: int }",
+          "call": "Count(n: int, acc: int)",
+          "args": "n = this.n - 1, acc = this.acc + this.n"
+        }
+      ]
+    },
+    "Fib": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "Fib",
+              "sublabel": "(n: int)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "id"
+            },
+            {
+              "type": 1,
+              "label": "A",
+              "sublabel": "instance of Fib"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 1,
+              "label": "B",
+              "sublabel": "instance of Fib"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Add"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "label": "this.n < 2",
+          "valueType": "{ n: int }",
+          "call": "id1(value: int)",
+          "args": "this.n"
+        },
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            1
+          ],
+          "label": "else",
+          "valueType": "{ n: int }",
+          "call": "A(n: int)",
+          "args": "n = this.n - 1"
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            1
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "int",
+          "call": "B(n: int)",
+          "args": "n = Fib.n - 2"
+        },
+        {
+          "type": 0,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            3,
+            0
+          ],
+          "valueType": "int",
+          "call": "Add(a: int, b: int)",
+          "args": "a = A, b = this"
+        }
+      ]
+    }
+  }
+}

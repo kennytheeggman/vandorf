@@ -120,20 +120,32 @@ type ProcIn = { cx: Cx, p: Proc, qual: []string, parent: int };
 proc DeclareProc(At): Declared {
 	func At(s: ProcIn): ProcIn = "../leaf.rs:same";
 	func EmptyGraph(n: int): Graph = "sema_leaf.rs:empty_graph";
+	// The proc's own node, then its signature node if it has one.
+	func WithSig(cx: Cx, p: Proc, qual: []string, pid: int, params: []Member): Cx = "sema_leaf.rs:with_sig";
+	func SigNames(p: Proc, pid: int): map[string]int = "sema_leaf.rs:sig_names";
+	func SigLocals(p: Proc, pid: int): []int = "sema_leaf.rs:sig_locals";
+	// The entry: the signature node, or the named entry (-1 if it's not
+	// declared).
+	func EntryId(p: Proc, pid: int, names: map[string]int): int = "sema_leaf.rs:entry_id";
+	func EntryIdent(p: Proc): Ident = "sema_leaf.rs:entry_ident";
 	At -> Ty(s = { cx = this.cx.ty, t = this.p.ret }) as Ret;
 	Ret switch {
-		{ cx = _, t = Some(r) } -> DeclareLocals(s = {
-			cx = WithNode(cx = { ..At.cx, ty = Ret.cx }, n = { qual = At.qual + [At.p.name.name], span = At.p.name.span, kind = Proc({ parent = At.parent, entry = -1, ret = r, locals = [], graph = EmptyGraph(n = 0) }) }),
-			p = At.p, qual = At.qual + [At.p.name.name], id = At.cx.nodes.len, i = 0, names = [:], locals = []
-		}),
+		{ cx = _, t = Some(r) } -> Fields(s = { cx = this.cx, fs = At.p.params, i = 0, ok = true, acc = [] }) as Params,
 		else -> id({ cx = { ..At.cx, ty = Ret.cx }, id = -1 })
 	};
+	Params switch {
+		{ cx = _, ms = Some(ms) } -> DeclareLocals(s = {
+			cx = WithSig(cx = WithNode(cx = { ..At.cx, ty = Params.cx }, n = { qual = At.qual + [At.p.name.name], span = At.p.name.span, kind = Proc({ parent = At.parent, entry = -1, ret = UnwrapT(t = Ret.t), locals = [], graph = EmptyGraph(n = 0) }) }), p = At.p, qual = At.qual + [At.p.name.name], pid = At.cx.nodes.len, params = ms),
+			p = At.p, qual = At.qual + [At.p.name.name], id = At.cx.nodes.len, i = 0, names = SigNames(p = At.p, pid = At.cx.nodes.len), locals = SigLocals(p = At.p, pid = At.cx.nodes.len)
+		}),
+		else -> id({ cx = { ..At.cx, ty = Params.cx }, id = -1 })
+	};
 	DeclareLocals -> Targets(s = { edges = At.p.edges, i = 0, acc = [] });
-	Targets -> DeclareIds(s = { cx = DeclareLocals.cx, ts = this, i = 0, n = 0, qual = At.qual + [At.p.name.name], pid = At.cx.nodes.len, locals = DeclareLocals.locals });
-	DeclareIds -> DeclareAliases(s = { cx = this.cx, ts = Targets, i = 0, p = At.p, qual = At.qual + [At.p.name.name], pid = At.cx.nodes.len, names = DeclareLocals.names, aliased = [:], locals = this.locals });
+	Targets -> DeclareIds(s = { cx = DeclareLocals.cx, ts = this, i = 0, n = 0, qual = At.qual + [At.p.name.name], pid = At.cx.nodes.len, names = DeclareLocals.names, named = [:], locals = DeclareLocals.locals });
+	DeclareIds -> DeclareAliases(s = { cx = this.cx, ts = Targets, i = 0, p = At.p, qual = At.qual + [At.p.name.name], pid = At.cx.nodes.len, names = this.names, aliased = [:], locals = this.locals });
 	DeclareAliases switch {
-		(At.p.entry.name in this.names) -> id({ cx = WithProc(cx = SetProc(cx = this.cx, id = At.cx.nodes.len, entry = this.names[At.p.entry.name], locals = this.locals), p = { id = At.cx.nodes.len, p = At.p }), id = At.cx.nodes.len }),
-		else -> id({ cx = { ..this.cx, ty = { ..this.cx.ty, errors = this.cx.ty.errors + [{ msg = "entry " + At.p.entry.name + " is not declared in proc " + At.p.name.name, span = At.p.entry.span }] } }, id = -1 })
+		(EntryId(p = At.p, pid = At.cx.nodes.len, names = this.names) >= 0) -> id({ cx = WithProc(cx = SetProc(cx = this.cx, id = At.cx.nodes.len, entry = EntryId(p = At.p, pid = At.cx.nodes.len, names = this.names), locals = this.locals), p = { id = At.cx.nodes.len, p = At.p }), id = At.cx.nodes.len }),
+		else -> id({ cx = { ..this.cx, ty = { ..this.cx.ty, errors = this.cx.ty.errors + [{ msg = "entry " + EntryIdent(p = At.p).name + " is not declared in proc " + At.p.name.name, span = EntryIdent(p = At.p).span }] } }, id = -1 })
 	};
 }
 
@@ -201,23 +213,34 @@ proc ArmTargets(At): []Target {
 
 func RestArms(arms: []Arm): []Arm = "sema_leaf.rs:rest_arms";
 
-type IdsOut = { cx: Cx, locals: []int };
+type IdsOut = { cx: Cx, names: map[string]int, locals: []int };
 
-// Each id(..) target is a node of its own: P.id1, P.id2, ...
+// Each id(..) target is a node of its own: P.id1, P.id2, ... `id(..) as N`
+// is node N, the same one for every target named N; its type is found
+// with the graph's.
 proc DeclareIds(At): IdsOut {
-	func At(s: { cx: Cx, ts: []Target, i: int, n: int, qual: []string, pid: int, locals: []int }): { cx: Cx, ts: []Target, i: int, n: int, qual: []string, pid: int, locals: []int } = "../leaf.rs:same";
+	func At(s: { cx: Cx, ts: []Target, i: int, n: int, qual: []string, pid: int, names: map[string]int, named: map[string]bool, locals: []int }): { cx: Cx, ts: []Target, i: int, n: int, qual: []string, pid: int, names: map[string]int, named: map[string]bool, locals: []int } = "../leaf.rs:same";
 	func IsId(t: Target): bool = "sema_leaf.rs:is_id";
 	func AliasOf(t: Target): OptIdent = "sema_leaf.rs:alias_of";
 	At switch {
-		(this.i == this.ts.len) -> id({ cx = this.cx, locals = this.locals }),
-		(!IsId(t = this.ts[this.i])) -> At(s = { cx = this.cx, ts = this.ts, i = this.i + 1, n = this.n, qual = this.qual, pid = this.pid, locals = this.locals }),
+		(this.i == this.ts.len) -> id({ cx = this.cx, names = this.names, locals = this.locals }),
+		(!IsId(t = this.ts[this.i])) -> At(s = { ..this, i = this.i + 1 }),
 		else -> AliasOf(t = this.ts[this.i])
 	};
 	AliasOf switch {
-		Some(a) -> At(s = { cx = { ..At.cx, ty = { ..At.cx.ty, errors = At.cx.ty.errors + [{ msg = "id ends the proc, so it can't be named", span = a.span }] } }, ts = At.ts, i = At.i + 1, n = At.n, qual = At.qual, pid = At.pid, locals = At.locals }),
+		Some(a) -> switch {
+			(a.name in At.named) -> At(s = { ..At, cx = WithId(cx = At.cx, at = SpanKey(s = At.ts[At.i].node.span), id = At.names[a.name]), i = At.i + 1 }),
+			(a.name in At.names) -> At(s = { ..At, cx = { ..At.cx, ty = { ..At.cx.ty, errors = At.cx.ty.errors + [{ msg = "id(..) as " + a.name + " clashes with a node of that name in proc " + At.qual[At.qual.len - 1], span = a.span }] } }, i = At.i + 1 }),
+			else -> At(s = {
+				..At,
+				cx = WithId(cx = { ..At.cx, nodes = At.cx.nodes + [{ qual = At.qual + [a.name], span = a.span, kind = Id([]) }] }, at = SpanKey(s = At.ts[At.i].node.span), id = At.cx.nodes.len),
+				i = At.i + 1, names = At.names + [a.name: At.cx.nodes.len], named = At.named + [a.name: true], locals = At.locals + [At.cx.nodes.len]
+			})
+		},
 		else -> At(s = {
+			..At,
 			cx = WithId(cx = { ..At.cx, nodes = At.cx.nodes + [{ qual = At.qual + ["id" + Itoa(i = At.n + 1)], span = At.ts[At.i].node.span, kind = Id([{ name = "value", ty = ProcRet(n = At.cx.nodes[At.pid]) }]) }] }, at = SpanKey(s = At.ts[At.i].node.span), id = At.cx.nodes.len),
-			ts = At.ts, i = At.i + 1, n = At.n + 1, qual = At.qual, pid = At.pid, locals = At.locals + [At.cx.nodes.len]
+			i = At.i + 1, n = At.n + 1, locals = At.locals + [At.cx.nodes.len]
 		})
 	};
 }
@@ -250,6 +273,7 @@ proc DeclareAliases(At): Locals {
 
 // Points each alias at the node it instances, once every node is declared.
 proc ResolveAliases(At): Cx {
+	func SigProc(n: NodeDecl, b: int): int = "sema_leaf.rs:sig_proc";
 	func At(s: { cx: Cx, i: int }): { cx: Cx, i: int } = "../leaf.rs:same";
 	At switch {
 		(this.i == this.cx.aliases.len) -> id(this.cx),
@@ -258,7 +282,8 @@ proc ResolveAliases(At): Cx {
 	ResolveNode switch {
 		Ok(b) -> switch {
 			(IsAlias(n = At.cx.nodes[b])) -> At(s = { cx = { ..At.cx, ty = { ..At.cx.ty, errors = At.cx.ty.errors + [{ msg = ShowPath(p = At.cx.aliases[At.i].t.node) + " is itself an alias; alias the node it instances", span = At.cx.aliases[At.i].t.node.span }] } }, i = At.i + 1 }),
-			else -> At(s = { cx = SetAlias(cx = At.cx, lid = At.cx.aliases[At.i].lid, of = b), i = At.i + 1 })
+			// `-> P(..) as X` inside P: X is a call of P, not its signature node.
+			else -> At(s = { cx = SetAlias(cx = At.cx, lid = At.cx.aliases[At.i].lid, of = SigProc(n = At.cx.nodes[b], b = b)), i = At.i + 1 })
 		},
 		Err(e) -> At(s = { cx = { ..At.cx, ty = { ..At.cx.ty, errors = At.cx.ty.errors + [{ msg = e.msg, span = e.span }] } }, i = At.i + 1 })
 	};

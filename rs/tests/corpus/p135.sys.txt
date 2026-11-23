@@ -1,0 +1,19 @@
+// id(..) as N: a merge point, and a loop head carrying a struct.
+type E = enum { A(int), B(int) };
+
+proc Merge(e: E): int {
+	func G(x: int): int;
+	Merge switch {
+		{ e = A(x) } -> id(x) as D,
+		{ e = B(x) } -> id(x + 1) as D
+	};
+	D -> G(x = this);
+}
+
+proc Sum(xs: []int): int {
+	Sum -> id({ i = 0, acc = 0 }) as L;
+	L switch {
+		(L.i == Sum.xs.len) -> id(L.acc),
+		else -> id({ i = L.i + 1, acc = L.acc + Sum.xs[L.i] }) as L
+	};
+}

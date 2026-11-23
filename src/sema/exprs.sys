@@ -29,6 +29,7 @@ func LitKey(e: Expr): MaybeStr = "sema_leaf.rs:lit_key";
 func NodeRet(nodes: []NodeDecl, n: int): Type = "sema_leaf.rs:node_ret";
 func NodeParams(nodes: []NodeDecl, n: int): []Member = "sema_leaf.rs:node_params";
 func IsFunc(n: NodeDecl): bool = "sema_leaf.rs:is_func";
+func IsUntypedId(n: NodeDecl): bool = "sema_leaf.rs:is_untyped_id";
 func Prefixed(d: Diag, prefix: string): Diag = "sema_leaf.rs:prefixed";
 
 // ---- Checking against a type ----
@@ -259,6 +260,9 @@ proc Synth(At): Res<Typed> {
 			(b.op == "&&" || b.op == "||") -> Check(s = { env = At.env, sc = At.sc, v = b.l, want = Prim("bool") }) as AndL,
 			else -> Synth(s = { env = At.env, sc = At.sc, v = b.l }) as BL
 		},
+		// `{ a = .., b = .. }` with no expected type: a struct of its fields'
+		// types.
+		Struct(args) -> SynthFields(s = { env = At.env, sc = At.sc, args = args, i = 0, ms = [], es = [] }),
 		else -> id(Err({ msg = "the type of this literal isn't known here; it can only be passed where a type is expected", span = At.v.span }))
 	};
 	UB switch {
@@ -338,6 +342,19 @@ func BinaryOp(k: ValueKind): string = "sema_leaf.rs:binary_op";
 func IndexedValue(t: Type): Type = "sema_leaf.rs:indexed_value";
 
 // A binary operator other than && and ||, its left operand already typed.
+proc SynthFields(At): Res<Typed> {
+	func At(s: { env: Env, sc: Scope, args: []Arg, i: int, ms: []Member, es: []ExprMember }): { env: Env, sc: Scope, args: []Arg, i: int, ms: []Member, es: []ExprMember } = "../leaf.rs:same";
+	At switch {
+		(this.i == this.args.len) -> id(Ok({ e = Struct(this.es), t = Struct(this.ms) })),
+		(HasMember(ms = this.ms, name = this.args[this.i].name.name)) -> id(Err({ msg = "field " + this.args[this.i].name.name + " given twice", span = this.args[this.i].name.span })),
+		else -> Synth(s = { env = this.env, sc = this.sc, v = this.args[this.i].value })
+	};
+	Synth switch {
+		Ok(x) -> At(s = { ..At, i = At.i + 1, ms = At.ms + [{ name = At.args[At.i].name.name, ty = x.t }], es = At.es + [{ name = At.args[At.i].name.name, e = x.e }] }),
+		Err(e) -> id(Err(Prefixed(d = e, prefix = "field " + At.args[At.i].name.name + ": ")))
+	};
+}
+
 proc SynthBinary(At): Res<Typed> {
 	func At(s: { env: Env, sc: Scope, v: Value, op: string, l: Typed, r: Value }): { env: Env, sc: Scope, v: Value, op: string, l: Typed, r: Value } = "../leaf.rs:same";
 	At -> Unfold(s = { t = this.l.t, defs = this.env.types }) as LShape;
@@ -457,10 +474,17 @@ proc RefUpto(At): Res<RefUpto> {
 		else -> Resolve(s = { nodes = this.env.nodes, globals = this.env.globals, pid = this.env.pid, path = this.path })
 	};
 	Resolve switch {
-		Ok(r) -> RefFields(s = { env = At.env, root = Node(r.n), root_ty = NodeRet(nodes = At.env.nodes, n = r.n), bind = "", ty = NodeRet(nodes = At.env.nodes, n = r.n), rest = r.rest, fields = [], span = At.path.span }),
+		Ok(r) -> switch {
+			(IsUntypedId(n = At.env.nodes[r.n])) -> id(Err(Untyped(n = At.env.nodes[r.n], span = At.path.segs[0].span))),
+			else -> RefFields(s = { env = At.env, root = Node(r.n), root_ty = NodeRet(nodes = At.env.nodes, n = r.n), bind = "", ty = NodeRet(nodes = At.env.nodes, n = r.n), rest = r.rest, fields = [], span = At.path.span })
+		},
 		Err(e) -> id(Err(e))
 	};
 }
+
+// The error for using `id(..) as N` before any value passed to it has a
+// type.
+func Untyped(n: NodeDecl, span: Span): Diag = "sema_leaf.rs:untyped";
 
 proc RefFields(At): Res<RefUpto> {
 	func At(s: { env: Env, root: Root, root_ty: Type, bind: string, ty: Type, rest: []Ident, fields: []string, span: Span }): { env: Env, root: Root, root_ty: Type, bind: string, ty: Type, rest: []Ident, fields: []string, span: Span } = "../leaf.rs:same";
@@ -514,10 +538,19 @@ proc CallOf(At): Res<Call> {
 	func IdValue(t: Target): OptValue = "sema_leaf.rs:id_value";
 	func AliasOf(t: Target): OptIdent = "sema_leaf.rs:alias_of";
 	func OwnLocal(nodes: []NodeDecl, pid: int, name: string): int = "sema_leaf.rs:own_local";
+	func CallTarget(nodes: []NodeDecl, pid: int, n: int): int = "sema_leaf.rs:call_target";
 	At -> IdValue(t = this.t);
 	IdValue switch {
-		Some(v) -> Check(s = { env = At.env, sc = At.sc, v = v, want = NodeRet(nodes = At.env.nodes, n = At.env.ids[SpanKey(s = At.t.node.span)]) }) as IdV,
+		// `id(..) as N` takes the type of the first value passed to it.
+		Some(v) -> switch {
+			(IsUntypedId(n = At.env.nodes[At.env.ids[SpanKey(s = At.t.node.span)]])) -> Synth(s = { env = At.env, sc = At.sc, v = v }) as IdS,
+			else -> Check(s = { env = At.env, sc = At.sc, v = v, want = NodeRet(nodes = At.env.nodes, n = At.env.ids[SpanKey(s = At.t.node.span)]) }) as IdV
+		},
 		else -> AliasOf(t = At.t)
+	};
+	IdS switch {
+		Ok(x) -> id(Ok({ target = At.env.ids[SpanKey(s = At.t.node.span)], args = [{ name = "value", param = x.t, value = x.e }], span = At.t.node.span, text = Squash(src = At.env.srcs[At.t.inner.file], span = At.t.inner) })),
+		Err(e) -> id(Err(Prefixed(d = e, prefix = "id: ")))
 	};
 	IdV switch {
 		Ok(x) -> id(Ok({ target = At.env.ids[SpanKey(s = At.t.node.span)], args = [{ name = "value", param = NodeRet(nodes = At.env.nodes, n = At.env.ids[SpanKey(s = At.t.node.span)]), value = x }], span = At.t.node.span, text = Squash(src = At.env.srcs[At.t.inner.file], span = At.t.inner) })),
@@ -528,7 +561,7 @@ proc CallOf(At): Res<Call> {
 		else -> ResolveNode(s = { nodes = At.env.nodes, globals = At.env.globals, pid = At.env.pid, path = At.t.node })
 	};
 	ResolveNode switch {
-		Ok(n) -> Args(s = { env = At.env, sc = At.sc, target = n, given = At.t.args, span = At.t.node.span, i = 0, seen = [:] }) as NodeCall,
+		Ok(n) -> Args(s = { env = At.env, sc = At.sc, target = CallTarget(nodes = At.env.nodes, pid = At.env.pid, n = n), given = At.t.args, span = At.t.node.span, i = 0, seen = [:] }) as NodeCall,
 		Err(e) -> id(Err(e))
 	};
 	AliasCall -> Called(r = this);

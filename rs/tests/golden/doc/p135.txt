@@ -1,0 +1,156 @@
+{
+  "grids": {
+    "Merge": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "Merge",
+              "sublabel": "(e: E)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "D",
+              "sublabel": "id"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "G"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "label": "{ e = A(x) }",
+          "valueType": "{ e: E }",
+          "call": "D(value: int)",
+          "args": "x"
+        },
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "label": "{ e = B(x) }",
+          "valueType": "{ e: E }",
+          "call": "D(value: int)",
+          "args": "x + 1"
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "int",
+          "call": "G(x: int)",
+          "args": "x = this"
+        }
+      ]
+    },
+    "Sum": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "Sum",
+              "sublabel": "(xs: []int)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "L",
+              "sublabel": "id"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "id"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ xs: []int }",
+          "call": "L(value: { i: int, acc: int })",
+          "args": "{ i = 0, acc = 0 }"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "label": "L.i == Sum.xs.len",
+          "valueType": "{ i: int, acc: int }",
+          "call": "id1(value: int)",
+          "args": "L.acc"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "label": "else",
+          "valueType": "{ i: int, acc: int }",
+          "call": "L(value: { i: int, acc: int })",
+          "args": "{ i = L.i + 1, acc = L.acc + Sum.xs[L.i] }"
+        }
+      ]
+    }
+  }
+}

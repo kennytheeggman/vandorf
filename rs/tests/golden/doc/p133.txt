@@ -1,0 +1,78 @@
+{
+  "grids": {
+    "Greet": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "Greet",
+              "sublabel": "(name: string, times: int)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Repeat"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ name: string, times: int }",
+          "call": "Repeat(s: string, n: int)",
+          "args": "s = \"hello \" + this.name, n = Greet.times"
+        }
+      ]
+    },
+    "Main": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "Main",
+              "sublabel": "()"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 1,
+              "label": "Greet"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{  }",
+          "call": "Greet(name: string, times: int)",
+          "args": "name = \"x\", times = 2"
+        }
+      ]
+    }
+  }
+}

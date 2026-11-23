@@ -589,3 +589,28 @@ pub fn inner_span(toks: List<Tok>, from: i64, to: i64) -> Result<Span, String> {
         file: first.file,
     })
 }
+
+/// A proc with params starts its body from its signature node, its own
+/// name: the first edge must leave it.
+pub fn starts_at_sig(
+    name: Ident,
+    entry: OptIdent,
+    edges: List<Edge>,
+) -> Result<List<Edge>, String> {
+    if let (OptIdent::None, Some(e)) = (&entry, edges.first()) {
+        let src = &e.source;
+        if src.segs.len() != 1 || src.segs[0].name != name.name {
+            let shown = src
+                .segs
+                .iter()
+                .map(|s| &*s.name)
+                .collect::<Vec<_>>()
+                .join(".");
+            return Err(format!(
+                "{}:{}: the body of proc {} starts from {}: write `{} -> ..` first, found {shown}",
+                src.span.at, src.span.end, name.name, name.name, name.name
+            ));
+        }
+    }
+    Ok(edges)
+}

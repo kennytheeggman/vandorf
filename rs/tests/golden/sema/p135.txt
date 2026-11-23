@@ -1,0 +1,31 @@
+// id(..) as N: a merge point, and a loop head carrying a struct.
+type E = enum { A(int), B(int) };
+
+proc Merge(e: E): int {
+	func G(x: int): int;
+	Merge switch {
+		{ e = A(x) } -> id(x) as D,
+		{ e = B(x) } -> id(x + 1) as D
+	};
+	D -> G(x = this);
+}
+
+proc Sum(xs: []int): int {
+	Sum -> id({ i = 0, acc = 0 }) as L;
+	L switch {
+		(L.i == Sum.xs.len) -> id(L.acc),
+		else -> id({ i = L.i + 1, acc = L.acc + Sum.xs[L.i] }) as L
+	};
+}
+
+---
+#0 edge #1: switch [{ e = A(x) }] {e=A($x:int):E}:{ e: E } -> call #3(value:int=$x:int@184..185) @181..183 text="x"; [{ e = B(x) }] {e=B($x:int):E}:{ e: E } -> call #3(value:int=($x:int@214..215 + 1 :int)) @211..213 text="x + 1"
+#0 edge #3: call #2(x:int=this:int@242..246) @236..237 text="x = this"
+#0 spawned={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 3, 2] sink=-1
+#0 region_of={1: 0, 2: 0, 3: 0} opens={}
+#4 edge #5: call #6(value:{ i: int, acc: int }={i=0,acc=0}) @287..289 text="{ i = 0, acc = 0 }"
+#4 edge #6: switch [(L.i == Sum.xs.len)] ((#6.i:int@331..334 == #5.xs:[]int@338..348.len@[]int :int)) -> call #7(value:int=#6.acc:int@356..361) @353..355 text="L.acc"; [else] else -> call #6(value:{ i: int, acc: int }={i=(#6.i:int@383..386 + 1 :int),acc=(#6.acc:int@398..403 + #5.xs:[]int@406..412[#6.i:int@413..416]@[]int :int)}) @374..376 text="{ i = L.i + 1, acc = L.acc + Sum.xs[L.i] }"
+#4 spawned={}
+#4 region 0: parent=-1 entry=5 elem=void nodes=[5, 6, 7] sink=-1
+#4 region_of={5: 0, 6: 0, 7: 0} opens={}

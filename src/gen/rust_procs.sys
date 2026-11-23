@@ -473,10 +473,13 @@ proc RNode(At): EmitLines {
 	func At(s: { g: RGen, pid: int, n: int }): { g: RGen, pid: int, n: int } = "../leaf.rs:same";
 	func K(k: NodeKind): NodeKind = "../leaf.rs:same";
 	func ArgList(nodes: []NodeDecl, n: int): string = "gen_leaf.rs:input_args";
+	// A signature node's output, built from its input.
+	func SigValue(g: RGen, n: int): string = "gen_leaf.rs:sig_value";
 	At -> K(k = this.g.prog.nodes[BaseOf(nodes = this.g.prog.nodes, n = this.n)].kind);
 	K switch {
 		Proc(_) -> RNodeBody(s = { g = At.g, pid = At.pid, n = At.n, run = "let this = run_" + SnakeG(n = At.g.prog.nodes[BaseOf(nodes = At.g.prog.nodes, n = At.n)]) + "(" + ArgList(nodes = At.g.prog.nodes, n = At.n) + ").map_err(|e| wrap(" + Quote(s = QualName(n = At.g.prog.nodes[At.n])) + ", e.into()))?;" }),
 		Id(_) -> RNodeBody(s = { g = At.g, pid = At.pid, n = At.n, run = "let this = input.value;" }),
+		Sig(_) -> RNodeBody(s = { g = At.g, pid = At.pid, n = At.n, run = SigValue(g = At.g, n = At.n) }),
 		else -> RCallee(s = { g = At.g, n = At.n })
 	};
 	// A callee error here stops the generator.

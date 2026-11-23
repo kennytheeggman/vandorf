@@ -121,7 +121,16 @@ fn v_func(o: &mut Out, f: &v::Func) {
 fn v_proc(o: &mut Out, p: &v::Proc) {
     o.open("proc");
     v_ident(o, &p.name);
-    v_ident(o, &p.entry);
+    match &p.entry {
+        v::OptIdent::Some(e) => v_ident(o, e),
+        v::OptIdent::None => {
+            o.open("params");
+            for f in &p.params {
+                v_field(o, f);
+            }
+            o.close();
+        }
+    }
     v_ty(o, &p.ret);
     for n in &p.nodes {
         v_node(o, n);
@@ -509,6 +518,9 @@ fn reports_syntax_errors() {
         ("type R<T> = { x: T }; func F(): R<int>= \"a.rs:f\";", "write `> =` here"),
         ("type A = R<int;", "expected > to close the type arguments, found ';'"),
         ("type R<> = int;", "expected a type parameter, found '>'"),
+        // A proc with params starts its body from its own name.
+        ("proc P(a: int): int { func F(x: int): int; F -> id(this); P -> F(x = this.a); }", "43:44: the body of proc P starts from P: write `P -> ..` first, found F"),
+        ("proc P(a int): int {}", "expected ) after the entry, found 'int'"),
     ] {
         let e = vcc::vcc::run_parse(src.into()).unwrap_err().to_string();
         assert!(e.contains(want), "{src}: {e}");

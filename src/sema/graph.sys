@@ -22,32 +22,40 @@ func EdgeNodes(g: Graph): []int = "sema_leaf.rs:edge_nodes";
 func Ancestors(g: Graph, r: int): map[int]bool = "sema_leaf.rs:ancestors";
 func Opener(g: Graph, r: int): int = "sema_leaf.rs:opener";
 
+// A proc's graph, and the program's nodes with its `id(..) as N` typed.
+type Built = { g: Graph, nodes: []NodeDecl };
+
 // The graph of proc env.pid, declared as p.
-proc BuildGraph(At): Res<Graph> {
+proc BuildGraph(At): Res<Built> {
 	func At(s: { env: Env, p: Proc }): { env: Env, p: Proc } = "../leaf.rs:same";
 	func Entry(nodes: []NodeDecl, pid: int): int = "sema_leaf.rs:proc_entry";
-	At -> GraphEdges(s = { env = this.env, p = this.p, g = NoGraph(n = 0), i = 0 });
+	At -> TypedEnv(s = this);
+	TypedEnv -> GraphEdges(s = { env = this, p = At.p, g = NoGraph(n = 0), i = 0 });
 	GraphEdges switch {
-		Ok(g) -> WithSpawned(g = g, nodes = At.env.nodes),
+		Ok(g) -> WithSpawned(g = g, nodes = TypedEnv.nodes),
 		Err(e) -> id(Err(e))
 	};
 	WithSpawned switch {
-		Ok(g) -> Fill(s = { env = At.env, p = At.p, g = NewRegion(g = g, parent = -1, entry = Entry(nodes = At.env.nodes, pid = At.env.pid), elem = Prim("void")), r = 0, work = [Entry(nodes = At.env.nodes, pid = At.env.pid)], i = 0 }),
+		Ok(g) -> Fill(s = { env = TypedEnv, p = At.p, g = NewRegion(g = g, parent = -1, entry = Entry(nodes = TypedEnv.nodes, pid = TypedEnv.pid), elem = Prim("void")), r = 0, work = [Entry(nodes = TypedEnv.nodes, pid = TypedEnv.pid)], i = 0 }),
 		Err(e) -> id(Err(e))
 	};
 	Fill switch {
-		Ok(g) -> SpawnReach(g = g, nodes = At.env.nodes, span = At.p.name.span),
+		Ok(g) -> SpawnReach(g = g, nodes = TypedEnv.nodes, span = At.p.name.span),
 		Err(e) -> id(Err(e))
 	};
 	SpawnReach switch {
-		Ok(g) -> CheckScopes(s = { env = At.env, p = At.p, g = g, edges = EdgeNodes(g = g), i = 0 }),
+		Ok(g) -> CheckScopes(s = { env = TypedEnv, p = At.p, g = g, edges = EdgeNodes(g = g), i = 0 }),
 		Err(e) -> id(Err(e))
 	};
 	CheckScopes switch {
 		Ok(g) -> Dominators(s = { g = g, r = 0, dom = [:] }),
 		Err(e) -> id(Err(e))
 	};
-	Dominators -> CheckRuns(s = { env = At.env, g = UnwrapG(r = CheckScopes), dom = this, edges = EdgeNodes(g = UnwrapG(r = CheckScopes)), i = 0 });
+	Dominators -> CheckRuns(s = { env = TypedEnv, g = UnwrapG(r = CheckScopes), dom = this, edges = EdgeNodes(g = UnwrapG(r = CheckScopes)), i = 0 });
+	CheckRuns switch {
+		Ok(g) -> id(Ok({ g = g, nodes = TypedEnv.nodes })),
+		Err(e) -> id(Err(e))
+	};
 }
 
 func UnwrapG(r: Res<Graph>): Graph = "sema_leaf.rs:unwrap_g";
@@ -57,15 +65,67 @@ func WithSpawned(g: Graph, nodes: []NodeDecl): Res<Graph> = "sema_leaf.rs:with_s
 // Fails if a branch is also reached as a step of the proc.
 func SpawnReach(g: Graph, nodes: []NodeDecl, span: Span): Res<Graph> = "sema_leaf.rs:spawn_reach";
 
+// env, with the proc's `id(..) as N` typed if it has any.
+proc TypedEnv(At): Env {
+	func At(s: { env: Env, p: Proc }): { env: Env, p: Proc } = "../leaf.rs:same";
+	func HasUntyped(nodes: []NodeDecl, pid: int): bool = "sema_leaf.rs:has_untyped";
+	At switch {
+		(HasUntyped(nodes = this.env.nodes, pid = this.env.pid)) -> IdTypes(s = { env = this.env, p = this.p, i = 0, typed = false }),
+		else -> id(this.env)
+	};
+	IdTypes -> id(this);
+}
+
+// Types each `id(..) as N` from the first value passed to it: rounds over
+// the edges, each checking the edges it can (their sources and reads have
+// types) and typing the ids they pass values to, until a round types none.
+// Edges that can't be checked yet are checked again by GraphEdges, which
+// reports their errors.
+proc IdTypes(At): Env {
+	func At(s: { env: Env, p: Proc, i: int, typed: bool }): { env: Env, p: Proc, i: int, typed: bool } = "../leaf.rs:same";
+	// Whether the edge passes a value to an id that has no type yet; and
+	// nodes with those ids typed by the first value each is passed.
+	func TypesIds(nodes: []NodeDecl, e: SEdge): bool = "sema_leaf.rs:types_ids";
+	func TypedIds(nodes: []NodeDecl, e: SEdge): []NodeDecl = "sema_leaf.rs:typed_ids";
+	At switch {
+		(this.i == this.p.edges.len && this.typed) -> At(s = { ..this, i = 0, typed = false }),
+		(this.i == this.p.edges.len) -> id(this.env),
+		else -> EdgeOf(s = { env = this.env, p = this.p, i = this.i })
+	};
+	EdgeOf switch {
+		Ok(x) -> switch {
+			(TypesIds(nodes = At.env.nodes, e = x.e)) -> At(s = { ..At, env = { ..At.env, nodes = TypedIds(nodes = At.env.nodes, e = x.e) }, i = At.i + 1, typed = true }),
+			else -> At(s = { ..At, i = At.i + 1 })
+		},
+		Err(_) -> At(s = { ..At, i = At.i + 1 })
+	};
+}
+
 proc GraphEdges(At): Res<Graph> {
 	func At(s: { env: Env, p: Proc, g: Graph, i: int }): { env: Env, p: Proc, g: Graph, i: int } = "../leaf.rs:same";
-	func K(k: EdgeKind): EdgeKind = "../leaf.rs:same";
 	At switch {
 		(this.i == this.p.edges.len) -> id(Ok(this.g)),
-		else -> ResolveNode(s = { nodes = this.env.nodes, globals = this.env.globals, pid = this.env.pid, path = this.p.edges[this.i].source })
+		else -> EdgeOf(s = { env = this.env, p = this.p, i = this.i })
 	};
+	EdgeOf switch {
+		Ok(x) -> AddEdge(s = { at = At, src = x.src, e = x.e }),
+		Err(e) -> id(Err(e))
+	};
+	AddEdge -> id(this);
+}
+
+type SrcEdge = { src: int, e: SEdge };
+
+// Edge p.edges[i], typed, and its source.
+proc EdgeOf(At): Res<SrcEdge> {
+	func At(s: { env: Env, p: Proc, i: int }): { env: Env, p: Proc, i: int } = "../leaf.rs:same";
+	func K(k: EdgeKind): EdgeKind = "../leaf.rs:same";
+	At -> ResolveNode(s = { nodes = this.env.nodes, globals = this.env.globals, pid = this.env.pid, path = this.p.edges[this.i].source });
 	ResolveNode switch {
-		Ok(src) -> K(k = At.p.edges[At.i].kind),
+		Ok(src) -> switch {
+			(IsUntypedId(n = At.env.nodes[src])) -> id(Err(Untyped(n = At.env.nodes[src], span = At.p.edges[At.i].source.span))),
+			else -> K(k = At.p.edges[At.i].kind)
+		},
 		Err(e) -> id(Err(e))
 	};
 	K switch {
@@ -76,19 +136,19 @@ proc GraphEdges(At): Res<Graph> {
 		Spawn(sp) -> SpawnEdge(s = { env = At.env, ret = NodeRet(nodes = At.env.nodes, n = UnwrapN(r = ResolveNode)), branches = sp.branches, join = sp.join, i = 0, out = [], fields = [] })
 	};
 	SpawnEdge switch {
-		Ok(e) -> AddEdge(s = { at = At, src = UnwrapN(r = ResolveNode), e = e }),
+		Ok(e) -> id(Ok({ src = UnwrapN(r = ResolveNode), e = e })),
 		Err(e) -> id(Err(e))
 	};
 	EC switch {
-		Ok(c) -> AddEdge(s = { at = At, src = UnwrapN(r = ResolveNode), e = Call(c) }),
+		Ok(c) -> id(Ok({ src = UnwrapN(r = ResolveNode), e = Call(c) })),
 		Err(e) -> id(Err(e))
 	};
 	EM switch {
-		Ok(arms) -> AddEdge(s = { at = At, src = UnwrapN(r = ResolveNode), e = Match(arms) }),
+		Ok(arms) -> id(Ok({ src = UnwrapN(r = ResolveNode), e = Match(arms) })),
 		Err(e) -> id(Err(e))
 	};
 	ECol switch {
-		Ok(c) -> AddEdge(s = { at = At, src = UnwrapN(r = ResolveNode), e = Collect(c) }),
+		Ok(c) -> id(Ok({ src = UnwrapN(r = ResolveNode), e = Collect(c) })),
 		Err(e) -> id(Err(e))
 	};
 	Dim switch {
@@ -101,10 +161,9 @@ proc GraphEdges(At): Res<Graph> {
 	};
 	NotArray -> id(Err({ msg = "for each needs an array, found " + this, span = ForEachDim(k = K).span }));
 	EF switch {
-		Ok(c) -> AddEdge(s = { at = At, src = UnwrapN(r = ResolveNode), e = ForEach({ dim = UnwrapTyped(r = Dim).e, elem = ElemOf(t = DimShape), call = c }) }),
+		Ok(c) -> id(Ok({ src = UnwrapN(r = ResolveNode), e = ForEach({ dim = UnwrapTyped(r = Dim).e, elem = ElemOf(t = DimShape), call = c }) })),
 		Err(e) -> id(Err(e))
 	};
-	AddEdge -> id(this);
 }
 
 func ForEachTarget(k: EdgeKind): Target = "sema_leaf.rs:for_each_target";
@@ -371,7 +430,7 @@ proc Graphs(At): Analysis {
 		else -> BuildGraph(s = { env = { types = this.cx.ty.types, nodes = this.cx.nodes, globals = this.cx.globals, ids = this.cx.ids, pid = this.cx.procs[this.i].id, srcs = this.srcs }, p = this.cx.procs[this.i].p })
 	};
 	BuildGraph switch {
-		Ok(g) -> At(s = { cx = SetGraph(cx = At.cx, pid = At.cx.procs[At.i].id, g = g), srcs = At.srcs, i = At.i + 1, errors = At.errors }),
+		Ok(b) -> At(s = { cx = SetGraph(cx = { ..At.cx, nodes = b.nodes }, pid = At.cx.procs[At.i].id, g = b.g), srcs = At.srcs, i = At.i + 1, errors = At.errors }),
 		Err(e) -> At(s = { cx = At.cx, srcs = At.srcs, i = At.i + 1, errors = At.errors + [e] })
 	};
 }
