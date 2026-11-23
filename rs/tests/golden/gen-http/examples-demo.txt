@@ -796,6 +796,69 @@ impl Json for types::ScopeValue {
     }
 }
 
+impl Json for types::MeasureArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"shapes\":");
+        self.shapes.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("MeasureArgs")?;
+        Ok(types::MeasureArgs {
+            shapes: Json::from_json(field(fs, "shapes")?).map_err(|e| format!("shapes: {e}"))?,
+        })
+    }
+}
+
+impl Json for types::HelloArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"name\":");
+        self.name.to_json(out);
+        out.push_str(",\"times\":");
+        self.times.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("HelloArgs")?;
+        Ok(types::HelloArgs {
+            name: Json::from_json(field(fs, "name")?).map_err(|e| format!("name: {e}"))?,
+            times: Json::from_json(field(fs, "times")?).map_err(|e| format!("times: {e}"))?,
+        })
+    }
+}
+
+impl Json for types::CalcArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"base\":");
+        self.base.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("CalcArgs")?;
+        Ok(types::CalcArgs {
+            base: Json::from_json(field(fs, "base")?).map_err(|e| format!("base: {e}"))?,
+        })
+    }
+}
+
+impl Json for types::ClassifyArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"e\":");
+        self.e.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("ClassifyArgs")?;
+        Ok(types::ClassifyArgs {
+            e: Json::from_json(field(fs, "e")?).map_err(|e| format!("e: {e}"))?,
+        })
+    }
+}
+
 impl Json for types::ForEachStartOut {
     fn to_json(&self, out: &mut String) {
         out.push('{');
@@ -814,7 +877,7 @@ impl Json for types::ForEachStartOut {
     }
 }
 
-impl Json for types::MainStartOut {
+impl Json for types::BarArgs {
     fn to_json(&self, out: &mut String) {
         out.push('{');
         out.push_str("\"a\":");
@@ -824,10 +887,28 @@ impl Json for types::MainStartOut {
         out.push('}');
     }
     fn from_json(v: &Value) -> Result<Self, String> {
-        let fs = v.object("MainStartOut")?;
-        Ok(types::MainStartOut {
+        let fs = v.object("BarArgs")?;
+        Ok(types::BarArgs {
             a: Json::from_json(field(fs, "a")?).map_err(|e| format!("a: {e}"))?,
             b: Json::from_json(field(fs, "b")?).map_err(|e| format!("b: {e}"))?,
+        })
+    }
+}
+
+impl Json for types::ResolveArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"names\":");
+        self.names.to_json(out);
+        out.push_str(",\"query\":");
+        self.query.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("ResolveArgs")?;
+        Ok(types::ResolveArgs {
+            names: Json::from_json(field(fs, "names")?).map_err(|e| format!("names: {e}"))?,
+            query: Json::from_json(field(fs, "query")?).map_err(|e| format!("query: {e}"))?,
         })
     }
 }

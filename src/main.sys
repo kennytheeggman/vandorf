@@ -11,20 +11,18 @@
 // started in <dir>. Mistakes in the command line fail, pointing at --help.
 // What a command prints is said explicitly (Console.Out and Console.Note),
 // so it goes where the reference sends it.
-proc Vcc(Args): void {
-	func Args(argv: []string): []string = "leaf.rs:same_strs";
+proc Vcc(argv: []string): void {
 	func Opts(argv: []string): CliOpts = "cli/cli_leaf.rs:split_c";
-	Args -> Opts(argv = this);
+	Vcc -> Opts(argv = this.argv);
 	Opts switch {
 		(this.err != "") -> Usage(msg = this.err),
 		else -> ChangeDirs(s = { dirs = this.dirs, i = 0 })
 	};
 	ChangeDirs switch {
-		Ok(_) -> Cmd(argv = Opts.rest),
+		Ok(_) -> id(Opts.rest) as Cmd,
 		Err(e) -> Usage(msg = e.msg)
 	};
 	// The command, without its -Cs.
-	func Cmd(argv: []string): []string = "leaf.rs:same_strs";
 	func Help(n: int): string = "cli/cli_leaf.rs:usage";
 	func FirstFlag(args: []string): string = "cli/cli_leaf.rs:first_flag";
 	Cmd switch {
@@ -66,14 +64,13 @@ proc Vcc(Args): void {
 type CliOpts = { dirs: []string, rest: []string, err: string };
 
 // Changes into each dir in turn (each relative to the last).
-proc ChangeDirs(At): Res<string> {
-	func At(s: { dirs: []string, i: int }): { dirs: []string, i: int } = "leaf.rs:same";
-	At switch {
-		(this.i == this.dirs.len) -> id(Ok("")),
-		else -> Fs.Chdir(path = this.dirs[this.i])
+proc ChangeDirs(s: { dirs: []string, i: int }): Res<string> {
+	ChangeDirs switch {
+		(this.s.i == this.s.dirs.len) -> id(Ok("")),
+		else -> Fs.Chdir(path = this.s.dirs[this.s.i])
 	};
 	Fs.Chdir switch {
-		Ok(_) -> At(s = { ..At, i = At.i + 1 }),
+		Ok(_) -> ChangeDirs(s = { ..ChangeDirs.s, i = ChangeDirs.s.i + 1 }),
 		Err(e) -> id(Err(e))
 	};
 }

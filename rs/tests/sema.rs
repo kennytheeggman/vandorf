@@ -251,7 +251,7 @@ fn vcc_decls(src: &str) -> String {
 /// (spans trimmed of trailing whitespace and comments).
 fn vcc_analysis(src: &str) -> String {
     let vfile = vcc::vcc::run_parse(src.into()).unwrap();
-    let a = vcc::vcc::run_analyze(v::AnalyzeAtS { srcs: vec![v::Str::from(src)].into(), file: vfile }).unwrap();
+    let a = vcc::vcc::run_analyze(v::AnalyzeS { srcs: vec![v::Str::from(src)].into(), file: vfile }).unwrap();
     if !a.errors.is_empty() {
         return a.errors.iter().map(|e| format!("error: {} @{}..{}\n", e.msg, e.span.at, trim_end(src, e.span.at as usize, e.span.end as usize))).collect();
     }
@@ -467,7 +467,7 @@ fn analyzes_projects() {
         let vf = vcc::vcc::run_parse_file(s.as_str().into(), i as i64).unwrap();
         all = v::File { types: all.types.concat(&vf.types), interfaces: all.interfaces.concat(&vf.interfaces), nodes: all.nodes.concat(&vf.nodes) };
     }
-    let a = vcc::vcc::run_analyze(v::AnalyzeAtS { srcs: srcs.iter().map(|s| v::Str::from(s.as_str())).collect(), file: all }).unwrap();
+    let a = vcc::vcc::run_analyze(v::AnalyzeS { srcs: srcs.iter().map(|s| v::Str::from(s.as_str())).collect(), file: all }).unwrap();
     assert!(a.errors.is_empty(), "{:?}", a.errors);
     common::check("sema", "examples-demo", &v_graph(&a.prog).iter().map(|l| no_spans(l) + "\n").collect::<String>());
 }

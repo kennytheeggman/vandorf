@@ -18,7 +18,7 @@ fn renders_snippets() {
     ];
     for (i, (text, span, notes)) in cases.iter().enumerate() {
         let notes: Vec<String> = notes.iter().map(|n| n.to_string()).collect();
-        let mine = vcc::vcc::run_render_snippet(vcc::vcc::types::RenderSnippetAtS {
+        let mine = vcc::vcc::run_render_snippet(vcc::vcc::types::RenderSnippetS {
             level: "error".into(),
             msg: "msg".into(),
             path: "f.sys".into(),

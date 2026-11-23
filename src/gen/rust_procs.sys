@@ -60,149 +60,136 @@ func SnakeG(n: NodeDecl): string = "gen_leaf.rs:snake_gname";
 
 // expr, of type `from`, as a `to`, which sema checked accepts it: through a
 // helper per pair of Rust types.
-proc RCoerce(At): Emit {
-	func At(s: { g: RGen, expr: string, from: Type, to: Type }): { g: RGen, expr: string, from: Type, to: Type } = "../leaf.rs:same";
-	func Both(s: { f: Type, t: Type }): { f: Type, t: Type } = "../leaf.rs:same";
-	At switch {
-		(RustType(t = this.g.table, ty = this.from) == RustType(t = this.g.table, ty = this.to)) -> id({ g = this.g, s = this.expr }),
-		((RustType(t = this.g.table, ty = this.from) + " -> " + RustType(t = this.g.table, ty = this.to)) in this.g.coercions) -> id({ g = this.g, s = this.g.coercions[RustType(t = this.g.table, ty = this.from) + " -> " + RustType(t = this.g.table, ty = this.to)] + "(" + this.expr + ")" }),
-		else -> Both(s = { f = Unfolded(defs = this.g.prog.types, t = this.from), t = Unfolded(defs = this.g.prog.types, t = this.to) })
+proc RCoerce(s: { g: RGen, expr: string, from: Type, to: Type }): Emit {
+	RCoerce switch {
+		(RustType(t = this.s.g.table, ty = this.s.from) == RustType(t = this.s.g.table, ty = this.s.to)) -> id({ g = this.s.g, s = this.s.expr }),
+		((RustType(t = this.s.g.table, ty = this.s.from) + " -> " + RustType(t = this.s.g.table, ty = this.s.to)) in this.s.g.coercions) -> id({ g = this.s.g, s = this.s.g.coercions[RustType(t = this.s.g.table, ty = this.s.from) + " -> " + RustType(t = this.s.g.table, ty = this.s.to)] + "(" + this.s.expr + ")" }),
+		else -> id({ f = Unfolded(defs = this.s.g.prog.types, t = this.s.from), t = Unfolded(defs = this.s.g.prog.types, t = this.s.to) }) as Both
 	};
 	Both switch {
-		{ f = Array(f), t = Array(t) } -> RCoerce(s = { g = NewCoercion(at = At), expr = "x", from = f, to = t }) as Elems,
-		{ f = Map(f), t = Map(t) } -> RCoerce(s = { g = NewCoercion(at = At), expr = "x", from = f.value, to = t.value }) as Values,
-		{ f = Struct(_), t = Struct(tfs) } -> CoerceFields(s = { at = At, g = NewCoercion(at = At), ms = tfs, i = 0, acc = [L("fn " + CoercionName(at = At) + "(v: " + RustType(t = At.g.table, ty = At.from) + ") -> " + RustType(t = At.g.table, ty = At.to) + " {"), L(RustType(t = At.g.table, ty = At.to) + " {")] }) as Fields,
-		{ f = Enum(fvs), t = Enum(_) } -> CoerceVariants(s = { at = At, g = NewCoercion(at = At), ms = fvs, i = 0, acc = [L("fn " + CoercionName(at = At) + "(v: " + RustType(t = At.g.table, ty = At.from) + ") -> " + RustType(t = At.g.table, ty = At.to) + " {"), L("match v {")] }) as Variants,
-		else -> id({ g = GFatal(g = At.g, msg = "sema admitted coercion " + RustType(t = At.g.table, ty = At.from) + " -> " + RustType(t = At.g.table, ty = At.to)), s = At.expr })
+		{ f = Array(f), t = Array(t) } -> RCoerce(s = { g = NewCoercion(at = RCoerce.s), expr = "x", from = f, to = t }) as Elems,
+		{ f = Map(f), t = Map(t) } -> RCoerce(s = { g = NewCoercion(at = RCoerce.s), expr = "x", from = f.value, to = t.value }) as Values,
+		{ f = Struct(_), t = Struct(tfs) } -> CoerceFields(s = { at = RCoerce.s, g = NewCoercion(at = RCoerce.s), ms = tfs, i = 0, acc = [L("fn " + CoercionName(at = RCoerce.s) + "(v: " + RustType(t = RCoerce.s.g.table, ty = RCoerce.s.from) + ") -> " + RustType(t = RCoerce.s.g.table, ty = RCoerce.s.to) + " {"), L(RustType(t = RCoerce.s.g.table, ty = RCoerce.s.to) + " {")] }) as Fields,
+		{ f = Enum(fvs), t = Enum(_) } -> CoerceVariants(s = { at = RCoerce.s, g = NewCoercion(at = RCoerce.s), ms = fvs, i = 0, acc = [L("fn " + CoercionName(at = RCoerce.s) + "(v: " + RustType(t = RCoerce.s.g.table, ty = RCoerce.s.from) + ") -> " + RustType(t = RCoerce.s.g.table, ty = RCoerce.s.to) + " {"), L("match v {")] }) as Variants,
+		else -> id({ g = GFatal(g = RCoerce.s.g, msg = "sema admitted coercion " + RustType(t = RCoerce.s.g.table, ty = RCoerce.s.from) + " -> " + RustType(t = RCoerce.s.g.table, ty = RCoerce.s.to)), s = RCoerce.s.expr })
 	};
-	Elems -> Helper(s = { at = At, g = this.g, lines = [L("fn " + CoercionName(at = At) + "(v: " + RustType(t = At.g.table, ty = At.from) + ") -> " + RustType(t = At.g.table, ty = At.to) + " {"), L("v.into_iter().map(|x| " + this.s + ").collect()"), L("}")] });
-	Values -> Helper(s = { at = At, g = this.g, lines = [L("fn " + CoercionName(at = At) + "(v: " + RustType(t = At.g.table, ty = At.from) + ") -> " + RustType(t = At.g.table, ty = At.to) + " {"), L("v.into_iter().map(|(k, x)| (k, " + this.s + ")).collect()"), L("}")] });
-	Fields -> Helper(s = { at = At, g = this.g, lines = this.lines + [L("}"), L("}")] });
-	Variants -> Helper(s = { at = At, g = this.g, lines = this.lines + [L("}"), L("}")] });
+	Elems -> Helper(s = { at = RCoerce.s, g = this.g, lines = [L("fn " + CoercionName(at = RCoerce.s) + "(v: " + RustType(t = RCoerce.s.g.table, ty = RCoerce.s.from) + ") -> " + RustType(t = RCoerce.s.g.table, ty = RCoerce.s.to) + " {"), L("v.into_iter().map(|x| " + this.s + ").collect()"), L("}")] });
+	Values -> Helper(s = { at = RCoerce.s, g = this.g, lines = [L("fn " + CoercionName(at = RCoerce.s) + "(v: " + RustType(t = RCoerce.s.g.table, ty = RCoerce.s.from) + ") -> " + RustType(t = RCoerce.s.g.table, ty = RCoerce.s.to) + " {"), L("v.into_iter().map(|(k, x)| (k, " + this.s + ")).collect()"), L("}")] });
+	Fields -> Helper(s = { at = RCoerce.s, g = this.g, lines = this.lines + [L("}"), L("}")] });
+	Variants -> Helper(s = { at = RCoerce.s, g = this.g, lines = this.lines + [L("}"), L("}")] });
 }
 
 func CoercionName(at: { g: RGen, expr: string, from: Type, to: Type }): string = "gen_leaf.rs:coercion_name";
 func NewCoercion(at: { g: RGen, expr: string, from: Type, to: Type }): RGen = "gen_leaf.rs:new_coercion";
 
 // Pushes the helper and calls it.
-proc Helper(At): Emit {
-	func At(s: { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGen, lines: []Line }): { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGen, lines: []Line } = "../leaf.rs:same";
-	At -> id({ g = { ..this.g, helpers = this.g.helpers + [Lines(lines = this.lines, indent = "    ")] }, s = CoercionName(at = this.at) + "(" + this.at.expr + ")" });
+proc Helper(s: { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGen, lines: []Line }): Emit {
+	Helper -> id({ g = { ..this.s.g, helpers = this.s.g.helpers + [Lines(lines = this.s.lines, indent = "    ")] }, s = CoercionName(at = this.s.at) + "(" + this.s.at.expr + ")" });
 }
 
 // Converts part n (a field, or variant n's payload) held in expr, through
 // boxes where either side has one.
-proc CoercePart(At): Emit {
-	func At(s: { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGen, expr: string, n: string, f: Type, t: Type }): { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGen, expr: string, n: string, f: Type, t: Type } = "../leaf.rs:same";
-	At switch {
-		(TyBoxed(t = this.g.table, ty = this.at.from, part = this.n)) -> RCoerce(s = { g = this.g, expr = "(*" + this.expr + ").clone()", from = this.f, to = this.t }),
-		else -> RCoerce(s = { g = this.g, expr = this.expr, from = this.f, to = this.t })
+proc CoercePart(s: { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGen, expr: string, n: string, f: Type, t: Type }): Emit {
+	CoercePart switch {
+		(TyBoxed(t = this.s.g.table, ty = this.s.at.from, part = this.s.n)) -> RCoerce(s = { g = this.s.g, expr = "(*" + this.s.expr + ").clone()", from = this.s.f, to = this.s.t }),
+		else -> RCoerce(s = { g = this.s.g, expr = this.s.expr, from = this.s.f, to = this.s.t })
 	};
 	RCoerce switch {
-		(TyBoxed(t = At.g.table, ty = At.at.to, part = At.n)) -> id({ g = this.g, s = "std::sync::Arc::new(" + this.s + ")" }),
+		(TyBoxed(t = CoercePart.s.g.table, ty = CoercePart.s.at.to, part = CoercePart.s.n)) -> id({ g = this.g, s = "std::sync::Arc::new(" + this.s + ")" }),
 		else -> id(this)
 	};
 }
 
-proc CoerceFields(At): EmitLines {
-	func At(s: { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGen, ms: []Member, i: int, acc: []Line }): { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGen, ms: []Member, i: int, acc: []Line } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.ms.len) -> id({ g = this.g, lines = this.acc }),
-		else -> CoercePart(s = { at = this.at, g = this.g, expr = "v." + RustIdent(s = this.ms[this.i].name), n = this.ms[this.i].name, f = MemberOf(defs = this.g.prog.types, t = this.at.from, name = this.ms[this.i].name), t = this.ms[this.i].ty })
+proc CoerceFields(s: { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGen, ms: []Member, i: int, acc: []Line }): EmitLines {
+	CoerceFields switch {
+		(this.s.i == this.s.ms.len) -> id({ g = this.s.g, lines = this.s.acc }),
+		else -> CoercePart(s = { at = this.s.at, g = this.s.g, expr = "v." + RustIdent(s = this.s.ms[this.s.i].name), n = this.s.ms[this.s.i].name, f = MemberOf(defs = this.s.g.prog.types, t = this.s.at.from, name = this.s.ms[this.s.i].name), t = this.s.ms[this.s.i].ty })
 	};
-	CoercePart -> At(s = { at = At.at, g = this.g, ms = At.ms, i = At.i + 1, acc = At.acc + [L(RustIdent(s = At.ms[At.i].name) + ": " + this.s + ",")] });
+	CoercePart -> CoerceFields(s = { at = CoerceFields.s.at, g = this.g, ms = CoerceFields.s.ms, i = CoerceFields.s.i + 1, acc = CoerceFields.s.acc + [L(RustIdent(s = CoerceFields.s.ms[CoerceFields.s.i].name) + ": " + this.s + ",")] });
 }
 
-proc CoerceVariants(At): EmitLines {
-	func At(s: { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGen, ms: []Member, i: int, acc: []Line }): { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGen, ms: []Member, i: int, acc: []Line } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.ms.len) -> id({ g = this.g, lines = this.acc }),
-		(IsVoid(t = this.ms[this.i].ty)) -> At(s = { at = this.at, g = this.g, ms = this.ms, i = this.i + 1, acc = this.acc + [L(RustType(t = this.g.table, ty = this.at.from) + "::" + RustIdent(s = this.ms[this.i].name) + " => " + RustType(t = this.g.table, ty = this.at.to) + "::" + RustIdent(s = this.ms[this.i].name) + ",")] }),
-		else -> CoercePart(s = { at = this.at, g = this.g, expr = "p", n = this.ms[this.i].name, f = this.ms[this.i].ty, t = MemberOf(defs = this.g.prog.types, t = this.at.to, name = this.ms[this.i].name) })
+proc CoerceVariants(s: { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGen, ms: []Member, i: int, acc: []Line }): EmitLines {
+	CoerceVariants switch {
+		(this.s.i == this.s.ms.len) -> id({ g = this.s.g, lines = this.s.acc }),
+		(IsVoid(t = this.s.ms[this.s.i].ty)) -> CoerceVariants(s = { at = this.s.at, g = this.s.g, ms = this.s.ms, i = this.s.i + 1, acc = this.s.acc + [L(RustType(t = this.s.g.table, ty = this.s.at.from) + "::" + RustIdent(s = this.s.ms[this.s.i].name) + " => " + RustType(t = this.s.g.table, ty = this.s.at.to) + "::" + RustIdent(s = this.s.ms[this.s.i].name) + ",")] }),
+		else -> CoercePart(s = { at = this.s.at, g = this.s.g, expr = "p", n = this.s.ms[this.s.i].name, f = this.s.ms[this.s.i].ty, t = MemberOf(defs = this.s.g.prog.types, t = this.s.at.to, name = this.s.ms[this.s.i].name) })
 	};
-	CoercePart -> At(s = { at = At.at, g = this.g, ms = At.ms, i = At.i + 1, acc = At.acc + [L(RustType(t = At.g.table, ty = At.at.from) + "::" + RustIdent(s = At.ms[At.i].name) + "(p) => " + RustType(t = At.g.table, ty = At.at.to) + "::" + RustIdent(s = At.ms[At.i].name) + "(" + this.s + "),")] });
+	CoercePart -> CoerceVariants(s = { at = CoerceVariants.s.at, g = this.g, ms = CoerceVariants.s.ms, i = CoerceVariants.s.i + 1, acc = CoerceVariants.s.acc + [L(RustType(t = CoerceVariants.s.g.table, ty = CoerceVariants.s.at.from) + "::" + RustIdent(s = CoerceVariants.s.ms[CoerceVariants.s.i].name) + "(p) => " + RustType(t = CoerceVariants.s.g.table, ty = CoerceVariants.s.at.to) + "::" + RustIdent(s = CoerceVariants.s.ms[CoerceVariants.s.i].name) + "(" + this.s + "),")] });
 }
 
 // ---- Expressions ----
 
 // A read of a node's output, `this` or a binding; moved at its last read
 // (see Moves), cloned otherwise.
-proc RRef(At): Emit {
-	func At(s: { g: RGen, r: Ref }): { g: RGen, r: Ref } = "../leaf.rs:same";
-	func R(r: Root): Root = "../leaf.rs:same";
-	At -> R(r = this.r.root);
+proc RRef(s: { g: RGen, r: Ref }): Emit {
+	RRef -> id(this.s.r.root) as R;
 	R switch {
-		This() -> Move(m = At.g.moves, owner = "this", node = -1, path = At.r.fields) as M,
-		Node(n) -> Move(m = At.g.moves, owner = "node:" + Itoa(i = n), node = n, path = At.r.fields) as M,
-		Bind() -> Move(m = At.g.moves, owner = "bind:" + At.r.bind, node = -1, path = At.r.fields) as M
+		This() -> Move(m = RRef.s.g.moves, owner = "this", node = -1, path = RRef.s.r.fields) as M,
+		Node(n) -> Move(m = RRef.s.g.moves, owner = "node:" + Itoa(i = n), node = n, path = RRef.s.r.fields) as M,
+		Bind() -> Move(m = RRef.s.g.moves, owner = "bind:" + RRef.s.r.bind, node = -1, path = RRef.s.r.fields) as M
 	};
-	M -> RefText(s = { g = { ..At.g, moves = this.m }, r = At.r, moving = this.moving && !RefPath(t = At.g.table, r = At.r).through, rp = RefPath(t = At.g.table, r = At.r) });
+	M -> RefText(s = { g = { ..RRef.s.g, moves = this.m }, r = RRef.s.r, moving = this.moving && !RefPath(t = RRef.s.g.table, r = RRef.s.r).through, rp = RefPath(t = RRef.s.g.table, r = RRef.s.r) });
 }
 
-proc RefText(At): Emit {
-	func At(s: { g: RGen, r: Ref, moving: bool, rp: RefPathOut }): { g: RGen, r: Ref, moving: bool, rp: RefPathOut } = "../leaf.rs:same";
-	func R(r: Root): Root = "../leaf.rs:same";
-	func Text(s: string): string = "../leaf.rs:same";
-	At -> R(r = this.r.root);
+proc RefText(s: { g: RGen, r: Ref, moving: bool, rp: RefPathOut }): Emit {
+	RefText -> id(this.s.r.root) as R;
 	R switch {
-		This() -> Text(s = "this" + At.rp.path),
+		This() -> id("this" + RefText.s.rp.path) as Text,
 		Node(n) -> switch {
-			(n in At.g.moves.taken) -> Text(s = "slot_" + SnakeG(n = At.g.prog.nodes[n]) + At.rp.path),
-			else -> Text(s = "get(&env.out_" + SnakeG(n = At.g.prog.nodes[n]) + ", " + Quote(s = QualName(n = At.g.prog.nodes[n])) + ")?" + At.rp.path)
+			(n in RefText.s.g.moves.taken) -> id("slot_" + SnakeG(n = RefText.s.g.prog.nodes[n]) + RefText.s.rp.path) as Text,
+			else -> id("get(&env.out_" + SnakeG(n = RefText.s.g.prog.nodes[n]) + ", " + Quote(s = QualName(n = RefText.s.g.prog.nodes[n])) + ")?" + RefText.s.rp.path) as Text
 		},
-		Bind() -> Text(s = "b_" + At.r.bind + At.rp.path)
+		Bind() -> id("b_" + RefText.s.r.bind + RefText.s.rp.path) as Text
 	};
 	Text switch {
-		(At.moving && At.rp.boxed) -> id({ g = At.g, s = "std::sync::Arc::unwrap_or_clone(" + this + ")" }),
-		(At.moving) -> id({ g = At.g, s = this }),
-		(At.rp.boxed) -> id({ g = At.g, s = "(*" + this + ").clone()" }),
-		else -> id({ g = At.g, s = this + ".clone()" })
+		(RefText.s.moving && RefText.s.rp.boxed) -> id({ g = RefText.s.g, s = "std::sync::Arc::unwrap_or_clone(" + this + ")" }),
+		(RefText.s.moving) -> id({ g = RefText.s.g, s = this }),
+		(RefText.s.rp.boxed) -> id({ g = RefText.s.g, s = "(*" + this + ").clone()" }),
+		else -> id({ g = RefText.s.g, s = this + ".clone()" })
 	};
 }
 
 type ValueIn = { g: RGen, e: Expr, want: Type };
 
 // e as a Rust expression of type `want`.
-proc RValue(At): Emit {
-	func At(s: ValueIn): ValueIn = "../leaf.rs:same";
-	func E(e: Expr): Expr = "../leaf.rs:same";
-	At -> E(e = this.e);
+proc RValue(s: ValueIn): Emit {
+	RValue -> id(this.s.e) as E;
 	E switch {
-		Ref(r) -> RRef(s = { g = At.g, r = r }) as Ref,
-		Call(c) -> ROwn(s = { g = At.g, e = At.e }) as Called,
-		Array(es) -> RValues(s = { g = At.g, es = es, want = ElemOf(t = Unfolded(defs = At.g.prog.types, t = At.want)), i = 0, acc = [] }) as Items,
-		Struct(fs) -> RFields(s = { g = At.g, fs = fs, want = At.want, i = 0, acc = [] }) as Fields,
-		Map(kvs) -> REntries(s = { g = At.g, kvs = kvs, kt = KeyOf(t = Unfolded(defs = At.g.prog.types, t = At.want)), vt = MapValue(t = Unfolded(defs = At.g.prog.types, t = At.want)), i = 0, acc = [] }) as Entries,
-		Index(x) -> ROwn(s = { g = At.g, e = At.e }) as Indexed,
-		Field(x) -> ROwn(s = { g = At.g, e = At.e }) as Selected,
-		Merge(x) -> ROwn(s = { g = At.g, e = At.e }) as Merged,
-		Remove(x) -> ROwn(s = { g = At.g, e = At.e }) as Removed,
+		Ref(r) -> RRef(s = { g = RValue.s.g, r = r }) as Ref,
+		Call(c) -> ROwn(s = { g = RValue.s.g, e = RValue.s.e }) as Called,
+		Array(es) -> RValues(s = { g = RValue.s.g, es = es, want = ElemOf(t = Unfolded(defs = RValue.s.g.prog.types, t = RValue.s.want)), i = 0, acc = [] }) as Items,
+		Struct(fs) -> RFields(s = { g = RValue.s.g, fs = fs, want = RValue.s.want, i = 0, acc = [] }) as Fields,
+		Map(kvs) -> REntries(s = { g = RValue.s.g, kvs = kvs, kt = KeyOf(t = Unfolded(defs = RValue.s.g.prog.types, t = RValue.s.want)), vt = MapValue(t = Unfolded(defs = RValue.s.g.prog.types, t = RValue.s.want)), i = 0, acc = [] }) as Entries,
+		Index(x) -> ROwn(s = { g = RValue.s.g, e = RValue.s.e }) as Indexed,
+		Field(x) -> ROwn(s = { g = RValue.s.g, e = RValue.s.e }) as Selected,
+		Merge(x) -> ROwn(s = { g = RValue.s.g, e = RValue.s.e }) as Merged,
+		Remove(x) -> ROwn(s = { g = RValue.s.g, e = RValue.s.e }) as Removed,
 		Query(q) -> switch {
-			(q.q == "keys") -> ROwn(s = { g = At.g, e = At.e }) as Keys,
-			(q.q == "values") -> ROwn(s = { g = At.g, e = At.e }) as Vals,
-			else -> ROwn(s = { g = At.g, e = At.e }) as Own
+			(q.q == "keys") -> ROwn(s = { g = RValue.s.g, e = RValue.s.e }) as Keys,
+			(q.q == "values") -> ROwn(s = { g = RValue.s.g, e = RValue.s.e }) as Vals,
+			else -> ROwn(s = { g = RValue.s.g, e = RValue.s.e }) as Own
 		},
 		Variant(v) -> switch {
-			(IsSomeE(m = v.payload)) -> RValue(s = { g = At.g, e = UnwrapME(m = v.payload), want = MemberOf(defs = At.g.prog.types, t = At.want, name = v.tag) }) as Payload,
-			else -> id({ g = At.g, s = RustType(t = At.g.table, ty = At.want) + "::" + RustIdent(s = v.tag) })
+			(IsSomeE(m = v.payload)) -> RValue(s = { g = RValue.s.g, e = UnwrapME(m = v.payload), want = MemberOf(defs = RValue.s.g.prog.types, t = RValue.s.want, name = v.tag) }) as Payload,
+			else -> id({ g = RValue.s.g, s = RustType(t = RValue.s.g.table, ty = RValue.s.want) + "::" + RustIdent(s = v.tag) })
 		},
 		// Primitives, whose Rust types match whenever sema accepted them.
-		else -> ROwn(s = { g = At.g, e = At.e }) as Own
+		else -> ROwn(s = { g = RValue.s.g, e = RValue.s.e }) as Own
 	};
-	Ref -> RCoerce(s = { g = this.g, expr = this.s, from = RefOf(e = At.e).ty, to = At.want }) as Out;
-	Called -> RCoerce(s = { g = this.g, expr = this.s, from = NodeRet(nodes = At.g.prog.nodes, n = CallOfE(e = At.e).target), to = At.want }) as Out;
+	Ref -> RCoerce(s = { g = this.g, expr = this.s, from = RefOf(e = RValue.s.e).ty, to = RValue.s.want }) as Out;
+	Called -> RCoerce(s = { g = this.g, expr = this.s, from = NodeRet(nodes = RValue.s.g.prog.nodes, n = CallOfE(e = RValue.s.e).target), to = RValue.s.want }) as Out;
 	Items -> id({ g = this.g, s = "types::List::from(vec![" + Join(parts = this.parts, sep = ", ") + "])" });
-	Fields -> id({ g = this.g, s = RustType(t = At.g.table, ty = At.want) + " { " + Join(parts = this.parts, sep = ", ") + " }" });
+	Fields -> id({ g = this.g, s = RustType(t = RValue.s.g.table, ty = RValue.s.want) + " { " + Join(parts = this.parts, sep = ", ") + " }" });
 	Entries -> id({ g = this.g, s = "types::Map::from_iter([" + Join(parts = this.parts, sep = ", ") + "])" });
-	Indexed -> RCoerce(s = { g = this.g, expr = this.s, from = IndexedValue(t = Unfolded(defs = At.g.prog.types, t = IndexTy(e = At.e))), to = At.want }) as Out;
-	Selected -> RCoerce(s = { g = this.g, expr = this.s, from = MemberOf(defs = At.g.prog.types, t = FieldTy(e = At.e), name = FieldNameE(e = At.e)), to = At.want }) as Out;
-	Merged -> RCoerce(s = { g = this.g, expr = this.s, from = MergeTy(e = At.e), to = At.want }) as Out;
-	Removed -> RCoerce(s = { g = this.g, expr = this.s, from = MergeTy(e = At.e), to = At.want }) as Out;
-	Keys -> RCoerce(s = { g = this.g, expr = this.s, from = Array(KeyOf(t = Unfolded(defs = At.g.prog.types, t = QueryTy(e = At.e)))), to = At.want }) as Out;
-	Vals -> RCoerce(s = { g = this.g, expr = this.s, from = Array(MapValue(t = Unfolded(defs = At.g.prog.types, t = QueryTy(e = At.e)))), to = At.want }) as Out;
+	Indexed -> RCoerce(s = { g = this.g, expr = this.s, from = IndexedValue(t = Unfolded(defs = RValue.s.g.prog.types, t = IndexTy(e = RValue.s.e))), to = RValue.s.want }) as Out;
+	Selected -> RCoerce(s = { g = this.g, expr = this.s, from = MemberOf(defs = RValue.s.g.prog.types, t = FieldTy(e = RValue.s.e), name = FieldNameE(e = RValue.s.e)), to = RValue.s.want }) as Out;
+	Merged -> RCoerce(s = { g = this.g, expr = this.s, from = MergeTy(e = RValue.s.e), to = RValue.s.want }) as Out;
+	Removed -> RCoerce(s = { g = this.g, expr = this.s, from = MergeTy(e = RValue.s.e), to = RValue.s.want }) as Out;
+	Keys -> RCoerce(s = { g = this.g, expr = this.s, from = Array(KeyOf(t = Unfolded(defs = RValue.s.g.prog.types, t = QueryTy(e = RValue.s.e)))), to = RValue.s.want }) as Out;
+	Vals -> RCoerce(s = { g = this.g, expr = this.s, from = Array(MapValue(t = Unfolded(defs = RValue.s.g.prog.types, t = QueryTy(e = RValue.s.e)))), to = RValue.s.want }) as Out;
 	Payload switch {
-		(TyBoxed(t = At.g.table, ty = At.want, part = VariantTagE(e = At.e))) -> id({ g = this.g, s = RustType(t = At.g.table, ty = At.want) + "::" + RustIdent(s = VariantTagE(e = At.e)) + "(std::sync::Arc::new(" + this.s + "))" }),
-		else -> id({ g = this.g, s = RustType(t = At.g.table, ty = At.want) + "::" + RustIdent(s = VariantTagE(e = At.e)) + "(" + this.s + ")" })
+		(TyBoxed(t = RValue.s.g.table, ty = RValue.s.want, part = VariantTagE(e = RValue.s.e))) -> id({ g = this.g, s = RustType(t = RValue.s.g.table, ty = RValue.s.want) + "::" + RustIdent(s = VariantTagE(e = RValue.s.e)) + "(std::sync::Arc::new(" + this.s + "))" }),
+		else -> id({ g = this.g, s = RustType(t = RValue.s.g.table, ty = RValue.s.want) + "::" + RustIdent(s = VariantTagE(e = RValue.s.e)) + "(" + this.s + ")" })
 	};
 }
 
@@ -219,98 +206,93 @@ func VariantTagE(e: Expr): string = "gen_leaf.rs:variant_tag_e";
 
 type Parts = { g: RGen, parts: []string };
 
-proc RValues(At): Parts {
-	func At(s: { g: RGen, es: []Expr, want: Type, i: int, acc: []string }): { g: RGen, es: []Expr, want: Type, i: int, acc: []string } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.es.len) -> id({ g = this.g, parts = this.acc }),
-		else -> RValue(s = { g = this.g, e = this.es[this.i], want = this.want })
+proc RValues(s: { g: RGen, es: []Expr, want: Type, i: int, acc: []string }): Parts {
+	RValues switch {
+		(this.s.i == this.s.es.len) -> id({ g = this.s.g, parts = this.s.acc }),
+		else -> RValue(s = { g = this.s.g, e = this.s.es[this.s.i], want = this.s.want })
 	};
-	RValue -> At(s = { g = this.g, es = At.es, want = At.want, i = At.i + 1, acc = At.acc + [this.s] });
+	RValue -> RValues(s = { g = this.g, es = RValues.s.es, want = RValues.s.want, i = RValues.s.i + 1, acc = RValues.s.acc + [this.s] });
 }
 
-proc RFields(At): Parts {
-	func At(s: { g: RGen, fs: []ExprMember, want: Type, i: int, acc: []string }): { g: RGen, fs: []ExprMember, want: Type, i: int, acc: []string } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.fs.len) -> id({ g = this.g, parts = this.acc }),
-		else -> RValue(s = { g = this.g, e = this.fs[this.i].e, want = MemberOf(defs = this.g.prog.types, t = this.want, name = this.fs[this.i].name) })
+proc RFields(s: { g: RGen, fs: []ExprMember, want: Type, i: int, acc: []string }): Parts {
+	RFields switch {
+		(this.s.i == this.s.fs.len) -> id({ g = this.s.g, parts = this.s.acc }),
+		else -> RValue(s = { g = this.s.g, e = this.s.fs[this.s.i].e, want = MemberOf(defs = this.s.g.prog.types, t = this.s.want, name = this.s.fs[this.s.i].name) })
 	};
 	RValue switch {
-		(TyBoxed(t = At.g.table, ty = At.want, part = At.fs[At.i].name)) -> At(s = { g = this.g, fs = At.fs, want = At.want, i = At.i + 1, acc = At.acc + [RustIdent(s = At.fs[At.i].name) + ": std::sync::Arc::new(" + this.s + ")"] }),
-		else -> At(s = { g = this.g, fs = At.fs, want = At.want, i = At.i + 1, acc = At.acc + [RustIdent(s = At.fs[At.i].name) + ": " + this.s] })
+		(TyBoxed(t = RFields.s.g.table, ty = RFields.s.want, part = RFields.s.fs[RFields.s.i].name)) -> RFields(s = { g = this.g, fs = RFields.s.fs, want = RFields.s.want, i = RFields.s.i + 1, acc = RFields.s.acc + [RustIdent(s = RFields.s.fs[RFields.s.i].name) + ": std::sync::Arc::new(" + this.s + ")"] }),
+		else -> RFields(s = { g = this.g, fs = RFields.s.fs, want = RFields.s.want, i = RFields.s.i + 1, acc = RFields.s.acc + [RustIdent(s = RFields.s.fs[RFields.s.i].name) + ": " + this.s] })
 	};
 }
 
-proc REntries(At): Parts {
-	func At(s: { g: RGen, kvs: []ExprEntry, kt: Type, vt: Type, i: int, acc: []string }): { g: RGen, kvs: []ExprEntry, kt: Type, vt: Type, i: int, acc: []string } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.kvs.len) -> id({ g = this.g, parts = this.acc }),
-		else -> RValue(s = { g = this.g, e = this.kvs[this.i].key, want = this.kt }) as K
+proc REntries(s: { g: RGen, kvs: []ExprEntry, kt: Type, vt: Type, i: int, acc: []string }): Parts {
+	REntries switch {
+		(this.s.i == this.s.kvs.len) -> id({ g = this.s.g, parts = this.s.acc }),
+		else -> RValue(s = { g = this.s.g, e = this.s.kvs[this.s.i].key, want = this.s.kt }) as K
 	};
-	K -> RValue(s = { g = this.g, e = At.kvs[At.i].value, want = At.vt }) as V;
-	V -> At(s = { g = this.g, kvs = At.kvs, kt = At.kt, vt = At.vt, i = At.i + 1, acc = At.acc + ["(" + K.s + ", " + this.s + ")"] });
+	K -> RValue(s = { g = this.g, e = REntries.s.kvs[REntries.s.i].value, want = REntries.s.vt }) as V;
+	V -> REntries(s = { g = this.g, kvs = REntries.s.kvs, kt = REntries.s.kt, vt = REntries.s.vt, i = REntries.s.i + 1, acc = REntries.s.acc + ["(" + K.s + ", " + this.s + ")"] });
 }
 
 // An expression that has its own type (not a struct, array, map or
 // variant literal), at that type.
-proc ROwn(At): Emit {
-	func At(s: { g: RGen, e: Expr }): { g: RGen, e: Expr } = "../leaf.rs:same";
-	func E(e: Expr): Expr = "../leaf.rs:same";
-	At -> E(e = this.e);
+proc ROwn(s: { g: RGen, e: Expr }): Emit {
+	ROwn -> id(this.s.e) as E;
 	E switch {
-		Ref(r) -> RRef(s = { g = At.g, r = r }) as Done,
-		Int(i) -> id({ g = At.g, s = Itoa(i = i) + "_i64" }),
-		Float(f) -> id({ g = At.g, s = FloatLit(f = f) }),
-		Str(s) -> id({ g = At.g, s = "types::Str::from(" + Quote(s = s) + ")" }),
+		Ref(r) -> RRef(s = { g = ROwn.s.g, r = r }) as Done,
+		Int(i) -> id({ g = ROwn.s.g, s = Itoa(i = i) + "_i64" }),
+		Float(f) -> id({ g = ROwn.s.g, s = FloatLit(f = f) }),
+		Str(s) -> id({ g = ROwn.s.g, s = "types::Str::from(" + Quote(s = s) + ")" }),
 		Bool(b) -> switch {
-			(b) -> id({ g = At.g, s = "true" }),
-			else -> id({ g = At.g, s = "false" })
+			(b) -> id({ g = ROwn.s.g, s = "true" }),
+			else -> id({ g = ROwn.s.g, s = "false" })
 		},
-		Unary(u) -> ROwn(s = { g = At.g, e = u.e }) as Operand,
-		Binary(b) -> ROwn(s = { g = At.g, e = b.l }) as BL,
-		Call(c) -> RCallee(s = { g = At.g, n = c.target }) as Callee,
-		Index(x) -> ROwn(s = { g = At.g, e = x.e }) as IE,
+		Unary(u) -> ROwn(s = { g = ROwn.s.g, e = u.e }) as Operand,
+		Binary(b) -> ROwn(s = { g = ROwn.s.g, e = b.l }) as BL,
+		Call(c) -> RCallee(s = { g = ROwn.s.g, n = c.target }) as Callee,
+		Index(x) -> ROwn(s = { g = ROwn.s.g, e = x.e }) as IE,
 		// The struct may be a literal (`{ ..x, f = v }.g`): render it at its type.
-		Field(f) -> RValue(s = { g = At.g, e = f.e, want = f.ty }) as FE,
-		In(x) -> ROwn(s = { g = At.g, e = x.map }) as InMap,
-		Query(q) -> ROwn(s = { g = At.g, e = q.e }) as QE,
-		Merge(m) -> RValue(s = { g = At.g, e = m.l, want = m.ty }) as ML,
-		Remove(m) -> ROwn(s = { g = At.g, e = m.m }) as RM,
-		else -> id({ g = GFatal(g = At.g, msg = "literal without a type"), s = "" })
+		Field(f) -> RValue(s = { g = ROwn.s.g, e = f.e, want = f.ty }) as FE,
+		In(x) -> ROwn(s = { g = ROwn.s.g, e = x.map }) as InMap,
+		Query(q) -> ROwn(s = { g = ROwn.s.g, e = q.e }) as QE,
+		Merge(m) -> RValue(s = { g = ROwn.s.g, e = m.l, want = m.ty }) as ML,
+		Remove(m) -> ROwn(s = { g = ROwn.s.g, e = m.m }) as RM,
+		else -> id({ g = GFatal(g = ROwn.s.g, msg = "literal without a type"), s = "" })
 	};
 	Done -> id(this);
 	Operand switch {
-		(UnaryOp(e = At.e) == "!") -> id({ g = this.g, s = "(!" + this.s + ")" }),
+		(UnaryOp(e = ROwn.s.e) == "!") -> id({ g = this.g, s = "(!" + this.s + ")" }),
 		else -> id({ g = this.g, s = "(-" + this.s + ")" })
 	};
-	BL -> ROwn(s = { g = this.g, e = BinaryRE(e = At.e) }) as BR;
+	BL -> ROwn(s = { g = this.g, e = BinaryRE(e = ROwn.s.e) }) as BR;
 	BR switch {
-		(BinaryOpE(e = At.e) == "+" && BinaryOperand(e = At.e) == "string") -> id({ g = this.g, s = "types::Str::from(format!(\"{}{}\", " + BL.s + ", " + this.s + "))" }),
-		else -> id({ g = this.g, s = "(" + BL.s + " " + BinaryOpE(e = At.e) + " " + this.s + ")" })
+		(BinaryOpE(e = ROwn.s.e) == "+" && BinaryOperand(e = ROwn.s.e) == "string") -> id({ g = this.g, s = "types::Str::from(format!(\"{}{}\", " + BL.s + ", " + this.s + "))" }),
+		else -> id({ g = this.g, s = "(" + BL.s + " " + BinaryOpE(e = ROwn.s.e) + " " + this.s + ")" })
 	};
-	Callee -> RArgs(s = { g = this.g, args = CallOfE(e = At.e).args, i = 0, acc = [] });
-	RArgs -> id({ g = this.g, s = Callee.s + "(" + Join(parts = this.parts, sep = ", ") + ").map_err(|e| wrap(" + Quote(s = QualName(n = At.g.prog.nodes[CallOfE(e = At.e).target])) + ", e.into()))?" });
-	IE -> ROwn(s = { g = this.g, e = IndexKeyE(e = At.e) }) as IK;
+	Callee -> RArgs(s = { g = this.g, args = CallOfE(e = ROwn.s.e).args, i = 0, acc = [] });
+	RArgs -> id({ g = this.g, s = Callee.s + "(" + Join(parts = this.parts, sep = ", ") + ").map_err(|e| wrap(" + Quote(s = QualName(n = ROwn.s.g.prog.nodes[CallOfE(e = ROwn.s.e).target])) + ", e.into()))?" });
+	IE -> ROwn(s = { g = this.g, e = IndexKeyE(e = ROwn.s.e) }) as IK;
 	IK switch {
-		(IsMap(t = Unfolded(defs = At.g.prog.types, t = IndexTy(e = At.e)))) -> id({ g = this.g, s = "map_get(&" + IE.s + ", &" + this.s + ").map_err(|e| wrap(" + Quote(s = At.g.proc_name) + ", e))?" }),
-		else -> id({ g = this.g, s = "slice_get(&" + IE.s + ", &" + this.s + ").map_err(|e| wrap(" + Quote(s = At.g.proc_name) + ", e))?" })
+		(IsMap(t = Unfolded(defs = ROwn.s.g.prog.types, t = IndexTy(e = ROwn.s.e)))) -> id({ g = this.g, s = "map_get(&" + IE.s + ", &" + this.s + ").map_err(|e| wrap(" + Quote(s = ROwn.s.g.proc_name) + ", e))?" }),
+		else -> id({ g = this.g, s = "slice_get(&" + IE.s + ", &" + this.s + ").map_err(|e| wrap(" + Quote(s = ROwn.s.g.proc_name) + ", e))?" })
 	};
 	FE switch {
-		(TyBoxed(t = At.g.table, ty = FieldTy(e = At.e), part = FieldNameE(e = At.e))) -> id({ g = this.g, s = "(*(" + this.s + ")." + RustIdent(s = FieldNameE(e = At.e)) + ")" }),
-		else -> id({ g = this.g, s = "(" + this.s + ")." + RustIdent(s = FieldNameE(e = At.e)) })
+		(TyBoxed(t = ROwn.s.g.table, ty = FieldTy(e = ROwn.s.e), part = FieldNameE(e = ROwn.s.e))) -> id({ g = this.g, s = "(*(" + this.s + ")." + RustIdent(s = FieldNameE(e = ROwn.s.e)) + ")" }),
+		else -> id({ g = this.g, s = "(" + this.s + ")." + RustIdent(s = FieldNameE(e = ROwn.s.e)) })
 	};
-	InMap -> ROwn(s = { g = this.g, e = InKeyE(e = At.e) }) as InK;
+	InMap -> ROwn(s = { g = this.g, e = InKeyE(e = ROwn.s.e) }) as InK;
 	InK -> id({ g = this.g, s = "(" + InMap.s + ").contains_key(&" + this.s + ")" });
 	QE switch {
-		(QueryQ(e = At.e) == "len") -> id({ g = this.g, s = "((" + this.s + ").len() as i64)" }),
-		(QueryQ(e = At.e) == "keys") -> id({ g = this.g, s = "(" + this.s + ").keys().cloned().collect::<types::List<_>>()" }),
+		(QueryQ(e = ROwn.s.e) == "len") -> id({ g = this.g, s = "((" + this.s + ").len() as i64)" }),
+		(QueryQ(e = ROwn.s.e) == "keys") -> id({ g = this.g, s = "(" + this.s + ").keys().cloned().collect::<types::List<_>>()" }),
 		else -> id({ g = this.g, s = "(" + this.s + ").values().cloned().collect::<types::List<_>>()" })
 	};
-	ML -> RValue(s = { g = this.g, e = MergeRE(e = At.e), want = MergeTy(e = At.e) }) as MR;
+	ML -> RValue(s = { g = this.g, e = MergeRE(e = ROwn.s.e), want = MergeTy(e = ROwn.s.e) }) as MR;
 	MR switch {
-		(IsArray(t = Unfolded(defs = At.g.prog.types, t = MergeTy(e = At.e)))) -> id({ g = this.g, s = "(" + ML.s + ").concat(&" + this.s + ")" }),
+		(IsArray(t = Unfolded(defs = ROwn.s.g.prog.types, t = MergeTy(e = ROwn.s.e)))) -> id({ g = this.g, s = "(" + ML.s + ").concat(&" + this.s + ")" }),
 		else -> id({ g = this.g, s = "(" + ML.s + ").merge(&" + this.s + ")" })
 	};
-	RM -> RValue(s = { g = this.g, e = RemoveKeysE(e = At.e), want = Array(KeyOf(t = Unfolded(defs = At.g.prog.types, t = MergeTy(e = At.e)))) }) as RK;
+	RM -> RValue(s = { g = this.g, e = RemoveKeysE(e = ROwn.s.e), want = Array(KeyOf(t = Unfolded(defs = ROwn.s.g.prog.types, t = MergeTy(e = ROwn.s.e)))) }) as RK;
 	RK -> id({ g = this.g, s = "(" + RM.s + ").without(&" + this.s + ")" });
 }
 
@@ -324,31 +306,29 @@ func QueryQ(e: Expr): string = "gen_leaf.rs:query_q";
 func MergeRE(e: Expr): Expr = "gen_leaf.rs:merge_r_e";
 func RemoveKeysE(e: Expr): Expr = "gen_leaf.rs:remove_keys_e";
 
-proc RArgs(At): Parts {
-	func At(s: { g: RGen, args: []CallArg, i: int, acc: []string }): { g: RGen, args: []CallArg, i: int, acc: []string } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.args.len) -> id({ g = this.g, parts = this.acc }),
-		else -> RValue(s = { g = this.g, e = this.args[this.i].value, want = this.args[this.i].param })
+proc RArgs(s: { g: RGen, args: []CallArg, i: int, acc: []string }): Parts {
+	RArgs switch {
+		(this.s.i == this.s.args.len) -> id({ g = this.s.g, parts = this.s.acc }),
+		else -> RValue(s = { g = this.s.g, e = this.s.args[this.s.i].value, want = this.s.args[this.s.i].param })
 	};
-	RValue -> At(s = { g = this.g, args = At.args, i = At.i + 1, acc = At.acc + [this.s] });
+	RValue -> RArgs(s = { g = this.g, args = RArgs.s.args, i = RArgs.s.i + 1, acc = RArgs.s.acc + [this.s] });
 }
 
 // The Rust function a func node calls: its .rs implementation, or a stub.
 // An error is the generator's first, and the call is "unresolved".
-proc RCallee(At): Emit {
-	func At(s: { g: RGen, n: int }): { g: RGen, n: int } = "../leaf.rs:same";
-	At -> RsImpl(n = this.g.prog.nodes[BaseOf(nodes = this.g.prog.nodes, n = this.n)], ext = "rs");
+proc RCallee(s: { g: RGen, n: int }): Emit {
+	RCallee -> RsImpl(n = this.s.g.prog.nodes[BaseOf(nodes = this.s.g.prog.nodes, n = this.s.n)], ext = "rs");
 	RsImpl switch {
-		Some(imp) -> RImplPath(s = { g = At.g, n = BaseOf(nodes = At.g.prog.nodes, n = At.n), imp = imp }),
-		else -> id({ g = { ..At.g, stubs = At.g.stubs + [BaseOf(nodes = At.g.prog.nodes, n = At.n): true] }, s = "unimplemented_" + SnakeG(n = At.g.prog.nodes[BaseOf(nodes = At.g.prog.nodes, n = At.n)]) })
+		Some(imp) -> RImplPath(s = { g = RCallee.s.g, n = BaseOf(nodes = RCallee.s.g.prog.nodes, n = RCallee.s.n), imp = imp }),
+		else -> id({ g = { ..RCallee.s.g, stubs = RCallee.s.g.stubs + [BaseOf(nodes = RCallee.s.g.prog.nodes, n = RCallee.s.n): true] }, s = "unimplemented_" + SnakeG(n = RCallee.s.g.prog.nodes[BaseOf(nodes = RCallee.s.g.prog.nodes, n = RCallee.s.n)]) })
 	};
 	RImplPath switch {
 		{ path = Some(p), err = _, mount = m } -> switch {
-			(m == "") -> id({ g = At.g, s = p }),
-			else -> id({ g = { ..At.g, mounts = At.g.mounts + [m: RsImplFile(n = At.g.prog.nodes[BaseOf(nodes = At.g.prog.nodes, n = At.n)])] }, s = p })
+			(m == "") -> id({ g = RCallee.s.g, s = p }),
+			else -> id({ g = { ..RCallee.s.g, mounts = RCallee.s.g.mounts + [m: RsImplFile(n = RCallee.s.g.prog.nodes[BaseOf(nodes = RCallee.s.g.prog.nodes, n = RCallee.s.n)])] }, s = p })
 		},
-		{ path = _, err = Some(e), mount = _ } -> id({ g = GFailed(g = At.g, msg = e), s = "unresolved" }),
-		else -> id({ g = At.g, s = "unresolved" })
+		{ path = _, err = Some(e), mount = _ } -> id({ g = GFailed(g = RCallee.s.g, msg = e), s = "unresolved" }),
+		else -> id({ g = RCallee.s.g, s = "unresolved" })
 	};
 }
 
@@ -360,25 +340,23 @@ func MountLines(mounts: map[string]string): string = "gen_leaf.rs:mount_lines";
 // `crate::a::b::function` for an implementation, or why there isn't one. A
 // file outside the crate's src/ is mounted in mod.rs (mount: its module
 // name) and called as `super::<module>::function`.
-proc RImplPath(At): { path: MaybeStr, err: MaybeStr, mount: string } {
-	func At(s: { g: RGen, n: int, imp: ImplRef }): { g: RGen, n: int, imp: ImplRef } = "../leaf.rs:same";
-	func Dir(d: MaybeStr): MaybeStr = "../leaf.rs:same";
-	At -> Dir(d = this.g.module_dir);
+proc RImplPath(s: { g: RGen, n: int, imp: ImplRef }): { path: MaybeStr, err: MaybeStr, mount: string } {
+	RImplPath -> id(this.s.g.module_dir) as Dir;
 	Dir switch {
-		Some(dir) -> JoinPath(base = dir, rel = At.imp.file),
-		else -> id({ path = None(), err = Some(QualName(n = At.g.prog.nodes[At.n]) + " is implemented in " + At.imp.file + ", but the output module's place in the crate is unknown (pass --module-dir or generate under a crate's src/)"), mount = "" })
+		Some(dir) -> JoinPath(base = dir, rel = RImplPath.s.imp.file),
+		else -> id({ path = None(), err = Some(QualName(n = RImplPath.s.g.prog.nodes[RImplPath.s.n]) + " is implemented in " + RImplPath.s.imp.file + ", but the output module's place in the crate is unknown (pass --module-dir or generate under a crate's src/)"), mount = "" })
 	};
 	JoinPath switch {
 		Some(file) -> ModulePath(file = file),
 		else -> switch {
-			(!MountableStem(file = At.imp.file)) -> id({ path = None(), err = Some(QualName(n = At.g.prog.nodes[At.n]) + ": " + At.imp.file + " is outside the crate's src/, and its name can't be a module of the output"), mount = "" }),
-			(Stem(file = At.imp.file) in At.g.mounts && At.g.mounts[Stem(file = At.imp.file)] != At.imp.file) -> id({ path = None(), err = Some(QualName(n = At.g.prog.nodes[At.n]) + ": " + At.imp.file + " and " + At.g.mounts[Stem(file = At.imp.file)] + " are both outside the crate's src/ and would both be module " + Stem(file = At.imp.file)), mount = "" }),
-			else -> id({ path = Some("super::" + RustIdent(s = Stem(file = At.imp.file)) + "::" + RustIdent(s = At.imp.function)), err = None(), mount = Stem(file = At.imp.file) })
+			(!MountableStem(file = RImplPath.s.imp.file)) -> id({ path = None(), err = Some(QualName(n = RImplPath.s.g.prog.nodes[RImplPath.s.n]) + ": " + RImplPath.s.imp.file + " is outside the crate's src/, and its name can't be a module of the output"), mount = "" }),
+			(Stem(file = RImplPath.s.imp.file) in RImplPath.s.g.mounts && RImplPath.s.g.mounts[Stem(file = RImplPath.s.imp.file)] != RImplPath.s.imp.file) -> id({ path = None(), err = Some(QualName(n = RImplPath.s.g.prog.nodes[RImplPath.s.n]) + ": " + RImplPath.s.imp.file + " and " + RImplPath.s.g.mounts[Stem(file = RImplPath.s.imp.file)] + " are both outside the crate's src/ and would both be module " + Stem(file = RImplPath.s.imp.file)), mount = "" }),
+			else -> id({ path = Some("super::" + RustIdent(s = Stem(file = RImplPath.s.imp.file)) + "::" + RustIdent(s = RImplPath.s.imp.function)), err = None(), mount = Stem(file = RImplPath.s.imp.file) })
 		}
 	};
 	ModulePath switch {
-		Some(m) -> id({ path = Some(m + "::" + RustIdent(s = At.imp.function)), err = None(), mount = "" }),
-		else -> id({ path = None(), err = Some(QualName(n = At.g.prog.nodes[At.n]) + ": " + At.imp.file + " is not a Rust module file"), mount = "" })
+		Some(m) -> id({ path = Some(m + "::" + RustIdent(s = RImplPath.s.imp.function)), err = None(), mount = "" }),
+		else -> id({ path = None(), err = Some(QualName(n = RImplPath.s.g.prog.nodes[RImplPath.s.n]) + ": " + RImplPath.s.imp.file + " is not a Rust module file"), mount = "" })
 	};
 }
 
@@ -388,38 +366,35 @@ func Stem(file: string): string = "gen_leaf.rs:rs_stem";
 func MountableStem(file: string): bool = "gen_leaf.rs:mountable_stem";
 
 // `In<Target> { param: value, .. }`
-proc RInput(At): Emit {
-	func At(s: { g: RGen, c: Call }): { g: RGen, c: Call } = "../leaf.rs:same";
-	At -> RNamedArgs(s = { g = this.g, args = this.c.args, i = 0, acc = [] });
-	RNamedArgs -> id({ g = this.g, s = InType(nodes = At.g.prog.nodes, n = At.c.target) + " { " + Join(parts = this.parts, sep = ", ") + " }" });
+proc RInput(s: { g: RGen, c: Call }): Emit {
+	RInput -> RNamedArgs(s = { g = this.s.g, args = this.s.c.args, i = 0, acc = [] });
+	RNamedArgs -> id({ g = this.g, s = InType(nodes = RInput.s.g.prog.nodes, n = RInput.s.c.target) + " { " + Join(parts = this.parts, sep = ", ") + " }" });
 }
 
-proc RNamedArgs(At): Parts {
-	func At(s: { g: RGen, args: []CallArg, i: int, acc: []string }): { g: RGen, args: []CallArg, i: int, acc: []string } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.args.len) -> id({ g = this.g, parts = this.acc }),
-		else -> RValue(s = { g = this.g, e = this.args[this.i].value, want = this.args[this.i].param })
+proc RNamedArgs(s: { g: RGen, args: []CallArg, i: int, acc: []string }): Parts {
+	RNamedArgs switch {
+		(this.s.i == this.s.args.len) -> id({ g = this.s.g, parts = this.s.acc }),
+		else -> RValue(s = { g = this.s.g, e = this.s.args[this.s.i].value, want = this.s.args[this.s.i].param })
 	};
-	RValue -> At(s = { g = this.g, args = At.args, i = At.i + 1, acc = At.acc + [RustIdent(s = At.args[At.i].name) + ": " + this.s] });
+	RValue -> RNamedArgs(s = { g = this.g, args = RNamedArgs.s.args, i = RNamedArgs.s.i + 1, acc = RNamedArgs.s.acc + [RustIdent(s = RNamedArgs.s.args[RNamedArgs.s.i].name) + ": " + this.s] });
 }
 
 // ---- Procs ----
 
 // The input of c's target, then a jump to it. The input is written twice:
 // first recording reads, then moving each at its last read.
-proc RTransition(At): EmitLines {
-	func At(s: { g: RGen, pid: int, c: Call }): { g: RGen, pid: int, c: Call } = "../leaf.rs:same";
+proc RTransition(s: { g: RGen, pid: int, c: Call }): EmitLines {
 	func Taken(seen: []Seen, g: Graph, target: int): map[int]bool = "gen_leaf.rs:taken_slots";
 	func Recording(n: int): Moves = "gen_leaf.rs:recording";
 	func Moving(moved: map[int]bool, taken: map[int]bool): Moves = "gen_leaf.rs:moving";
 	func SlotLines(g: RGen, taken: []int): []Line = "gen_leaf.rs:slot_lines";
-	At -> RInput(s = { g = { ..this.g, moves = Recording(n = 0) }, c = this.c }) as First;
-	First -> RInput(s = { g = { ..this.g, moves = Moving(moved = MovedReads(seen = this.g.moves.seen, taken = Taken(seen = this.g.moves.seen, g = GraphOf(n = At.g.prog.nodes[At.pid]), target = At.c.target)), taken = Taken(seen = this.g.moves.seen, g = GraphOf(n = At.g.prog.nodes[At.pid]), target = At.c.target)) }, c = At.c }) as Second;
+	RTransition -> RInput(s = { g = { ..this.s.g, moves = Recording(n = 0) }, c = this.s.c }) as First;
+	First -> RInput(s = { g = { ..this.g, moves = Moving(moved = MovedReads(seen = this.g.moves.seen, taken = Taken(seen = this.g.moves.seen, g = GraphOf(n = RTransition.s.g.prog.nodes[RTransition.s.pid]), target = RTransition.s.c.target)), taken = Taken(seen = this.g.moves.seen, g = GraphOf(n = RTransition.s.g.prog.nodes[RTransition.s.pid]), target = RTransition.s.c.target)) }, c = RTransition.s.c }) as Second;
 	Second -> id({
 		g = { ..this.g, moves = NoMoves(n = 0) },
-		lines = SlotLines(g = At.g, taken = SortedTaken(taken = this.g.moves.taken)) + [
-			L("env.in_" + SnakeG(n = At.g.prog.nodes[At.c.target]) + " = Some(" + this.s + ");"),
-			L("pc = Pc" + Gname(n = At.g.prog.nodes[At.pid]) + "::" + Gname(n = At.g.prog.nodes[At.c.target]) + ";"),
+		lines = SlotLines(g = RTransition.s.g, taken = SortedTaken(taken = this.g.moves.taken)) + [
+			L("env.in_" + SnakeG(n = RTransition.s.g.prog.nodes[RTransition.s.c.target]) + " = Some(" + this.s + ");"),
+			L("pc = Pc" + Gname(n = RTransition.s.g.prog.nodes[RTransition.s.pid]) + "::" + Gname(n = RTransition.s.g.prog.nodes[RTransition.s.c.target]) + ";"),
 			L("continue;")
 		]
 	});
@@ -429,92 +404,83 @@ type SwitchIn = { g: RGen, pid: int, n: int, arms: []SArm, top: bool, i: int, al
 
 // Arms in order, as an if chain: a transition ends with continue, so the
 // first arm that matches is taken.
-proc RSwitch(At): EmitLines {
-	func At(s: SwitchIn): SwitchIn = "../leaf.rs:same";
-	func T(t: Test): Test = "../leaf.rs:same";
+proc RSwitch(s: SwitchIn): EmitLines {
 	func BindLines(bs: []PatBind): []Line = "gen_leaf.rs:bind_lines";
-	At switch {
-		(this.i == this.arms.len && this.top && !this.always) -> id({ g = this.g, lines = this.acc + [L("return Err(format!(" + Quote(s = QualName(n = this.g.prog.nodes[this.n]) + ": no match arm for {:?}") + ", this).into());")] }),
-		(this.i == this.arms.len) -> id({ g = this.g, lines = this.acc }),
-		else -> T(t = this.arms[this.i].test)
+	RSwitch switch {
+		(this.s.i == this.s.arms.len && this.s.top && !this.s.always) -> id({ g = this.s.g, lines = this.s.acc + [L("return Err(format!(" + Quote(s = QualName(n = this.s.g.prog.nodes[this.s.n]) + ": no match arm for {:?}") + ", this).into());")] }),
+		(this.s.i == this.s.arms.len) -> id({ g = this.s.g, lines = this.s.acc }),
+		else -> id(this.s.arms[this.s.i].test) as T
 	};
 	T switch {
-		Else() -> RBody(s = { g = At.g, pid = At.pid, n = At.n, body = At.arms[At.i].body }) as ElseBody,
-		Cond(c) -> ROwn(s = { g = At.g, e = c }) as C,
+		Else() -> RBody(s = { g = RSwitch.s.g, pid = RSwitch.s.pid, n = RSwitch.s.n, body = RSwitch.s.arms[RSwitch.s.i].body }) as ElseBody,
+		Cond(c) -> ROwn(s = { g = RSwitch.s.g, e = c }) as C,
 		Pat(p) -> switch {
-			(IsSomeS(m = PatTest(t = At.g.table, p = p, x = "(&this)"))) -> RBody(s = { g = At.g, pid = At.pid, n = At.n, body = At.arms[At.i].body }) as PatIf,
-			else -> RBody(s = { g = At.g, pid = At.pid, n = At.n, body = At.arms[At.i].body }) as PatAlways
+			(IsSomeS(m = PatTest(t = RSwitch.s.g.table, p = p, x = "(&this)"))) -> RBody(s = { g = RSwitch.s.g, pid = RSwitch.s.pid, n = RSwitch.s.n, body = RSwitch.s.arms[RSwitch.s.i].body }) as PatIf,
+			else -> RBody(s = { g = RSwitch.s.g, pid = RSwitch.s.pid, n = RSwitch.s.n, body = RSwitch.s.arms[RSwitch.s.i].body }) as PatAlways
 		}
 	};
-	ElseBody -> At(s = { g = this.g, pid = At.pid, n = At.n, arms = At.arms, top = At.top, i = At.i + 1, always = true, acc = At.acc + this.lines });
-	C -> RBody(s = { g = this.g, pid = At.pid, n = At.n, body = At.arms[At.i].body }) as CondBody;
-	CondBody -> At(s = { g = this.g, pid = At.pid, n = At.n, arms = At.arms, top = At.top, i = At.i + 1, always = At.always, acc = At.acc + [L("if " + C.s + " {")] + this.lines + [L("}")] });
-	PatIf -> At(s = { g = this.g, pid = At.pid, n = At.n, arms = At.arms, top = At.top, i = At.i + 1, always = false, acc = At.acc + [L("if " + UnwrapS(m = PatTest(t = At.g.table, p = PatOfTest(t = T), x = "(&this)")) + " {")] + BindLines(bs = PatBinds(t = At.g.table, p = PatOfTest(t = T), x = "(&this)")) + this.lines + [L("}")] });
-	PatAlways -> At(s = { g = this.g, pid = At.pid, n = At.n, arms = At.arms, top = At.top, i = At.i + 1, always = true, acc = At.acc + [L("{")] + BindLines(bs = PatBinds(t = At.g.table, p = PatOfTest(t = T), x = "(&this)")) + this.lines + [L("}")] });
+	ElseBody -> RSwitch(s = { g = this.g, pid = RSwitch.s.pid, n = RSwitch.s.n, arms = RSwitch.s.arms, top = RSwitch.s.top, i = RSwitch.s.i + 1, always = true, acc = RSwitch.s.acc + this.lines });
+	C -> RBody(s = { g = this.g, pid = RSwitch.s.pid, n = RSwitch.s.n, body = RSwitch.s.arms[RSwitch.s.i].body }) as CondBody;
+	CondBody -> RSwitch(s = { g = this.g, pid = RSwitch.s.pid, n = RSwitch.s.n, arms = RSwitch.s.arms, top = RSwitch.s.top, i = RSwitch.s.i + 1, always = RSwitch.s.always, acc = RSwitch.s.acc + [L("if " + C.s + " {")] + this.lines + [L("}")] });
+	PatIf -> RSwitch(s = { g = this.g, pid = RSwitch.s.pid, n = RSwitch.s.n, arms = RSwitch.s.arms, top = RSwitch.s.top, i = RSwitch.s.i + 1, always = false, acc = RSwitch.s.acc + [L("if " + UnwrapS(m = PatTest(t = RSwitch.s.g.table, p = PatOfTest(t = T), x = "(&this)")) + " {")] + BindLines(bs = PatBinds(t = RSwitch.s.g.table, p = PatOfTest(t = T), x = "(&this)")) + this.lines + [L("}")] });
+	PatAlways -> RSwitch(s = { g = this.g, pid = RSwitch.s.pid, n = RSwitch.s.n, arms = RSwitch.s.arms, top = RSwitch.s.top, i = RSwitch.s.i + 1, always = true, acc = RSwitch.s.acc + [L("{")] + BindLines(bs = PatBinds(t = RSwitch.s.g.table, p = PatOfTest(t = T), x = "(&this)")) + this.lines + [L("}")] });
 }
 
 func IsSomeS(m: MaybeStr): bool = "gen_leaf.rs:is_some_s";
 func UnwrapS(m: MaybeStr): string = "gen_leaf.rs:unwrap_s";
 func PatOfTest(t: Test): SPat = "gen_leaf.rs:pat_of_test";
 
-proc RBody(At): EmitLines {
-	func At(s: { g: RGen, pid: int, n: int, body: SBody }): { g: RGen, pid: int, n: int, body: SBody } = "../leaf.rs:same";
-	func B(b: SBody): SBody = "../leaf.rs:same";
-	At -> B(b = this.body);
+proc RBody(s: { g: RGen, pid: int, n: int, body: SBody }): EmitLines {
+	RBody -> id(this.s.body) as B;
 	B switch {
-		Call(c) -> RTransition(s = { g = At.g, pid = At.pid, c = c }),
-		Switch(arms) -> RSwitch(s = { g = At.g, pid = At.pid, n = At.n, arms = arms, top = false, i = 0, always = false, acc = [] })
+		Call(c) -> RTransition(s = { g = RBody.s.g, pid = RBody.s.pid, c = c }),
+		Switch(arms) -> RSwitch(s = { g = RBody.s.g, pid = RBody.s.pid, n = RBody.s.n, arms = arms, top = false, i = 0, always = false, acc = [] })
 	};
 }
 
 // One state of a proc's machine: run the node, keep its output if read
 // later, then its edge.
-proc RNode(At): EmitLines {
-	func At(s: { g: RGen, pid: int, n: int }): { g: RGen, pid: int, n: int } = "../leaf.rs:same";
-	func K(k: NodeKind): NodeKind = "../leaf.rs:same";
+proc RNode(s: { g: RGen, pid: int, n: int }): EmitLines {
 	func ArgList(nodes: []NodeDecl, n: int): string = "gen_leaf.rs:input_args";
 	// A signature node's output, built from its input.
 	func SigValue(g: RGen, n: int): string = "gen_leaf.rs:sig_value";
-	At -> K(k = this.g.prog.nodes[BaseOf(nodes = this.g.prog.nodes, n = this.n)].kind);
+	RNode -> id(this.s.g.prog.nodes[BaseOf(nodes = this.s.g.prog.nodes, n = this.s.n)].kind) as K;
 	K switch {
-		Proc(_) -> RNodeBody(s = { g = At.g, pid = At.pid, n = At.n, run = "let this = run_" + SnakeG(n = At.g.prog.nodes[BaseOf(nodes = At.g.prog.nodes, n = At.n)]) + "(" + ArgList(nodes = At.g.prog.nodes, n = At.n) + ").map_err(|e| wrap(" + Quote(s = QualName(n = At.g.prog.nodes[At.n])) + ", e.into()))?;" }),
-		Id(_) -> RNodeBody(s = { g = At.g, pid = At.pid, n = At.n, run = "let this = input.value;" }),
-		Sig(_) -> RNodeBody(s = { g = At.g, pid = At.pid, n = At.n, run = SigValue(g = At.g, n = At.n) }),
-		else -> RCallee(s = { g = At.g, n = At.n })
+		Proc(_) -> RNodeBody(s = { g = RNode.s.g, pid = RNode.s.pid, n = RNode.s.n, run = "let this = run_" + SnakeG(n = RNode.s.g.prog.nodes[BaseOf(nodes = RNode.s.g.prog.nodes, n = RNode.s.n)]) + "(" + ArgList(nodes = RNode.s.g.prog.nodes, n = RNode.s.n) + ").map_err(|e| wrap(" + Quote(s = QualName(n = RNode.s.g.prog.nodes[RNode.s.n])) + ", e.into()))?;" }),
+		Id(_) -> RNodeBody(s = { g = RNode.s.g, pid = RNode.s.pid, n = RNode.s.n, run = "let this = input.value;" }),
+		Sig(_) -> RNodeBody(s = { g = RNode.s.g, pid = RNode.s.pid, n = RNode.s.n, run = SigValue(g = RNode.s.g, n = RNode.s.n) }),
+		else -> RCallee(s = { g = RNode.s.g, n = RNode.s.n })
 	};
 	// A callee error here stops the generator.
 	RCallee switch {
-		(IsSomeS(m = this.g.failed) && !IsSomeS(m = At.g.failed)) -> RNodeBody(s = { g = GFatal(g = At.g, msg = UnwrapS(m = this.g.failed)), pid = At.pid, n = At.n, run = "" }),
-		else -> RNodeBody(s = { g = this.g, pid = At.pid, n = At.n, run = "let this = " + this.s + "(" + ArgList(nodes = At.g.prog.nodes, n = At.n) + ").map_err(|e| wrap(" + Quote(s = QualName(n = At.g.prog.nodes[At.n])) + ", e.into()))?;" })
+		(IsSomeS(m = this.g.failed) && !IsSomeS(m = RNode.s.g.failed)) -> RNodeBody(s = { g = GFatal(g = RNode.s.g, msg = UnwrapS(m = this.g.failed)), pid = RNode.s.pid, n = RNode.s.n, run = "" }),
+		else -> RNodeBody(s = { g = this.g, pid = RNode.s.pid, n = RNode.s.n, run = "let this = " + this.s + "(" + ArgList(nodes = RNode.s.g.prog.nodes, n = RNode.s.n) + ").map_err(|e| wrap(" + Quote(s = QualName(n = RNode.s.g.prog.nodes[RNode.s.n])) + ", e.into()))?;" })
 	};
 }
 
-proc RNodeBody(At): EmitLines {
-	func At(s: { g: RGen, pid: int, n: int, run: string }): { g: RGen, pid: int, n: int, run: string } = "../leaf.rs:same";
+proc RNodeBody(s: { g: RGen, pid: int, n: int, run: string }): EmitLines {
 	func Head(g: RGen, pid: int, n: int, run: string): []Line = "gen_leaf.rs:node_head";
-	func E(e: SEdge): SEdge = "../leaf.rs:same";
-	At switch {
-		(this.n in GraphOf(n = this.g.prog.nodes[this.pid]).edges) -> E(e = GraphOf(n = this.g.prog.nodes[this.pid]).edges[this.n]),
-		else -> RCoerce(s = { g = this.g, expr = "this", from = NodeRet(nodes = this.g.prog.nodes, n = this.n), to = ProcRet(n = this.g.prog.nodes[this.pid]) }) as Ret
+	RNodeBody switch {
+		(this.s.n in GraphOf(n = this.s.g.prog.nodes[this.s.pid]).edges) -> id(GraphOf(n = this.s.g.prog.nodes[this.s.pid]).edges[this.s.n]) as E,
+		else -> RCoerce(s = { g = this.s.g, expr = "this", from = NodeRet(nodes = this.s.g.prog.nodes, n = this.s.n), to = ProcRet(n = this.s.g.prog.nodes[this.s.pid]) }) as Ret
 	};
-	Ret -> id({ g = this.g, lines = Head(g = At.g, pid = At.pid, n = At.n, run = At.run) + [L("return Ok(" + this.s + ");"), L("}")] });
+	Ret -> id({ g = this.g, lines = Head(g = RNodeBody.s.g, pid = RNodeBody.s.pid, n = RNodeBody.s.n, run = RNodeBody.s.run) + [L("return Ok(" + this.s + ");"), L("}")] });
 	E switch {
-		Call(c) -> RTransition(s = { g = At.g, pid = At.pid, c = c }) as Jump,
-		Collect(_) -> id({ g = At.g, lines = Head(g = At.g, pid = At.pid, n = At.n, run = At.run) + [L("return Ok(this);"), L("}")] }),
-		Match(arms) -> RSwitch(s = { g = At.g, pid = At.pid, n = At.n, arms = arms, top = true, i = 0, always = false, acc = [] }) as Arms,
-		ForEach(f) -> ROwn(s = { g = At.g, e = f.dim }) as Dim,
-		Spawn(sp) -> RSpawn(s = { g = At.g, branches = sp.branches, joined = sp.joined, i = 0, lines = [], calls = [] })
+		Call(c) -> RTransition(s = { g = RNodeBody.s.g, pid = RNodeBody.s.pid, c = c }) as Jump,
+		Collect(_) -> id({ g = RNodeBody.s.g, lines = Head(g = RNodeBody.s.g, pid = RNodeBody.s.pid, n = RNodeBody.s.n, run = RNodeBody.s.run) + [L("return Ok(this);"), L("}")] }),
+		Match(arms) -> RSwitch(s = { g = RNodeBody.s.g, pid = RNodeBody.s.pid, n = RNodeBody.s.n, arms = arms, top = true, i = 0, always = false, acc = [] }) as Arms,
+		ForEach(f) -> ROwn(s = { g = RNodeBody.s.g, e = f.dim }) as Dim,
+		Spawn(sp) -> RSpawn(s = { g = RNodeBody.s.g, branches = sp.branches, joined = sp.joined, i = 0, lines = [], calls = [] })
 	};
-	RSpawn -> RTransition(s = { g = this.g, pid = At.pid, c = SpawnJoin(e = E) }) as Joined;
-	Joined -> id({ g = this.g, lines = Head(g = At.g, pid = At.pid, n = At.n, run = At.run) + RSpawn.lines + this.lines + [L("}")] });
-	Jump -> EdgeLines(x = this);
-	Arms -> EdgeLines(x = this);
-	func EdgeLines(x: EmitLines): EmitLines = "../leaf.rs:same";
-	EdgeLines -> id({ g = this.g, lines = Head(g = At.g, pid = At.pid, n = At.n, run = At.run) + this.lines + [L("}")] });
-	Dim -> RTransition(s = { g = this.g, pid = At.pid, c = CollectCall(g = GraphOf(n = At.g.prog.nodes[At.pid]), n = At.n) }) as Collected;
-	Collected -> id({ g = this.g, lines = Head(g = At.g, pid = At.pid, n = At.n, run = At.run) + [
+	RSpawn -> RTransition(s = { g = this.g, pid = RNodeBody.s.pid, c = SpawnJoin(e = E) }) as Joined;
+	Joined -> id({ g = this.g, lines = Head(g = RNodeBody.s.g, pid = RNodeBody.s.pid, n = RNodeBody.s.n, run = RNodeBody.s.run) + RSpawn.lines + this.lines + [L("}")] });
+	Jump -> id(this) as EdgeLines;
+	Arms -> id(this) as EdgeLines;
+	EdgeLines -> id({ g = this.g, lines = Head(g = RNodeBody.s.g, pid = RNodeBody.s.pid, n = RNodeBody.s.n, run = RNodeBody.s.run) + this.lines + [L("}")] });
+	Dim -> RTransition(s = { g = this.g, pid = RNodeBody.s.pid, c = CollectCall(g = GraphOf(n = RNodeBody.s.g.prog.nodes[RNodeBody.s.pid]), n = RNodeBody.s.n) }) as Collected;
+	Collected -> id({ g = this.g, lines = Head(g = RNodeBody.s.g, pid = RNodeBody.s.pid, n = RNodeBody.s.n, run = RNodeBody.s.run) + [
 		L("let dim = " + Dim.s + ";"),
-		L("let results = fan_out(dim.to_vec(), |elem| " + RegionFn(g = At.g, pid = At.pid, r = GraphOf(n = At.g.prog.nodes[At.pid]).opens[At.n]) + "(env.clone(), elem))?;"),
+		L("let results = fan_out(dim.to_vec(), |elem| " + RegionFn(g = RNodeBody.s.g, pid = RNodeBody.s.pid, r = GraphOf(n = RNodeBody.s.g.prog.nodes[RNodeBody.s.pid]).opens[RNodeBody.s.n]) + "(env.clone(), elem))?;"),
 		L("let this = types::List::from(results);")
 	] + this.lines + [L("}")] });
 }
@@ -524,69 +490,63 @@ func SpawnJoin(e: SEdge): Call = "gen_leaf.rs:spawn_join";
 
 // A spawn's branches, each a call of its node (emit_spawn in the
 // reference): every branch's arguments into variables, then the threads.
-proc RSpawn(At): EmitLines {
-	func At(s: { g: RGen, branches: []SBranch, joined: Type, i: int, lines: []Line, calls: []string }): { g: RGen, branches: []SBranch, joined: Type, i: int, lines: []Line, calls: []string } = "../leaf.rs:same";
-	func K(k: NodeKind): NodeKind = "../leaf.rs:same";
-	func Called(s: { g: RGen, callee: string }): { g: RGen, callee: string } = "../leaf.rs:same";
+proc RSpawn(s: { g: RGen, branches: []SBranch, joined: Type, i: int, lines: []Line, calls: []string }): EmitLines {
 	// `let a<i>_<arg> = <value>;` per argument, and the variables.
 	func ArgLines(i: int, args: []CallArg, values: []string): []Line = "gen_leaf.rs:spawn_arg_lines";
 	func ArgVars(i: int, args: []CallArg): string = "gen_leaf.rs:spawn_arg_vars";
 	// Detached branches on threads of their own; joined ones on scoped
 	// threads, then this: the joined outputs.
 	func Threads(g: RGen, branches: []SBranch, joined: Type, calls: []string): []Line = "gen_leaf.rs:spawn_threads";
-	At switch {
-		(this.i == this.branches.len) -> id({ g = this.g, lines = this.lines + Threads(g = this.g, branches = this.branches, joined = this.joined, calls = this.calls) }),
-		else -> RArgs(s = { g = this.g, args = this.branches[this.i].call.args, i = 0, acc = [] })
+	RSpawn switch {
+		(this.s.i == this.s.branches.len) -> id({ g = this.s.g, lines = this.s.lines + Threads(g = this.s.g, branches = this.s.branches, joined = this.s.joined, calls = this.s.calls) }),
+		else -> RArgs(s = { g = this.s.g, args = this.s.branches[this.s.i].call.args, i = 0, acc = [] })
 	};
-	RArgs -> K(k = this.g.prog.nodes[BaseOf(nodes = this.g.prog.nodes, n = At.branches[At.i].call.target)].kind);
+	RArgs -> id(this.g.prog.nodes[BaseOf(nodes = this.g.prog.nodes, n = RSpawn.s.branches[RSpawn.s.i].call.target)].kind) as K;
 	K switch {
-		Proc(_) -> Called(s = { g = RArgs.g, callee = "run_" + SnakeG(n = RArgs.g.prog.nodes[BaseOf(nodes = RArgs.g.prog.nodes, n = At.branches[At.i].call.target)]) }),
-		else -> RCallee(s = { g = RArgs.g, n = At.branches[At.i].call.target })
+		Proc(_) -> id({ g = RArgs.g, callee = "run_" + SnakeG(n = RArgs.g.prog.nodes[BaseOf(nodes = RArgs.g.prog.nodes, n = RSpawn.s.branches[RSpawn.s.i].call.target)]) }) as Called,
+		else -> RCallee(s = { g = RArgs.g, n = RSpawn.s.branches[RSpawn.s.i].call.target })
 	};
 	// A callee error here stops the generator.
 	RCallee switch {
-		(IsSomeS(m = this.g.failed) && !IsSomeS(m = RArgs.g.failed)) -> Called(s = { g = GFatal(g = RArgs.g, msg = UnwrapS(m = this.g.failed)), callee = "" }),
-		else -> Called(s = { g = this.g, callee = this.s })
+		(IsSomeS(m = this.g.failed) && !IsSomeS(m = RArgs.g.failed)) -> id({ g = GFatal(g = RArgs.g, msg = UnwrapS(m = this.g.failed)), callee = "" }) as Called,
+		else -> id({ g = this.g, callee = this.s }) as Called
 	};
-	Called -> At(s = {
-		g = this.g, branches = At.branches, joined = At.joined, i = At.i + 1,
-		lines = At.lines + ArgLines(i = At.i, args = At.branches[At.i].call.args, values = RArgs.parts),
-		calls = At.calls + [this.callee + "(" + ArgVars(i = At.i, args = At.branches[At.i].call.args) + ").map_err(|e| wrap(" + Quote(s = QualName(n = At.g.prog.nodes[At.branches[At.i].call.target])) + ", e.into()))"]
+	Called -> RSpawn(s = {
+		g = this.g, branches = RSpawn.s.branches, joined = RSpawn.s.joined, i = RSpawn.s.i + 1,
+		lines = RSpawn.s.lines + ArgLines(i = RSpawn.s.i, args = RSpawn.s.branches[RSpawn.s.i].call.args, values = RArgs.parts),
+		calls = RSpawn.s.calls + [this.callee + "(" + ArgVars(i = RSpawn.s.i, args = RSpawn.s.branches[RSpawn.s.i].call.args) + ").map_err(|e| wrap(" + Quote(s = QualName(n = RSpawn.s.g.prog.nodes[RSpawn.s.branches[RSpawn.s.i].call.target])) + ", e.into()))"]
 	});
 }
 func RegionFn(g: RGen, pid: int, r: int): string = "gen_leaf.rs:region_fn";
 
 // A region's state machine: a loop over its nodes' states.
-proc RLoop(At): EmitLines {
-	func At(s: { g: RGen, pid: int, nodes: []int, i: int, acc: []Line }): { g: RGen, pid: int, nodes: []int, i: int, acc: []Line } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.nodes.len) -> id({ g = this.g, lines = [L("loop {"), L("match pc {")] + this.acc + [L("_ => return Err(format!(" + Quote(s = QualName(n = this.g.prog.nodes[this.pid]) + ": invalid state {pc:?}") + ").into()),"), L("}"), L("}")] }),
-		else -> RNode(s = { g = this.g, pid = this.pid, n = this.nodes[this.i] })
+proc RLoop(s: { g: RGen, pid: int, nodes: []int, i: int, acc: []Line }): EmitLines {
+	RLoop switch {
+		(this.s.i == this.s.nodes.len) -> id({ g = this.s.g, lines = [L("loop {"), L("match pc {")] + this.s.acc + [L("_ => return Err(format!(" + Quote(s = QualName(n = this.s.g.prog.nodes[this.s.pid]) + ": invalid state {pc:?}") + ").into()),"), L("}"), L("}")] }),
+		else -> RNode(s = { g = this.s.g, pid = this.s.pid, n = this.s.nodes[this.s.i] })
 	};
-	RNode -> At(s = { g = this.g, pid = At.pid, nodes = At.nodes, i = At.i + 1, acc = At.acc + this.lines });
+	RNode -> RLoop(s = { g = this.g, pid = RLoop.s.pid, nodes = RLoop.s.nodes, i = RLoop.s.i + 1, acc = RLoop.s.acc + this.lines });
 }
 
-proc RProc(At): EmitLines {
-	func At(s: { g: RGen, pid: int }): { g: RGen, pid: int } = "../leaf.rs:same";
+proc RProc(s: { g: RGen, pid: int }): EmitLines {
 	func Prelude(g: RGen, pid: int): []Line = "gen_leaf.rs:proc_prelude";
 	func Opens(g: Graph): []int = "gen_leaf.rs:opens_by_region";
-	At -> RLoop(s = { g = { ..this.g, proc_name = QualName(n = this.g.prog.nodes[this.pid]) }, pid = this.pid, nodes = GraphOf(n = this.g.prog.nodes[this.pid]).regions[0].nodes, i = 0, acc = [] });
-	RLoop -> RRegions(s = { g = this.g, pid = At.pid, opens = Opens(g = GraphOf(n = At.g.prog.nodes[At.pid])), i = 0, acc = Prelude(g = At.g, pid = At.pid) + this.lines + [L("}"), L("")] });
+	RProc -> RLoop(s = { g = { ..this.s.g, proc_name = QualName(n = this.s.g.prog.nodes[this.s.pid]) }, pid = this.s.pid, nodes = GraphOf(n = this.s.g.prog.nodes[this.s.pid]).regions[0].nodes, i = 0, acc = [] });
+	RLoop -> RRegions(s = { g = this.g, pid = RProc.s.pid, opens = Opens(g = GraphOf(n = RProc.s.g.prog.nodes[RProc.s.pid])), i = 0, acc = Prelude(g = RProc.s.g, pid = RProc.s.pid) + this.lines + [L("}"), L("")] });
 }
 
 // One fn per for each region, run per element.
-proc RRegions(At): EmitLines {
-	func At(s: { g: RGen, pid: int, opens: []int, i: int, acc: []Line }): { g: RGen, pid: int, opens: []int, i: int, acc: []Line } = "../leaf.rs:same";
+proc RRegions(s: { g: RGen, pid: int, opens: []int, i: int, acc: []Line }): EmitLines {
 	func RegionHead(g: RGen, pid: int, opener: int): []Line = "gen_leaf.rs:region_head";
 	func EntryCall(g: Graph, opener: int): Call = "gen_leaf.rs:for_each_call_of";
-	At switch {
-		(this.i == this.opens.len) -> id({ g = this.g, lines = this.acc }),
-		else -> RInput(s = { g = this.g, c = EntryCall(g = GraphOf(n = this.g.prog.nodes[this.pid]), opener = this.opens[this.i]) })
+	RRegions switch {
+		(this.s.i == this.s.opens.len) -> id({ g = this.s.g, lines = this.s.acc }),
+		else -> RInput(s = { g = this.s.g, c = EntryCall(g = GraphOf(n = this.s.g.prog.nodes[this.s.pid]), opener = this.s.opens[this.s.i]) })
 	};
-	RInput -> RLoop(s = { g = this.g, pid = At.pid, nodes = GraphOf(n = At.g.prog.nodes[At.pid]).regions[GraphOf(n = At.g.prog.nodes[At.pid]).opens[At.opens[At.i]]].nodes, i = 0, acc = [] });
-	RLoop -> At(s = { g = this.g, pid = At.pid, opens = At.opens, i = At.i + 1, acc = At.acc + RegionHead(g = At.g, pid = At.pid, opener = At.opens[At.i]) + [
-		L("env.in_" + SnakeG(n = At.g.prog.nodes[GraphOf(n = At.g.prog.nodes[At.pid]).regions[GraphOf(n = At.g.prog.nodes[At.pid]).opens[At.opens[At.i]]].entry]) + " = Some(" + RInput.s + ");"),
-		L("let mut pc = Pc" + Gname(n = At.g.prog.nodes[At.pid]) + "::" + Gname(n = At.g.prog.nodes[GraphOf(n = At.g.prog.nodes[At.pid]).regions[GraphOf(n = At.g.prog.nodes[At.pid]).opens[At.opens[At.i]]].entry]) + ";")
+	RInput -> RLoop(s = { g = this.g, pid = RRegions.s.pid, nodes = GraphOf(n = RRegions.s.g.prog.nodes[RRegions.s.pid]).regions[GraphOf(n = RRegions.s.g.prog.nodes[RRegions.s.pid]).opens[RRegions.s.opens[RRegions.s.i]]].nodes, i = 0, acc = [] });
+	RLoop -> RRegions(s = { g = this.g, pid = RRegions.s.pid, opens = RRegions.s.opens, i = RRegions.s.i + 1, acc = RRegions.s.acc + RegionHead(g = RRegions.s.g, pid = RRegions.s.pid, opener = RRegions.s.opens[RRegions.s.i]) + [
+		L("env.in_" + SnakeG(n = RRegions.s.g.prog.nodes[GraphOf(n = RRegions.s.g.prog.nodes[RRegions.s.pid]).regions[GraphOf(n = RRegions.s.g.prog.nodes[RRegions.s.pid]).opens[RRegions.s.opens[RRegions.s.i]]].entry]) + " = Some(" + RInput.s + ");"),
+		L("let mut pc = Pc" + Gname(n = RRegions.s.g.prog.nodes[RRegions.s.pid]) + "::" + Gname(n = RRegions.s.g.prog.nodes[GraphOf(n = RRegions.s.g.prog.nodes[RRegions.s.pid]).regions[GraphOf(n = RRegions.s.g.prog.nodes[RRegions.s.pid]).opens[RRegions.s.opens[RRegions.s.i]]].entry]) + ";")
 	] + this.lines + [L("}"), L("")] });
 }
 
@@ -595,25 +555,24 @@ proc RRegions(At): EmitLines {
 // http: "" without servers.
 type RustOut = { types: string, procs: string, modrs: string, http: string, err: MaybeStr };
 
-proc RustGenerate(At): RustOut {
-	func At(s: { prog: Program, module_dir: MaybeStr, servers: []ServerSpec }): { prog: Program, module_dir: MaybeStr, servers: []ServerSpec } = "../leaf.rs:same";
+proc RustGenerate(s: { prog: Program, module_dir: MaybeStr, servers: []ServerSpec }): RustOut {
 	func NameClash(prog: Program): MaybeStr = "gen_leaf.rs:name_clash";
 	func BadModuleDir(d: MaybeStr): MaybeStr = "gen_leaf.rs:bad_module_dir";
 	func Trimmed(d: MaybeStr): MaybeStr = "gen_leaf.rs:trim_dir";
 	func Order(nodes: []NodeDecl, top: []int): []int = "gen_leaf.rs:all_procs_ordered";
-	At -> BuildTable(prog = this.prog);
+	RustGenerate -> BuildTable(prog = this.s.prog);
 	BuildTable switch {
-		(IsSomeS(m = BadModuleDir(d = Trimmed(d = At.module_dir)))) -> id({ types = "", procs = "", modrs = "", http = "", err = BadModuleDir(d = Trimmed(d = At.module_dir)) }),
-		(IsSomeS(m = NameClash(prog = At.prog))) -> id({ types = "", procs = "", modrs = "", http = "", err = NameClash(prog = At.prog) }),
+		(IsSomeS(m = BadModuleDir(d = Trimmed(d = RustGenerate.s.module_dir)))) -> id({ types = "", procs = "", modrs = "", http = "", err = BadModuleDir(d = Trimmed(d = RustGenerate.s.module_dir)) }),
+		(IsSomeS(m = NameClash(prog = RustGenerate.s.prog))) -> id({ types = "", procs = "", modrs = "", http = "", err = NameClash(prog = RustGenerate.s.prog) }),
 		else -> RustTypegen(t = this)
 	};
 	RustTypegen -> RProcs(s = {
-		g = { prog = At.prog, table = BuildTable, module_dir = Trimmed(d = At.module_dir), coercions = [:], helpers = [], stubs = [:], failed = None(), fatal = None(), proc_name = "", moves = NoMoves(n = 0), mounts = [:] },
-		procs = Order(nodes = At.prog.nodes, top = At.prog.top), i = 0, acc = []
+		g = { prog = RustGenerate.s.prog, table = BuildTable, module_dir = Trimmed(d = RustGenerate.s.module_dir), coercions = [:], helpers = [], stubs = [:], failed = None(), fatal = None(), proc_name = "", moves = NoMoves(n = 0), mounts = [:] },
+		procs = Order(nodes = RustGenerate.s.prog.nodes, top = RustGenerate.s.prog.top), i = 0, acc = []
 	});
 	RProcs switch {
-		(At.servers.len == 0) -> id({ types = RustTypegen, procs = ProcsFile(g = this.g, body = Lines(lines = this.lines, indent = "    ")), modrs = ModRs(n = 0) + MountLines(mounts = this.g.mounts), http = "", err = FirstError(g = this.g) }),
-		else -> RustHttp(s = { g = this.g, servers = At.servers })
+		(RustGenerate.s.servers.len == 0) -> id({ types = RustTypegen, procs = ProcsFile(g = this.g, body = Lines(lines = this.lines, indent = "    ")), modrs = ModRs(n = 0) + MountLines(mounts = this.g.mounts), http = "", err = FirstError(g = this.g) }),
+		else -> RustHttp(s = { g = this.g, servers = RustGenerate.s.servers })
 	};
 	// As in the reference: an error that stopped the generator, then one in
 	// http.rs, then one from an expression.
@@ -635,11 +594,10 @@ func ModRs(n: int): string = "gen_leaf.rs:mod_rs";
 func ProcsFile(g: RGen, body: string): string = "gen_leaf.rs:procs_file";
 func FirstError(g: RGen): MaybeStr = "gen_leaf.rs:first_error";
 
-proc RProcs(At): EmitLines {
-	func At(s: { g: RGen, procs: []int, i: int, acc: []Line }): { g: RGen, procs: []int, i: int, acc: []Line } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.procs.len || IsSomeS(m = this.g.fatal)) -> id({ g = this.g, lines = this.acc }),
-		else -> RProc(s = { g = this.g, pid = this.procs[this.i] })
+proc RProcs(s: { g: RGen, procs: []int, i: int, acc: []Line }): EmitLines {
+	RProcs switch {
+		(this.s.i == this.s.procs.len || IsSomeS(m = this.s.g.fatal)) -> id({ g = this.s.g, lines = this.s.acc }),
+		else -> RProc(s = { g = this.s.g, pid = this.s.procs[this.s.i] })
 	};
-	RProc -> At(s = { g = this.g, procs = At.procs, i = At.i + 1, acc = At.acc + this.lines });
+	RProc -> RProcs(s = { g = this.g, procs = RProcs.s.procs, i = RProcs.s.i + 1, acc = RProcs.s.acc + this.lines });
 }

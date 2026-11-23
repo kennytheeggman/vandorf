@@ -6,11 +6,12 @@ type Measured = { kind: string, area: float };
 type Fold = { xs: []Measured, r: Report, i: int };
 
 // The area of each shape, summed, and how many there are of each kind.
-proc Measure(Shapes): Report {
+proc Measure(shapes: []Shape): Report {
 	func Shapes(shapes: []Shape): []Shape = "../go/app/impl.go:Shapes", "../rs/src/impls.rs:shapes";
 	func Area(s: Shape): Measured = "../go/app/impl.go:Area", "../rs/src/impls.rs:area";
 	func Step(f: Fold): Fold = "../go/app/impl.go:Step", "../rs/src/impls.rs:step";
 
+	Measure -> Shapes(shapes = this.shapes);
 	Shapes for each (this) -> Area(s = this);
 	Area collect each (Area) -> Step(f = { xs = this, r = { count = 0, total = 0.0, kinds = [:] }, i = 0 });
 	// One measured shape at a time into the report.
@@ -32,6 +33,7 @@ proc Measure(Shapes): Report {
 }
 
 // A greeting, for GET with a query string.
-proc Hello(Greet): string {
+proc Hello(name: string, times: int): string {
 	func Greet(name: string, times: int): string = "../go/app/impl.go:Greet", "../rs/src/impls.rs:greet";
+	Hello -> Greet(name = this.name, times = this.times);
 }

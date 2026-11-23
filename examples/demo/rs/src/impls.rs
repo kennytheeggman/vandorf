@@ -58,8 +58,8 @@ pub fn logged() -> Vec<i64> {
 }
 
 /// Passes Main's command-line arguments on to Bar.
-pub fn args(a: i64, b: Str) -> Result<types::MainStartOut, String> {
-    Ok(types::MainStartOut { a, b })
+pub fn args(a: i64, b: Str) -> Result<types::BarArgs, String> {
+    Ok(types::BarArgs { a, b })
 }
 
 /// Returns base + 2.

@@ -27,66 +27,61 @@ func StartsWith(text: string, prefix: string): bool = "cli_leaf.rs:starts_with";
 func CargoLibName(toml: string, has_lib_rs: bool): string = "cli_leaf.rs:cargo_lib_name";
 
 // The nearest directory at or above dir that has `marker`, or "".
-proc FindUp(At): string {
-	func At(s: { dir: string, marker: string }): { dir: string, marker: string } = "../leaf.rs:same";
-	At -> Fs.IsFile(path = JoinP(a = this.dir, b = this.marker));
+proc FindUp(s: { dir: string, marker: string }): string {
+	FindUp -> Fs.IsFile(path = JoinP(a = this.s.dir, b = this.s.marker));
 	Fs.IsFile switch {
-		(this) -> id(At.dir),
-		(At.dir == "/" || At.dir == "") -> id(""),
-		else -> At(s = { dir = Parent(p = At.dir), marker = At.marker })
+		(this) -> id(FindUp.s.dir),
+		(FindUp.s.dir == "/" || FindUp.s.dir == "") -> id(""),
+		else -> FindUp(s = { dir = Parent(p = FindUp.s.dir), marker = FindUp.s.marker })
 	};
 }
 
 // Reads the manifest at path and every .sys file under its sources.
-proc LoadProject(At): Res<Project> {
-	func At(path: string): string = "../leaf.rs:same";
-	At -> Fs.Read(path = this) as Text;
+proc LoadProject(path: string): Res<Project> {
+	LoadProject -> Fs.Read(path = this.path) as Text;
 	Text -> ParseManifest(text = this);
 	ParseManifest switch {
-		Ok(m) -> SourceFiles(s = { root = Parent(p = At), m = m, i = 0, acc = [] }),
-		Err(e) -> id(Err({ msg = At + ": " + e.msg, span = e.span }))
+		Ok(m) -> SourceFiles(s = { root = Parent(p = LoadProject.path), m = m, i = 0, acc = [] }),
+		Err(e) -> id(Err({ msg = LoadProject.path + ": " + e.msg, span = e.span }))
 	};
 	SourceFiles switch {
 		Ok(paths) -> switch {
-			(paths.len == 0) -> id(Err({ msg = At + ": no .sys files under " + Join(parts = UnwrapM(r = ParseManifest).sources, sep = ", "), span = { at = 0, end = 0, file = 0 } })),
-			else -> ReadAll(s = { root = Parent(p = At), paths = paths, i = 0, acc = [] })
+			(paths.len == 0) -> id(Err({ msg = LoadProject.path + ": no .sys files under " + Join(parts = UnwrapM(r = ParseManifest).sources, sep = ", "), span = { at = 0, end = 0, file = 0 } })),
+			else -> ReadAll(s = { root = Parent(p = LoadProject.path), paths = paths, i = 0, acc = [] })
 		},
-		Err(e) -> id(Err({ msg = At + ": " + e.msg, span = e.span }))
+		Err(e) -> id(Err({ msg = LoadProject.path + ": " + e.msg, span = e.span }))
 	};
-	ReadAll -> id(Ok({ root = Parent(p = At), manifest = UnwrapM(r = ParseManifest), paths = UnwrapPaths(r = SourceFiles), srcs = this }));
+	ReadAll -> id(Ok({ root = Parent(p = LoadProject.path), manifest = UnwrapM(r = ParseManifest), paths = UnwrapPaths(r = SourceFiles), srcs = this }));
 }
 
 func UnwrapM(r: Res<Manifest>): Manifest = "cli_leaf.rs:unwrap_m";
 func UnwrapPaths(r: Res<[]string>): []string = "cli_leaf.rs:unwrap_paths";
 
 // The .sys files under each source directory, relative to root, sorted.
-proc SourceFiles(At): Res<[]string> {
-	func At(s: { root: string, m: Manifest, i: int, acc: []string }): { root: string, m: Manifest, i: int, acc: []string } = "../leaf.rs:same";
+proc SourceFiles(s: { root: string, m: Manifest, i: int, acc: []string }): Res<[]string> {
 	func Rel(paths: []string, root: string): []string = "cli_leaf.rs:rel_all";
-	At switch {
-		(this.i == this.m.sources.len) -> id(Ok(SortDedup(xs = this.acc))),
-		else -> Fs.IsDir(path = JoinP(a = this.root, b = this.m.sources[this.i]))
+	SourceFiles switch {
+		(this.s.i == this.s.m.sources.len) -> id(Ok(SortDedup(xs = this.s.acc))),
+		else -> Fs.IsDir(path = JoinP(a = this.s.root, b = this.s.m.sources[this.s.i]))
 	};
 	Fs.IsDir switch {
-		(this) -> Fs.Walk(dir = JoinP(a = At.root, b = At.m.sources[At.i])),
-		else -> id(Err({ msg = "source directory " + At.m.sources[At.i] + " does not exist", span = { at = 0, end = 0, file = 0 } }))
+		(this) -> Fs.Walk(dir = JoinP(a = SourceFiles.s.root, b = SourceFiles.s.m.sources[SourceFiles.s.i])),
+		else -> id(Err({ msg = "source directory " + SourceFiles.s.m.sources[SourceFiles.s.i] + " does not exist", span = { at = 0, end = 0, file = 0 } }))
 	};
-	Fs.Walk -> At(s = { root = At.root, m = At.m, i = At.i + 1, acc = At.acc + Rel(paths = this, root = At.root) });
+	Fs.Walk -> SourceFiles(s = { root = SourceFiles.s.root, m = SourceFiles.s.m, i = SourceFiles.s.i + 1, acc = SourceFiles.s.acc + Rel(paths = this, root = SourceFiles.s.root) });
 }
 
-proc ReadAll(At): []string {
-	func At(s: { root: string, paths: []string, i: int, acc: []string }): { root: string, paths: []string, i: int, acc: []string } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.paths.len) -> id(this.acc),
-		else -> Fs.Read(path = JoinP(a = this.root, b = this.paths[this.i]))
+proc ReadAll(s: { root: string, paths: []string, i: int, acc: []string }): []string {
+	ReadAll switch {
+		(this.s.i == this.s.paths.len) -> id(this.s.acc),
+		else -> Fs.Read(path = JoinP(a = this.s.root, b = this.s.paths[this.s.i]))
 	};
-	Fs.Read -> At(s = { root = At.root, paths = At.paths, i = At.i + 1, acc = At.acc + [this] });
+	Fs.Read -> ReadAll(s = { root = ReadAll.s.root, paths = ReadAll.s.paths, i = ReadAll.s.i + 1, acc = ReadAll.s.acc + [this] });
 }
 
 // Why text isn't a manifest the reference would load (its fields and
 // their types), or "".
 func ManifestError(text: string): string = "cli_leaf.rs:manifest_error";
-proc CheckManifest(At): string {
-	func At(text: string): string = "../leaf.rs:same";
-	At -> id(ManifestError(text = this));
+proc CheckManifest(text: string): string {
+	CheckManifest -> id(ManifestError(text = this.text));
 }

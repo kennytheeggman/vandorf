@@ -3,13 +3,14 @@
 // lookups are guarded with `in`.
 type Scope = map[string]{ slot: int, kind: string };
 
-proc Resolve(Declare): string {
+proc Resolve(names: []string, query: string): string {
 	func Declare(names: []string, query: string): { scope: Scope, query: string } = "../go/app/impl.go:Declare", "../rs/src/impls.rs:declare";
 	func Adjust(scope: Scope, query: string): { scope: Scope, query: string } = "../go/app/impl.go:Adjust", "../rs/src/impls.rs:adjust";
 	func Found(name: string, slot: int, kind: string, total: int): string = "../go/app/impl.go:Found", "../rs/src/impls.rs:found";
 	func Missing(name: string, known: []string): string = "../go/app/impl.go:Missing", "../rs/src/impls.rs:missing";
 
 	// Add a builtin after the declared names, and drop `tmp`.
+	Resolve -> Declare(names = this.names, query = this.query);
 	Declare -> Adjust(
 		scope = this.scope + ["len": { slot = this.scope.len, kind = "builtin" }] - ["tmp"],
 		query = this.query

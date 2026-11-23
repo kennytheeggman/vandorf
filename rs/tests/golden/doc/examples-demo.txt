@@ -5,6 +5,15 @@
         {
           "nodes": [
             {
+              "type": 2,
+              "label": "Bar",
+              "sublabel": "(a: int, b: string)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "Start",
               "sublabel": "../go/app/impl.go:Repeat · ../rs/src/impls.rs:repeat"
@@ -81,6 +90,20 @@
             1,
             0
           ],
+          "valueType": "{ a: int, b: string }",
+          "call": "Start(a: int, b: string)",
+          "args": "a = this.a, b = this.b"
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
           "valueType": "string",
           "call": "Loop(s: string)",
           "args": "s = this"
@@ -88,11 +111,11 @@
         {
           "type": 1,
           "source": [
-            1,
+            2,
             0
           ],
           "target": [
-            1,
+            2,
             0
           ],
           "label": "this < 10",
@@ -103,11 +126,11 @@
         {
           "type": 1,
           "source": [
-            1,
+            2,
             0
           ],
           "target": [
-            2,
+            3,
             0
           ],
           "label": "else",
@@ -118,11 +141,11 @@
         {
           "type": 1,
           "source": [
-            2,
+            3,
             0
           ],
           "target": [
-            3,
+            4,
             0
           ],
           "label": "this == 0",
@@ -133,11 +156,11 @@
         {
           "type": 1,
           "source": [
-            2,
+            3,
             0
           ],
           "target": [
-            3,
+            4,
             1
           ],
           "label": "else",
@@ -148,11 +171,11 @@
         {
           "type": 0,
           "source": [
-            3,
+            4,
             0
           ],
           "target": [
-            6,
+            7,
             0
           ],
           "valueType": "string",
@@ -162,11 +185,11 @@
         {
           "type": 0,
           "source": [
-            3,
+            4,
             1
           ],
           "target": [
-            4,
+            5,
             0
           ],
           "valueType": "string",
@@ -176,11 +199,11 @@
         {
           "type": 0,
           "source": [
-            4,
+            5,
             0
           ],
           "target": [
-            5,
+            6,
             0
           ],
           "valueType": "int",
@@ -190,11 +213,11 @@
         {
           "type": 0,
           "source": [
-            5,
+            6,
             0
           ],
           "target": [
-            6,
+            7,
             0
           ],
           "valueType": "void",
@@ -205,6 +228,15 @@
     },
     "Calc": {
       "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "Calc",
+              "sublabel": "(base: int)"
+            }
+          ]
+        },
         {
           "nodes": [
             {
@@ -253,9 +285,9 @@
             1,
             0
           ],
-          "valueType": "Expr",
-          "call": "Eval(e: Expr, scale: int)",
-          "args": "e = Add({ l = Neg(this), r = Lit(10) }), scale = 1"
+          "valueType": "{ base: int }",
+          "call": "Build(base: int)",
+          "args": "base = this.base"
         },
         {
           "type": 0,
@@ -267,9 +299,9 @@
             2,
             0
           ],
-          "valueType": "int",
-          "call": "Twice(e: Expr, scale: int)",
-          "args": "e = Build, scale = 2"
+          "valueType": "Expr",
+          "call": "Eval(e: Expr, scale: int)",
+          "args": "e = Add({ l = Neg(this), r = Lit(10) }), scale = 1"
         },
         {
           "type": 0,
@@ -282,6 +314,20 @@
             0
           ],
           "valueType": "int",
+          "call": "Twice(e: Expr, scale: int)",
+          "args": "e = Build, scale = 2"
+        },
+        {
+          "type": 0,
+          "source": [
+            3,
+            0
+          ],
+          "target": [
+            4,
+            0
+          ],
+          "valueType": "int",
           "call": "Total(xs: []int)",
           "args": "xs = [Eval, Twice, 100]"
         }
@@ -289,6 +335,15 @@
     },
     "Classify": {
       "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "Classify",
+              "sublabel": "(e: Expr)"
+            }
+          ]
+        },
         {
           "nodes": [
             {
@@ -338,13 +393,27 @@
       ],
       "edges": [
         {
-          "type": 1,
+          "type": 0,
           "source": [
             0,
             0
           ],
           "target": [
             1,
+            0
+          ],
+          "valueType": "{ e: Expr }",
+          "call": "Look(e: Expr)",
+          "args": "e = this.e"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
             0
           ],
           "label": "Lit(n) → Small(i = n) && n % 2 == 0",
@@ -355,11 +424,11 @@
         {
           "type": 1,
           "source": [
-            0,
+            1,
             0
           ],
           "target": [
-            1,
+            2,
             1
           ],
           "label": "Lit(n) → else",
@@ -370,11 +439,11 @@
         {
           "type": 1,
           "source": [
-            0,
+            1,
             0
           ],
           "target": [
-            1,
+            2,
             2
           ],
           "label": "Neg(Lit(_))",
@@ -385,11 +454,11 @@
         {
           "type": 1,
           "source": [
-            0,
+            1,
             0
           ],
           "target": [
-            1,
+            2,
             3
           ],
           "label": "Neg(e)",
@@ -400,11 +469,11 @@
         {
           "type": 1,
           "source": [
-            0,
+            1,
             0
           ],
           "target": [
-            1,
+            2,
             4
           ],
           "label": "Add({ l = Lit(_), r = Lit(_) })",
@@ -415,11 +484,11 @@
         {
           "type": 1,
           "source": [
-            0,
+            1,
             0
           ],
           "target": [
-            1,
+            2,
             5
           ],
           "label": "Add(_)",
@@ -430,11 +499,11 @@
         {
           "type": 0,
           "source": [
-            1,
+            2,
             3
           ],
           "target": [
-            2,
+            3,
             0
           ],
           "valueType": "string",
@@ -445,6 +514,15 @@
     },
     "ForEach": {
       "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "ForEach",
+              "sublabel": "(i: int)"
+            }
+          ]
+        },
         {
           "nodes": [
             {
@@ -475,13 +553,27 @@
       ],
       "edges": [
         {
-          "type": 2,
+          "type": 0,
           "source": [
             0,
             0
           ],
           "target": [
             1,
+            0
+          ],
+          "valueType": "{ i: int }",
+          "call": "Start(i: int)",
+          "args": "i = this.i"
+        },
+        {
+          "type": 2,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
             0
           ],
           "valueType": "int",
@@ -491,11 +583,11 @@
         {
           "type": 4,
           "source": [
-            1,
+            2,
             0
           ],
           "target": [
-            2,
+            3,
             0
           ],
           "valueType": "[]int",
@@ -509,6 +601,15 @@
         {
           "nodes": [
             {
+              "type": 2,
+              "label": "Hello",
+              "sublabel": "(name: string, times: int)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "Greet",
               "sublabel": "../go/app/impl.go:Greet · ../rs/src/impls.rs:greet"
@@ -516,10 +617,34 @@
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ name: string, times: int }",
+          "call": "Greet(name: string, times: int)",
+          "args": "name = this.name, times = this.times"
+        }
+      ]
     },
     "Main": {
       "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "Main",
+              "sublabel": "(a: int, b: string)"
+            }
+          ]
+        },
         {
           "nodes": [
             {
@@ -550,6 +675,20 @@
             0
           ],
           "valueType": "{ a: int, b: string }",
+          "call": "Start(a: int, b: string)",
+          "args": "a = this.a, b = this.b"
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "{ a: int, b: string }",
           "call": "Bar(a: int, b: string)",
           "args": "a = this.a, b = this.b"
         }
@@ -557,6 +696,15 @@
     },
     "Measure": {
       "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "Measure",
+              "sublabel": "(shapes: []Shape)"
+            }
+          ]
+        },
         {
           "nodes": [
             {
@@ -595,13 +743,27 @@
       ],
       "edges": [
         {
-          "type": 2,
+          "type": 0,
           "source": [
             0,
             0
           ],
           "target": [
             1,
+            0
+          ],
+          "valueType": "{ shapes: []Shape }",
+          "call": "Shapes(shapes: []Shape)",
+          "args": "shapes = this.shapes"
+        },
+        {
+          "type": 2,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
             0
           ],
           "valueType": "Shape",
@@ -611,11 +773,11 @@
         {
           "type": 4,
           "source": [
-            1,
+            2,
             0
           ],
           "target": [
-            2,
+            3,
             0
           ],
           "valueType": "[]Measured",
@@ -625,11 +787,11 @@
         {
           "type": 1,
           "source": [
-            2,
+            3,
             0
           ],
           "target": [
-            3,
+            4,
             0
           ],
           "label": "this.i == this.xs.len",
@@ -640,11 +802,11 @@
         {
           "type": 1,
           "source": [
-            2,
+            3,
             0
           ],
           "target": [
-            2,
+            3,
             0
           ],
           "label": "this.xs[this.i].kind in this.r.kinds",
@@ -655,11 +817,11 @@
         {
           "type": 1,
           "source": [
-            2,
+            3,
             0
           ],
           "target": [
-            2,
+            3,
             0
           ],
           "label": "else",
@@ -671,6 +833,15 @@
     },
     "Resolve": {
       "rows": [
+        {
+          "nodes": [
+            {
+              "type": 2,
+              "label": "Resolve",
+              "sublabel": "(names: []string, query: string)"
+            }
+          ]
+        },
         {
           "nodes": [
             {
@@ -715,6 +886,20 @@
             1,
             0
           ],
+          "valueType": "{ names: []string, query: string }",
+          "call": "Declare(names: []string, query: string)",
+          "args": "names = this.names, query = this.query"
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
           "valueType": "{ scope: Scope, query: string }",
           "call": "Adjust(scope: Scope, query: string)",
           "args": "scope = this.scope + [\"len\": { slot = this.scope.len, kind = \"builtin\" }] - [\"tmp\"], query = this.query"
@@ -722,11 +907,11 @@
         {
           "type": 1,
           "source": [
-            1,
+            2,
             0
           ],
           "target": [
-            2,
+            3,
             0
           ],
           "label": "this.query in this.scope",
@@ -737,11 +922,11 @@
         {
           "type": 1,
           "source": [
-            1,
+            2,
             0
           ],
           "target": [
-            2,
+            3,
             1
           ],
           "label": "else",

@@ -79,40 +79,35 @@ func GoPc(nodes: []NodeDecl, pid: int, n: int): string = "go_leaf.rs:go_pc";
 
 // ---- types_vandorf.go ----
 
-proc GoTypegen(At): string {
-	func At(s: { t: Table, pkg: string }): { t: Table, pkg: string } = "../leaf.rs:same";
-	At -> GoTypeLines(s = { t = this.t, i = 0, acc = [Raw(GoHeader(pkg = this.pkg, imports = []))] });
-	GoTypeLines -> GoAliasLines(s = { t = At.t, i = 0, acc = this });
+proc GoTypegen(s: { t: Table, pkg: string }): string {
+	GoTypegen -> GoTypeLines(s = { t = this.s.t, i = 0, acc = [Raw(GoHeader(pkg = this.s.pkg, imports = []))] });
+	GoTypeLines -> GoAliasLines(s = { t = GoTypegen.s.t, i = 0, acc = this });
 	GoAliasLines -> id(Lines(lines = this, indent = "\t"));
 }
 
-proc GoTypeLines(At): []Line {
-	func At(s: { t: Table, i: int, acc: []Line }): { t: Table, i: int, acc: []Line } = "../leaf.rs:same";
-	func S(s: Shape): Shape = "../leaf.rs:same";
-	At switch {
-		(this.i == this.t.types.len) -> id(this.acc),
-		else -> S(s = this.t.types[this.i].shape)
+proc GoTypeLines(s: { t: Table, i: int, acc: []Line }): []Line {
+	GoTypeLines switch {
+		(this.s.i == this.s.t.types.len) -> id(this.s.acc),
+		else -> id(this.s.t.types[this.s.i].shape) as S
 	};
 	S switch {
-		Struct(fs) -> GoMemberLines(s = { t = At.t, i = At.i, ms = fs, j = 0, acc = At.acc + [GoDoc(n = At.t.types[At.i]), L("type " + At.t.types[At.i].name + " struct {")] }) as Ms,
-		Enum(vs) -> GoMemberLines(s = { t = At.t, i = At.i, ms = vs, j = 0, acc = At.acc + [GoDoc(n = At.t.types[At.i]), L(GoTagDoc(ms = vs)), L("type " + At.t.types[At.i].name + " struct {"), L("Tag string")] }) as Ms
+		Struct(fs) -> GoMemberLines(s = { t = GoTypeLines.s.t, i = GoTypeLines.s.i, ms = fs, j = 0, acc = GoTypeLines.s.acc + [GoDoc(n = GoTypeLines.s.t.types[GoTypeLines.s.i]), L("type " + GoTypeLines.s.t.types[GoTypeLines.s.i].name + " struct {")] }) as Ms,
+		Enum(vs) -> GoMemberLines(s = { t = GoTypeLines.s.t, i = GoTypeLines.s.i, ms = vs, j = 0, acc = GoTypeLines.s.acc + [GoDoc(n = GoTypeLines.s.t.types[GoTypeLines.s.i]), L(GoTagDoc(ms = vs)), L("type " + GoTypeLines.s.t.types[GoTypeLines.s.i].name + " struct {"), L("Tag string")] }) as Ms
 	};
-	Ms -> At(s = { t = At.t, i = At.i + 1, acc = this + [L("}"), L("")] });
+	Ms -> GoTypeLines(s = { t = GoTypeLines.s.t, i = GoTypeLines.s.i + 1, acc = this + [L("}"), L("")] });
 }
 
-proc GoMemberLines(At): []Line {
-	func At(s: { t: Table, i: int, ms: []RefMember, j: int, acc: []Line }): { t: Table, i: int, ms: []RefMember, j: int, acc: []Line } = "../leaf.rs:same";
-	At switch {
-		(this.j == this.ms.len) -> id(this.acc),
-		else -> At(s = { ..this, j = this.j + 1, acc = this.acc + [L(Exported(s = this.ms[this.j].name) + " " + GoFieldType(t = this.t, i = this.i, m = this.ms[this.j]))] })
+proc GoMemberLines(s: { t: Table, i: int, ms: []RefMember, j: int, acc: []Line }): []Line {
+	GoMemberLines switch {
+		(this.s.j == this.s.ms.len) -> id(this.s.acc),
+		else -> GoMemberLines(s = { ..this.s, j = this.s.j + 1, acc = this.s.acc + [L(Exported(s = this.s.ms[this.s.j].name) + " " + GoFieldType(t = this.s.t, i = this.s.i, m = this.s.ms[this.s.j]))] })
 	};
 }
 
-proc GoAliasLines(At): []Line {
-	func At(s: { t: Table, i: int, acc: []Line }): { t: Table, i: int, acc: []Line } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.t.aliases.len) -> id(this.acc),
-		else -> At(s = { t = this.t, i = this.i + 1, acc = this.acc + [L("// " + this.t.aliases[this.i].name + " is a typedef."), L("type " + this.t.aliases[this.i].name + " = " + GoRender(t = this.t, r = this.t.aliases[this.i].r, qual = "")), L("")] })
+proc GoAliasLines(s: { t: Table, i: int, acc: []Line }): []Line {
+	GoAliasLines switch {
+		(this.s.i == this.s.t.aliases.len) -> id(this.s.acc),
+		else -> GoAliasLines(s = { t = this.s.t, i = this.s.i + 1, acc = this.s.acc + [L("// " + this.s.t.aliases[this.s.i].name + " is a typedef."), L("type " + this.s.t.aliases[this.s.i].name + " = " + GoRender(t = this.s.t, r = this.s.t.aliases[this.s.i].r, qual = "")), L("")] })
 	};
 }
 
@@ -128,62 +123,56 @@ func GoLines(ls: []string): string = "go_leaf.rs:go_lines";
 
 // expr, of type `from`, as a `to`, which sema checked accepts it: through a
 // helper per pair of Go types.
-proc GCoerce(At): GEmit {
-	func At(s: GCoerceAt): GCoerceAt = "../leaf.rs:same";
-	func Both(s: { f: Type, t: Type }): { f: Type, t: Type } = "../leaf.rs:same";
-	At switch {
-		(GoType(g = this.g, ty = this.from) == GoType(g = this.g, ty = this.to)) -> id({ g = this.g, s = this.expr }),
-		(GoCoerceKey(at = this) in this.g.coercions) -> id({ g = this.g, s = this.g.coercions[GoCoerceKey(at = this)] + "(" + this.expr + ")" }),
-		else -> Both(s = { f = Unfolded(defs = this.g.prog.types, t = this.from), t = Unfolded(defs = this.g.prog.types, t = this.to) })
+proc GCoerce(s: GCoerceAt): GEmit {
+	GCoerce switch {
+		(GoType(g = this.s.g, ty = this.s.from) == GoType(g = this.s.g, ty = this.s.to)) -> id({ g = this.s.g, s = this.s.expr }),
+		(GoCoerceKey(at = this.s) in this.s.g.coercions) -> id({ g = this.s.g, s = this.s.g.coercions[GoCoerceKey(at = this.s)] + "(" + this.s.expr + ")" }),
+		else -> id({ f = Unfolded(defs = this.s.g.prog.types, t = this.s.from), t = Unfolded(defs = this.s.g.prog.types, t = this.s.to) }) as Both
 	};
 	Both switch {
-		{ f = Array(f), t = Array(t) } -> GCoerce(s = { g = GoNewCoercion(at = At), expr = "v[i]", from = f, to = t }) as Elems,
-		{ f = Map(f), t = Map(t) } -> GCoerce(s = { g = GoNewCoercion(at = At), expr = "x", from = f.value, to = t.value }) as Values,
-		{ f = Struct(_), t = Struct(tfs) } -> GCoerceFields(s = { at = At, g = GoNewCoercion(at = At), ms = tfs, i = 0, acc = [GoCoerceHead(at = At)] }) as Fs,
-		{ f = Enum(fvs), t = Enum(_) } -> GCoerceVariants(s = { at = At, g = GoNewCoercion(at = At), ms = fvs, i = 0, acc = [GoCoerceHead(at = At), "r.Tag = v.Tag", "switch v.Tag {"] }) as Vs,
-		else -> id({ g = GoFatal(g = At.g, msg = "sema admitted coercion " + GoType(g = At.g, ty = At.from) + " -> " + GoType(g = At.g, ty = At.to)), s = At.expr })
+		{ f = Array(f), t = Array(t) } -> GCoerce(s = { g = GoNewCoercion(at = GCoerce.s), expr = "v[i]", from = f, to = t }) as Elems,
+		{ f = Map(f), t = Map(t) } -> GCoerce(s = { g = GoNewCoercion(at = GCoerce.s), expr = "x", from = f.value, to = t.value }) as Values,
+		{ f = Struct(_), t = Struct(tfs) } -> GCoerceFields(s = { at = GCoerce.s, g = GoNewCoercion(at = GCoerce.s), ms = tfs, i = 0, acc = [GoCoerceHead(at = GCoerce.s)] }) as Fs,
+		{ f = Enum(fvs), t = Enum(_) } -> GCoerceVariants(s = { at = GCoerce.s, g = GoNewCoercion(at = GCoerce.s), ms = fvs, i = 0, acc = [GoCoerceHead(at = GCoerce.s), "r.Tag = v.Tag", "switch v.Tag {"] }) as Vs,
+		else -> id({ g = GoFatal(g = GCoerce.s.g, msg = "sema admitted coercion " + GoType(g = GCoerce.s.g, ty = GCoerce.s.from) + " -> " + GoType(g = GCoerce.s.g, ty = GCoerce.s.to)), s = GCoerce.s.expr })
 	};
-	Elems -> GHelper(s = { at = At, g = this.g, lines = [GoCoerceHead(at = At), "r = make(" + GoType(g = At.g, ty = At.to) + ", len(v))", "for i := range v {", "r[i] = " + this.s, "}", "return r", "}"] });
-	Values -> GHelper(s = { at = At, g = this.g, lines = [GoCoerceHead(at = At), "r = make(" + GoType(g = At.g, ty = At.to) + ", len(v))", "for k, x := range v {", "r[k] = " + this.s, "}", "return r", "}"] });
-	Fs -> GHelper(s = { at = At, g = this.g, lines = this.lines + ["return r", "}"] });
-	Vs -> GHelper(s = { at = At, g = this.g, lines = this.lines + ["}", "return r", "}"] });
+	Elems -> GHelper(s = { at = GCoerce.s, g = this.g, lines = [GoCoerceHead(at = GCoerce.s), "r = make(" + GoType(g = GCoerce.s.g, ty = GCoerce.s.to) + ", len(v))", "for i := range v {", "r[i] = " + this.s, "}", "return r", "}"] });
+	Values -> GHelper(s = { at = GCoerce.s, g = this.g, lines = [GoCoerceHead(at = GCoerce.s), "r = make(" + GoType(g = GCoerce.s.g, ty = GCoerce.s.to) + ", len(v))", "for k, x := range v {", "r[k] = " + this.s, "}", "return r", "}"] });
+	Fs -> GHelper(s = { at = GCoerce.s, g = this.g, lines = this.lines + ["return r", "}"] });
+	Vs -> GHelper(s = { at = GCoerce.s, g = this.g, lines = this.lines + ["}", "return r", "}"] });
 }
 
 // Pushes the helper and calls it.
-proc GHelper(At): GEmit {
-	func At(s: { at: GCoerceAt, g: GGen, lines: []string }): { at: GCoerceAt, g: GGen, lines: []string } = "../leaf.rs:same";
-	At -> id({ g = { ..this.g, helpers = this.g.helpers + [GoLines(ls = this.lines)] }, s = GoCoercionName(at = this.at) + "(" + this.at.expr + ")" });
+proc GHelper(s: { at: GCoerceAt, g: GGen, lines: []string }): GEmit {
+	GHelper -> id({ g = { ..this.s.g, helpers = this.s.g.helpers + [GoLines(ls = this.s.lines)] }, s = GoCoercionName(at = this.s.at) + "(" + this.s.at.expr + ")" });
 }
 
 // Copies part n (a field, or variant n's payload), through pointers where
 // either side boxes it.
-proc GCoercePart(At): GLines {
-	func At(s: { at: GCoerceAt, g: GGen, n: string, f: Type, t: Type }): { at: GCoerceAt, g: GGen, n: string, f: Type, t: Type } = "../leaf.rs:same";
-	At switch {
-		(TyBoxed(t = this.g.table, ty = this.at.from, part = this.n)) -> GCoerce(s = { g = this.g, expr = "(*v." + Exported(s = this.n) + ")", from = this.f, to = this.t }) as Boxed,
-		else -> GCoerce(s = { g = this.g, expr = "v." + Exported(s = this.n), from = this.f, to = this.t }) as Plain
+proc GCoercePart(s: { at: GCoerceAt, g: GGen, n: string, f: Type, t: Type }): GLines {
+	GCoercePart switch {
+		(TyBoxed(t = this.s.g.table, ty = this.s.at.from, part = this.s.n)) -> GCoerce(s = { g = this.s.g, expr = "(*v." + Exported(s = this.s.n) + ")", from = this.s.f, to = this.s.t }) as Boxed,
+		else -> GCoerce(s = { g = this.s.g, expr = "v." + Exported(s = this.s.n), from = this.s.f, to = this.s.t }) as Plain
 	};
-	Boxed -> id({ g = this.g, lines = ["if v." + Exported(s = At.n) + " != nil {", "r." + Exported(s = At.n) + " = " + GoBoxIf(b = TyBoxed(t = At.g.table, ty = At.at.to, part = At.n), s = this.s), "}"] });
-	Plain -> id({ g = this.g, lines = ["r." + Exported(s = At.n) + " = " + GoBoxIf(b = TyBoxed(t = At.g.table, ty = At.at.to, part = At.n), s = this.s)] });
+	Boxed -> id({ g = this.g, lines = ["if v." + Exported(s = GCoercePart.s.n) + " != nil {", "r." + Exported(s = GCoercePart.s.n) + " = " + GoBoxIf(b = TyBoxed(t = GCoercePart.s.g.table, ty = GCoercePart.s.at.to, part = GCoercePart.s.n), s = this.s), "}"] });
+	Plain -> id({ g = this.g, lines = ["r." + Exported(s = GCoercePart.s.n) + " = " + GoBoxIf(b = TyBoxed(t = GCoercePart.s.g.table, ty = GCoercePart.s.at.to, part = GCoercePart.s.n), s = this.s)] });
 }
 
-proc GCoerceFields(At): GLines {
-	func At(s: { at: GCoerceAt, g: GGen, ms: []Member, i: int, acc: []string }): { at: GCoerceAt, g: GGen, ms: []Member, i: int, acc: []string } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.ms.len) -> id({ g = this.g, lines = this.acc }),
-		else -> GCoercePart(s = { at = this.at, g = this.g, n = this.ms[this.i].name, f = MemberOf(defs = this.g.prog.types, t = this.at.from, name = this.ms[this.i].name), t = this.ms[this.i].ty })
+proc GCoerceFields(s: { at: GCoerceAt, g: GGen, ms: []Member, i: int, acc: []string }): GLines {
+	GCoerceFields switch {
+		(this.s.i == this.s.ms.len) -> id({ g = this.s.g, lines = this.s.acc }),
+		else -> GCoercePart(s = { at = this.s.at, g = this.s.g, n = this.s.ms[this.s.i].name, f = MemberOf(defs = this.s.g.prog.types, t = this.s.at.from, name = this.s.ms[this.s.i].name), t = this.s.ms[this.s.i].ty })
 	};
-	GCoercePart -> At(s = { ..At, g = this.g, i = At.i + 1, acc = At.acc + this.lines });
+	GCoercePart -> GCoerceFields(s = { ..GCoerceFields.s, g = this.g, i = GCoerceFields.s.i + 1, acc = GCoerceFields.s.acc + this.lines });
 }
 
-proc GCoerceVariants(At): GLines {
-	func At(s: { at: GCoerceAt, g: GGen, ms: []Member, i: int, acc: []string }): { at: GCoerceAt, g: GGen, ms: []Member, i: int, acc: []string } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.ms.len) -> id({ g = this.g, lines = this.acc }),
-		(IsVoid(t = this.ms[this.i].ty)) -> At(s = { ..this, i = this.i + 1, acc = this.acc + ["case " + Quote(s = this.ms[this.i].name) + ":"] }),
-		else -> GCoercePart(s = { at = this.at, g = this.g, n = this.ms[this.i].name, f = this.ms[this.i].ty, t = MemberOf(defs = this.g.prog.types, t = this.at.to, name = this.ms[this.i].name) })
+proc GCoerceVariants(s: { at: GCoerceAt, g: GGen, ms: []Member, i: int, acc: []string }): GLines {
+	GCoerceVariants switch {
+		(this.s.i == this.s.ms.len) -> id({ g = this.s.g, lines = this.s.acc }),
+		(IsVoid(t = this.s.ms[this.s.i].ty)) -> GCoerceVariants(s = { ..this.s, i = this.s.i + 1, acc = this.s.acc + ["case " + Quote(s = this.s.ms[this.s.i].name) + ":"] }),
+		else -> GCoercePart(s = { at = this.s.at, g = this.s.g, n = this.s.ms[this.s.i].name, f = this.s.ms[this.s.i].ty, t = MemberOf(defs = this.s.g.prog.types, t = this.s.at.to, name = this.s.ms[this.s.i].name) })
 	};
-	GCoercePart -> At(s = { ..At, g = this.g, i = At.i + 1, acc = At.acc + ["case " + Quote(s = At.ms[At.i].name) + ":"] + this.lines });
+	GCoercePart -> GCoerceVariants(s = { ..GCoerceVariants.s, g = this.g, i = GCoerceVariants.s.i + 1, acc = GCoerceVariants.s.acc + ["case " + Quote(s = GCoerceVariants.s.ms[GCoerceVariants.s.i].name) + ":"] + this.lines });
 }
 
 // ---- Expressions ----
@@ -192,71 +181,66 @@ type GValueIn = { g: GGen, e: Expr, want: Type };
 
 // e as a Go expression of type `want`. Calls in e can fail, so they're
 // evaluated by statements written first, which return on error.
-proc GValue(At): GEmit {
-	func At(s: GValueIn): GValueIn = "../leaf.rs:same";
-	func E(e: Expr): Expr = "../leaf.rs:same";
-	At -> E(e = this.e);
+proc GValue(s: GValueIn): GEmit {
+	GValue -> id(this.s.e) as E;
 	E switch {
-		Ref(r) -> GCoerce(s = { g = At.g, expr = GoRef(g = At.g, r = r), from = r.ty, to = At.want }) as Out,
-		Call(c) -> GOwn(s = { g = At.g, e = At.e }) as Called,
-		Array(es) -> GValues(s = { g = At.g, es = es, want = ElemOf(t = Unfolded(defs = At.g.prog.types, t = At.want)), i = 0, acc = [] }) as Items,
-		Map(kvs) -> GEntries(s = { g = At.g, kvs = kvs, kt = KeyOf(t = Unfolded(defs = At.g.prog.types, t = At.want)), vt = MapValue(t = Unfolded(defs = At.g.prog.types, t = At.want)), i = 0, acc = [] }) as Entries,
-		Index(x) -> GOwn(s = { g = At.g, e = At.e }) as Indexed,
-		Field(x) -> GOwn(s = { g = At.g, e = At.e }) as Selected,
-		Merge(x) -> GOwn(s = { g = At.g, e = At.e }) as Merged,
-		Remove(x) -> GOwn(s = { g = At.g, e = At.e }) as Removed,
+		Ref(r) -> GCoerce(s = { g = GValue.s.g, expr = GoRef(g = GValue.s.g, r = r), from = r.ty, to = GValue.s.want }) as Out,
+		Call(c) -> GOwn(s = { g = GValue.s.g, e = GValue.s.e }) as Called,
+		Array(es) -> GValues(s = { g = GValue.s.g, es = es, want = ElemOf(t = Unfolded(defs = GValue.s.g.prog.types, t = GValue.s.want)), i = 0, acc = [] }) as Items,
+		Map(kvs) -> GEntries(s = { g = GValue.s.g, kvs = kvs, kt = KeyOf(t = Unfolded(defs = GValue.s.g.prog.types, t = GValue.s.want)), vt = MapValue(t = Unfolded(defs = GValue.s.g.prog.types, t = GValue.s.want)), i = 0, acc = [] }) as Entries,
+		Index(x) -> GOwn(s = { g = GValue.s.g, e = GValue.s.e }) as Indexed,
+		Field(x) -> GOwn(s = { g = GValue.s.g, e = GValue.s.e }) as Selected,
+		Merge(x) -> GOwn(s = { g = GValue.s.g, e = GValue.s.e }) as Merged,
+		Remove(x) -> GOwn(s = { g = GValue.s.g, e = GValue.s.e }) as Removed,
 		Query(q) -> switch {
-			(q.q == "keys") -> GOwn(s = { g = At.g, e = At.e }) as Keys,
-			(q.q == "values") -> GOwn(s = { g = At.g, e = At.e }) as Vals,
-			else -> GOwn(s = { g = At.g, e = At.e }) as Own
+			(q.q == "keys") -> GOwn(s = { g = GValue.s.g, e = GValue.s.e }) as Keys,
+			(q.q == "values") -> GOwn(s = { g = GValue.s.g, e = GValue.s.e }) as Vals,
+			else -> GOwn(s = { g = GValue.s.g, e = GValue.s.e }) as Own
 		},
-		Struct(fs) -> GFields(s = { g = At.g, fs = fs, want = At.want, i = 0, acc = [] }) as Fields,
+		Struct(fs) -> GFields(s = { g = GValue.s.g, fs = fs, want = GValue.s.want, i = 0, acc = [] }) as Fields,
 		Variant(v) -> switch {
-			(IsSomeE(m = v.payload)) -> GValue(s = { g = At.g, e = UnwrapME(m = v.payload), want = MemberOf(defs = At.g.prog.types, t = At.want, name = v.tag) }) as Payload,
-			else -> id({ g = At.g, s = GoType(g = At.g, ty = At.want) + "{Tag: " + Quote(s = v.tag) + "}" })
+			(IsSomeE(m = v.payload)) -> GValue(s = { g = GValue.s.g, e = UnwrapME(m = v.payload), want = MemberOf(defs = GValue.s.g.prog.types, t = GValue.s.want, name = v.tag) }) as Payload,
+			else -> id({ g = GValue.s.g, s = GoType(g = GValue.s.g, ty = GValue.s.want) + "{Tag: " + Quote(s = v.tag) + "}" })
 		},
 		// Primitives, whose Go types match whenever sema accepted them.
-		else -> GOwn(s = { g = At.g, e = At.e }) as Own
+		else -> GOwn(s = { g = GValue.s.g, e = GValue.s.e }) as Own
 	};
-	Called -> GCoerce(s = { g = this.g, expr = this.s, from = NodeRet(nodes = At.g.prog.nodes, n = CallOfE(e = At.e).target), to = At.want }) as Out;
-	Items -> id({ g = this.g, s = GoType(g = At.g, ty = At.want) + "{" + Join(parts = this.parts, sep = ", ") + "}" });
-	Entries -> id({ g = this.g, s = GoType(g = At.g, ty = At.want) + "{" + Join(parts = this.parts, sep = ", ") + "}" });
-	Fields -> id({ g = this.g, s = GoType(g = At.g, ty = At.want) + "{" + Join(parts = this.parts, sep = ", ") + "}" });
-	Indexed -> GCoerce(s = { g = this.g, expr = this.s, from = IndexedValue(t = Unfolded(defs = At.g.prog.types, t = IndexTy(e = At.e))), to = At.want }) as Out;
-	Selected -> GCoerce(s = { g = this.g, expr = this.s, from = MemberOf(defs = At.g.prog.types, t = FieldTy(e = At.e), name = FieldNameE(e = At.e)), to = At.want }) as Out;
-	Merged -> GCoerce(s = { g = this.g, expr = this.s, from = MergeTy(e = At.e), to = At.want }) as Out;
-	Removed -> GCoerce(s = { g = this.g, expr = this.s, from = MergeTy(e = At.e), to = At.want }) as Out;
-	Keys -> GCoerce(s = { g = this.g, expr = this.s, from = Array(KeyOf(t = Unfolded(defs = At.g.prog.types, t = QueryTy(e = At.e)))), to = At.want }) as Out;
-	Vals -> GCoerce(s = { g = this.g, expr = this.s, from = Array(MapValue(t = Unfolded(defs = At.g.prog.types, t = QueryTy(e = At.e)))), to = At.want }) as Out;
-	Payload -> id({ g = this.g, s = GoType(g = At.g, ty = At.want) + "{Tag: " + Quote(s = VariantTagE(e = At.e)) + ", " + Exported(s = VariantTagE(e = At.e)) + ": " + GoBoxIf(b = TyBoxed(t = At.g.table, ty = At.want, part = VariantTagE(e = At.e)), s = this.s) + "}" });
+	Called -> GCoerce(s = { g = this.g, expr = this.s, from = NodeRet(nodes = GValue.s.g.prog.nodes, n = CallOfE(e = GValue.s.e).target), to = GValue.s.want }) as Out;
+	Items -> id({ g = this.g, s = GoType(g = GValue.s.g, ty = GValue.s.want) + "{" + Join(parts = this.parts, sep = ", ") + "}" });
+	Entries -> id({ g = this.g, s = GoType(g = GValue.s.g, ty = GValue.s.want) + "{" + Join(parts = this.parts, sep = ", ") + "}" });
+	Fields -> id({ g = this.g, s = GoType(g = GValue.s.g, ty = GValue.s.want) + "{" + Join(parts = this.parts, sep = ", ") + "}" });
+	Indexed -> GCoerce(s = { g = this.g, expr = this.s, from = IndexedValue(t = Unfolded(defs = GValue.s.g.prog.types, t = IndexTy(e = GValue.s.e))), to = GValue.s.want }) as Out;
+	Selected -> GCoerce(s = { g = this.g, expr = this.s, from = MemberOf(defs = GValue.s.g.prog.types, t = FieldTy(e = GValue.s.e), name = FieldNameE(e = GValue.s.e)), to = GValue.s.want }) as Out;
+	Merged -> GCoerce(s = { g = this.g, expr = this.s, from = MergeTy(e = GValue.s.e), to = GValue.s.want }) as Out;
+	Removed -> GCoerce(s = { g = this.g, expr = this.s, from = MergeTy(e = GValue.s.e), to = GValue.s.want }) as Out;
+	Keys -> GCoerce(s = { g = this.g, expr = this.s, from = Array(KeyOf(t = Unfolded(defs = GValue.s.g.prog.types, t = QueryTy(e = GValue.s.e)))), to = GValue.s.want }) as Out;
+	Vals -> GCoerce(s = { g = this.g, expr = this.s, from = Array(MapValue(t = Unfolded(defs = GValue.s.g.prog.types, t = QueryTy(e = GValue.s.e)))), to = GValue.s.want }) as Out;
+	Payload -> id({ g = this.g, s = GoType(g = GValue.s.g, ty = GValue.s.want) + "{Tag: " + Quote(s = VariantTagE(e = GValue.s.e)) + ", " + Exported(s = VariantTagE(e = GValue.s.e)) + ": " + GoBoxIf(b = TyBoxed(t = GValue.s.g.table, ty = GValue.s.want, part = VariantTagE(e = GValue.s.e)), s = this.s) + "}" });
 }
 
-proc GValues(At): GParts {
-	func At(s: { g: GGen, es: []Expr, want: Type, i: int, acc: []string }): { g: GGen, es: []Expr, want: Type, i: int, acc: []string } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.es.len) -> id({ g = this.g, parts = this.acc }),
-		else -> GValue(s = { g = this.g, e = this.es[this.i], want = this.want })
+proc GValues(s: { g: GGen, es: []Expr, want: Type, i: int, acc: []string }): GParts {
+	GValues switch {
+		(this.s.i == this.s.es.len) -> id({ g = this.s.g, parts = this.s.acc }),
+		else -> GValue(s = { g = this.s.g, e = this.s.es[this.s.i], want = this.s.want })
 	};
-	GValue -> At(s = { ..At, g = this.g, i = At.i + 1, acc = At.acc + [this.s] });
+	GValue -> GValues(s = { ..GValues.s, g = this.g, i = GValues.s.i + 1, acc = GValues.s.acc + [this.s] });
 }
 
-proc GEntries(At): GParts {
-	func At(s: { g: GGen, kvs: []ExprEntry, kt: Type, vt: Type, i: int, acc: []string }): { g: GGen, kvs: []ExprEntry, kt: Type, vt: Type, i: int, acc: []string } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.kvs.len) -> id({ g = this.g, parts = this.acc }),
-		else -> GValue(s = { g = this.g, e = this.kvs[this.i].key, want = this.kt }) as K
+proc GEntries(s: { g: GGen, kvs: []ExprEntry, kt: Type, vt: Type, i: int, acc: []string }): GParts {
+	GEntries switch {
+		(this.s.i == this.s.kvs.len) -> id({ g = this.s.g, parts = this.s.acc }),
+		else -> GValue(s = { g = this.s.g, e = this.s.kvs[this.s.i].key, want = this.s.kt }) as K
 	};
-	K -> GValue(s = { g = this.g, e = At.kvs[At.i].value, want = At.vt }) as V;
-	V -> At(s = { ..At, g = this.g, i = At.i + 1, acc = At.acc + [K.s + ": " + this.s] });
+	K -> GValue(s = { g = this.g, e = GEntries.s.kvs[GEntries.s.i].value, want = GEntries.s.vt }) as V;
+	V -> GEntries(s = { ..GEntries.s, g = this.g, i = GEntries.s.i + 1, acc = GEntries.s.acc + [K.s + ": " + this.s] });
 }
 
-proc GFields(At): GParts {
-	func At(s: { g: GGen, fs: []ExprMember, want: Type, i: int, acc: []string }): { g: GGen, fs: []ExprMember, want: Type, i: int, acc: []string } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.fs.len) -> id({ g = this.g, parts = this.acc }),
-		else -> GValue(s = { g = this.g, e = this.fs[this.i].e, want = MemberOf(defs = this.g.prog.types, t = this.want, name = this.fs[this.i].name) })
+proc GFields(s: { g: GGen, fs: []ExprMember, want: Type, i: int, acc: []string }): GParts {
+	GFields switch {
+		(this.s.i == this.s.fs.len) -> id({ g = this.s.g, parts = this.s.acc }),
+		else -> GValue(s = { g = this.s.g, e = this.s.fs[this.s.i].e, want = MemberOf(defs = this.s.g.prog.types, t = this.s.want, name = this.s.fs[this.s.i].name) })
 	};
-	GValue -> At(s = { ..At, g = this.g, i = At.i + 1, acc = At.acc + [Exported(s = At.fs[At.i].name) + ": " + GoBoxIf(b = TyBoxed(t = At.g.table, ty = At.want, part = At.fs[At.i].name), s = this.s)] });
+	GValue -> GFields(s = { ..GFields.s, g = this.g, i = GFields.s.i + 1, acc = GFields.s.acc + [Exported(s = GFields.s.fs[GFields.s.i].name) + ": " + GoBoxIf(b = TyBoxed(t = GFields.s.g.table, ty = GFields.s.want, part = GFields.s.fs[GFields.s.i].name), s = this.s)] });
 }
 
 // `t, err := call` and its error check; `if t {` (or `if !t {`) for a
@@ -269,75 +253,72 @@ func GoSelect(x: string, name: string, boxed: bool): string = "go_leaf.rs:go_sel
 
 // An expression that has its own type (not a struct, array, map or
 // variant literal), at that type.
-proc GOwn(At): GEmit {
-	func At(s: { g: GGen, e: Expr }): { g: GGen, e: Expr } = "../leaf.rs:same";
-	func E(e: Expr): Expr = "../leaf.rs:same";
-	At -> E(e = this.e);
+proc GOwn(s: { g: GGen, e: Expr }): GEmit {
+	GOwn -> id(this.s.e) as E;
 	E switch {
-		Ref(r) -> id({ g = At.g, s = GoRef(g = At.g, r = r) }),
-		Int(i) -> id({ g = At.g, s = Itoa(i = i) }),
-		Float(f) -> id({ g = At.g, s = GoFloat(f = f) }),
-		Str(s) -> id({ g = At.g, s = Quote(s = s) }),
+		Ref(r) -> id({ g = GOwn.s.g, s = GoRef(g = GOwn.s.g, r = r) }),
+		Int(i) -> id({ g = GOwn.s.g, s = Itoa(i = i) }),
+		Float(f) -> id({ g = GOwn.s.g, s = GoFloat(f = f) }),
+		Str(s) -> id({ g = GOwn.s.g, s = Quote(s = s) }),
 		Bool(b) -> switch {
-			(b) -> id({ g = At.g, s = "true" }),
-			else -> id({ g = At.g, s = "false" })
+			(b) -> id({ g = GOwn.s.g, s = "true" }),
+			else -> id({ g = GOwn.s.g, s = "false" })
 		},
-		Unary(u) -> GOwn(s = { g = At.g, e = u.e }) as Operand,
+		Unary(u) -> GOwn(s = { g = GOwn.s.g, e = u.e }) as Operand,
 		Binary(b) -> switch {
-			((b.op == "&&" || b.op == "||") && CanFail(e = b.r)) -> GOwn(s = { g = At.g, e = b.l }) as SL,
-			else -> GOwn(s = { g = At.g, e = b.l }) as BL
+			((b.op == "&&" || b.op == "||") && CanFail(e = b.r)) -> GOwn(s = { g = GOwn.s.g, e = b.l }) as SL,
+			else -> GOwn(s = { g = GOwn.s.g, e = b.l }) as BL
 		},
-		Call(c) -> GCallee(s = { g = At.g, n = c.target }) as Callee,
-		Index(x) -> GOwn(s = { g = At.g, e = x.e }) as IE,
+		Call(c) -> GCallee(s = { g = GOwn.s.g, n = c.target }) as Callee,
+		Index(x) -> GOwn(s = { g = GOwn.s.g, e = x.e }) as IE,
 		// The struct may be a literal (`{ ..x, f = v }.g`).
-		Field(f) -> GValue(s = { g = At.g, e = f.e, want = f.ty }) as FE,
-		In(x) -> GOwn(s = { g = At.g, e = x.key }) as InK,
-		Query(q) -> GOwn(s = { g = At.g, e = q.e }) as QE,
-		Merge(m) -> GValue(s = { g = At.g, e = m.l, want = m.ty }) as ML,
-		Remove(m) -> GOwn(s = { g = At.g, e = m.m }) as RM,
-		else -> id({ g = GoFatal(g = At.g, msg = "literal without a type"), s = "" })
+		Field(f) -> GValue(s = { g = GOwn.s.g, e = f.e, want = f.ty }) as FE,
+		In(x) -> GOwn(s = { g = GOwn.s.g, e = x.key }) as InK,
+		Query(q) -> GOwn(s = { g = GOwn.s.g, e = q.e }) as QE,
+		Merge(m) -> GValue(s = { g = GOwn.s.g, e = m.l, want = m.ty }) as ML,
+		Remove(m) -> GOwn(s = { g = GOwn.s.g, e = m.m }) as RM,
+		else -> id({ g = GoFatal(g = GOwn.s.g, msg = "literal without a type"), s = "" })
 	};
 	Operand switch {
-		(UnaryOp(e = At.e) == "!") -> id({ g = this.g, s = "(!" + this.s + ")" }),
+		(UnaryOp(e = GOwn.s.e) == "!") -> id({ g = this.g, s = "(!" + this.s + ")" }),
 		else -> id({ g = this.g, s = "(-" + this.s + ")" })
 	};
 	// Keeps short-circuiting: the right side's calls only run if needed.
-	SL -> GOwn(s = { g = GW(g = { ..this.g, temps = this.g.temps + 1 }, ls = ["v" + Itoa(i = this.g.temps + 1) + " := " + this.s, GoShortIf(op = BinaryOpE(e = At.e), t = "v" + Itoa(i = this.g.temps + 1))]), e = BinaryRE(e = At.e) }) as SR;
+	SL -> GOwn(s = { g = GW(g = { ..this.g, temps = this.g.temps + 1 }, ls = ["v" + Itoa(i = this.g.temps + 1) + " := " + this.s, GoShortIf(op = BinaryOpE(e = GOwn.s.e), t = "v" + Itoa(i = this.g.temps + 1))]), e = BinaryRE(e = GOwn.s.e) }) as SR;
 	SR -> id({ g = GW(g = this.g, ls = ["v" + Itoa(i = SL.g.temps + 1) + " = " + this.s, "}"]), s = "v" + Itoa(i = SL.g.temps + 1) });
-	BL -> GOwn(s = { g = this.g, e = BinaryRE(e = At.e) }) as BR;
-	BR -> id({ g = this.g, s = "(" + BL.s + " " + BinaryOpE(e = At.e) + " " + this.s + ")" });
+	BL -> GOwn(s = { g = this.g, e = BinaryRE(e = GOwn.s.e) }) as BR;
+	BR -> id({ g = this.g, s = "(" + BL.s + " " + BinaryOpE(e = GOwn.s.e) + " " + this.s + ")" });
 	// A callee error is reported once the whole program is written.
 	Callee switch {
-		(IsSomeS(m = this.err)) -> GArgs(s = { g = GoFailed(g = this.g, msg = UnwrapS(m = this.err)), args = CallOfE(e = At.e).args, i = 0, acc = [] }) as Args,
-		else -> GArgs(s = { g = this.g, args = CallOfE(e = At.e).args, i = 0, acc = [] }) as Args
+		(IsSomeS(m = this.err)) -> GArgs(s = { g = GoFailed(g = this.g, msg = UnwrapS(m = this.err)), args = CallOfE(e = GOwn.s.e).args, i = 0, acc = [] }) as Args,
+		else -> GArgs(s = { g = this.g, args = CallOfE(e = GOwn.s.e).args, i = 0, acc = [] }) as Args
 	};
-	Args -> id({ g = GW(g = { ..this.g, temps = this.g.temps + 1 }, ls = GoCallLines(t = "v" + Itoa(i = this.g.temps + 1), call = Callee.s + "(" + Join(parts = ["ctx"] + this.parts, sep = ", ") + ")", qual = QualName(n = At.g.prog.nodes[CallOfE(e = At.e).target]))), s = "v" + Itoa(i = this.g.temps + 1) });
-	IE -> GOwn(s = { g = this.g, e = IndexKeyE(e = At.e) }) as IK;
-	IK -> id({ g = GW(g = { ..this.g, temps = this.g.temps + 1 }, ls = GoIndexLines(t = "v" + Itoa(i = this.g.temps + 1), x = IE.s, k = this.s, map = IsMap(t = Unfolded(defs = At.g.prog.types, t = IndexTy(e = At.e))), proc = At.g.proc_name)), s = "v" + Itoa(i = this.g.temps + 1) });
-	FE -> id({ g = this.g, s = GoSelect(x = this.s, name = FieldNameE(e = At.e), boxed = TyBoxed(t = At.g.table, ty = FieldTy(e = At.e), part = FieldNameE(e = At.e))) });
-	InK -> GOwn(s = { g = this.g, e = InMapE(e = At.e) }) as InM;
+	Args -> id({ g = GW(g = { ..this.g, temps = this.g.temps + 1 }, ls = GoCallLines(t = "v" + Itoa(i = this.g.temps + 1), call = Callee.s + "(" + Join(parts = ["ctx"] + this.parts, sep = ", ") + ")", qual = QualName(n = GOwn.s.g.prog.nodes[CallOfE(e = GOwn.s.e).target]))), s = "v" + Itoa(i = this.g.temps + 1) });
+	IE -> GOwn(s = { g = this.g, e = IndexKeyE(e = GOwn.s.e) }) as IK;
+	IK -> id({ g = GW(g = { ..this.g, temps = this.g.temps + 1 }, ls = GoIndexLines(t = "v" + Itoa(i = this.g.temps + 1), x = IE.s, k = this.s, map = IsMap(t = Unfolded(defs = GOwn.s.g.prog.types, t = IndexTy(e = GOwn.s.e))), proc = GOwn.s.g.proc_name)), s = "v" + Itoa(i = this.g.temps + 1) });
+	FE -> id({ g = this.g, s = GoSelect(x = this.s, name = FieldNameE(e = GOwn.s.e), boxed = TyBoxed(t = GOwn.s.g.table, ty = FieldTy(e = GOwn.s.e), part = FieldNameE(e = GOwn.s.e))) });
+	InK -> GOwn(s = { g = this.g, e = InMapE(e = GOwn.s.e) }) as InM;
 	InM -> id({ g = this.g, s = "mapHas(" + this.s + ", " + InK.s + ")" });
 	QE switch {
-		(QueryQ(e = At.e) == "len") -> id({ g = this.g, s = "len(" + this.s + ")" }),
-		(QueryQ(e = At.e) == "keys") -> id({ g = this.g, s = "mapKeys(" + this.s + ")" }),
+		(QueryQ(e = GOwn.s.e) == "len") -> id({ g = this.g, s = "len(" + this.s + ")" }),
+		(QueryQ(e = GOwn.s.e) == "keys") -> id({ g = this.g, s = "mapKeys(" + this.s + ")" }),
 		else -> id({ g = this.g, s = "mapValues(" + this.s + ")" })
 	};
-	ML -> GValue(s = { g = this.g, e = MergeRE(e = At.e), want = MergeTy(e = At.e) }) as MR;
+	ML -> GValue(s = { g = this.g, e = MergeRE(e = GOwn.s.e), want = MergeTy(e = GOwn.s.e) }) as MR;
 	MR switch {
-		(IsArray(t = Unfolded(defs = At.g.prog.types, t = MergeTy(e = At.e)))) -> id({ g = this.g, s = "sliceConcat(" + ML.s + ", " + this.s + ")" }),
+		(IsArray(t = Unfolded(defs = GOwn.s.g.prog.types, t = MergeTy(e = GOwn.s.e)))) -> id({ g = this.g, s = "sliceConcat(" + ML.s + ", " + this.s + ")" }),
 		else -> id({ g = this.g, s = "mapMerge(" + ML.s + ", " + this.s + ")" })
 	};
-	RM -> GValue(s = { g = this.g, e = RemoveKeysE(e = At.e), want = Array(KeyOf(t = Unfolded(defs = At.g.prog.types, t = MergeTy(e = At.e)))) }) as RK;
+	RM -> GValue(s = { g = this.g, e = RemoveKeysE(e = GOwn.s.e), want = Array(KeyOf(t = Unfolded(defs = GOwn.s.g.prog.types, t = MergeTy(e = GOwn.s.e)))) }) as RK;
 	RK -> id({ g = this.g, s = "mapRemove(" + RM.s + ", " + this.s + ")" });
 }
 
-proc GArgs(At): GParts {
-	func At(s: { g: GGen, args: []CallArg, i: int, acc: []string }): { g: GGen, args: []CallArg, i: int, acc: []string } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.args.len) -> id({ g = this.g, parts = this.acc }),
-		else -> GValue(s = { g = this.g, e = this.args[this.i].value, want = this.args[this.i].param })
+proc GArgs(s: { g: GGen, args: []CallArg, i: int, acc: []string }): GParts {
+	GArgs switch {
+		(this.s.i == this.s.args.len) -> id({ g = this.s.g, parts = this.s.acc }),
+		else -> GValue(s = { g = this.s.g, e = this.s.args[this.s.i].value, want = this.s.args[this.s.i].param })
 	};
-	GValue -> At(s = { ..At, g = this.g, i = At.i + 1, acc = At.acc + [this.s] });
+	GValue -> GArgs(s = { ..GArgs.s, g = this.g, i = GArgs.s.i + 1, acc = GArgs.s.acc + [this.s] });
 }
 
 func GoCalleeOf(g: GGen, n: int): GoCallee = "go_leaf.rs:go_callee";
@@ -345,41 +326,37 @@ func GoCalleeOf(g: GGen, n: int): GoCallee = "go_leaf.rs:go_callee";
 // The Go function a func node (or an alias of one) calls: its .go
 // implementation, imported if it's in another directory, or a stub. On an
 // error, the call is "unresolved".
-proc GCallee(At): GCall {
-	func At(s: { g: GGen, n: int }): { g: GGen, n: int } = "../leaf.rs:same";
-	At -> GoCalleeOf(g = this.g, n = this.n);
+proc GCallee(s: { g: GGen, n: int }): GCall {
+	GCallee -> GoCalleeOf(g = this.s.g, n = this.s.n);
 	GoCalleeOf switch {
-		(IsSomeS(m = this.err)) -> id({ g = At.g, s = "unresolved", err = this.err }),
-		(this.stub >= 0) -> id({ g = { ..At.g, stubs = At.g.stubs + [this.stub: true] }, s = this.s, err = None() }),
-		(this.path != "") -> id({ g = { ..At.g, imports = At.g.imports + [this.path: this.alias] }, s = this.s, err = None() }),
-		else -> id({ g = At.g, s = this.s, err = None() })
+		(IsSomeS(m = this.err)) -> id({ g = GCallee.s.g, s = "unresolved", err = this.err }),
+		(this.stub >= 0) -> id({ g = { ..GCallee.s.g, stubs = GCallee.s.g.stubs + [this.stub: true] }, s = this.s, err = None() }),
+		(this.path != "") -> id({ g = { ..GCallee.s.g, imports = GCallee.s.g.imports + [this.path: this.alias] }, s = this.s, err = None() }),
+		else -> id({ g = GCallee.s.g, s = this.s, err = None() })
 	};
 }
 
 // `in<Target>{Param: value, ..}`
-proc GInput(At): GEmit {
-	func At(s: { g: GGen, c: Call }): { g: GGen, c: Call } = "../leaf.rs:same";
-	At -> GNamedArgs(s = { g = this.g, args = this.c.args, i = 0, acc = [] });
-	GNamedArgs -> id({ g = this.g, s = GoInType(nodes = At.g.prog.nodes, n = At.c.target) + "{" + Join(parts = this.parts, sep = ", ") + "}" });
+proc GInput(s: { g: GGen, c: Call }): GEmit {
+	GInput -> GNamedArgs(s = { g = this.s.g, args = this.s.c.args, i = 0, acc = [] });
+	GNamedArgs -> id({ g = this.g, s = GoInType(nodes = GInput.s.g.prog.nodes, n = GInput.s.c.target) + "{" + Join(parts = this.parts, sep = ", ") + "}" });
 }
 
-proc GNamedArgs(At): GParts {
-	func At(s: { g: GGen, args: []CallArg, i: int, acc: []string }): { g: GGen, args: []CallArg, i: int, acc: []string } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.args.len) -> id({ g = this.g, parts = this.acc }),
-		else -> GValue(s = { g = this.g, e = this.args[this.i].value, want = this.args[this.i].param })
+proc GNamedArgs(s: { g: GGen, args: []CallArg, i: int, acc: []string }): GParts {
+	GNamedArgs switch {
+		(this.s.i == this.s.args.len) -> id({ g = this.s.g, parts = this.s.acc }),
+		else -> GValue(s = { g = this.s.g, e = this.s.args[this.s.i].value, want = this.s.args[this.s.i].param })
 	};
-	GValue -> At(s = { ..At, g = this.g, i = At.i + 1, acc = At.acc + [Exported(s = At.args[At.i].name) + ": " + this.s] });
+	GValue -> GNamedArgs(s = { ..GNamedArgs.s, g = this.g, i = GNamedArgs.s.i + 1, acc = GNamedArgs.s.acc + [Exported(s = GNamedArgs.s.args[GNamedArgs.s.i].name) + ": " + this.s] });
 }
 
 // ---- Procs ----
 
 // The target's input, then a jump to it.
-proc GTransition(At): GGen {
-	func At(s: { g: GGen, pid: int, c: Call }): { g: GGen, pid: int, c: Call } = "../leaf.rs:same";
-	At -> GInput(s = { g = this.g, c = this.c });
+proc GTransition(s: { g: GGen, pid: int, c: Call }): GGen {
+	GTransition -> GInput(s = { g = this.s.g, c = this.s.c });
 	// Outputs no later state reads go, so the collector can reclaim them.
-	GInput -> id(GW(g = this.g, ls = ["env.in" + Gname(n = At.g.prog.nodes[At.c.target]) + " = " + this.s] + GoLastReads(g = At.g, pid = At.pid, c = At.c) + ["pc = " + GoPc(nodes = At.g.prog.nodes, pid = At.pid, n = At.c.target), "continue"]));
+	GInput -> id(GW(g = this.g, ls = ["env.in" + Gname(n = GTransition.s.g.prog.nodes[GTransition.s.c.target]) + " = " + this.s] + GoLastReads(g = GTransition.s.g, pid = GTransition.s.pid, c = GTransition.s.c) + ["pc = " + GoPc(nodes = GTransition.s.g.prog.nodes, pid = GTransition.s.pid, n = GTransition.s.c.target), "continue"]));
 }
 
 // zeroOut(&env.out<N>) for each node the call reads for the last time.
@@ -394,50 +371,44 @@ func GoPatAlways(t: Table, p: SPat): bool = "go_leaf.rs:go_pat_always";
 
 // Arms in order; a transition ends with `continue`, so the first arm that
 // matches is taken.
-proc GSwitch(At): GGen {
-	func At(s: GSwitchIn): GSwitchIn = "../leaf.rs:same";
-	func T(t: Test): Test = "../leaf.rs:same";
-	At switch {
-		(this.i == this.arms.len && this.top && !this.always) -> id(GW(g = this.g, ls = ["return zero, fmt.Errorf(" + Quote(s = QualName(n = this.g.prog.nodes[this.n]) + ": no match arm for %v") + ", this)"])),
-		(this.i == this.arms.len) -> id(this.g),
-		else -> T(t = this.arms[this.i].test)
+proc GSwitch(s: GSwitchIn): GGen {
+	GSwitch switch {
+		(this.s.i == this.s.arms.len && this.s.top && !this.s.always) -> id(GW(g = this.s.g, ls = ["return zero, fmt.Errorf(" + Quote(s = QualName(n = this.s.g.prog.nodes[this.s.n]) + ": no match arm for %v") + ", this)"])),
+		(this.s.i == this.s.arms.len) -> id(this.s.g),
+		else -> id(this.s.arms[this.s.i].test) as T
 	};
 	T switch {
-		Else() -> GBody(s = { g = At.g, pid = At.pid, n = At.n, body = At.arms[At.i].body }) as ElseBody,
-		Cond(c) -> GOwn(s = { g = GW(g = At.g, ls = ["{"]), e = c }) as C,
-		Pat(p) -> GBody(s = { g = GW(g = At.g, ls = GoPatHead(t = At.g.table, p = p)), pid = At.pid, n = At.n, body = At.arms[At.i].body }) as PatBody
+		Else() -> GBody(s = { g = GSwitch.s.g, pid = GSwitch.s.pid, n = GSwitch.s.n, body = GSwitch.s.arms[GSwitch.s.i].body }) as ElseBody,
+		Cond(c) -> GOwn(s = { g = GW(g = GSwitch.s.g, ls = ["{"]), e = c }) as C,
+		Pat(p) -> GBody(s = { g = GW(g = GSwitch.s.g, ls = GoPatHead(t = GSwitch.s.g.table, p = p)), pid = GSwitch.s.pid, n = GSwitch.s.n, body = GSwitch.s.arms[GSwitch.s.i].body }) as PatBody
 	};
-	ElseBody -> At(s = { ..At, g = this, i = At.i + 1, always = true });
-	C -> GBody(s = { g = GW(g = this.g, ls = ["if " + this.s + " {"]), pid = At.pid, n = At.n, body = At.arms[At.i].body }) as CondBody;
-	CondBody -> At(s = { ..At, g = GW(g = this, ls = ["}", "}"]), i = At.i + 1 });
-	PatBody -> At(s = { ..At, g = GW(g = this, ls = ["}"]), i = At.i + 1, always = GoPatAlways(t = At.g.table, p = PatOfTest(t = T)) });
+	ElseBody -> GSwitch(s = { ..GSwitch.s, g = this, i = GSwitch.s.i + 1, always = true });
+	C -> GBody(s = { g = GW(g = this.g, ls = ["if " + this.s + " {"]), pid = GSwitch.s.pid, n = GSwitch.s.n, body = GSwitch.s.arms[GSwitch.s.i].body }) as CondBody;
+	CondBody -> GSwitch(s = { ..GSwitch.s, g = GW(g = this, ls = ["}", "}"]), i = GSwitch.s.i + 1 });
+	PatBody -> GSwitch(s = { ..GSwitch.s, g = GW(g = this, ls = ["}"]), i = GSwitch.s.i + 1, always = GoPatAlways(t = GSwitch.s.g.table, p = PatOfTest(t = T)) });
 }
 
-proc GBody(At): GGen {
-	func At(s: { g: GGen, pid: int, n: int, body: SBody }): { g: GGen, pid: int, n: int, body: SBody } = "../leaf.rs:same";
-	func B(b: SBody): SBody = "../leaf.rs:same";
-	At -> B(b = this.body);
+proc GBody(s: { g: GGen, pid: int, n: int, body: SBody }): GGen {
+	GBody -> id(this.s.body) as B;
 	B switch {
-		Call(c) -> GTransition(s = { g = At.g, pid = At.pid, c = c }),
-		Switch(arms) -> GSwitch(s = { g = At.g, pid = At.pid, n = At.n, arms = arms, top = false, i = 0, always = false })
+		Call(c) -> GTransition(s = { g = GBody.s.g, pid = GBody.s.pid, c = c }),
+		Switch(arms) -> GSwitch(s = { g = GBody.s.g, pid = GBody.s.pid, n = GBody.s.n, arms = arms, top = false, i = 0, always = false })
 	};
 }
 
 // One state of a proc's machine: run the node, keep its output, then its
 // edge.
-proc GNode(At): GGen {
-	func At(s: { g: GGen, pid: int, n: int }): { g: GGen, pid: int, n: int } = "../leaf.rs:same";
-	func K(k: NodeKind): NodeKind = "../leaf.rs:same";
-	At -> K(k = this.g.prog.nodes[BaseOf(nodes = this.g.prog.nodes, n = this.n)].kind);
+proc GNode(s: { g: GGen, pid: int, n: int }): GGen {
+	GNode -> id(this.s.g.prog.nodes[BaseOf(nodes = this.s.g.prog.nodes, n = this.s.n)].kind) as K;
 	K switch {
-		Proc(_) -> GNodeBody(s = { g = At.g, pid = At.pid, n = At.n, call = "Run" + Gname(n = At.g.prog.nodes[BaseOf(nodes = At.g.prog.nodes, n = At.n)]) }),
-		Id(_) | Sig(_) -> GNodeBody(s = { g = At.g, pid = At.pid, n = At.n, call = "" }),
-		else -> GCallee(s = { g = At.g, n = At.n })
+		Proc(_) -> GNodeBody(s = { g = GNode.s.g, pid = GNode.s.pid, n = GNode.s.n, call = "Run" + Gname(n = GNode.s.g.prog.nodes[BaseOf(nodes = GNode.s.g.prog.nodes, n = GNode.s.n)]) }),
+		Id(_) | Sig(_) -> GNodeBody(s = { g = GNode.s.g, pid = GNode.s.pid, n = GNode.s.n, call = "" }),
+		else -> GCallee(s = { g = GNode.s.g, n = GNode.s.n })
 	};
 	// A callee error here stops the generator.
 	GCallee switch {
-		(IsSomeS(m = this.err)) -> id(GoFatal(g = At.g, msg = UnwrapS(m = this.err))),
-		else -> GNodeBody(s = { g = this.g, pid = At.pid, n = At.n, call = this.s })
+		(IsSomeS(m = this.err)) -> id(GoFatal(g = GNode.s.g, msg = UnwrapS(m = this.err))),
+		else -> GNodeBody(s = { g = this.g, pid = GNode.s.pid, n = GNode.s.n, call = this.s })
 	};
 }
 
@@ -446,24 +417,22 @@ func GoNodeHead(g: GGen, pid: int, n: int, call: string): []string = "go_leaf.rs
 // The for each's fanOut, through the `{` the collect's transition is in.
 func GoFanOut(g: GGen, pid: int, n: int, dim: string): []string = "go_leaf.rs:go_fan_out";
 
-proc GNodeBody(At): GGen {
-	func At(s: { g: GGen, pid: int, n: int, call: string }): { g: GGen, pid: int, n: int, call: string } = "../leaf.rs:same";
-	func E(e: SEdge): SEdge = "../leaf.rs:same";
-	At switch {
-		(this.n in GraphOf(n = this.g.prog.nodes[this.pid]).edges) -> E(e = GraphOf(n = this.g.prog.nodes[this.pid]).edges[this.n]),
-		else -> GCoerce(s = { g = GW(g = this.g, ls = GoNodeHead(g = this.g, pid = this.pid, n = this.n, call = this.call)), expr = "this", from = NodeRet(nodes = this.g.prog.nodes, n = this.n), to = ProcRet(n = this.g.prog.nodes[this.pid]) }) as Ret
+proc GNodeBody(s: { g: GGen, pid: int, n: int, call: string }): GGen {
+	GNodeBody switch {
+		(this.s.n in GraphOf(n = this.s.g.prog.nodes[this.s.pid]).edges) -> id(GraphOf(n = this.s.g.prog.nodes[this.s.pid]).edges[this.s.n]) as E,
+		else -> GCoerce(s = { g = GW(g = this.s.g, ls = GoNodeHead(g = this.s.g, pid = this.s.pid, n = this.s.n, call = this.s.call)), expr = "this", from = NodeRet(nodes = this.s.g.prog.nodes, n = this.s.n), to = ProcRet(n = this.s.g.prog.nodes[this.s.pid]) }) as Ret
 	};
 	Ret -> id(GW(g = this.g, ls = ["return " + this.s + ", nil"]));
 	E switch {
-		Call(c) -> GTransition(s = { g = GW(g = At.g, ls = GoNodeHead(g = At.g, pid = At.pid, n = At.n, call = At.call)), pid = At.pid, c = c }),
-		Collect(_) -> id(GW(g = At.g, ls = GoNodeHead(g = At.g, pid = At.pid, n = At.n, call = At.call) + ["return this, nil"])),
-		Match(arms) -> GSwitch(s = { g = GW(g = At.g, ls = GoNodeHead(g = At.g, pid = At.pid, n = At.n, call = At.call)), pid = At.pid, n = At.n, arms = arms, top = true, i = 0, always = false }),
-		ForEach(f) -> GOwn(s = { g = GW(g = At.g, ls = GoNodeHead(g = At.g, pid = At.pid, n = At.n, call = At.call)), e = f.dim }) as Dim,
-		Spawn(sp) -> GSpawn(s = { g = GW(g = At.g, ls = GoNodeHead(g = At.g, pid = At.pid, n = At.n, call = At.call) + ["{"]), branches = sp.branches, i = 0, calls = [] })
+		Call(c) -> GTransition(s = { g = GW(g = GNodeBody.s.g, ls = GoNodeHead(g = GNodeBody.s.g, pid = GNodeBody.s.pid, n = GNodeBody.s.n, call = GNodeBody.s.call)), pid = GNodeBody.s.pid, c = c }),
+		Collect(_) -> id(GW(g = GNodeBody.s.g, ls = GoNodeHead(g = GNodeBody.s.g, pid = GNodeBody.s.pid, n = GNodeBody.s.n, call = GNodeBody.s.call) + ["return this, nil"])),
+		Match(arms) -> GSwitch(s = { g = GW(g = GNodeBody.s.g, ls = GoNodeHead(g = GNodeBody.s.g, pid = GNodeBody.s.pid, n = GNodeBody.s.n, call = GNodeBody.s.call)), pid = GNodeBody.s.pid, n = GNodeBody.s.n, arms = arms, top = true, i = 0, always = false }),
+		ForEach(f) -> GOwn(s = { g = GW(g = GNodeBody.s.g, ls = GoNodeHead(g = GNodeBody.s.g, pid = GNodeBody.s.pid, n = GNodeBody.s.n, call = GNodeBody.s.call)), e = f.dim }) as Dim,
+		Spawn(sp) -> GSpawn(s = { g = GW(g = GNodeBody.s.g, ls = GoNodeHead(g = GNodeBody.s.g, pid = GNodeBody.s.pid, n = GNodeBody.s.n, call = GNodeBody.s.call) + ["{"]), branches = sp.branches, i = 0, calls = [] })
 	};
-	GSpawn -> GTransition(s = { g = GW(g = this.g, ls = GoSpawnLines(g = this.g, sp = E, calls = this.parts)), pid = At.pid, c = SpawnJoin(e = E) }) as Joined;
+	GSpawn -> GTransition(s = { g = GW(g = this.g, ls = GoSpawnLines(g = this.g, sp = E, calls = this.parts)), pid = GNodeBody.s.pid, c = SpawnJoin(e = E) }) as Joined;
 	Joined -> id(GW(g = this, ls = ["}"]));
-	Dim -> GTransition(s = { g = GW(g = this.g, ls = GoFanOut(g = At.g, pid = At.pid, n = At.n, dim = this.s)), pid = At.pid, c = CollectCall(g = GraphOf(n = At.g.prog.nodes[At.pid]), n = At.n) }) as Collected;
+	Dim -> GTransition(s = { g = GW(g = this.g, ls = GoFanOut(g = GNodeBody.s.g, pid = GNodeBody.s.pid, n = GNodeBody.s.n, dim = this.s)), pid = GNodeBody.s.pid, c = CollectCall(g = GraphOf(n = GNodeBody.s.g.prog.nodes[GNodeBody.s.pid]), n = GNodeBody.s.n) }) as Collected;
 	Collected -> id(GW(g = this, ls = ["}"]));
 }
 
@@ -473,64 +442,57 @@ func GoSpawnLines(g: GGen, sp: SEdge, calls: []string): []string = "go_leaf.rs:g
 
 // A spawn's branches, each a call of its node (emit_spawn in the
 // reference): every branch's arguments into variables, and the calls.
-proc GSpawn(At): GParts {
-	func At(s: { g: GGen, branches: []SBranch, i: int, calls: []string }): { g: GGen, branches: []SBranch, i: int, calls: []string } = "../leaf.rs:same";
-	func K(k: NodeKind): NodeKind = "../leaf.rs:same";
-	func Called(s: { g: GGen, callee: string }): { g: GGen, callee: string } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.branches.len || IsSomeS(m = this.g.fatal)) -> id({ g = this.g, parts = this.calls }),
-		else -> K(k = this.g.prog.nodes[BaseOf(nodes = this.g.prog.nodes, n = this.branches[this.i].call.target)].kind)
+proc GSpawn(s: { g: GGen, branches: []SBranch, i: int, calls: []string }): GParts {
+	GSpawn switch {
+		(this.s.i == this.s.branches.len || IsSomeS(m = this.s.g.fatal)) -> id({ g = this.s.g, parts = this.s.calls }),
+		else -> id(this.s.g.prog.nodes[BaseOf(nodes = this.s.g.prog.nodes, n = this.s.branches[this.s.i].call.target)].kind) as K
 	};
 	K switch {
-		Proc(_) -> Called(s = { g = At.g, callee = "Run" + Gname(n = At.g.prog.nodes[BaseOf(nodes = At.g.prog.nodes, n = At.branches[At.i].call.target)]) }),
-		else -> GCallee(s = { g = At.g, n = At.branches[At.i].call.target })
+		Proc(_) -> id({ g = GSpawn.s.g, callee = "Run" + Gname(n = GSpawn.s.g.prog.nodes[BaseOf(nodes = GSpawn.s.g.prog.nodes, n = GSpawn.s.branches[GSpawn.s.i].call.target)]) }) as Called,
+		else -> GCallee(s = { g = GSpawn.s.g, n = GSpawn.s.branches[GSpawn.s.i].call.target })
 	};
 	// A callee error here stops the generator.
 	GCallee switch {
-		(IsSomeS(m = this.err)) -> id({ g = GoFatal(g = At.g, msg = UnwrapS(m = this.err)), parts = At.calls }),
-		else -> Called(s = { g = this.g, callee = this.s })
+		(IsSomeS(m = this.err)) -> id({ g = GoFatal(g = GSpawn.s.g, msg = UnwrapS(m = this.err)), parts = GSpawn.s.calls }),
+		else -> id({ g = this.g, callee = this.s }) as Called
 	};
-	Called -> GSpawnArgs(s = { g = this.g, i = At.i, args = At.branches[At.i].call.args, j = 0, acc = [] });
-	GSpawnArgs -> At(s = { ..At, g = this.g, i = At.i + 1, calls = At.calls + [Called.callee + "(" + Join(parts = ["ctx"] + this.parts, sep = ", ") + ")"] });
+	Called -> GSpawnArgs(s = { g = this.g, i = GSpawn.s.i, args = GSpawn.s.branches[GSpawn.s.i].call.args, j = 0, acc = [] });
+	GSpawnArgs -> GSpawn(s = { ..GSpawn.s, g = this.g, i = GSpawn.s.i + 1, calls = GSpawn.s.calls + [Called.callee + "(" + Join(parts = ["ctx"] + this.parts, sep = ", ") + ")"] });
 }
 
 // `a<i><Arg> := <value>` per argument of branch i; the variables.
-proc GSpawnArgs(At): GParts {
-	func At(s: { g: GGen, i: int, args: []CallArg, j: int, acc: []string }): { g: GGen, i: int, args: []CallArg, j: int, acc: []string } = "../leaf.rs:same";
-	At switch {
-		(this.j == this.args.len) -> id({ g = this.g, parts = this.acc }),
-		else -> GValue(s = { g = this.g, e = this.args[this.j].value, want = this.args[this.j].param })
+proc GSpawnArgs(s: { g: GGen, i: int, args: []CallArg, j: int, acc: []string }): GParts {
+	GSpawnArgs switch {
+		(this.s.j == this.s.args.len) -> id({ g = this.s.g, parts = this.s.acc }),
+		else -> GValue(s = { g = this.s.g, e = this.s.args[this.s.j].value, want = this.s.args[this.s.j].param })
 	};
-	GValue -> At(s = { ..At, g = GW(g = this.g, ls = ["a" + Itoa(i = At.i) + Exported(s = At.args[At.j].name) + " := " + this.s]), j = At.j + 1, acc = At.acc + ["a" + Itoa(i = At.i) + Exported(s = At.args[At.j].name)] });
+	GValue -> GSpawnArgs(s = { ..GSpawnArgs.s, g = GW(g = this.g, ls = ["a" + Itoa(i = GSpawnArgs.s.i) + Exported(s = GSpawnArgs.s.args[GSpawnArgs.s.j].name) + " := " + this.s]), j = GSpawnArgs.s.j + 1, acc = GSpawnArgs.s.acc + ["a" + Itoa(i = GSpawnArgs.s.i) + Exported(s = GSpawnArgs.s.args[GSpawnArgs.s.j].name)] });
 }
 
 // A region's state machine: a loop over its nodes' states.
-proc GLoop(At): GGen {
-	func At(s: { g: GGen, pid: int, r: int }): { g: GGen, pid: int, r: int } = "../leaf.rs:same";
-	At -> GNodes(s = { g = GW(g = this.g, ls = ["for {", "if err := ctx.Err(); err != nil {", "return zero, err", "}", "switch pc {"]), pid = this.pid, nodes = GraphOf(n = this.g.prog.nodes[this.pid]).regions[this.r].nodes, i = 0 });
+proc GLoop(s: { g: GGen, pid: int, r: int }): GGen {
+	GLoop -> GNodes(s = { g = GW(g = this.s.g, ls = ["for {", "if err := ctx.Err(); err != nil {", "return zero, err", "}", "switch pc {"]), pid = this.s.pid, nodes = GraphOf(n = this.s.g.prog.nodes[this.s.pid]).regions[this.s.r].nodes, i = 0 });
 	GNodes switch {
 		(IsSomeS(m = this.fatal)) -> id(this),
-		else -> id(GW(g = this, ls = ["default:", "return zero, fmt.Errorf(" + Quote(s = QualName(n = At.g.prog.nodes[At.pid]) + ": invalid state %d") + ", pc)", "}", "}"]))
+		else -> id(GW(g = this, ls = ["default:", "return zero, fmt.Errorf(" + Quote(s = QualName(n = GLoop.s.g.prog.nodes[GLoop.s.pid]) + ": invalid state %d") + ", pc)", "}", "}"]))
 	};
 }
 
-proc GNodes(At): GGen {
-	func At(s: { g: GGen, pid: int, nodes: []int, i: int }): { g: GGen, pid: int, nodes: []int, i: int } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.nodes.len || IsSomeS(m = this.g.fatal)) -> id(this.g),
-		else -> GNode(s = { g = this.g, pid = this.pid, n = this.nodes[this.i] })
+proc GNodes(s: { g: GGen, pid: int, nodes: []int, i: int }): GGen {
+	GNodes switch {
+		(this.s.i == this.s.nodes.len || IsSomeS(m = this.s.g.fatal)) -> id(this.s.g),
+		else -> GNode(s = { g = this.s.g, pid = this.s.pid, n = this.s.nodes[this.s.i] })
 	};
-	GNode -> At(s = { ..At, g = this, i = At.i + 1 });
+	GNode -> GNodes(s = { ..GNodes.s, g = this, i = GNodes.s.i + 1 });
 }
 
 // The env struct, the pc constants, and Run<Proc> through `pc := ..`.
 func GoPrelude(g: GGen, pid: int): []string = "go_leaf.rs:go_prelude";
 
-proc GProc(At): GGen {
-	func At(s: { g: GGen, pid: int }): { g: GGen, pid: int } = "../leaf.rs:same";
+proc GProc(s: { g: GGen, pid: int }): GGen {
 	func Opens(g: Graph): []int = "gen_leaf.rs:opens_by_region";
-	At -> GLoop(s = { g = GW(g = { ..this.g, proc_name = QualName(n = this.g.prog.nodes[this.pid]) }, ls = GoPrelude(g = this.g, pid = this.pid)), pid = this.pid, r = 0 });
-	GLoop -> GRegions(s = { g = GW(g = this, ls = ["}", ""]), pid = At.pid, opens = Opens(g = GraphOf(n = At.g.prog.nodes[At.pid])), i = 0 });
+	GProc -> GLoop(s = { g = GW(g = { ..this.s.g, proc_name = QualName(n = this.s.g.prog.nodes[this.s.pid]) }, ls = GoPrelude(g = this.s.g, pid = this.s.pid)), pid = this.s.pid, r = 0 });
+	GLoop -> GRegions(s = { g = GW(g = this, ls = ["}", ""]), pid = GProc.s.pid, opens = Opens(g = GraphOf(n = GProc.s.g.prog.nodes[GProc.s.pid])), i = 0 });
 }
 
 // run<Proc>Region<r>'s head, through `_ = this`.
@@ -539,25 +501,23 @@ func GoRegionHead(g: GGen, pid: int, opener: int): []string = "go_leaf.rs:go_reg
 func GoRegionEntry(g: GGen, pid: int, opener: int, input: string): []string = "go_leaf.rs:go_region_entry";
 
 // One func per for each region, run per element.
-proc GRegions(At): GGen {
-	func At(s: { g: GGen, pid: int, opens: []int, i: int }): { g: GGen, pid: int, opens: []int, i: int } = "../leaf.rs:same";
+proc GRegions(s: { g: GGen, pid: int, opens: []int, i: int }): GGen {
 	func EntryCall(g: Graph, opener: int): Call = "gen_leaf.rs:for_each_call_of";
-	At switch {
-		(this.i == this.opens.len || IsSomeS(m = this.g.fatal)) -> id(this.g),
-		else -> GInput(s = { g = GW(g = this.g, ls = GoRegionHead(g = this.g, pid = this.pid, opener = this.opens[this.i])), c = EntryCall(g = GraphOf(n = this.g.prog.nodes[this.pid]), opener = this.opens[this.i]) })
+	GRegions switch {
+		(this.s.i == this.s.opens.len || IsSomeS(m = this.s.g.fatal)) -> id(this.s.g),
+		else -> GInput(s = { g = GW(g = this.s.g, ls = GoRegionHead(g = this.s.g, pid = this.s.pid, opener = this.s.opens[this.s.i])), c = EntryCall(g = GraphOf(n = this.s.g.prog.nodes[this.s.pid]), opener = this.s.opens[this.s.i]) })
 	};
-	GInput -> GLoop(s = { g = GW(g = this.g, ls = GoRegionEntry(g = At.g, pid = At.pid, opener = At.opens[At.i], input = this.s)), pid = At.pid, r = GraphOf(n = At.g.prog.nodes[At.pid]).opens[At.opens[At.i]] });
-	GLoop -> At(s = { ..At, g = GW(g = this, ls = ["}", ""]), i = At.i + 1 });
+	GInput -> GLoop(s = { g = GW(g = this.g, ls = GoRegionEntry(g = GRegions.s.g, pid = GRegions.s.pid, opener = GRegions.s.opens[GRegions.s.i], input = this.s)), pid = GRegions.s.pid, r = GraphOf(n = GRegions.s.g.prog.nodes[GRegions.s.pid]).opens[GRegions.s.opens[GRegions.s.i]] });
+	GLoop -> GRegions(s = { ..GRegions.s, g = GW(g = this, ls = ["}", ""]), i = GRegions.s.i + 1 });
 }
 
 // A top-level proc and the procs local to it, parents first.
-proc GTree(At): GEmit {
-	func At(s: { g: GGen, procs: []int, i: int, acc: string }): { g: GGen, procs: []int, i: int, acc: string } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.procs.len || IsSomeS(m = this.g.fatal)) -> id({ g = this.g, s = this.acc }),
-		else -> GProc(s = { g = { ..this.g, w = [] }, pid = this.procs[this.i] })
+proc GTree(s: { g: GGen, procs: []int, i: int, acc: string }): GEmit {
+	GTree switch {
+		(this.s.i == this.s.procs.len || IsSomeS(m = this.s.g.fatal)) -> id({ g = this.s.g, s = this.s.acc }),
+		else -> GProc(s = { g = { ..this.s.g, w = [] }, pid = this.s.procs[this.s.i] })
 	};
-	GProc -> At(s = { ..At, g = this, i = At.i + 1, acc = At.acc + Lines(lines = this.w, indent = "\t") });
+	GProc -> GTree(s = { ..GTree.s, g = this, i = GTree.s.i + 1, acc = GTree.s.acc + Lines(lines = this.w, indent = "\t") });
 }
 
 // `<proc>_vandorf.go`
@@ -569,14 +529,13 @@ func GoProcImports(imports: map[string]string): []GoImport = "go_leaf.rs:go_proc
 func GoFileText(pkg: string, body: string, imports: []GoImport, setup: GoSetup): string = "go_leaf.rs:go_file_text";
 
 // A file per top-level proc.
-proc GFiles(At): { g: GGen, files: []GoFile } {
-	func At(s: { g: GGen, package: string, setup: GoSetup, procs: []int, i: int, acc: []GoFile }): { g: GGen, package: string, setup: GoSetup, procs: []int, i: int, acc: []GoFile } = "../leaf.rs:same";
+proc GFiles(s: { g: GGen, package: string, setup: GoSetup, procs: []int, i: int, acc: []GoFile }): { g: GGen, files: []GoFile } {
 	func Order(nodes: []NodeDecl, top: []int): []int = "gen_leaf.rs:all_procs_ordered";
-	At switch {
-		(this.i == this.procs.len || IsSomeS(m = this.g.fatal)) -> id({ g = this.g, files = this.acc }),
-		else -> GTree(s = { g = { ..this.g, imports = [:] }, procs = Order(nodes = this.g.prog.nodes, top = [this.procs[this.i]]), i = 0, acc = "" })
+	GFiles switch {
+		(this.s.i == this.s.procs.len || IsSomeS(m = this.s.g.fatal)) -> id({ g = this.s.g, files = this.s.acc }),
+		else -> GTree(s = { g = { ..this.s.g, imports = [:] }, procs = Order(nodes = this.s.g.prog.nodes, top = [this.s.procs[this.s.i]]), i = 0, acc = "" })
 	};
-	GTree -> At(s = { ..At, g = this.g, i = At.i + 1, acc = At.acc + [{ dir = "", name = GoProcFile(n = At.g.prog.nodes[At.procs[At.i]]), text = GoFileText(pkg = At.package, body = this.s, imports = GoProcImports(imports = this.g.imports), setup = At.setup), kind = "code" }] });
+	GTree -> GFiles(s = { ..GFiles.s, g = this.g, i = GFiles.s.i + 1, acc = GFiles.s.acc + [{ dir = "", name = GoProcFile(n = GFiles.s.g.prog.nodes[GFiles.s.procs[GFiles.s.i]]), text = GoFileText(pkg = GFiles.s.package, body = this.s, imports = GoProcImports(imports = this.g.imports), setup = GFiles.s.setup), kind = "code" }] });
 }
 
 // ---- The whole backend ----
@@ -595,41 +554,36 @@ func GoHttpFiles(prog: Program, t: Table, package: string, setup: GoSetup, serve
 // Each server's package main.
 func GoServerMains(package: string, import_base: MaybeStr, servers: []GoServerSpec): GoOut = "go_leaf.rs:go_server_mains";
 
-proc GoGenerate(At): GoOut {
-	func At(s: GoGenIn): GoGenIn = "../leaf.rs:same";
-	func Http(o: GoOut): GoOut = "../leaf.rs:same";
-	func Servers(o: GoOut): GoOut = "../leaf.rs:same";
-	func Setup(s: GoSetup): GoSetup = "../leaf.rs:same";
+proc GoGenerate(s: GoGenIn): GoOut {
 	func Sorted(files: []GoFile): []GoFile = "go_leaf.rs:go_sort_files";
-	func Mains(o: GoOut): GoOut = "../leaf.rs:same";
-	At -> Setup(s = GoSetupOf(package = this.package, import_base = this.import_base, types_dir = this.types_dir));
+	GoGenerate -> id(GoSetupOf(package = this.s.package, import_base = this.s.import_base, types_dir = this.s.types_dir)) as Setup;
 	Setup switch {
 		(IsSomeS(m = this.err)) -> id({ files = [], err = this.err }),
-		else -> BuildTable(prog = At.prog)
+		else -> BuildTable(prog = GoGenerate.s.prog)
 	};
 	BuildTable switch {
-		(IsSomeS(m = GoNameCheck(prog = At.prog, t = this))) -> id({ files = [], err = GoNameCheck(prog = At.prog, t = this) }),
+		(IsSomeS(m = GoNameCheck(prog = GoGenerate.s.prog, t = this))) -> id({ files = [], err = GoNameCheck(prog = GoGenerate.s.prog, t = this) }),
 		else -> GoTypegen(s = { t = this, pkg = Setup.pkg })
 	};
 	GoTypegen -> GFiles(s = {
-		g = { prog = At.prog, table = BuildTable, tq = Setup.tq, import_base = At.import_base, imports = [:], coercions = [:], helpers = [], stubs = [:], failed = None(), fatal = None(), temps = 0, proc_name = "", w = [] },
-		package = At.package, setup = Setup, procs = At.prog.top, i = 0, acc = []
+		g = { prog = GoGenerate.s.prog, table = BuildTable, tq = Setup.tq, import_base = GoGenerate.s.import_base, imports = [:], coercions = [:], helpers = [], stubs = [:], failed = None(), fatal = None(), temps = 0, proc_name = "", w = [] },
+		package = GoGenerate.s.package, setup = Setup, procs = GoGenerate.s.prog.top, i = 0, acc = []
 	});
 	GFiles switch {
 		(IsSomeS(m = this.g.fatal)) -> id({ files = [], err = this.g.fatal }),
 		(IsSomeS(m = this.g.failed)) -> id({ files = [], err = this.g.failed }),
-		else -> Http(o = GoHttpFiles(prog = At.prog, t = BuildTable, package = At.package, setup = Setup, servers = At.servers))
+		else -> id(GoHttpFiles(prog = GoGenerate.s.prog, t = BuildTable, package = GoGenerate.s.package, setup = Setup, servers = GoGenerate.s.servers)) as Http
 	};
 	Http switch {
 		(IsSomeS(m = this.err)) -> id(this),
-		else -> Mains(o = GoMainFiles(prog = At.prog, t = BuildTable, package = At.package, import_base = At.import_base, mains = At.mains))
+		else -> id(GoMainFiles(prog = GoGenerate.s.prog, t = BuildTable, package = GoGenerate.s.package, import_base = GoGenerate.s.import_base, mains = GoGenerate.s.mains)) as Mains
 	};
 	Mains switch {
 		(IsSomeS(m = this.err)) -> id(this),
-		else -> Servers(o = GoServerMains(package = At.package, import_base = At.import_base, servers = At.servers))
+		else -> id(GoServerMains(package = GoGenerate.s.package, import_base = GoGenerate.s.import_base, servers = GoGenerate.s.servers)) as Servers
 	};
 	Servers switch {
 		(IsSomeS(m = this.err)) -> id(this),
-		else -> id({ files = Sorted(files = [{ dir = Setup.dir, name = "types_vandorf.go", text = GoTypegen, kind = "types" }] + GFiles.files + GoRestFiles(g = GFiles.g, package = At.package, setup = Setup) + Http.files + Mains.files + this.files), err = None() })
+		else -> id({ files = Sorted(files = [{ dir = Setup.dir, name = "types_vandorf.go", text = GoTypegen, kind = "types" }] + GFiles.files + GoRestFiles(g = GFiles.g, package = GoGenerate.s.package, setup = Setup) + Http.files + Mains.files + this.files), err = None() })
 	};
 }

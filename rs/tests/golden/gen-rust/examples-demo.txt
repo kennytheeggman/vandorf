@@ -93,6 +93,8 @@ fn fan_out<E: Send, R: Send>(xs: Vec<E>, f: impl Fn(E) -> Result<R, Error> + Syn
 
 #[derive(Debug, Clone, Default)]
 struct EnvMeasure {
+    in_measure_measure: Option<InMeasureMeasure>,
+    out_measure_measure: Option<types::MeasureArgs>,
     in_measure_shapes: Option<InMeasureShapes>,
     out_measure_shapes: Option<types::List<types::Shape>>,
     in_measure_step: Option<InMeasureStep>,
@@ -105,6 +107,7 @@ struct EnvMeasure {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcMeasure {
+    MeasureMeasure,
     MeasureShapes,
     MeasureStep,
     MeasureId1,
@@ -114,10 +117,17 @@ enum PcMeasure {
 /// Runs proc Measure.
 pub fn run_measure(shapes: types::List<types::Shape>) -> Result<types::Report, Error> {
     let mut env = EnvMeasure::default();
-    env.in_measure_shapes = Some(InMeasureShapes { shapes: shapes });
-    let mut pc = PcMeasure::MeasureShapes;
+    env.in_measure_measure = Some(InMeasureMeasure { shapes: shapes });
+    let mut pc = PcMeasure::MeasureMeasure;
     loop {
         match pc {
+            PcMeasure::MeasureMeasure => {
+                let input = take_slot(&mut env.in_measure_measure, "Measure.Measure")?;
+                let this = types::MeasureArgs { shapes: input.shapes };
+                env.in_measure_shapes = Some(InMeasureShapes { shapes: this.shapes });
+                pc = PcMeasure::MeasureShapes;
+                continue;
+            }
             PcMeasure::MeasureShapes => {
                 let input = take_slot(&mut env.in_measure_shapes, "Measure.Shapes")?;
                 let this = crate::rs::src::impls::shapes(input.shapes).map_err(|e| wrap("Measure.Shapes", e.into()))?;
@@ -176,22 +186,32 @@ fn run_measure_region1(mut env: EnvMeasure, elem: types::Shape) -> Result<types:
 
 #[derive(Debug, Clone, Default)]
 struct EnvHello {
+    in_hello_hello: Option<InHelloHello>,
+    out_hello_hello: Option<types::HelloArgs>,
     in_hello_greet: Option<InHelloGreet>,
     out_hello_greet: Option<types::Str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcHello {
+    HelloHello,
     HelloGreet,
 }
 
 /// Runs proc Hello.
 pub fn run_hello(name: types::Str, times: i64) -> Result<types::Str, Error> {
     let mut env = EnvHello::default();
-    env.in_hello_greet = Some(InHelloGreet { name: name, times: times });
-    let mut pc = PcHello::HelloGreet;
+    env.in_hello_hello = Some(InHelloHello { name: name, times: times });
+    let mut pc = PcHello::HelloHello;
     loop {
         match pc {
+            PcHello::HelloHello => {
+                let input = take_slot(&mut env.in_hello_hello, "Hello.Hello")?;
+                let this = types::HelloArgs { name: input.name, times: input.times };
+                env.in_hello_greet = Some(InHelloGreet { name: this.name, times: this.times });
+                pc = PcHello::HelloGreet;
+                continue;
+            }
             PcHello::HelloGreet => {
                 let input = take_slot(&mut env.in_hello_greet, "Hello.Greet")?;
                 let this = crate::rs::src::impls::greet(input.name, input.times).map_err(|e| wrap("Hello.Greet", e.into()))?;
@@ -206,6 +226,8 @@ pub fn run_hello(name: types::Str, times: i64) -> Result<types::Str, Error> {
 
 #[derive(Debug, Clone, Default)]
 struct EnvCalc {
+    in_calc_calc: Option<InCalcCalc>,
+    out_calc_calc: Option<types::CalcArgs>,
     in_calc_build: Option<InCalcBuild>,
     out_calc_build: Option<types::Expr>,
     in_calc_eval: Option<InCalcEval>,
@@ -218,6 +240,7 @@ struct EnvCalc {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcCalc {
+    CalcCalc,
     CalcBuild,
     CalcEval,
     CalcTwice,
@@ -227,10 +250,17 @@ enum PcCalc {
 /// Runs proc Calc.
 pub fn run_calc(base: i64) -> Result<i64, Error> {
     let mut env = EnvCalc::default();
-    env.in_calc_build = Some(InCalcBuild { base: base });
-    let mut pc = PcCalc::CalcBuild;
+    env.in_calc_calc = Some(InCalcCalc { base: base });
+    let mut pc = PcCalc::CalcCalc;
     loop {
         match pc {
+            PcCalc::CalcCalc => {
+                let input = take_slot(&mut env.in_calc_calc, "Calc.Calc")?;
+                let this = types::CalcArgs { base: input.base };
+                env.in_calc_build = Some(InCalcBuild { base: this.base });
+                pc = PcCalc::CalcBuild;
+                continue;
+            }
             PcCalc::CalcBuild => {
                 let input = take_slot(&mut env.in_calc_build, "Calc.Build")?;
                 let this = crate::rs::src::impls::build(input.base).map_err(|e| wrap("Calc.Build", e.into()))?;
@@ -272,6 +302,8 @@ pub fn run_calc(base: i64) -> Result<i64, Error> {
 
 #[derive(Debug, Clone, Default)]
 struct EnvClassify {
+    in_classify_classify: Option<InClassifyClassify>,
+    out_classify_classify: Option<types::ClassifyArgs>,
     in_classify_look: Option<InClassifyLook>,
     out_classify_look: Option<types::Expr>,
     in_classify_id1: Option<InClassifyId1>,
@@ -280,7 +312,7 @@ struct EnvClassify {
     out_classify_id2: Option<types::Str>,
     in_classify_id3: Option<InClassifyId3>,
     out_classify_id3: Option<types::Str>,
-    in_classify_inner: Option<InClassifyLook>,
+    in_classify_inner: Option<InClassifyClassify>,
     out_classify_inner: Option<types::Str>,
     in_classify_id4: Option<InClassifyId4>,
     out_classify_id4: Option<types::Str>,
@@ -292,6 +324,7 @@ struct EnvClassify {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcClassify {
+    ClassifyClassify,
     ClassifyLook,
     ClassifyId1,
     ClassifyId2,
@@ -305,10 +338,17 @@ enum PcClassify {
 /// Runs proc Classify.
 pub fn run_classify(e: types::Expr) -> Result<types::Str, Error> {
     let mut env = EnvClassify::default();
-    env.in_classify_look = Some(InClassifyLook { e: e });
-    let mut pc = PcClassify::ClassifyLook;
+    env.in_classify_classify = Some(InClassifyClassify { e: e });
+    let mut pc = PcClassify::ClassifyClassify;
     loop {
         match pc {
+            PcClassify::ClassifyClassify => {
+                let input = take_slot(&mut env.in_classify_classify, "Classify.Classify")?;
+                let this = types::ClassifyArgs { e: input.e };
+                env.in_classify_look = Some(InClassifyLook { e: this.e });
+                pc = PcClassify::ClassifyLook;
+                continue;
+            }
             PcClassify::ClassifyLook => {
                 let input = take_slot(&mut env.in_classify_look, "Classify.Look")?;
                 let this = crate::rs::src::impls::look(input.e).map_err(|e| wrap("Classify.Look", e.into()))?;
@@ -330,7 +370,7 @@ pub fn run_classify(e: types::Expr) -> Result<types::Str, Error> {
                 }
                 if matches!((&this), types::Expr::Neg(..)) {
                     let b_e = (match (&this) { types::Expr::Neg(p) => &**p, _ => unreachable!() }).clone();
-                    env.in_classify_inner = Some(InClassifyLook { e: b_e });
+                    env.in_classify_inner = Some(InClassifyClassify { e: b_e });
                     pc = PcClassify::ClassifyInner;
                     continue;
                 }
@@ -394,6 +434,8 @@ pub fn run_classify(e: types::Expr) -> Result<types::Str, Error> {
 
 #[derive(Debug, Clone, Default)]
 struct EnvForEach {
+    in_for_each_for_each: Option<InForEachForEach>,
+    out_for_each_for_each: Option<types::OutcomeB>,
     in_for_each_start: Option<InForEachStart>,
     out_for_each_start: Option<types::ForEachStartOut>,
     in_for_each_collect: Option<InForEachCollect>,
@@ -404,6 +446,7 @@ struct EnvForEach {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcForEach {
+    ForEachForEach,
     ForEachStart,
     ForEachCollect,
     ForEachProcess,
@@ -412,10 +455,17 @@ enum PcForEach {
 /// Runs proc ForEach.
 pub fn run_for_each(i: i64) -> Result<i64, Error> {
     let mut env = EnvForEach::default();
-    env.in_for_each_start = Some(InForEachStart { i: i });
-    let mut pc = PcForEach::ForEachStart;
+    env.in_for_each_for_each = Some(InForEachForEach { i: i });
+    let mut pc = PcForEach::ForEachForEach;
     loop {
         match pc {
+            PcForEach::ForEachForEach => {
+                let input = take_slot(&mut env.in_for_each_for_each, "ForEach.ForEach")?;
+                let this = types::OutcomeB { i: input.i };
+                env.in_for_each_start = Some(InForEachStart { i: this.i });
+                pc = PcForEach::ForEachStart;
+                continue;
+            }
             PcForEach::ForEachStart => {
                 let input = take_slot(&mut env.in_for_each_start, "ForEach.Start")?;
                 let this = crate::rs::src::impls::range(input.i).map_err(|e| wrap("ForEach.Start", e.into()))?;
@@ -458,11 +508,13 @@ fn run_for_each_region1(mut env: EnvForEach, elem: i64) -> Result<i64, Error> {
 
 #[derive(Debug, Clone, Default)]
 struct EnvBar {
+    in_bar_bar: Option<InBarBar>,
+    out_bar_bar: Option<types::BarArgs>,
     in_bar_start: Option<InBarStart>,
     out_bar_start: Option<types::Str>,
     in_bar_loop: Option<InBarLoop>,
     out_bar_loop: Option<i64>,
-    in_for_each: Option<InForEachStart>,
+    in_for_each: Option<InForEachForEach>,
     out_for_each: Option<i64>,
     in_bar_branch1: Option<InBarBranch1>,
     out_bar_branch1: Option<types::Str>,
@@ -478,6 +530,7 @@ struct EnvBar {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcBar {
+    BarBar,
     BarStart,
     BarLoop,
     ForEach,
@@ -491,10 +544,17 @@ enum PcBar {
 /// Runs proc Bar.
 pub fn run_bar(a: i64, b: types::Str) -> Result<types::Str, Error> {
     let mut env = EnvBar::default();
-    env.in_bar_start = Some(InBarStart { a: a, b: b });
-    let mut pc = PcBar::BarStart;
+    env.in_bar_bar = Some(InBarBar { a: a, b: b });
+    let mut pc = PcBar::BarBar;
     loop {
         match pc {
+            PcBar::BarBar => {
+                let input = take_slot(&mut env.in_bar_bar, "Bar.Bar")?;
+                let this = types::BarArgs { a: input.a, b: input.b };
+                env.in_bar_start = Some(InBarStart { a: this.a, b: this.b });
+                pc = PcBar::BarStart;
+                continue;
+            }
             PcBar::BarStart => {
                 let input = take_slot(&mut env.in_bar_start, "Bar.Start")?;
                 let this = crate::rs::src::impls::repeat(input.a, input.b).map_err(|e| wrap("Bar.Start", e.into()))?;
@@ -511,7 +571,7 @@ pub fn run_bar(a: i64, b: types::Str) -> Result<types::Str, Error> {
                     pc = PcBar::BarLoop;
                     continue;
                 }
-                env.in_for_each = Some(InForEachStart { i: this });
+                env.in_for_each = Some(InForEachForEach { i: this });
                 pc = PcBar::ForEach;
                 continue;
             }
@@ -569,14 +629,17 @@ pub fn run_bar(a: i64, b: types::Str) -> Result<types::Str, Error> {
 
 #[derive(Debug, Clone, Default)]
 struct EnvMain {
+    in_main_main: Option<InMainMain>,
+    out_main_main: Option<types::BarArgs>,
     in_main_start: Option<InMainStart>,
-    out_main_start: Option<types::MainStartOut>,
-    in_bar: Option<InBarStart>,
+    out_main_start: Option<types::BarArgs>,
+    in_bar: Option<InBarBar>,
     out_bar: Option<types::Str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcMain {
+    MainMain,
     MainStart,
     Bar,
 }
@@ -584,14 +647,21 @@ enum PcMain {
 /// Runs proc Main.
 pub fn run_main(a: i64, b: types::Str) -> Result<types::Str, Error> {
     let mut env = EnvMain::default();
-    env.in_main_start = Some(InMainStart { a: a, b: b });
-    let mut pc = PcMain::MainStart;
+    env.in_main_main = Some(InMainMain { a: a, b: b });
+    let mut pc = PcMain::MainMain;
     loop {
         match pc {
+            PcMain::MainMain => {
+                let input = take_slot(&mut env.in_main_main, "Main.Main")?;
+                let this = types::BarArgs { a: input.a, b: input.b };
+                env.in_main_start = Some(InMainStart { a: this.a, b: this.b });
+                pc = PcMain::MainStart;
+                continue;
+            }
             PcMain::MainStart => {
                 let input = take_slot(&mut env.in_main_start, "Main.Start")?;
                 let this = crate::rs::src::impls::args(input.a, input.b).map_err(|e| wrap("Main.Start", e.into()))?;
-                env.in_bar = Some(InBarStart { a: this.a, b: this.b });
+                env.in_bar = Some(InBarBar { a: this.a, b: this.b });
                 pc = PcMain::Bar;
                 continue;
             }
@@ -609,6 +679,8 @@ pub fn run_main(a: i64, b: types::Str) -> Result<types::Str, Error> {
 
 #[derive(Debug, Clone, Default)]
 struct EnvResolve {
+    in_resolve_resolve: Option<InResolveResolve>,
+    out_resolve_resolve: Option<types::ResolveArgs>,
     in_resolve_declare: Option<InResolveDeclare>,
     out_resolve_declare: Option<types::ResolveDeclareOut>,
     in_resolve_adjust: Option<InResolveAdjust>,
@@ -621,6 +693,7 @@ struct EnvResolve {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcResolve {
+    ResolveResolve,
     ResolveDeclare,
     ResolveAdjust,
     ResolveFound,
@@ -630,10 +703,17 @@ enum PcResolve {
 /// Runs proc Resolve.
 pub fn run_resolve(names: types::List<types::Str>, query: types::Str) -> Result<types::Str, Error> {
     let mut env = EnvResolve::default();
-    env.in_resolve_declare = Some(InResolveDeclare { names: names, query: query });
-    let mut pc = PcResolve::ResolveDeclare;
+    env.in_resolve_resolve = Some(InResolveResolve { names: names, query: query });
+    let mut pc = PcResolve::ResolveResolve;
     loop {
         match pc {
+            PcResolve::ResolveResolve => {
+                let input = take_slot(&mut env.in_resolve_resolve, "Resolve.Resolve")?;
+                let this = types::ResolveArgs { names: input.names, query: input.query };
+                env.in_resolve_declare = Some(InResolveDeclare { names: this.names, query: this.query });
+                pc = PcResolve::ResolveDeclare;
+                continue;
+            }
             PcResolve::ResolveDeclare => {
                 let input = take_slot(&mut env.in_resolve_declare, "Resolve.Declare")?;
                 let this = crate::rs::src::impls::declare(input.names, input.query).map_err(|e| wrap("Resolve.Declare", e.into()))?;
@@ -674,6 +754,12 @@ struct InFooCall {
     s: types::Str,
 }
 
+/// Input of Measure.Measure.
+#[derive(Debug, Clone)]
+struct InMeasureMeasure {
+    shapes: types::List<types::Shape>,
+}
+
 /// Input of Measure.Shapes.
 #[derive(Debug, Clone)]
 struct InMeasureShapes {
@@ -698,11 +784,24 @@ struct InMeasureId1 {
     value: types::Report,
 }
 
+/// Input of Hello.Hello.
+#[derive(Debug, Clone)]
+struct InHelloHello {
+    name: types::Str,
+    times: i64,
+}
+
 /// Input of Hello.Greet.
 #[derive(Debug, Clone)]
 struct InHelloGreet {
     name: types::Str,
     times: i64,
+}
+
+/// Input of Calc.Calc.
+#[derive(Debug, Clone)]
+struct InCalcCalc {
+    base: i64,
 }
 
 /// Input of Calc.Build.
@@ -722,6 +821,12 @@ struct InCalcEval {
 #[derive(Debug, Clone)]
 struct InCalcTotal {
     xs: types::List<i64>,
+}
+
+/// Input of Classify.Classify.
+#[derive(Debug, Clone)]
+struct InClassifyClassify {
+    e: types::Expr,
 }
 
 /// Input of Classify.Look.
@@ -772,6 +877,12 @@ struct InClassifyId6 {
     value: types::Str,
 }
 
+/// Input of ForEach.ForEach.
+#[derive(Debug, Clone)]
+struct InForEachForEach {
+    i: i64,
+}
+
 /// Input of ForEach.Start.
 #[derive(Debug, Clone)]
 struct InForEachStart {
@@ -789,6 +900,13 @@ struct InForEachProcess {
 #[derive(Debug, Clone)]
 struct InForEachCollect {
     l: types::List<i64>,
+}
+
+/// Input of Bar.Bar.
+#[derive(Debug, Clone)]
+struct InBarBar {
+    a: i64,
+    b: types::Str,
 }
 
 /// Input of Bar.Start.
@@ -828,11 +946,25 @@ struct InBarEnd {
     r: types::Outcome,
 }
 
+/// Input of Main.Main.
+#[derive(Debug, Clone)]
+struct InMainMain {
+    a: i64,
+    b: types::Str,
+}
+
 /// Input of Main.Start.
 #[derive(Debug, Clone)]
 struct InMainStart {
     a: i64,
     b: types::Str,
+}
+
+/// Input of Resolve.Resolve.
+#[derive(Debug, Clone)]
+struct InResolveResolve {
+    names: types::List<types::Str>,
+    query: types::Str,
 }
 
 /// Input of Resolve.Declare.
@@ -1111,6 +1243,31 @@ pub struct ScopeValue {
     pub kind: Str,
 }
 
+/// The type of the parameters of Measure.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MeasureArgs {
+    pub shapes: List<Shape>,
+}
+
+/// The type of the parameters of Hello.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HelloArgs {
+    pub name: Str,
+    pub times: i64,
+}
+
+/// The type of the parameters of Calc.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CalcArgs {
+    pub base: i64,
+}
+
+/// The type of the parameters of Classify.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassifyArgs {
+    pub e: Expr,
+}
+
 /// The type of the return of ForEach.Start.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForEachStartOut {
@@ -1118,11 +1275,18 @@ pub struct ForEachStartOut {
     pub s: Str,
 }
 
-/// The type of the return of Main.Start.
+/// The type of the parameters of Bar.
 #[derive(Debug, Clone, PartialEq)]
-pub struct MainStartOut {
+pub struct BarArgs {
     pub a: i64,
     pub b: Str,
+}
+
+/// The type of the parameters of Resolve.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolveArgs {
+    pub names: List<Str>,
+    pub query: Str,
 }
 
 /// The type of the return of Resolve.Declare.

@@ -25,19 +25,6 @@ const KEYWORDS: &[&str] = &[
     "id",
 ];
 
-/// The identity: entries and pass-through nodes.
-pub fn same<T>(x: T) -> Result<T, String> {
-    Ok(x)
-}
-
-pub fn src_file(src: Str, file: i64) -> Result<ParseFileStartOut, String> {
-    Ok(ParseFileStartOut { src, file })
-}
-
-pub fn same_strs(s: List<Str>) -> Result<List<Str>, String> {
-    Ok(s)
-}
-
 pub fn fail(msg: Str) -> Result<Str, String> {
     Err(msg.to_string())
 }

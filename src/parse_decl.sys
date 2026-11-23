@@ -3,8 +3,9 @@
 // file := (typedef | interface | func ';' | proc ';'?)* eof
 //
 // A loop: each item is appended to acc and control goes back to At.
-proc PItems(At): R<File> {
+proc PItems(toks: []Tok, pos: int, acc: File): R<File> {
 	func At(toks: []Tok, pos: int, acc: File): AtAcc<File> = "leaf.rs:at_file";
+	PItems -> At(toks = this.toks, pos = this.pos, acc = this.acc);
 	At switch {
 		(this.cur.tok.kind == "eof") -> id({ x = this.acc, pos = this.cur.pos }),
 		(IsWord(t = this.cur.tok, s = "type")) -> PTypeDecl(toks = this.cur.toks, pos = this.cur.pos + 1),
@@ -25,8 +26,9 @@ proc PItems(At): R<File> {
 }
 
 // typedef := 'type' IDENT params '=' type ';'   (after 'type')
-proc PTypeDecl(At): R<TypeDecl> {
+proc PTypeDecl(toks: []Tok, pos: int): R<TypeDecl> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
+	PTypeDecl -> At(toks = this.toks, pos = this.pos);
 	At -> NeedIdent(toks = this.toks, pos = this.pos, what = "the type's name");
 	NeedIdent -> PParams(toks = this.toks, pos = this.pos);
 	PParams -> Expect(toks = At.toks, pos = this.pos, text = "=", what = "= after the type's name") as Eq;
@@ -36,9 +38,10 @@ proc PTypeDecl(At): R<TypeDecl> {
 }
 
 // params := ('<' IDENT (',' IDENT)* '>')?
-proc PParams(At): R<[]Ident> {
+proc PParams(toks: []Tok, pos: int): R<[]Ident> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []Ident): AtAcc<[]Ident> = "leaf.rs:at_segs";
+	PParams -> At(toks = this.toks, pos = this.pos);
 	At switch {
 		(IsSym(t = this.tok, s = "<")) -> Loop(toks = this.toks, pos = this.pos + 1, acc = []),
 		else -> id({ x = [], pos = this.pos })
@@ -53,8 +56,9 @@ proc PParams(At): R<[]Ident> {
 }
 
 // interface := 'interface' IDENT '{' (func ';')* '}'   (after 'interface')
-proc PInterface(At): R<Interface> {
+proc PInterface(toks: []Tok, pos: int): R<Interface> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
+	PInterface -> At(toks = this.toks, pos = this.pos);
 	At -> NeedIdent(toks = this.toks, pos = this.pos, what = "the interface's name");
 	NeedIdent -> Expect(toks = this.toks, pos = this.pos, text = "{", what = "{ after the interface's name") as Open;
 	Open -> PFuncs(toks = this.toks, pos = this.pos);
@@ -63,9 +67,10 @@ proc PInterface(At): R<Interface> {
 }
 
 // (func ';')*, stopping at anything else.
-proc PFuncs(At): R<[]Func> {
+proc PFuncs(toks: []Tok, pos: int): R<[]Func> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []Func): AtAcc<[]Func> = "leaf.rs:at_funcs";
+	PFuncs -> At(toks = this.toks, pos = this.pos);
 	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
 	Loop switch {
 		(IsWord(t = this.cur.tok, s = "func")) -> PFunc(toks = this.cur.toks, pos = this.cur.pos + 1),
@@ -77,8 +82,9 @@ proc PFuncs(At): R<[]Func> {
 
 // func := IDENT '(' (field (',' field)*)? ')' (':' type)? ('=' STRING (',' STRING)*)?
 // (after 'func')
-proc PFunc(At): R<Func> {
+proc PFunc(toks: []Tok, pos: int): R<Func> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
+	PFunc -> At(toks = this.toks, pos = this.pos);
 	At -> NeedIdent(toks = this.toks, pos = this.pos, what = "the func's name");
 	NeedIdent -> Expect(toks = this.toks, pos = this.pos, text = "(", what = "( after the func's name") as Open;
 	Open -> PFieldList(toks = this.toks, pos = this.pos);
@@ -94,8 +100,9 @@ proc PFunc(At): R<Func> {
 }
 
 // ('=' STRING (',' STRING)*)?
-proc PImpls(At): R<[]ImplRef> {
+proc PImpls(toks: []Tok, pos: int): R<[]ImplRef> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
+	PImpls -> At(toks = this.toks, pos = this.pos);
 	At switch {
 		(IsSym(t = this.tok, s = "=")) -> PImplList(toks = this.toks, pos = this.pos + 1),
 		else -> id({ x = [], pos = this.pos })
@@ -104,9 +111,10 @@ proc PImpls(At): R<[]ImplRef> {
 }
 
 // STRING (',' STRING)*
-proc PImplList(At): R<[]ImplRef> {
+proc PImplList(toks: []Tok, pos: int): R<[]ImplRef> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []ImplRef): AtAcc<[]ImplRef> = "leaf.rs:at_impls";
+	PImplList -> At(toks = this.toks, pos = this.pos);
 	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
 	Loop -> NeedStr(toks = this.cur.toks, pos = this.cur.pos, what = "an implementation, \"file:function\"");
 	NeedStr -> At(toks = this.toks, pos = this.pos) as After;
@@ -118,8 +126,9 @@ proc PImplList(At): R<[]ImplRef> {
 
 // proc := IDENT '(' head ')' ':' type '{' ((func | proc | edge) ';')* '}'
 // (after 'proc')
-proc PProc(At): R<Proc> {
+proc PProc(toks: []Tok, pos: int): R<Proc> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
+	PProc -> At(toks = this.toks, pos = this.pos);
 	At -> NeedIdent(toks = this.toks, pos = this.pos, what = "the proc's name") as Name;
 	Name -> Expect(toks = this.toks, pos = this.pos, text = "(", what = "( after the proc's name") as Open;
 	Open -> PProcHead(toks = this.toks, pos = this.pos);
@@ -143,8 +152,9 @@ type ProcHead = { entry: OptIdent, params: []Field };
 // head := (field (',' field)*)? | IDENT, then ')'   (after '(')
 //
 // A bare IDENT is the older form, naming the proc's entry.
-proc PProcHead(At): R<ProcHead> {
+proc PProcHead(toks: []Tok, pos: int): R<ProcHead> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
+	PProcHead -> At(toks = this.toks, pos = this.pos);
 	At switch {
 		(IsSym(t = this.tok, s = ")")) -> id({ x = { entry = None(), params = [] }, pos = this.pos + 1 }),
 		(this.tok.kind != "eof" && IsSym(t = this.toks[this.pos + 1], s = ":")) -> PFieldList(toks = this.toks, pos = this.pos),
@@ -157,9 +167,10 @@ proc PProcHead(At): R<ProcHead> {
 }
 
 // ((func | proc | edge) ';')*, stopping at '}'.
-proc PBody(At): R<BodyItems> {
+proc PBody(toks: []Tok, pos: int): R<BodyItems> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: BodyItems): AtAcc<BodyItems> = "leaf.rs:at_body";
+	PBody -> At(toks = this.toks, pos = this.pos);
 	At -> Loop(toks = this.toks, pos = this.pos, acc = { nodes = [], edges = [] });
 	Loop switch {
 		(IsSym(t = this.cur.tok, s = "}")) -> id({ x = this.acc, pos = this.cur.pos }),
@@ -177,8 +188,9 @@ proc PBody(At): R<BodyItems> {
 
 // type := '[' ']' type | 'map' '[' type ']' type | 'enum' '{' variant,* '}'
 //       | '{' field,* '}' | IDENT ('<' type,+ '>')?
-proc PType(At): R<TypeExpr> {
+proc PType(toks: []Tok, pos: int): R<TypeExpr> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
+	PType -> At(toks = this.toks, pos = this.pos);
 	At switch {
 		(IsSym(t = this.tok, s = "[")) -> Expect(toks = this.toks, pos = this.pos + 1, text = "]", what = "] in []T") as ArrClose,
 		(IsWord(t = this.tok, s = "map")) -> Expect(toks = this.toks, pos = this.pos + 1, text = "[", what = "[ after map") as MapOpen,
@@ -207,9 +219,10 @@ proc PType(At): R<TypeExpr> {
 }
 
 // type (',' type)*   (after '<')
-proc PTypeArgs(At): R<[]TypeExpr> {
+proc PTypeArgs(toks: []Tok, pos: int): R<[]TypeExpr> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []TypeExpr): AtAcc<[]TypeExpr> = "leaf.rs:at_types";
+	PTypeArgs -> At(toks = this.toks, pos = this.pos);
 	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
 	Loop -> PType(toks = this.cur.toks, pos = this.cur.pos);
 	PType -> At(toks = Loop.cur.toks, pos = this.pos) as After;
@@ -220,9 +233,10 @@ proc PTypeArgs(At): R<[]TypeExpr> {
 }
 
 // (field (',' field)* ','?)?, stopping at a closing bracket.
-proc PFieldList(At): R<[]Field> {
+proc PFieldList(toks: []Tok, pos: int): R<[]Field> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []Field): AtAcc<[]Field> = "leaf.rs:at_fields";
+	PFieldList -> At(toks = this.toks, pos = this.pos);
 	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
 	Loop switch {
 		(IsClose(t = this.cur.tok)) -> id({ x = this.acc, pos = this.cur.pos }),
@@ -236,8 +250,9 @@ proc PFieldList(At): R<[]Field> {
 }
 
 // field := NAME ':' type
-proc PField(At): R<Field> {
+proc PField(toks: []Tok, pos: int): R<Field> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
+	PField -> At(toks = this.toks, pos = this.pos);
 	At -> NeedName(toks = this.toks, pos = this.pos, what = "a field name");
 	NeedName -> Expect(toks = this.toks, pos = this.pos, text = ":", what = ": after the field name");
 	Expect -> PType(toks = this.toks, pos = this.pos);
@@ -246,9 +261,10 @@ proc PField(At): R<Field> {
 
 // (variant (',' variant)* ','?)?, stopping at a closing bracket;
 // variant := IDENT ('(' type ')')?
-proc PVariants(At): R<[]Variant> {
+proc PVariants(toks: []Tok, pos: int): R<[]Variant> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []Variant): AtAcc<[]Variant> = "leaf.rs:at_variants";
+	PVariants -> At(toks = this.toks, pos = this.pos);
 	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
 	Loop switch {
 		(IsClose(t = this.cur.tok)) -> id({ x = this.acc, pos = this.cur.pos }),
@@ -269,17 +285,19 @@ proc PVariants(At): R<[]Variant> {
 }
 
 // path := IDENT ('.' NAME)*
-proc PPath(At): R<Path> {
+proc PPath(toks: []Tok, pos: int): R<Path> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
+	PPath -> At(toks = this.toks, pos = this.pos);
 	At -> NeedIdent(toks = this.toks, pos = this.pos, what = "a name");
 	NeedIdent -> PSegs(toks = this.toks, pos = this.pos);
 	PSegs -> id({ x = { segs = [MkIdent(t = NeedIdent.tok)] + this.x, span = { at = NeedIdent.tok.at, end = PathEnd(t = NeedIdent.tok, segs = this.x), file = NeedIdent.tok.file } }, pos = this.pos });
 }
 
 // ('.' NAME)*
-proc PSegs(At): R<[]Ident> {
+proc PSegs(toks: []Tok, pos: int): R<[]Ident> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []Ident): AtAcc<[]Ident> = "leaf.rs:at_segs";
+	PSegs -> At(toks = this.toks, pos = this.pos);
 	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
 	Loop switch {
 		(IsSym(t = this.cur.tok, s = ".")) -> NeedName(toks = this.cur.toks, pos = this.cur.pos + 1, what = "a field name"),

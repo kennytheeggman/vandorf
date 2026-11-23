@@ -57,7 +57,7 @@ fn v_table(t: &v::Table) -> Vec<String> {
 }
 
 fn rust_generate(prog: &v::Program, servers: Vec<v::ServerSpec>) -> v::RustOut {
-    vcc::vcc::run_rust_generate(v::RustGenerateAtS { prog: prog.clone(), module_dir: v::MaybeStr::Some("app".into()), servers: servers.into() }).unwrap()
+    vcc::vcc::run_rust_generate(v::RustGenerateS { prog: prog.clone(), module_dir: v::MaybeStr::Some("app".into()), servers: servers.into() }).unwrap()
 }
 
 #[test]
@@ -147,7 +147,7 @@ fn generates_http() {
             let got = rust_generate(prog, vec![vsrv.clone()]);
             match &got.err {
                 v::MaybeStr::None => {
-                    let bin = vcc::vcc::run_rust_server(v::RustServerAtS { srv: vsrv, module_dir: v::MaybeStr::Some("app".into()), krate: "demo".into() }).unwrap();
+                    let bin = vcc::vcc::run_rust_server(v::RustServerS { srv: vsrv, module_dir: v::MaybeStr::Some("app".into()), krate: "demo".into() }).unwrap();
                     golden += &files_text([("http.rs".to_string(), &*got.http), ("mod.rs".to_string(), &*got.modrs), (format!("{}/{}", bin.dir, bin.file), &*bin.text)]);
                     n += 1;
                     with_setup += setup.is_some() as usize;

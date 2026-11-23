@@ -1078,11 +1078,11 @@ pub fn bind_lines(bs: List<PatBind>) -> Result<List<Line>, String> {
         .collect())
 }
 
-pub fn coercion_name(at: RCoerceAtS) -> Result<Str, String> {
+pub fn coercion_name(at: RCoerceS) -> Result<Str, String> {
     Ok(format!("coerce_{}", at.g.coercions.len()).into())
 }
 
-pub fn new_coercion(at: RCoerceAtS) -> Result<RGen, String> {
+pub fn new_coercion(at: RCoerceS) -> Result<RGen, String> {
     let key = format!(
         "{} -> {}",
         rtype(&at.g.table, &at.from)?,
