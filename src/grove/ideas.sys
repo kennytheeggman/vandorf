@@ -1,0 +1,249 @@
+// grove's idea routes: the tree, and branching, discarding, restoring,
+// renaming and laying out ideas. Reads are open; writes pass WriteGate.
+//   GET  /api/ideas                      the repository, its ideas and the interiors
+//   POST /api/ideas/branch {from, name?} a new idea at from's head, its id
+//   POST /api/ideas/discard {id}         removes its worktree, keeps its branch
+//   POST /api/ideas/restore {id}         a discarded idea's worktree back
+//   POST /api/ideas/rename {id, name}
+//   POST /api/ideas/layout {id, sections}
+
+// A write request, let through with its repository and JSON body, or the
+// response that turns it away.
+type Writing = enum { Go({ repo: Repo, j: Json }), Stop(HttpResponse) };
+
+// Builds the tree's JSON: the repository, the root and each idea that has a
+// branch (its worktree, head and sections; one whose parent is gone hangs
+// from the root; one with no worktree is discarded), and the interiors that
+// can be opened.
+func TreeJson(repo: Repo, worktrees: string, branches: string, root: Idea, ideas: []Idea, interiors: []Interior): Json = "grove_leaf.rs:tree_json";
+// Answers with {"ok": true, key: value}, or the error.
+func Answer(r: Res<string>, key: string): HttpResponse = "grove_leaf.rs:answer";
+// a, or d if a is "".
+func OrStr(a: string, d: string): string = "grove_leaf.rs:or_str";
+
+// Lets a write through with the repository and the request's JSON body:
+// the session token first (WriteGate), then the body, then the repository.
+proc GroveWrite(req: HttpRequest): Writing {
+	GroveWrite -> WriteGate(req = this.req);
+	WriteGate switch {
+		Shut(r) -> id(Stop(r)),
+		else -> ParseJson(text = GroveWrite.req.body)
+	};
+	ParseJson switch {
+		Ok(_) -> Grove.Repo(n = 0),
+		Err(e) -> id(Stop(ApiErr(msg = "bad request: " + e.msg)))
+	};
+	Grove.Repo switch {
+		Ok(r) -> id(Go({ repo = r, j = UnwrapJ(r = ParseJson) })),
+		Err(e) -> id(Stop(ApiErr(msg = e.msg)))
+	};
+}
+
+// Serves GET /api/ideas: the repository, the root and its ideas, and the
+// interiors that can be opened.
+proc IdeasRoute(req: HttpRequest): HttpResponse {
+	IdeasRoute -> Grove.Repo(n = 0);
+	Grove.Repo switch {
+		Ok(r) -> id(r) as R,
+		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+	R -> Grove.Git(dir = this.top, args = ["worktree", "list", "--porcelain"]) as Worktrees;
+	Worktrees switch {
+		Ok(_) -> Grove.Git(dir = R.top, args = ["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/idea/"]) as Branches,
+		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+	Branches switch {
+		Ok(_) -> Grove.List(dir = JoinP(a = R.common, b = "grove/ideas")),
+		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+	Grove.List -> LoadIdeas(s = { repo = R, ids = IdsOf(files = this, branches = UnwrapR2(r = Branches)), i = 0, acc = [] });
+	LoadIdeas switch {
+		Ok(xs) -> id(xs) as Ideas,
+		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+	Ideas -> LoadIdea(s = { repo = R, id = "" });
+	LoadIdea switch {
+		Ok(i) -> id(i) as Root,
+		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+	Root -> LoadInteriors(repo = R);
+	LoadInteriors switch {
+		Ok(xs) -> id(Api(j = TreeJson(repo = R, worktrees = UnwrapR2(r = Worktrees), branches = UnwrapR2(r = Branches), root = Root, ideas = Ideas, interiors = xs))),
+		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+}
+
+// Serves POST /api/ideas/branch {from, name?}: a new idea branched from
+// from's head, its id.
+proc BranchRoute(req: HttpRequest): HttpResponse {
+	BranchRoute -> GroveWrite(req = this.req);
+	GroveWrite switch {
+		Stop(r) -> id(r),
+		Go(w) -> BranchIdea(s = { repo = w.repo, from = StrOr(j = w.j, key = "from", d = ""), name = StrOr(j = w.j, key = "name", d = "") })
+	};
+	BranchIdea -> id(Answer(r = this, key = "id"));
+}
+
+// Serves POST /api/ideas/discard {id}: removes the idea's worktree, its
+// terminals and the interiors started for it, keeping its branch and its
+// metadata so it can be restored.
+proc DiscardRoute(req: HttpRequest): HttpResponse {
+	DiscardRoute -> GroveWrite(req = this.req);
+	GroveWrite switch {
+		Stop(r) -> id(r),
+		Go(w) -> DiscardIdea(s = { repo = w.repo, id = StrOr(j = w.j, key = "id", d = "") })
+	};
+	DiscardIdea -> id(Answer(r = this, key = "id"));
+}
+
+// Serves POST /api/ideas/restore {id}: gives a discarded idea its worktree
+// back.
+proc RestoreRoute(req: HttpRequest): HttpResponse {
+	RestoreRoute -> GroveWrite(req = this.req);
+	GroveWrite switch {
+		Stop(r) -> id(r),
+		Go(w) -> RestoreIdea(s = { repo = w.repo, id = StrOr(j = w.j, key = "id", d = "") })
+	};
+	RestoreIdea -> id(Answer(r = this, key = "id"));
+}
+
+// Serves POST /api/ideas/rename {id, name}.
+proc RenameRoute(req: HttpRequest): HttpResponse {
+	RenameRoute -> GroveWrite(req = this.req);
+	GroveWrite switch {
+		Stop(r) -> id(r),
+		Go(w) -> RenameIdea(s = { repo = w.repo, id = StrOr(j = w.j, key = "id", d = ""), name = StrOr(j = w.j, key = "name", d = "") })
+	};
+	RenameIdea -> id(Answer(r = this, key = "id"));
+}
+
+// Serves POST /api/ideas/layout {id, sections}: stores the idea's sections,
+// their order and which are expanded.
+proc LayoutRoute(req: HttpRequest): HttpResponse {
+	LayoutRoute -> GroveWrite(req = this.req);
+	GroveWrite switch {
+		Stop(r) -> id(r),
+		Go(w) -> LayoutIdea(s = { repo = w.repo, id = StrOr(j = w.j, key = "id", d = ""), j = w.j })
+	};
+	LayoutIdea -> id(Answer(r = this, key = "id"));
+}
+
+// Branches a new idea from the idea from (the root if ""): a branch
+// idea/<new id> and a worktree for it at from's head, with its base
+// (refs/worktree/base) set there, and from's sections. Gives its id.
+proc BranchIdea(s: { repo: Repo, from: string, name: string }): Res<string> {
+	BranchIdea -> LoadIdea(s = { repo = this.s.repo, id = this.s.from });
+	LoadIdea switch {
+		Ok(i) -> id(i) as Src,
+		Err(e) -> id(Err(e))
+	};
+	Src -> IdeaWorktree(s = { repo = BranchIdea.s.repo, id = BranchIdea.s.from });
+	IdeaWorktree switch {
+		Ok(dir) -> Grove.Git(dir = dir, args = ["rev-parse", "HEAD"]) as Head,
+		Err(e) -> id(Err(e))
+	};
+	Head switch {
+		Ok(_) -> Grove.NewId(n = 0),
+		Err(e) -> id(Err(GroveErr(msg = "no commit to branch from: " + e.msg)))
+	};
+	Grove.NewId -> Grove.Git(dir = BranchIdea.s.repo.top, args = ["worktree", "add", "-b", "idea/" + this, WorktreePath(common = BranchIdea.s.repo.common, id = this), UnwrapR2(r = Head)]) as Add;
+	Add switch {
+		Ok(_) -> Grove.Git(dir = WorktreePath(common = BranchIdea.s.repo.common, id = Grove.NewId), args = ["update-ref", "refs/worktree/base", UnwrapR2(r = Head)]) as SetBase,
+		Err(e) -> id(Err(GroveErr(msg = "cannot make the worktree: " + e.msg)))
+	};
+	SetBase switch {
+		Ok(_) -> SaveIdea(s = { repo = BranchIdea.s.repo, idea = { id = Grove.NewId, name = OrStr(a = BranchIdea.s.name, d = Grove.NewId), parent = BranchIdea.s.from, fork = UnwrapR2(r = Head), status = "active", sections = FreshSections(xs = Src.sections) } }),
+		Err(e) -> id(Err(GroveErr(msg = "cannot set the base: " + e.msg)))
+	};
+}
+
+// Discards an idea: removes its worktree (git refuses one with changes not
+// committed), kills its terminals and stops the interiors started for it,
+// and marks it discarded. Its branch stays. Gives its id.
+proc DiscardIdea(s: { repo: Repo, id: string }): Res<string> {
+	DiscardIdea switch {
+		(this.s.id == "") -> id(Err(GroveErr(msg = "the repository itself can't be discarded"))),
+		else -> LoadIdea(s = this.s)
+	};
+	LoadIdea switch {
+		Ok(i) -> id(i) as I,
+		Err(e) -> id(Err(e))
+	};
+	I -> IdeaWorktree(s = DiscardIdea.s);
+	IdeaWorktree switch {
+		Ok(dir) -> Grove.Git(dir = DiscardIdea.s.repo.top, args = ["worktree", "remove", dir]) as Remove,
+		Err(e) -> id(Err(GroveErr(msg = "cannot discard " + DiscardIdea.s.id + ": " + e.msg)))
+	};
+	Remove switch {
+		Ok(_) -> Interiors.Stop(worktree = UnwrapR2(r = IdeaWorktree)),
+		Err(e) -> id(Err(GroveErr(msg = "cannot discard " + DiscardIdea.s.id + ": " + e.msg)))
+	};
+	Interiors.Stop for each (I.sections) -> Term.Kill(id = this.term) as Killed;
+	Killed collect each (Killed) -> SaveIdea(s = { repo = DiscardIdea.s.repo, idea = { ..I, status = "discarded", sections = FreshSections(xs = I.sections) } });
+}
+
+// Restores a discarded idea, or one whose worktree was removed outside
+// grove: a worktree for its branch again, with its base where it was
+// branched. Gives its id.
+proc RestoreIdea(s: { repo: Repo, id: string }): Res<string> {
+	RestoreIdea switch {
+		(this.s.id == "") -> id(Err(GroveErr(msg = "the repository itself isn't an idea to restore"))),
+		else -> LoadIdea(s = this.s)
+	};
+	LoadIdea switch {
+		Ok(i) -> id(i) as I,
+		Err(e) -> id(Err(e))
+	};
+	I -> IdeaWorktree(s = RestoreIdea.s);
+	IdeaWorktree switch {
+		Ok(_) -> id(Err(GroveErr(msg = "idea " + I.id + " isn't discarded"))),
+		Err(_) -> Grove.Git(dir = RestoreIdea.s.repo.top, args = ["worktree", "add", WorktreePath(common = RestoreIdea.s.repo.common, id = I.id), "idea/" + I.id]) as Add
+	};
+	Add switch {
+		Ok(_) -> switch {
+			(I.fork == "") -> SaveIdea(s = { repo = RestoreIdea.s.repo, idea = { ..I, status = "active" } }),
+			else -> Grove.Git(dir = WorktreePath(common = RestoreIdea.s.repo.common, id = I.id), args = ["update-ref", "refs/worktree/base", I.fork]) as SetBase
+		},
+		Err(e) -> id(Err(GroveErr(msg = "cannot restore " + I.id + ": " + e.msg)))
+	};
+	SetBase switch {
+		Ok(_) -> SaveIdea(s = { repo = RestoreIdea.s.repo, idea = { ..I, status = "active" } }),
+		Err(e) -> id(Err(GroveErr(msg = "cannot set the base: " + e.msg)))
+	};
+}
+
+// Renames an idea (or the root). Gives its id.
+proc RenameIdea(s: { repo: Repo, id: string, name: string }): Res<string> {
+	RenameIdea switch {
+		(this.s.name == "") -> id(Err(GroveErr(msg = "a name can't be empty"))),
+		else -> LoadIdea(s = { repo = this.s.repo, id = this.s.id })
+	};
+	LoadIdea switch {
+		Ok(i) -> SaveIdea(s = { repo = RenameIdea.s.repo, idea = { ..i, name = RenameIdea.s.name } }),
+		Err(e) -> id(Err(e))
+	};
+}
+
+// Stores an idea's sections from a layout request, for the root or an idea
+// that has a branch. Gives its id.
+proc LayoutIdea(s: { repo: Repo, id: string, j: Json }): Res<string> {
+	LayoutIdea -> id(ParseSections(j = this.s.j)) as Secs;
+	Secs switch {
+		Err(e) -> id(Err(e)),
+		Ok(_) -> switch {
+			(LayoutIdea.s.id == "") -> LoadIdea(s = { repo = LayoutIdea.s.repo, id = "" }),
+			(!ValidId(id = LayoutIdea.s.id)) -> id(Err(GroveErr(msg = "invalid idea id: " + LayoutIdea.s.id))),
+			else -> Grove.Git(dir = LayoutIdea.s.repo.top, args = ["rev-parse", "--verify", "--quiet", "refs/heads/idea/" + LayoutIdea.s.id]) as Known
+		}
+	};
+	Known switch {
+		Ok(_) -> LoadIdea(s = { repo = LayoutIdea.s.repo, id = LayoutIdea.s.id }),
+		Err(_) -> id(Err(GroveErr(msg = "no such idea: " + LayoutIdea.s.id)))
+	};
+	LoadIdea switch {
+		Ok(i) -> SaveIdea(s = { repo = LayoutIdea.s.repo, idea = { ..i, sections = UnwrapSections(r = Secs) } }),
+		Err(e) -> id(Err(e))
+	};
+}
+
+func UnwrapSections(r: Res<[]Section>): []Section = "grove_leaf.rs:unwrap_sections";

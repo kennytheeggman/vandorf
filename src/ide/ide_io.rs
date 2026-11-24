@@ -63,6 +63,8 @@ pub fn page(name: Str) -> Result<Str, String> {
         "viz" => include_str!("../../web/visualizer.html"),
         "project" => include_str!("../../web/project.html"),
         "ui.css" => include_str!("../../web/ui.css"),
+        "grove" => include_str!("../../web/grove.html"),
+        "grove-term" => include_str!("../../web/grove_terminal.html"),
         _ => "",
     }))
 }

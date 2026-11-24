@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>grove</title>
+<link rel="stylesheet" href="/ui.css">
+<style>
+/* grove: the idea tree (the exterior, left) and the shown idea's interiors
+   as stacked sections (the interior, right). */
+body{ background:var(--app) }
+#app{ display:flex; height:100% }
+
+/* ---- The exterior: the idea tree ---- */
+#side{ width:var(--side-w, 220px); min-width:140px; max-width:60vw; display:flex; flex-direction:column; background:var(--bar); border-right:1px solid var(--line); flex:none }
+#side.hidden{ display:none }
+#sash{ width:4px; margin-left:-2px; margin-right:-2px; cursor:col-resize; z-index:2; flex:none }
+#sash:hover, #sash.drag{ background:var(--accent) }
+#side.hidden + #sash{ display:none }
+#tree{ flex:1; overflow:auto; padding:6px 0 10px }
+#tree ul{ list-style:none; margin:0; padding:0 }
+#tree ul ul{ margin-left:13px; border-left:1px solid var(--line) }
+#tree li{ position:relative }
+#tree ul ul > li::before{ content:""; position:absolute; left:0; top:11px; width:7px; border-top:1px solid var(--line) }
+.node{ display:flex; align-items:center; gap:4px; height:22px; padding:0 6px 0 7px; cursor:pointer; white-space:nowrap; user-select:none }
+#tree ul ul .node{ padding-left:9px }
+.node:hover{ background:var(--hover) }
+.node .tw{ width:12px; height:12px; flex:none; color:var(--mut); display:flex; align-items:center; justify-content:center }
+.node .tw svg{ width:10px; height:10px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; transition:transform .1s }
+.node.shut .tw svg{ transform:rotate(-90deg) }
+/* Ideas are small circles: there are likely many. */
+.node .dot{ width:10px; height:10px; border-radius:50%; border:1.5px solid var(--mut); background:var(--bar); flex:none; position:relative }
+.node.root .dot{ border-color:var(--ink); box-shadow:0 0 0 2px var(--bar), 0 0 0 3px var(--mut) }
+.node.on .dot{ background:var(--accent); border-color:var(--accent) }
+.node.gone .dot{ border-style:dashed; opacity:.6 }
+.node.gone .lbl{ text-decoration:line-through; color:var(--mut) }
+.node.att .dot::after{ content:""; position:absolute; right:-4px; top:-4px; width:6px; height:6px; border-radius:50%; background:var(--dirty) }
+.node .lbl{ overflow:hidden; text-overflow:ellipsis; color:var(--ink) }
+.node.on .lbl{ font-weight:600 }
+#foot{ border-top:1px solid var(--line); padding:6px 10px; font-size:12px; color:var(--mut); flex:none; overflow:hidden }
+#foot b{ color:var(--ink); font-weight:600; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+#foot code{ font:11px var(--mono) }
+#tip{ position:fixed; z-index:20; pointer-events:none; background:var(--bg); color:var(--ink); border:1px solid var(--line);
+  box-shadow:0 4px 14px var(--shadow); padding:5px 8px; font-size:12px; max-width:320px; display:none }
+#tip b{ display:block } #tip span{ color:var(--mut); font:11px var(--mono) }
+
+/* ---- The interior: stacked sections ---- */
+#main{ flex:1; min-width:0; position:relative; background:var(--bg) }
+.idea{ position:absolute; inset:0; display:flex; flex-direction:column; visibility:hidden }
+.idea.on{ visibility:visible }
+.sec{ display:flex; flex-direction:column; min-height:0; flex:none; border-bottom:1px solid var(--line) }
+.sec.open{ flex:1 1 0; min-height:60px }
+.sec .hd{ display:flex; align-items:center; gap:6px; height:26px; padding:0 4px 0 6px; background:var(--bar); cursor:pointer; user-select:none; flex:none;
+  font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--mut) }
+.sec .hd:hover{ color:var(--ink) }
+.sec .hd .chev{ width:12px; height:12px; flex:none; display:flex; align-items:center; justify-content:center }
+.sec .hd .chev svg{ width:10px; height:10px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; transform:rotate(-90deg); transition:transform .1s }
+.sec.open .hd .chev svg{ transform:none }
+.sec .hd .sub{ text-transform:none; letter-spacing:0; font-weight:400; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0 }
+.sec .hd .att{ width:7px; height:7px; border-radius:50%; background:var(--dirty); display:none; flex:none }
+.sec.att .hd .att{ display:block }
+.sec .hd .sp{ flex:1 }
+.sec .hd .x{ width:20px; height:20px; padding:0; font-size:14px; color:var(--mut); visibility:hidden }
+.sec .hd:hover .x{ visibility:visible }
+.sec .hd .x:hover{ background:var(--line); color:var(--ink) }
+.sec.over-top{ box-shadow:inset 0 2px var(--accent) }
+.sec.over-bottom{ box-shadow:inset 0 -2px var(--accent) }
+.sec.dragging{ opacity:.5 }
+.sec .bd{ flex:1; min-height:0; display:none; position:relative }
+.sec.open .bd{ display:block }
+.sec iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; background:var(--bg) }
+.sec .msg{ padding:14px; color:var(--mut); white-space:pre-wrap; font:12px/1.5 var(--mono) }
+.sec .msg.bad{ color:var(--err) }
+body.dragging iframe{ pointer-events:none }
+/* Opening one: collapse every section, then pick below them. */
+.picker{ padding:8px 12px; color:var(--mut); font-size:12px; flex:none }
+.picker a{ color:var(--accent); cursor:pointer; text-decoration:none }
+.picker a:hover{ text-decoration:underline }
+.picker .none{ font-style:italic }
+.blank{ padding:24px; color:var(--mut) }
+.blank button{ margin-top:8px }
+
+/* ---- Menus and toasts ---- */
+#menu{ position:fixed; z-index:30; background:var(--bg); border:1px solid var(--line); box-shadow:0 6px 18px var(--shadow); padding:4px 0; display:none; min-width:160px }
+#menu div{ padding:4px 12px; cursor:pointer; white-space:nowrap }
+#menu div:hover{ background:var(--hover) }
+#menu div.bad{ color:var(--err) }
+#toasts{ position:fixed; right:12px; bottom:12px; z-index:40; display:flex; flex-direction:column; gap:6px; max-width:420px }
+.toast{ background:var(--bg); border:1px solid var(--line); border-left:3px solid var(--err); box-shadow:0 4px 14px var(--shadow); padding:8px 10px; font-size:12px; white-space:pre-wrap }
+.toast.info{ border-left-color:var(--accent) }
+#showSide{ position:fixed; left:0; top:50%; z-index:5; height:40px; width:14px; padding:0; background:var(--bar); border:1px solid var(--line); border-left:0; display:none }
+#side.hidden ~ #showSide{ display:flex }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <div class="bar">
+      <span class="ttl" id="repoName">ideas</span>
+      <span class="sp"></span>
+      <button class="icon" id="bBranch" title="Branch a new idea from this one (Alt+Shift+N)"><svg viewBox="0 0 16 16"><circle cx="4.5" cy="3.5" r="1.6"/><circle cx="4.5" cy="12.5" r="1.6"/><circle cx="11.5" cy="6.5" r="1.6"/><path d="M4.5 5.1v5.8M11.5 8.1c0 2.4-4.2 1.6-6.4 3.1"/></svg></button>
+      <button class="icon" id="bGone" title="Show discarded ideas"><svg viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/></svg></button>
+      <button class="icon" id="bHide" title="Hide the tree (Alt+Shift+B)"><svg viewBox="0 0 16 16"><path d="M10 3.5L5.5 8l4.5 4.5"/></svg></button>
+    </div>
+    <div id="tree"></div>
+    <div id="foot"></div>
+  </aside>
+  <div id="sash"></div>
+  <main id="main"></main>
+  <button id="showSide" title="Show the tree (Alt+Shift+B)">›</button>
+</div>
+<div id="tip"></div>
+<div id="menu"></div>
+<div id="toasts"></div>
+<script>
+(function(){
+'use strict';
+var TOKEN = '__VANDORF_TOKEN__';
+var $ = function(id){ return document.getElementById(id); };
+/* Ideas' views kept alive, hidden, so switching back is instant. */
+var KEEP = 4;
+
+function api(path, body){
+  var opts = { headers: { 'X-Vandorf-Token': TOKEN } };
+  if (body !== undefined){ opts.method = 'POST'; opts.body = JSON.stringify(body); opts.headers['Content-Type'] = 'application/json'; }
+  return fetch(path, opts).then(function(r){ return r.json(); }).then(function(j){
+    if (!j.ok) throw new Error(j.error || 'request failed');
+    return j;
+  });
+}
+function store(k, v){ try { if (v === undefined) return localStorage.getItem('grove.' + k); localStorage.setItem('grove.' + k, v); } catch (e) { return null; } }
+function toast(msg, info){
+  var d = document.createElement('div'); d.className = 'toast' + (info ? ' info' : ''); d.textContent = msg;
+  $('toasts').appendChild(d); setTimeout(function(){ d.remove(); }, info ? 3000 : 8000);
+}
+function el(tag, cls, text){ var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+var CHEV = '<svg viewBox="0 0 16 16"><path d="M4 6l4 4 4-4"/></svg>';
+
+/* ---- Theme ---- */
+var mq = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
+function theme(){ return mq && mq.matches ? 'dark' : 'light'; }
+if (mq && mq.addEventListener) mq.addEventListener('change', function(){ views.forEach(function(v){ v.secs.forEach(sendContext); }); });
+
+/* ---- State ---- */
+var repo = null, ideas = [], byId = {}, interiors = [];
+var cur = null;                       // the id shown
+var views = [];                       // { id, el, secs, saveT }, most recent first
+var shut = {};                        // tree nodes collapsed
+try { shut = JSON.parse(store('shut') || '{}') || {}; } catch (e) { shut = {}; }
+var showGone = store('gone') === '1';
+var attention = {};                   // idea id -> true
+
+function refresh(){
+  return api('/api/ideas').then(function(j){
+    repo = j.repo; ideas = j.ideas; interiors = j.interiors;
+    byId = {}; ideas.forEach(function(i){ byId[i.id] = i; });
+    $('repoName').textContent = repo.name;
+    document.title = repo.name + ' · grove';
+    if (cur === null || !(cur in byId)){
+      var want = decodeURIComponent((location.hash.match(/idea=([^&]*)/) || [])[1] || store('cur') || '');
+      show(want in byId ? want : '');
+    } else { drawTree(); drawFoot(); if (!viewOf(cur)) show(cur); }
+  }).catch(function(e){ toast(String(e.message || e)); });
+}
+
+/* ---- The tree ---- */
+function kids(){
+  var k = {};
+  ideas.forEach(function(i){
+    if (i.parent === null) return;
+    (k[i.parent] = k[i.parent] || []).push(i);
+  });
+  return k;
+}
+/* Whether a node is drawn: discarded ones only when asked for, or when
+   something under them is. */
+function visible(i, k){
+  if (i.status !== 'discarded' || showGone || i.id === cur) return true;
+  return (k[i.id] || []).some(function(c){ return visible(c, k); });
+}
+function drawTree(){
+  var k = kids(), root = byId[''];
+  var ul = el('ul'); $('tree').innerHTML = ''; $('tree').appendChild(ul);
+  if (root) ul.appendChild(item(root, k));
+  $('bGone').classList.toggle('on', showGone);
+}
+function item(i, k){
+  var li = el('li');
+  var cs = (k[i.id] || []).filter(function(c){ return visible(c, k); });
+  var n = el('div', 'node');
+  if (i.id === '') n.classList.add('root');
+  if (i.id === cur) n.classList.add('on');
+  if (i.status === 'discarded') n.classList.add('gone');
+  if (attention[i.id]) n.classList.add('att');
+  var tw = el('span', 'tw'); if (cs.length) tw.innerHTML = CHEV; n.appendChild(tw);
+  n.appendChild(el('span', 'dot'));
+  /* Labels on leaves only; every node has its name in the tooltip. */
+  if (!cs.length || shut[i.id]) n.appendChild(el('span', 'lbl', i.name));
+  if (cs.length && shut[i.id]) n.classList.add('shut');
+  tw.onclick = function(e){
+    if (!cs.length) return;
+    e.stopPropagation();
+    if (shut[i.id]) delete shut[i.id]; else shut[i.id] = 1;
+    store('shut', JSON.stringify(shut)); drawTree();
+  };
+  n.onclick = function(){ show(i.id); };
+  n.oncontextmenu = function(e){ e.preventDefault(); menu(e.clientX, e.clientY, i); };
+  n.onmouseenter = function(e){ tip(e, i); };
+  n.onmousemove = function(e){ moveTip(e); };
+  n.onmouseleave = function(){ $('tip').style.display = 'none'; };
+  li.appendChild(n);
+  if (cs.length && !shut[i.id]){
+    var ul = el('ul');
+    cs.forEach(function(c){ ul.appendChild(item(c, k)); });
+    li.appendChild(ul);
+  }
+  return li;
+}
+function tip(e, i){
+  var t = $('tip'); t.innerHTML = '';
+  t.appendChild(el('b', '', i.name));
+  var what = i.id === '' ? 'the repository · ' + (i.branch || 'detached') : i.branch + ' · ' + i.status;
+  t.appendChild(el('span', '', what + (i.head ? ' · ' + i.head.slice(0, 8) : '')));
+  if (attention[i.id]) t.appendChild(el('div', '', attention[i.id]));
+  t.style.display = 'block'; moveTip(e);
+}
+function moveTip(e){ var t = $('tip'); t.style.left = (e.clientX + 14) + 'px'; t.style.top = (e.clientY + 10) + 'px'; }
+function drawFoot(){
+  var i = byId[cur], f = $('foot'); f.innerHTML = '';
+  if (!i) return;
+  f.appendChild(el('b', '', i.name));
+  var c = el('code', '', (i.branch || 'detached') + (i.head ? ' @ ' + i.head.slice(0, 8) : ''));
+  f.appendChild(c);
+}
+/* Shown ideas in the tree's order, for moving up and down. */
+function order(){
+  var k = kids(), out = [];
+  (function walk(i){
+    if (!visible(i, k)) return;
+    out.push(i.id);
+    if (!shut[i.id]) (k[i.id] || []).forEach(walk);
+  })(byId['']);
+  return out;
+}
+
+/* ---- Actions ---- */
+function branch(from){
+  var name = prompt('Name for the new idea (optional):', '');
+  if (name === null) return;
+  api('/api/ideas/branch', { from: from, name: name.trim() }).then(function(j){
+    return refresh().then(function(){ show(j.id); });
+  }).catch(function(e){ toast(e.message); });
+}
+function rename(i){
+  var name = prompt('Rename the idea:', i.name);
+  if (name === null || !name.trim()) return;
+  api('/api/ideas/rename', { id: i.id, name: name.trim() }).then(refresh).catch(function(e){ toast(e.message); });
+}
+function discard(i){
+  if (!confirm('Discard "' + i.name + '"? Its worktree is removed and its terminals stop; its branch ' + i.branch + ' stays, so it can be restored.')) return;
+  var v = viewOf(i.id);
+  api('/api/ideas/discard', { id: i.id }).then(function(){
+    if (v) drop(v);
+    if (cur === i.id) cur = null, show(i.parent || '');
+    return refresh();
+  }).catch(function(e){ toast(e.message); });
+}
+function restore(i){
+  api('/api/ideas/restore', { id: i.id }).then(function(){
+    var v = viewOf(i.id); if (v) drop(v);
+    return refresh().then(function(){ show(i.id); });
+  }).catch(function(e){ toast(e.message); });
+}
+function menu(x, y, i){
+  var m = $('menu'); m.innerHTML = '';
+  function add(label, f, bad){ var d = el('div', bad ? 'bad' : '', label); d.onclick = function(){ hideMenu(); f(); }; m.appendChild(d); }
+  if (i.status !== 'discarded') add('Branch from here', function(){ branch(i.id); });
+  add('Rename…', function(){ rename(i); });
+  if (i.id !== '' && i.status !== 'discarded') add('Discard…', function(){ discard(i); }, true);
+  if (i.status === 'discarded') add('Restore', function(){ restore(i); });
+  m.style.display = 'block';
+  m.style.left = Math.min(x, innerWidth - m.offsetWidth - 4) + 'px';
+  m.style.top = Math.min(y, innerHeight - m.offsetHeight - 4) + 'px';
+}
+function hideMenu(){ $('menu').style.display = 'none'; }
+document.addEventListener('mousedown', function(e){ if (!$('menu').contains(e.target)) hideMenu(); });
+
+/* ---- Switching ---- */
+function viewOf(id){ for (var n = 0; n < views.length; n++) if (views[n].id === id) return views[n]; return null; }
+function show(id){
+  cur = id; store('cur', id);
+  history.replaceState(null, '', '#idea=' + encodeURIComponent(id));
+  delete attention[id];
+  var v = viewOf(id);
+  if (!v) v = makeView(id);
+  views.splice(views.indexOf(v), 1); views.unshift(v);
+  while (views.length > KEEP) drop(views[views.length - 1]);
+  views.forEach(function(x){ x.el.classList.toggle('on', x === v); });
+  v.secs.forEach(function(s){ tell(s, { type: 'visible', visible: s.expanded }); });
+  var first = v.secs.filter(function(s){ return s.expanded; })[0];
+  if (first) tell(first, { type: 'focus' });
+  drawTree(); drawFoot();
+}
+function drop(v){
+  clearTimeout(v.saveT); if (v.dirty) save(v, true);
+  v.el.remove(); views.splice(views.indexOf(v), 1);
+}
+
+/* ---- An idea's view: its sections ---- */
+function makeView(id){
+  var i = byId[id];
+  var v = { id: id, el: el('div', 'idea'), secs: [], picker: el('div', 'picker') };
+  $('main').appendChild(v.el);
+  views.push(v);
+  if (!i || i.status === 'discarded'){
+    var b = el('div', 'blank', i ? 'This idea is discarded: its worktree was removed, its branch ' + i.branch + ' kept.' : 'No such idea.');
+    if (i){ var r = el('button', 'outline', 'Restore it'); r.onclick = function(){ restore(i); }; b.appendChild(el('br')); b.appendChild(r); }
+    v.el.appendChild(b); v.gone = true;
+    return v;
+  }
+  v.el.appendChild(v.picker);
+  i.sections.forEach(function(x){ addSection(v, x.interior, x.expanded, x.term, true); });
+  layout(v);
+  return v;
+}
+function addSection(v, interior, expanded, term, quiet){
+  var s = { v: v, interior: interior, expanded: expanded, term: term || 0, title: '', queue: [], ready: false };
+  s.el = el('section', 'sec');
+  var hd = el('div', 'hd'); hd.draggable = true;
+  var chev = el('span', 'chev'); chev.innerHTML = CHEV; hd.appendChild(chev);
+  hd.appendChild(el('span', '', interior));
+  s.sub = el('span', 'sub'); hd.appendChild(s.sub);
+  hd.appendChild(el('span', 'att'));
+  hd.appendChild(el('span', 'sp'));
+  var x = el('button', 'x', '×'); x.title = 'Close'; hd.appendChild(x);
+  s.bd = el('div', 'bd');
+  s.el.appendChild(hd); s.el.appendChild(s.bd);
+  hd.onclick = function(e){ if (e.target === x) return; toggle(s); };
+  x.onclick = function(e){ e.stopPropagation(); close(s); };
+  drag(s, hd);
+  v.el.appendChild(s.el);
+  v.secs.push(s);
+  load(s);
+  if (!quiet){ layout(v); save(v); }
+  return s;
+}
+/* Gets the section's URL and frames it. The terminal reattaches to its
+   terminal by id. */
+function load(s){
+  s.bd.innerHTML = ''; s.bd.appendChild(el('div', 'msg', 'Starting ' + s.interior + '…'));
+  api('/api/interior/open', { idea: s.v.id, interior: s.interior }).then(function(j){
+    var url = j.url;
+    if (s.interior === 'terminal') url += '&term=' + s.term;
+    var abs = new URL(url, location.href);
+    s.origin = abs.origin;
+    s.frame = el('iframe');
+    s.frame.src = abs.href;
+    s.frame.setAttribute('allow', 'clipboard-read; clipboard-write');
+    s.frame.onload = function(){ sendContext(s); tell(s, { type: 'visible', visible: s.expanded }); };
+    s.bd.innerHTML = ''; s.bd.appendChild(s.frame);
+  }).catch(function(e){
+    s.bd.innerHTML = '';
+    var m = el('div', 'msg bad', e.message); s.bd.appendChild(m);
+    var r = el('button', 'outline', 'Retry'); r.style.margin = '0 14px'; r.onclick = function(){ load(s); }; s.bd.appendChild(r);
+  });
+}
+function toggle(s){
+  s.expanded = !s.expanded;
+  if (s.expanded) clearAttention(s);
+  layout(s.v); save(s.v);
+  tell(s, { type: 'visible', visible: s.expanded });
+  if (s.expanded) tell(s, { type: 'focus' });
+}
+function close(s){
+  var v = s.v;
+  if (s.interior === 'terminal' && s.term) api('/api/term/kill?id=' + s.term, {}).catch(function(){});
+  s.el.remove(); v.secs.splice(v.secs.indexOf(s), 1);
+  layout(v); save(v);
+}
+/* Orders the sections (by CSS order, so no iframe is moved and reloaded),
+   and offers the picker once every one is collapsed. */
+function layout(v){
+  v.secs.forEach(function(s, n){ s.el.style.order = n; s.el.classList.toggle('open', s.expanded); });
+  var p = v.picker; p.style.order = v.secs.length; p.innerHTML = '';
+  var all = v.secs.every(function(s){ return !s.expanded; });
+  p.style.display = all ? 'block' : 'none';
+  if (!all) return;
+  p.appendChild(document.createTextNode('+ Open '));
+  if (!interiors.length) p.appendChild(el('span', 'none', 'no interiors'));
+  interiors.forEach(function(it, n){
+    if (n) p.appendChild(document.createTextNode(' · '));
+    var a = el('a', '', it.name); a.title = it.mode === 'builtin' ? 'built in' : it.mode;
+    a.onclick = function(){ addSection(v, it.name, true, 0); };
+    p.appendChild(a);
+  });
+}
+function save(v, now){
+  v.dirty = true; clearTimeout(v.saveT);
+  var go = function(){
+    v.dirty = false;
+    var secs = v.secs.map(function(s){ return { interior: s.interior, expanded: s.expanded, term: s.term }; });
+    if (byId[v.id]) byId[v.id].sections = secs;
+    api('/api/ideas/layout', { id: v.id, sections: secs }).catch(function(e){ toast('Layout not saved: ' + e.message); });
+  };
+  if (now) go(); else v.saveT = setTimeout(go, 300);
+}
+
+/* Reordering: drag a header above or below another section. */
+var dragging = null;
+function drag(s, hd){
+  hd.addEventListener('dragstart', function(e){
+    dragging = s; s.el.classList.add('dragging'); document.body.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', s.interior); } catch (x) {}
+  });
+  hd.addEventListener('dragend', function(){
+    if (dragging) dragging.el.classList.remove('dragging');
+    dragging = null; document.body.classList.remove('dragging');
+    s.v.secs.forEach(function(x){ x.el.classList.remove('over-top', 'over-bottom'); });
+  });
+  s.el.addEventListener('dragover', function(e){
+    if (!dragging || dragging.v !== s.v || dragging === s) return;
+    e.preventDefault();
+    var r = s.el.getBoundingClientRect(), top = e.clientY < r.top + Math.min(r.height / 2, 40);
+    s.el.classList.toggle('over-top', top); s.el.classList.toggle('over-bottom', !top);
+  });
+  s.el.addEventListener('dragleave', function(){ s.el.classList.remove('over-top', 'over-bottom'); });
+  s.el.addEventListener('drop', function(e){
+    if (!dragging || dragging.v !== s.v || dragging === s) return;
+    e.preventDefault();
+    var top = s.el.classList.contains('over-top'), secs = s.v.secs;
+    s.el.classList.remove('over-top', 'over-bottom');
+    secs.splice(secs.indexOf(dragging), 1);
+    secs.splice(secs.indexOf(s) + (top ? 0 : 1), 0, dragging);
+    layout(s.v); save(s.v);
+  });
+}
+
+/* ---- postMessage with interiors: { grove: 1, type, .. } ---- */
+function tell(s, m){
+  if (!s.frame || !s.frame.contentWindow) return;
+  m.grove = 1;
+  try { s.frame.contentWindow.postMessage(m, s.origin); } catch (e) {}
+}
+function sendContext(s){
+  var i = byId[s.v.id];
+  tell(s, { type: 'context', idea: s.v.id, worktree: i ? i.worktree : '', base: i ? i.fork : '', theme: theme() });
+}
+function sectionOf(src, origin){
+  for (var n = 0; n < views.length; n++){
+    var secs = views[n].secs;
+    for (var k = 0; k < secs.length; k++)
+      if (secs[k].frame && secs[k].frame.contentWindow === src && secs[k].origin === origin) return secs[k];
+  }
+  return null;
+}
+function clearAttention(s){
+  s.el.classList.remove('att');
+  if (!s.v.secs.some(function(x){ return x.el.classList.contains('att'); })){ delete attention[s.v.id]; drawTree(); }
+}
+/* Runs a command in one of the idea's terminal sections, opening one if
+   there's none. */
+function run(v, cmd){
+  var t = v.secs.filter(function(s){ return s.interior === 'terminal'; })[0];
+  if (!t) t = addSection(v, 'terminal', true, 0);
+  if (!t.expanded) toggle(t);
+  if (t.ready) tell(t, { type: 'run', cmd: cmd }); else t.queue.push(cmd);
+}
+window.addEventListener('message', function(e){
+  var m = e.data;
+  if (!m || m.grove !== 1) return;
+  var s = sectionOf(e.source, e.origin);
+  if (!s) return;
+  switch (m.type){
+  case 'ready': sendContext(s); tell(s, { type: 'visible', visible: s.expanded }); break;
+  case 'term':
+    if (s.term !== m.id){ s.term = m.id; save(s.v); }
+    s.ready = true;
+    s.queue.splice(0).forEach(function(c){ tell(s, { type: 'run', cmd: c }); });
+    break;
+  case 'title': s.title = String(m.title || ''); s.sub.textContent = s.title; break;
+  case 'exit': s.sub.textContent = (s.title ? s.title + ' · ' : '') + 'exited'; s.ready = false; break;
+  case 'attention':
+    if (s.v.id === cur && s.expanded) break;
+    s.el.classList.add('att'); s.el.title = String(m.message || '');
+    attention[s.v.id] = String(m.message || s.interior + ' needs attention'); drawTree();
+    break;
+  case 'run': if (m.cmd) run(s.v, String(m.cmd)); break;
+  case 'keys': key(m); break;
+  }
+});
+
+/* ---- Shortcuts: Alt+Shift chords, which interiors pass on as `keys` ---- */
+function key(e){
+  if (!(e.altKey || e.alt) || !(e.shiftKey || e.shift) || e.ctrlKey || e.ctrl || e.metaKey || e.meta) return false;
+  var code = e.code || '';
+  if (code === 'KeyB'){ toggleSide(); return true; }
+  if (code === 'KeyN'){ if (byId[cur] && byId[cur].status !== 'discarded') branch(cur); return true; }
+  if (code === 'ArrowUp' || code === 'ArrowDown'){
+    var o = order(), n = o.indexOf(cur) + (code === 'ArrowUp' ? -1 : 1);
+    if (n >= 0 && n < o.length) show(o[n]);
+    return true;
+  }
+  return false;
+}
+document.addEventListener('keydown', function(e){ if (key(e)) e.preventDefault(); });
+
+/* ---- The sidebar ---- */
+function toggleSide(){
+  var hide = !$('side').classList.contains('hidden');
+  $('side').classList.toggle('hidden', hide); store('side', hide ? 'hidden' : '');
+}
+$('bHide').onclick = toggleSide; $('showSide').onclick = toggleSide;
+if (store('side') === 'hidden') $('side').classList.add('hidden');
+var w = +store('sideW'); if (w) document.documentElement.style.setProperty('--side-w', w + 'px');
+$('sash').addEventListener('mousedown', function(e){
+  e.preventDefault(); $('sash').classList.add('drag'); document.body.classList.add('dragging');
+  var move = function(ev){ var x = Math.max(140, Math.min(ev.clientX, innerWidth * .6)); document.documentElement.style.setProperty('--side-w', x + 'px'); store('sideW', String(Math.round(x))); };
+  var up = function(){ $('sash').classList.remove('drag'); document.body.classList.remove('dragging'); removeEventListener('mousemove', move); removeEventListener('mouseup', up); };
+  addEventListener('mousemove', move); addEventListener('mouseup', up);
+});
+$('bBranch').onclick = function(){ if (byId[cur] && byId[cur].status !== 'discarded') branch(cur); };
+$('bGone').onclick = function(){ showGone = !showGone; store('gone', showGone ? '1' : '0'); drawTree(); };
+
+/* People and agents run git too: catch up with it now and then. */
+refresh();
+setInterval(function(){ if (!document.hidden) refresh(); }, 5000);
+addEventListener('focus', refresh);
+})();
+</script>
+</body>
+</html>

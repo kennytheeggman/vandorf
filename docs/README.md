@@ -7,6 +7,8 @@ Using vandorf:
 - [Projects](projects.md): `vandorf.toml`, the commands, generated code,
   implementations, executables and HTTP servers.
 - [The IDE](ide.md): the explorer, diagrams, terminals and settings.
+- [grove](grove.md): the idea tree, ideas as branches and worktrees of any
+  git repository, each shown as stacked interiors.
 
 Working on vcc:
 

@@ -1,0 +1,128 @@
+# grove
+
+`grove`, built alongside vcc in `rs/`, is the idea tree (#17): a way to
+explore several ideas at once in one git repository, each with its own
+branch, worktree and terminals, and switch between them in one window. It
+works on any git repository with a working directory, not just vandorf
+projects.
+
+```
+cd some/repo
+grove                        # http://127.0.0.1:8090
+grove --addr 127.0.0.1:9000
+```
+
+## Ideas
+
+An idea is a local branch `idea/<id>` with its own worktree. The root of the
+tree is the repository's main worktree; every other idea is branched from
+another, at that idea's head, and its base (`refs/worktree/base`, see #16)
+is set to the commit it was branched at.
+
+- **Branch** from any idea: the branch button in the sidebar, Alt+Shift+N,
+  or right-click a node. The new idea gets its parent's sections, without
+  their terminals.
+- **Discard** removes the idea's worktree, stops its terminals and the
+  interiors started for it, and keeps its branch, so it can be **restored**.
+  git refuses to remove a worktree with changes that aren't committed.
+- **Rename** any idea, the root too.
+
+Everything is private to the machine. grove keeps its metadata in the
+common git directory (`git rev-parse --git-common-dir`), under `grove/`:
+
+```
+grove/ideas/<id>.toml     an idea: name, parent, fork point, sections
+grove/root.toml           the root's name and sections
+grove/worktrees/<id>/     ideas' worktrees
+grove/interiors.toml      the repository's interiors (optional)
+grove/lock                held while a file is written
+```
+
+The tree is rebuilt from git each time it's read: a branch `idea/<x>` made
+by hand is an idea hanging from the root, an idea whose worktree was removed
+outside grove shows as discarded, and the page catches up every few
+seconds.
+
+## The window
+
+- **The tree** (left): every idea as a small circle, with labels on leaves
+  only; hover any node for its name, branch and head. Click a node to show
+  it; the chevron folds its subtree. The trash button shows discarded ideas.
+  The sidebar can be resized, and hidden (Alt+Shift+B).
+- **Sections** (right): the shown idea's interiors, stacked, each with a
+  header like VS Code's sidebar views. Click a header to collapse or expand
+  it (several can be open at once, sharing the height), drag headers to
+  reorder them, and close one with its ×. To open another, collapse every
+  section: a line under them lists the interiors to pick from.
+
+Each idea keeps its own sections, their order and which are expanded.
+Switching keeps the last four ideas' sections alive, hidden, so switching
+back is instant.
+
+| Shortcut | |
+|---|---|
+| Alt+Shift+N | Branch a new idea from the shown one |
+| Alt+Shift+↑ / ↓ | Show the previous or next idea in the tree |
+| Alt+Shift+B | Show or hide the tree |
+
+## Interiors
+
+An interior renders one worktree in an iframe. The terminal is built in: a
+shell on a pty in the idea's worktree, served by grove itself. The others
+come from manifests, the user's (`$XDG_CONFIG_HOME/grove/interiors.toml`,
+else `~/.config/grove/interiors.toml`) and then the repository's
+(`grove/interiors.toml` in the common git directory), which wins for a name
+both have:
+
+```toml
+[interior.ide]                 # vandorf's IDE, one per idea
+mode  = "per-worktree"
+start = "ide --addr 127.0.0.1:{port}"
+
+[interior.vscode]
+mode  = "per-worktree"
+start = "code-server --auth none --bind-addr 127.0.0.1:{port} {worktree}"
+
+[interior.notebook]
+mode  = "shared"               # one process for every idea
+start = "jupyter lab --no-browser --port {port}"
+open  = "{url}/lab/tree/{idea}"
+```
+
+- `mode`: `per-worktree` (the default) starts a process for each idea, in
+  its worktree; `shared` starts one, in the main worktree, for every idea.
+- `start` runs with the shell. With `{port}` in it, grove picks a free port
+  and waits for the process to listen on it; without, it waits for the
+  process to print an `http://` or `https://` URL. Either way it waits up to
+  30 seconds.
+- `open`, by default `{url}`, is where each section points.
+- Placeholders: `{port}`, `{worktree}`, `{idea}`, `{base}` (the commit the
+  idea was branched at) and `{repo}` (the main worktree), and `{url}` in
+  `open`. Values are shell-quoted in `start` and percent-encoded in `open`.
+
+An interior must allow framing by grove's origin (no `X-Frame-Options:
+deny` or `frame-ancestors` that leaves it out).
+
+### Messages
+
+Interiors and grove may talk by `postMessage`, all optional, each message
+carrying `grove: 1`:
+
+- **grove → interior:** `context` {idea, worktree, base, theme} when it
+  loads, `visible` {visible} as its section is expanded or collapsed, and
+  `focus`.
+- **interior → grove:** `ready`; `title` {title} for its header;
+  `attention` {message}, a dot on its header and its idea's node until it's
+  looked at; `run` {cmd}, typed into one of the idea's terminals (opening
+  one if there's none); `keys` {code, alt, shift, ctrl, meta} for the
+  shortcuts it didn't use.
+
+## Not yet
+
+Compare, merge, ship and restack (#26); terminals that survive a restart,
+resume rules for agent CLIs, and idle stops (#27); the MCP server (#28); and
+the inbox (#29). Terminals die with grove for now.
+
+Writes need the per-run token the page is served with. Terminals and
+interiors, which run commands, are offered only when grove listens on a
+loopback address.

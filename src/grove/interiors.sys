@@ -1,0 +1,164 @@
+// grove's interiors: what an idea's sections show, each in an iframe. The
+// terminal is built in, served by grove itself; the rest come from
+// manifests, the user's and then the repository's, each a table per
+// interior:
+//
+//   [interior.vscode]
+//   mode  = "per-worktree"                 # one process per idea; "shared": one for all
+//   start = "code-server --bind-addr 127.0.0.1:{port} {worktree}"
+//   open  = "{url}/?folder={worktree}"     # default "{url}"
+//
+// `start` runs with the shell, in the worktree (per-worktree) or the main
+// worktree (shared). With {port} in it, grove picks a free port and the URL
+// is http://127.0.0.1:<port> once it's listening; without, the URL is the
+// first one it prints. Placeholders: {port}, {worktree}, {idea}, {base}
+// (the commit the idea was branched at) and {repo} (the main worktree), and
+// {url} in `open`.
+//   POST /api/interior/open {idea, interior}   the URL to show it at
+//   POST /api/term?idea=                       a terminal in the idea's worktree
+
+// An interior that can be opened. mode: builtin, shared or per-worktree.
+type Interior = { name: string, mode: string, start: string, open: string };
+type MaybeInterior = enum { None, Some(Interior) };
+
+interface Interiors {
+	// Lists the interior manifests that exist: the user's
+	// ($XDG_CONFIG_HOME/grove/interiors.toml, or ~/.config/grove/interiors.toml),
+	// then the repository's (grove/interiors.toml in the common git
+	// directory).
+	func Manifests(common: string): []string = "grove_io.rs:manifests";
+	// Finds a free port on 127.0.0.1.
+	func FreePort(n: int): int = "grove_io.rs:free_port";
+	// Gives the URL of the process kept as key, first starting cmd with the
+	// shell in dir if none is running: http://127.0.0.1:<port> once it accepts
+	// connections when port isn't 0, else the first http:// or https:// URL it
+	// prints. Waits up to 30 s.
+	func Ensure(key: string, cmd: string, dir: string, port: int): Res<string> = "grove_io.rs:ensure";
+	// Stops the processes started for a worktree (kept as <name>@<worktree>),
+	// giving how many there were.
+	func Stop(worktree: string): int = "grove_io.rs:stop";
+}
+
+// The interiors grove has itself: the terminal.
+func BuiltIns(n: int): []Interior = "grove_leaf.rs:built_ins";
+// Reads a manifest's [interior.<name>] tables; an error names the file.
+func ParseInteriors(text: string, file: string): Res<[]Interior> = "grove_leaf.rs:parse_interiors";
+// The interiors of a, with b's replacing a's of the same name, and b's
+// others after them. A built-in can't be replaced.
+func MergeInteriors(a: []Interior, b: []Interior): []Interior = "grove_leaf.rs:merge_interiors";
+func FindInterior(xs: []Interior, name: string): MaybeInterior = "grove_leaf.rs:find_interior";
+// Whether a start command has a {port} for grove to fill.
+func HasPort(cmd: string): bool = "grove_leaf.rs:has_port";
+// Fills a template's {name} placeholders from vars, leaving unknown ones as
+// they are. Each value but {url}'s is quoted for the shell ("sh") or
+// percent-encoded for a URL ("url").
+func FillIn(template: string, vars: map[string]string, quote: string): string = "grove_leaf.rs:fill";
+
+// The placeholders of an idea's interior: {worktree}, {idea}, {base} and
+// {repo}.
+func IdeaVars(worktree: string, idea: string, base: string, repo: string): map[string]string = "grove_leaf.rs:vars";
+
+// Loads the interiors: the built-in ones, then each manifest's.
+proc LoadInteriors(repo: Repo): Res<[]Interior> {
+	LoadInteriors -> Interiors.Manifests(common = this.repo.common);
+	Interiors.Manifests -> ReadManifests(s = { paths = this, i = 0, acc = BuiltIns(n = 0) });
+}
+
+// Reads each manifest in turn, merging its interiors over the ones before.
+proc ReadManifests(s: { paths: []string, i: int, acc: []Interior }): Res<[]Interior> {
+	ReadManifests switch {
+		(this.s.i == this.s.paths.len) -> id(Ok(this.s.acc)),
+		else -> Files.Read(path = this.s.paths[this.s.i])
+	};
+	Files.Read switch {
+		Ok(text) -> id(ParseInteriors(text = text, file = ReadManifests.s.paths[ReadManifests.s.i])) as Parsed,
+		Err(e) -> id(Err(GroveErr(msg = "cannot read " + ReadManifests.s.paths[ReadManifests.s.i] + ": " + e.msg)))
+	};
+	Parsed switch {
+		Ok(xs) -> ReadManifests(s = { ..ReadManifests.s, i = ReadManifests.s.i + 1, acc = MergeInteriors(a = ReadManifests.s.acc, b = xs) }),
+		Err(e) -> id(Err(e))
+	};
+}
+
+// Opens an interior for an idea, starting its process if it isn't running
+// (one for every idea if it's shared, one per worktree otherwise). Gives the
+// URL to show it at.
+proc OpenInterior(s: { repo: Repo, idea: string, name: string }): Res<string> {
+	OpenInterior -> LoadInteriors(repo = this.s.repo);
+	LoadInteriors switch {
+		Ok(xs) -> id(FindInterior(xs = xs, name = OpenInterior.s.name)) as Found,
+		Err(e) -> id(Err(e))
+	};
+	Found switch {
+		None() -> id(Err(GroveErr(msg = "no interior named " + OpenInterior.s.name))),
+		Some(x) -> id(x) as It
+	};
+	It -> LoadIdea(s = { repo = OpenInterior.s.repo, id = OpenInterior.s.idea });
+	LoadIdea switch {
+		Ok(i) -> id(i) as I,
+		Err(e) -> id(Err(e))
+	};
+	I -> IdeaWorktree(s = { repo = OpenInterior.s.repo, id = OpenInterior.s.idea });
+	IdeaWorktree switch {
+		Ok(wt) -> id(IdeaVars(worktree = wt, idea = OpenInterior.s.idea, base = I.fork, repo = OpenInterior.s.repo.top)) as Vars,
+		Err(e) -> id(Err(e))
+	};
+	Vars switch {
+		(It.mode == "builtin") -> id(Ok(FillIn(template = It.open, vars = this, quote = "url"))),
+		(It.start == "") -> id(Err(GroveErr(msg = "interior " + It.name + " has no start command"))),
+		(HasPort(cmd = It.start)) -> Interiors.FreePort(n = 0),
+		else -> id(0) as Port
+	};
+	Interiors.FreePort -> id(this) as Port;
+	Port switch {
+		(It.mode == "shared") -> id({ key = It.name, dir = OpenInterior.s.repo.top, port = this }) as Run,
+		else -> id({ key = It.name + "@" + Vars["worktree"], dir = Vars["worktree"], port = this }) as Run
+	};
+	Run -> Interiors.Ensure(key = this.key, cmd = FillIn(template = It.start, vars = Vars + ["port": Itoa(i = this.port)], quote = "sh"), dir = this.dir, port = this.port);
+	Interiors.Ensure switch {
+		Ok(url) -> id(Ok(FillIn(template = It.open, vars = Vars + ["url": url], quote = "url"))),
+		Err(e) -> id(Err(GroveErr(msg = "cannot start " + It.name + ": " + e.msg)))
+	};
+}
+
+// Serves POST /api/interior/open {idea, interior}: the URL to show the
+// interior at for the idea. It may start a process, so it's offered only
+// where terminals are (TermGate).
+proc OpenRoute(req: HttpRequest): HttpResponse {
+	OpenRoute -> TermGate(req = this.req);
+	TermGate switch {
+		Shut(r) -> id(r),
+		else -> GroveWrite(req = OpenRoute.req)
+	};
+	GroveWrite switch {
+		Stop(r) -> id(r),
+		Go(w) -> OpenInterior(s = { repo = w.repo, idea = StrOr(j = w.j, key = "idea", d = ""), name = StrOr(j = w.j, key = "interior", d = "") })
+	};
+	OpenInterior -> id(Answer(r = this, key = "url"));
+}
+
+// Serves POST /api/term?idea=: starts a terminal in the idea's worktree (the
+// main worktree with no idea), and gives its id. The other terminal routes
+// are the IDE's (term.sys).
+proc GroveTermRoute(req: HttpRequest): HttpResponse {
+	GroveTermRoute -> TermGate(req = this.req);
+	TermGate switch {
+		Shut(r) -> id(r),
+		else -> Grove.Repo(n = 0)
+	};
+	Grove.Repo switch {
+		Ok(r) -> switch {
+			("idea" in GroveTermRoute.req.query) -> IdeaWorktree(s = { repo = r, id = GroveTermRoute.req.query["idea"] }),
+			else -> IdeaWorktree(s = { repo = r, id = "" })
+		},
+		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+	IdeaWorktree switch {
+		Ok(dir) -> Term.Spawn(cwd = dir),
+		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+	Term.Spawn switch {
+		Ok(n) -> id(Api(j = Obj([{ key = "ok", value = Bool(true) }, { key = "id", value = Num(n) }]))),
+		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+}
