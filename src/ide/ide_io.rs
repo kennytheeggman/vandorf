@@ -31,7 +31,8 @@ fn err_str(msg: String) -> ResString {
 
 // ---- Session ----
 
-/// A random token for this run, which writes and terminals must present.
+/// Makes a random token, once per run, which the pages carry and writes and
+/// terminals must present.
 pub fn token(_n: i64) -> Result<Str, String> {
     static TOKEN: OnceLock<String> = OnceLock::new();
     Ok(s(TOKEN.get_or_init(|| {
@@ -41,7 +42,8 @@ pub fn token(_n: i64) -> Result<Str, String> {
     })))
 }
 
-/// The source directory: the working directory, canonical.
+/// Finds the source directory the IDE serves: the working directory,
+/// canonical, worked out once.
 pub fn base(_n: i64) -> Result<Str, String> {
     static BASE: OnceLock<String> = OnceLock::new();
     Ok(s(BASE.get_or_init(|| {
@@ -50,7 +52,7 @@ pub fn base(_n: i64) -> Result<Str, String> {
     })))
 }
 
-/// An IDE page by name ("" if there's none).
+/// Reads an IDE page by name, embedded in the executable; "" if there's none.
 pub fn page(name: Str) -> Result<Str, String> {
     Ok(s(match &*name {
         "ide" => include_str!("../../web/ide.html"),
@@ -88,7 +90,7 @@ pub fn try_write(path: Str, text: Str) -> Result<ResString, String> {
     })
 }
 
-/// The .sys files under base, relative to it, sorted.
+/// Lists the .sys files under base, relative to it, sorted.
 pub fn walk_rel(base: Str) -> Result<List<Str>, String> {
     fn go(dir: &Path, base: &Path, out: &mut Vec<String>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -114,7 +116,8 @@ pub fn walk_rel(base: Str) -> Result<List<Str>, String> {
     Ok(out.iter().map(|p| s(p)).collect())
 }
 
-/// Parses a file, its failure a value: the message and where it is.
+/// Parses a file, returning a failure as a value, its message and where it
+/// is, rather than failing.
 pub fn try_parse(src: Str, file: i64) -> Result<ResFile, String> {
     Ok(match crate::vcc::run_parse_file(src, file) {
         Ok(f) => ResFile::Ok(f),
@@ -160,8 +163,9 @@ fn checks() -> &'static (Mutex<CheckStore>, Condvar) {
     CHECKS.get_or_init(|| (Mutex::new(CheckStore::default()), Condvar::new()))
 }
 
-/// The check of key: kept, or once another request making it has put it
-/// (waiting for that). None: this request is to make it and Put it.
+/// Gets the check of key: the one kept, or, if another request is making it,
+/// that one once it's put (waiting for it). None: this request is to make it
+/// and Put it.
 pub fn check_claim(key: Str) -> Result<MaybeCheck, String> {
     let (store, ready) = checks();
     let mut cs = store.lock().unwrap();
@@ -184,8 +188,8 @@ pub fn check_claim(key: Str) -> Result<MaybeCheck, String> {
     }
 }
 
-/// Keeps a check, dropping the least recently used past eight, and wakes
-/// the requests waiting for it.
+/// Keeps a check, dropping the least recently used past eight, and wakes the
+/// requests waiting for it.
 pub fn check_put(key: Str, c: UnitCheck) -> Result<bool, String> {
     let (store, ready) = checks();
     let mut cs = store.lock().unwrap();
@@ -318,7 +322,7 @@ fn spawn(cwd: &str) -> Result<Arc<Term>, String> {
     Ok(t)
 }
 
-/// The user's shell on a pty in cwd; its id.
+/// Starts the user's shell on a pty in cwd, returning the terminal's id.
 pub fn term_spawn(cwd: Str) -> Result<ResInt, String> {
     let t = match spawn(&cwd) {
         Ok(t) => t,
@@ -346,8 +350,9 @@ pub fn term_list(_n: i64) -> Result<List<i64>, String> {
     Ok(ids.into())
 }
 
-/// Output from stream offset `from`, waiting up to 20 s for some. Only whole
-/// UTF-8 characters: `next` is where the next read starts.
+/// Reads a terminal's output from stream offset `from`, waiting up to 20 s
+/// for some. Only whole UTF-8 characters: `next` is where the next read
+/// starts.
 pub fn term_read(id: i64, from: i64) -> Result<TermChunk, String> {
     let Some(t) = get(id) else {
         return Ok(TermChunk {
@@ -427,8 +432,8 @@ pub fn term_kill(id: i64) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Whether the server listens on a loopback address: terminals are
-/// offered only then.
+/// Whether the server listens on a loopback address: terminals are offered
+/// only then.
 pub fn loopback(_n: i64) -> Result<bool, String> {
     let addr = super::http::addr();
     let host = addr.rsplit_once(':').map_or(addr, |(h, _)| h);

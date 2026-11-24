@@ -4,13 +4,15 @@
 use crate::vcc::types::{List, Str};
 use std::path::{Path, PathBuf};
 
+/// Reads the file at path as text; fails, naming the path, if it can't.
 pub fn read(path: Str) -> Result<Str, String> {
     std::fs::read_to_string(&*path)
         .map(Str::from)
         .map_err(|e| format!("cannot read {path}: {e}"))
 }
 
-/// Writes text to path, creating its directory.
+/// Writes text to path, creating its directory first; fails, naming the path,
+/// if it can't.
 pub fn write(path: Str, text: Str) -> Result<bool, String> {
     if let Some(dir) = Path::new(&*path).parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -27,14 +29,16 @@ pub fn is_dir(path: Str) -> Result<bool, String> {
     Ok(Path::new(&*path).is_dir())
 }
 
-/// The working directory, with / separators like the paths JoinP builds.
+/// Reads the working directory, with / separators like the paths JoinP
+/// builds.
 pub fn cwd(_n: i64) -> Result<Str, String> {
     std::env::current_dir()
         .map(|d| Str::from(d.to_string_lossy().replace('\\', "/").as_str()))
         .map_err(|e| e.to_string())
 }
 
-/// The .sys files under dir, skipping hidden directories and build output.
+/// Lists the .sys files under dir, recursively, skipping hidden directories
+/// and build output (target, node_modules).
 pub fn walk(dir: Str) -> Result<List<Str>, String> {
     fn go(dir: &Path, out: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -60,7 +64,8 @@ pub fn walk(dir: Str) -> Result<List<Str>, String> {
         .collect())
 }
 
-/// Formats Rust files, if rustfmt is installed.
+/// Formats the generated Rust files in place, if rustfmt is installed; does
+/// nothing otherwise.
 pub fn rustfmt(files: List<Str>) -> Result<bool, String> {
     let paths: Vec<&str> = files.iter().map(|f| &**f).collect();
     match std::process::Command::new("rustfmt")
@@ -75,7 +80,8 @@ pub fn rustfmt(files: List<Str>) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Formats Go files, if gofmt is installed.
+/// Formats the generated Go files in place, if gofmt is installed; does
+/// nothing otherwise.
 pub fn gofmt(files: List<Str>) -> Result<bool, String> {
     let paths: Vec<&str> = files.iter().map(|f| &**f).collect();
     match std::process::Command::new("gofmt")
@@ -90,8 +96,9 @@ pub fn gofmt(files: List<Str>) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Runs cmd with the platform's shell (sh -c, or cmd /C on Windows) in
-/// dir, on this process's terminal; Err with why if it fails.
+/// Runs cmd with the platform's shell (sh -c, or cmd /C on Windows) in dir,
+/// on this process's terminal; Err with why if it can't start or exits
+/// unsuccessfully.
 pub fn shell(cmd: Str, dir: Str) -> Result<super::types::ResString, String> {
     use super::types::{Diag, ResString, Span};
     let mut c = std::process::Command::new(if cfg!(windows) { "cmd" } else { "sh" });
@@ -117,25 +124,26 @@ pub fn shell(cmd: Str, dir: Str) -> Result<super::types::ResString, String> {
     })
 }
 
-/// A line on stderr.
+/// Prints a line on stderr.
 pub fn eprint(line: Str) -> Result<bool, String> {
     eprintln!("{line}");
     Ok(true)
 }
 
-/// A command's output, on stdout, and a closing note on stderr; each ends
-/// a proc that returns nothing.
+/// Prints a command's output on stdout, ending the proc that called it.
 pub fn print_out(text: Str) -> Result<(), String> {
     println!("{text}");
     Ok(())
 }
 
+/// Prints a command's closing note on stderr, ending the proc that called it.
 pub fn eprint_note(line: Str) -> Result<(), String> {
     eprintln!("{line}");
     Ok(())
 }
 
-/// Changes the working directory (for -C).
+/// Changes the working directory to path (for -C), returning the error as a
+/// value if it can't.
 pub fn chdir(path: Str) -> Result<super::types::ResString, String> {
     use super::types::{Diag, ResString, Span};
     Ok(match std::env::set_current_dir(&*path) {

@@ -31,21 +31,27 @@ func Exported(s: string): string = "../sema/sema_leaf.rs:cap";
 func WithType(t: Table, n: NamedType): Table = "gen_leaf.rs:with_type";
 func WithShape(t: Table, i: int, s: Shape): Table = "gen_leaf.rs:with_shape";
 func WithKey(t: Table, key: string, i: int): Table = "gen_leaf.rs:with_key";
-// A fresh name based on hint; typedef names are reserved for the typedef
-// itself (typedef: the name of the typedef being registered, or "").
+// Picks a fresh name for a shape based on hint, adding a number if it's
+// taken; typedef names are reserved for the typedef itself (typedef: the
+// name of the typedef being registered, or "").
 func Unique(t: Table, hint: string, typedef: string): string = "gen_leaf.rs:unique";
-// The canonical structural key: fields and variants sorted; non-recursive
-// typedefs expanded, a recursive one `#id` (except at the top).
+// Computes the canonical structural key of a struct or enum: fields and
+// variants sorted, non-recursive typedefs expanded, a recursive one `#id`
+// (except at the top), so equal shapes share a key.
 func Key(t: Type, defs: []TypeDef): string = "gen_leaf.rs:shape_key";
-// Gname: a node's name in generated code (`Bar.Start` -> `BarStart`).
+// Names a node in generated code: its qualified name joined up (`Bar.Start`
+// -> `BarStart`).
 func Gname(n: NodeDecl): string = "gen_leaf.rs:gname";
 func IsAliasNode(n: NodeDecl): bool = "../sema/sema_leaf.rs:is_alias";
-// Boxes every field i -> j where j leads back to i through fields that hold
-// their type directly.
+// Finds the fields to box: every field i -> j where j leads back to i
+// through fields that hold their type directly, so no generated type
+// contains itself.
 func FindBoxed(t: Table): map[string]bool = "gen_leaf.rs:find_boxed";
 
-// The table for a program: its typedefs first, then every func parameter
-// and every node's return, then what each spawn's join receives.
+// Builds the type table for a program, naming every struct and enum shape
+// once: its typedefs first, then every func's parameters and every node's
+// return, then what each spawn's join receives. Then it marks the fields to
+// box.
 proc BuildTable(prog: Program): Table {
 	func Reserved(types: []TypeDef): map[string]bool = "gen_leaf.rs:reserved";
 	BuildTable -> TypedefTypes(s = { t = { types = [], aliases = [], by_key = [:], boxed = [:], reserved = Reserved(types = this.prog.types), defs = this.prog.types }, i = 0 });
@@ -55,9 +61,11 @@ proc BuildTable(prog: Program): Table {
 }
 
 type SpawnJoin = { src: int, joined: Type };
-// Each spawn's joined type, by proc, spawners in node order.
+// Lists each spawn's joined type, by proc, spawners in node order.
 func SpawnJoins(prog: Program): []SpawnJoin = "gen_leaf.rs:spawn_joins";
 
+// Registers the type each spawn's join receives, named after its spawner
+// (`XJoined`).
 proc JoinedTypes(s: { t: Table, prog: Program, joins: []SpawnJoin, i: int }): Table {
 	JoinedTypes switch {
 		(this.s.i == this.s.joins.len) -> id(this.s.t),
@@ -66,6 +74,8 @@ proc JoinedTypes(s: { t: Table, prog: Program, joins: []SpawnJoin, i: int }): Ta
 	Register -> JoinedTypes(s = { t = this.t, prog = JoinedTypes.s.prog, joins = JoinedTypes.s.joins, i = JoinedTypes.s.i + 1 });
 }
 
+// Registers each typedef's type, named after it; one whose type already had
+// a name of its own, or isn't a struct or enum, becomes an alias.
 proc TypedefTypes(s: { t: Table, i: int }): Table {
 	TypedefTypes switch {
 		(this.s.i == this.s.t.defs.len) -> id(this.s.t),
@@ -80,9 +90,11 @@ proc TypedefTypes(s: { t: Table, i: int }): Table {
 	};
 }
 
+// Registers each node's types: a func's parameters, named after it, then any
+// node's return (aliases have their own node's).
 proc NodeTypes(s: { t: Table, prog: Program, i: int }): Table {
 	func ParamsIfFunc(n: NodeDecl): []Member = "gen_leaf.rs:func_params";
-	// What a node's types are named after: the node, or for a signature
+	// Names what a node's types are named after: the node, or for a signature
 	// node its proc (`PS` for P's param s, `PArgs` for its output).
 	func HintBase(nodes: []NodeDecl, n: int): string = "gen_leaf.rs:hint_base";
 	func RetHint(nodes: []NodeDecl, n: int): string = "gen_leaf.rs:ret_hint";
@@ -98,6 +110,8 @@ proc NodeTypes(s: { t: Table, prog: Program, i: int }): Table {
 	Register -> NodeTypes(s = { t = this.t, prog = NodeTypes.s.prog, i = NodeTypes.s.i + 1 });
 }
 
+// Registers each of a func's parameter types, named after the func and the
+// parameter.
 proc RegisterParams(s: { t: Table, ps: []Member, g: string, q: string, j: int }): Table {
 	RegisterParams switch {
 		(this.s.j == this.s.ps.len) -> id(this.s.t),
@@ -108,7 +122,9 @@ proc RegisterParams(s: { t: Table, ps: []Member, g: string, q: string, j: int })
 
 type RegisterIn = { t: Table, ty: Type, hint: string, origin: string };
 
-// Registers ty and its parts, naming new shapes after hint.
+// Registers ty and its parts, naming new shapes after hint: an array's
+// element `<hint>Item`, a map's `<hint>Key` and `<hint>Value`, a typedef's
+// after the typedef.
 proc Register(s: RegisterIn): Registered {
 	Register -> id(this.s.ty) as T;
 	T switch {
@@ -131,9 +147,11 @@ proc Register(s: RegisterIn): Registered {
 
 func IsStructOrEnum(t: Type): bool = "../sema/sema_leaf.rs:is_struct_or_enum";
 
-// Registers a struct or enum. typedef: the name of the typedef it defines,
-// which may use that reserved name (or ""); rec: that typedef's id if its
-// references (`#id`) should point here (or -1).
+// Registers a struct or enum: a shape already in the table keeps its name; a
+// new one gets a fresh name, its slot reserved before its parts so the
+// parent comes first. typedef: the name of the typedef it defines, which may
+// use that reserved name (or ""); rec: that typedef's id if its references
+// (`#id`) should point here (or -1).
 proc RegShape(s: { t: Table, ty: Type, hint: string, origin: string, typedef: string, rec: int }): Registered {
 	RegShape -> id(Key(t = this.s.ty, defs = this.s.t.defs)) as K;
 	K switch {
@@ -149,6 +167,8 @@ proc RegShape(s: { t: Table, ty: Type, hint: string, origin: string, typedef: st
 	};
 }
 
+// Registers a struct's fields or an enum's variants in turn, each named
+// after the shape and the member.
 proc Parts(s: { t: Table, ms: []Member, hint: string, origin: string, i: int, acc: []RefMember }): { t: Table, ms: []RefMember } {
 	Parts switch {
 		(this.s.i == this.s.ms.len) -> id({ t = this.s.t, ms = this.s.acc }),

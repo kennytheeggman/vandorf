@@ -1,11 +1,13 @@
 // Declarations: files, typedefs, interfaces, funcs, procs and types.
 
-// file := (typedef | interface | func ';' | proc ';'?)* eof
+// Parses a file's declarations in a loop until the end of the file: each
+// typedef, interface, func or proc is appended to its list in acc. A
+// top-level func needs its `;`, a proc's is optional.
+//
+//   file := (typedef | interface | func ';' | proc ';'?)* eof
 //
 // Each declaration's doc is its keyword's (Tok.doc): At.prev in the proc
 // parsing it, which starts after the keyword.
-//
-// A loop: each item is appended to acc and control goes back to At.
 proc PItems(toks: []Tok, pos: int, acc: File): R<File> {
 	func At(toks: []Tok, pos: int, acc: File): AtAcc<File> = "leaf.rs:at_file";
 	PItems -> At(toks = this.toks, pos = this.pos, acc = this.acc);
@@ -28,7 +30,10 @@ proc PItems(toks: []Tok, pos: int, acc: File): R<File> {
 	};
 }
 
-// typedef := 'type' IDENT params '=' type ';'   (after 'type')
+// Parses a typedef after its `type`: its name, any type parameters, and the
+// type it names, up to its `;`.
+//
+//   typedef := 'type' IDENT params '=' type ';'
 proc PTypeDecl(toks: []Tok, pos: int): R<TypeDecl> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PTypeDecl -> At(toks = this.toks, pos = this.pos);
@@ -40,7 +45,10 @@ proc PTypeDecl(toks: []Tok, pos: int): R<TypeDecl> {
 	Semi -> id({ x = { name = MkIdent(t = NeedIdent.tok), params = PParams.x, ty = PType.x, doc = At.prev.doc }, pos = this.pos });
 }
 
-// params := ('<' IDENT (',' IDENT)* '>')?
+// Parses a generic typedef's type parameters, if a `<` follows its name;
+// none otherwise.
+//
+//   params := ('<' IDENT (',' IDENT)* '>')?
 proc PParams(toks: []Tok, pos: int): R<[]Ident> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []Ident): AtAcc<[]Ident> = "leaf.rs:at_segs";
@@ -58,7 +66,10 @@ proc PParams(toks: []Tok, pos: int): R<[]Ident> {
 	CloseAngle -> id({ x = Loop.acc + [MkIdent(t = NeedIdent.tok)], pos = this.pos });
 }
 
-// interface := 'interface' IDENT '{' (func ';')* '}'   (after 'interface')
+// Parses an interface after its `interface`: its name, then its funcs inside
+// braces.
+//
+//   interface := 'interface' IDENT '{' (func ';')* '}'
 proc PInterface(toks: []Tok, pos: int): R<Interface> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PInterface -> At(toks = this.toks, pos = this.pos);
@@ -69,7 +80,8 @@ proc PInterface(toks: []Tok, pos: int): R<Interface> {
 	Close -> id({ x = { name = MkIdent(t = NeedIdent.tok), funcs = PFuncs.x, doc = At.prev.doc }, pos = this.pos });
 }
 
-// (func ';')*, stopping at anything else.
+// Parses funcs, each ending in `;`, for as long as `func` comes next; the
+// interface's body.
 proc PFuncs(toks: []Tok, pos: int): R<[]Func> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []Func): AtAcc<[]Func> = "leaf.rs:at_funcs";
@@ -83,8 +95,11 @@ proc PFuncs(toks: []Tok, pos: int): R<[]Func> {
 	Semi -> Loop(toks = this.toks, pos = this.pos, acc = Loop.acc + [PFunc.x]);
 }
 
-// func := IDENT '(' (field (',' field)*)? ')' (':' type)? ('=' STRING (',' STRING)*)?
-// (after 'func')
+// Parses a func after its `func`: its name, its parameters, its result type
+// (void if none) and its implementations.
+//
+//   func := IDENT '(' (field (',' field)*)? ')' (':' type)?
+//           ('=' STRING (',' STRING)*)?
 proc PFunc(toks: []Tok, pos: int): R<Func> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PFunc -> At(toks = this.toks, pos = this.pos);
@@ -102,7 +117,10 @@ proc PFunc(toks: []Tok, pos: int): R<Func> {
 	RetImpls -> id({ x = { name = MkIdent(t = NeedIdent.tok), params = PFieldList.x, ret = Some(PType.x), imps = this.x, doc = At.prev.doc }, pos = this.pos });
 }
 
-// ('=' STRING (',' STRING)*)?
+// Parses a func's implementations, if an `=` follows its signature; none
+// otherwise.
+//
+//   impls := ('=' STRING (',' STRING)*)?
 proc PImpls(toks: []Tok, pos: int): R<[]ImplRef> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PImpls -> At(toks = this.toks, pos = this.pos);
@@ -113,7 +131,10 @@ proc PImpls(toks: []Tok, pos: int): R<[]ImplRef> {
 	PImplList -> id(this);
 }
 
-// STRING (',' STRING)*
+// Parses a comma-separated list of "file:function" strings, each split into
+// the file and function it names.
+//
+//   STRING (',' STRING)*
 proc PImplList(toks: []Tok, pos: int): R<[]ImplRef> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []ImplRef): AtAcc<[]ImplRef> = "leaf.rs:at_impls";
@@ -127,8 +148,12 @@ proc PImplList(toks: []Tok, pos: int): R<[]ImplRef> {
 	};
 }
 
-// proc := IDENT '(' (field (',' field)* ','?)? ')' ':' type
-//         '{' ((func | proc | edge) ';')* '}'   (after 'proc')
+// Parses a proc after its `proc`: its signature, then its body's funcs,
+// procs and edges. The body must start from the proc's own name, its
+// signature node.
+//
+//   proc := IDENT '(' (field (',' field)* ','?)? ')' ':' type
+//           '{' ((func | proc | edge) ';')* '}'
 proc PProc(toks: []Tok, pos: int): R<Proc> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PProc -> At(toks = this.toks, pos = this.pos);
@@ -147,11 +172,13 @@ proc PProc(toks: []Tok, pos: int): R<Proc> {
 	});
 }
 
-// A proc starts its body from its signature node, its own name: the first
-// edge must leave it.
+// Checks that a proc's first edge leaves its signature node, the proc's own
+// name, and passes the edges on; fails at that edge, saying what to write,
+// otherwise.
 func StartsAtSig(name: Ident, edges: []Edge): []Edge = "leaf.rs:starts_at_sig";
 
-// ((func | proc | edge) ';')*, stopping at '}'.
+// Parses a proc's body item by item until its `}`: funcs and nested procs
+// into nodes, everything else as an edge, each ending in `;`.
 proc PBody(toks: []Tok, pos: int): R<BodyItems> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: BodyItems): AtAcc<BodyItems> = "leaf.rs:at_body";
@@ -171,8 +198,11 @@ proc PBody(toks: []Tok, pos: int): R<BodyItems> {
 	EdgeEnd -> Loop(toks = this.toks, pos = this.pos, acc = { nodes = Loop.acc.nodes, edges = Loop.acc.edges + [PEdge.x] });
 }
 
-// type := '[' ']' type | 'map' '[' type ']' type | 'enum' '{' variant,* '}'
-//       | '{' field,* '}' | IDENT ('<' type,+ '>')?
+// Parses a type: an array, a map, an enum, a struct, or a name with type
+// arguments if a `<` follows it, with the span it covers.
+//
+//   type := '[' ']' type | 'map' '[' type ']' type | 'enum' '{' variant,* '}'
+//         | '{' field,* '}' | IDENT ('<' type,+ '>')?
 proc PType(toks: []Tok, pos: int): R<TypeExpr> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PType -> At(toks = this.toks, pos = this.pos);
@@ -203,7 +233,8 @@ proc PType(toks: []Tok, pos: int): R<TypeExpr> {
 	CloseAngle -> id({ x = { kind = Inst({ name = MkIdent(t = NeedIdent.tok), args = PTypeArgs.x }), span = { at = NeedIdent.tok.at, end = this.prev.end, file = NeedIdent.tok.file } }, pos = this.pos });
 }
 
-// type (',' type)*   (after '<')
+// Parses the comma-separated type arguments of a generic typedef's use,
+// after its `<`, leaving the `>` to its caller.
 proc PTypeArgs(toks: []Tok, pos: int): R<[]TypeExpr> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []TypeExpr): AtAcc<[]TypeExpr> = "leaf.rs:at_types";
@@ -217,7 +248,8 @@ proc PTypeArgs(toks: []Tok, pos: int): R<[]TypeExpr> {
 	};
 }
 
-// (field (',' field)* ','?)?, stopping at a closing bracket.
+// Parses `name: type` fields separated by commas, a trailing comma allowed,
+// until a closing bracket: a struct's fields or a signature's parameters.
 proc PFieldList(toks: []Tok, pos: int): R<[]Field> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []Field): AtAcc<[]Field> = "leaf.rs:at_fields";
@@ -234,7 +266,8 @@ proc PFieldList(toks: []Tok, pos: int): R<[]Field> {
 	};
 }
 
-// field := NAME ':' type
+// Parses one field or parameter: its name (keywords allowed), a `:`, and its
+// type.
 proc PField(toks: []Tok, pos: int): R<Field> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PField -> At(toks = this.toks, pos = this.pos);
@@ -244,8 +277,10 @@ proc PField(toks: []Tok, pos: int): R<Field> {
 	PType -> id({ x = { name = MkIdent(t = NeedName.tok), ty = this.x }, pos = this.pos });
 }
 
-// (variant (',' variant)* ','?)?, stopping at a closing bracket;
-// variant := IDENT ('(' type ')')?
+// Parses an enum's variants until a closing bracket, each a name with its
+// payload type in parentheses if it has one, separated by commas.
+//
+//   variant := IDENT ('(' type ')')?
 proc PVariants(toks: []Tok, pos: int): R<[]Variant> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []Variant): AtAcc<[]Variant> = "leaf.rs:at_variants";
@@ -269,7 +304,8 @@ proc PVariants(toks: []Tok, pos: int): R<[]Variant> {
 	};
 }
 
-// path := IDENT ('.' NAME)*
+// Parses a dotted path, a node or a field of one (`Start.l`), with the span
+// from its first segment to its last.
 proc PPath(toks: []Tok, pos: int): R<Path> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PPath -> At(toks = this.toks, pos = this.pos);
@@ -278,7 +314,8 @@ proc PPath(toks: []Tok, pos: int): R<Path> {
 	PSegs -> id({ x = { segs = [MkIdent(t = NeedIdent.tok)] + this.x, span = { at = NeedIdent.tok.at, end = PathEnd(t = NeedIdent.tok, segs = this.x), file = NeedIdent.tok.file } }, pos = this.pos });
 }
 
-// ('.' NAME)*
+// Parses the `.name` segments after a path's first, for as long as a `.`
+// follows.
 proc PSegs(toks: []Tok, pos: int): R<[]Ident> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []Ident): AtAcc<[]Ident> = "leaf.rs:at_segs";
@@ -291,5 +328,6 @@ proc PSegs(toks: []Tok, pos: int): R<[]Ident> {
 	NeedName -> Loop(toks = this.toks, pos = this.pos, acc = Loop.acc + [MkIdent(t = this.tok)]);
 }
 
-// Where a path ends: its last segment, or its first if it has one.
+// Where a path's span ends: the end of its last segment, or of its first if
+// it has no others.
 func PathEnd(t: Tok, segs: []Ident): int = "leaf.rs:path_end";

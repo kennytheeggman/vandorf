@@ -1,6 +1,9 @@
 // GET /api/project?dir=..: a project's overview: its manifest's settings,
 // entry points (each with where its proc is declared), files and counts.
 
+// Serves GET /api/project?dir=..: the overview of the project whose manifest
+// is in dir. That's its manifest's settings and text, its entry points (each
+// with where its proc is declared), its files and their counts.
 proc ProjectRoute(req: HttpRequest): HttpResponse {
 	ProjectRoute -> Session.Base(n = 0);
 	Session.Base switch {
@@ -28,12 +31,15 @@ proc ProjectRoute(req: HttpRequest): HttpResponse {
 	Outlines -> id(Api(j = ProjectJson(base = Session.Base, p = UnwrapP(r = LoadProject), text = UnwrapR2(r = Files.Read), outlines = this)));
 }
 
-// The project's overview from its files' outlines.
+// Builds a project's overview from its manifest and its files' outlines:
+// name, settings, bins and servers with the procs they run, files and
+// counts.
 func ProjectJson(base: string, p: Project, text: string, outlines: []Outlined): Json = "ide_leaf.rs:project_json";
 
 // A file's outline, or that it doesn't parse.
 type Outlined = { ok: bool, items: []Item };
 
+// Outlines each of a project's files, or notes one that doesn't parse.
 proc Outlines(s: { p: Project, i: int, acc: []Outlined }): []Outlined {
 	Outlines switch {
 		(this.s.i == this.s.p.srcs.len) -> id(this.s.acc),

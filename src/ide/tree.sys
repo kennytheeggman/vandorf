@@ -10,6 +10,8 @@ func LineCol(src: string, offset: int): { line: int, ch: int } = "ide_leaf.rs:li
 func ItemsJson(items: []Item): Json = "ide_leaf.rs:items_json";
 func Qualify(prefix: string, name: string): string = "ide_leaf.rs:qualify";
 
+// Serves GET /api/tree: the .sys files under the source directory, each with
+// its project and its outline.
 proc TreeRoute(req: HttpRequest): HttpResponse {
 	TreeRoute -> Session.Base(n = 0);
 	Session.Base -> Files.Walk(base = this);
@@ -17,6 +19,9 @@ proc TreeRoute(req: HttpRequest): HttpResponse {
 	TreeFiles -> id(Api(j = Obj([{ key = "ok", value = Bool(true) }, { key = "root", value = Str(Session.Base) }, { key = "files", value = Arr(this) }])));
 }
 
+// Builds each file's tree entry in turn: its project, if a vandorf.toml
+// above it in the source directory has one, loaded once per project, then
+// its outline.
 proc TreeFiles(s: { base: string, paths: []string, i: int, acc: []Json, projects: map[string]Json }): []Json {
 	TreeFiles switch {
 		(this.s.i == this.s.paths.len) -> id(this.s.acc),
@@ -31,7 +36,9 @@ proc TreeFiles(s: { base: string, paths: []string, i: int, acc: []Json, projects
 	Outlined -> TreeFiles(s = { ..this.at, i = this.at.i + 1, acc = this.at.acc + [this.file] });
 }
 
-// A file's entry, and the project cache it may have added to.
+// Builds a file's tree entry: its path, its project, and its declarations
+// (marking the procs something runs), or its parse error; with the project
+// cache it may have added to.
 proc Contents(s: { at: { base: string, paths: []string, i: int, acc: []Json, projects: map[string]Json }, project: Json }): { at: { base: string, paths: []string, i: int, acc: []Json, projects: map[string]Json }, file: Json } {
 	func OrEmpty(r: Res<string>): string = "ide_leaf.rs:or_empty";
 	Contents -> Files.Read(path = JoinP(a = this.s.at.base, b = this.s.at.paths[this.s.at.i]));
@@ -44,20 +51,23 @@ proc Contents(s: { at: { base: string, paths: []string, i: int, acc: []Json, pro
 	Outline -> id({ at = Contents.s.at, file = Obj([{ key = "path", value = Str(Contents.s.at.paths[Contents.s.at.i]) }, { key = "project", value = Contents.s.project }, { key = "items", value = WithEntries(items = ItemsJson(items = this), project = Contents.s.project) }, { key = "error", value = Null() }]) });
 }
 
-// Top-level proc items with an "entry" when something runs them.
+// Marks the top-level proc items something runs with an "entry": what runs
+// them.
 func WithEntries(items: Json, project: Json): Json = "ide_leaf.rs:with_entries";
 
-// { name, dir, entries } of the project whose manifest is in dir: entries
-// by proc, what runs it ("bin demo", "POST /api/calc", "GET / (raw)").
+// Loads the project whose manifest is in dir for the explorer: { name, dir,
+// entries }, its entries by proc, what runs each ("bin demo", "POST
+// /api/calc", "GET / (raw)").
 proc ProjectInfo(s: { base: string, dir: string }): Json {
-	// { name, dir, entries } for the explorer; "?" and no entries if the
-	// manifest doesn't load.
+	// Summarizes a manifest for the explorer: { name, dir, entries }; "?" and no
+	// entries if the manifest doesn't load.
 	func Info(text: Res<string>, dir: string): Json = "ide_leaf.rs:project_info";
 	ProjectInfo -> Files.Read(path = JoinP(a = this.s.dir, b = "vandorf.toml"));
 	Files.Read -> id(Info(text = this, dir = Relative(target = ProjectInfo.s.dir, from = ProjectInfo.s.base)));
 }
 
-// A file's declarations, sorted by line.
+// Outlines a file's declarations: its typedefs, interfaces with their funcs,
+// and funcs and procs with what's nested in them, sorted by line.
 proc Outline(s: { src: string, f: File }): []Item {
 	func ByLine(items: []Item): []Item = "ide_leaf.rs:by_line";
 	func TypeItems(src: string, ts: []TypeDecl): []Item = "ide_leaf.rs:type_items";
@@ -66,6 +76,8 @@ proc Outline(s: { src: string, f: File }): []Item {
 	NodeItems -> id(ByLine(items = TypeItems(src = Outline.s.src, ts = Outline.s.f.types) + IfaceItems(src = Outline.s.src, is = Outline.s.f.interfaces) + this));
 }
 
+// Outlines funcs and procs, each with its qualified name, line and doc, and
+// a proc's nested ones as its children.
 proc NodeItems(s: { src: string, ns: []Node, prefix: string, i: int, acc: []Item }): []Item {
 	NodeItems switch {
 		(this.s.i == this.s.ns.len) -> id(this.s.acc),
@@ -78,4 +90,5 @@ proc NodeItems(s: { src: string, ns: []Node, prefix: string, i: int, acc: []Item
 	Kids -> NodeItems(s = { ..NodeItems.s, i = NodeItems.s.i + 1, acc = NodeItems.s.acc + [{ kind = "proc", name = NodeName(n = N).name, qual = Qualify(prefix = NodeItems.s.prefix, name = NodeName(n = N).name), line = LineCol(src = NodeItems.s.src, offset = NodeName(n = N).span.at).line, doc = NodeDoc(n = N), children = this }] });
 }
 
+// Takes a func's or proc's doc comment.
 func NodeDoc(n: Node): string = "ide_leaf.rs:node_doc";

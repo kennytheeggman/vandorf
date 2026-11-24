@@ -3,7 +3,8 @@
 
 use crate::vcc::types::*;
 
-/// ", " before every list item but the first.
+/// Separates list items: ", " before every item but the first (i is the
+/// item's index).
 pub fn sep(i: i64) -> Result<Str, String> {
     Ok(if i == 0 { "".into() } else { ", ".into() })
 }
@@ -12,7 +13,7 @@ pub fn has_pair(ps: List<Pair>, p: Pair) -> Result<bool, String> {
     Ok(ps.contains(&p))
 }
 
-/// Both typedef ids, if both types are typedef names.
+/// Pairs two types' typedef ids, if both are typedef names.
 pub fn named_pair(a: Type, b: Type) -> Result<OptPair, String> {
     Ok(match (&a, &b) {
         (Type::Named(x), Type::Named(y)) => OptPair::Some(Pair { x: x.id, y: y.id }),
@@ -24,7 +25,8 @@ pub fn is_void(t: Type) -> Result<bool, String> {
     Ok(matches!(&t, Type::Prim(p) if &**p == "void"))
 }
 
-/// The member named `name`, if any.
+/// Looks up the member named `name` among a struct's fields or an enum's
+/// variants: its type, if there is one.
 pub fn member(ms: List<Member>, name: Str) -> Result<MaybeType, String> {
     Ok(ms
         .iter()
@@ -32,7 +34,8 @@ pub fn member(ms: List<Member>, name: Str) -> Result<MaybeType, String> {
         .map_or(MaybeType::None, |m| MaybeType::Some(m.ty.clone())))
 }
 
-/// The pair to assume while comparing two typedef names' structures.
+/// Makes the pair to assume while comparing two typedef names' structures:
+/// the names' pair, or none if they weren't both names.
 pub fn new_pair(o: OptPair) -> Result<List<Pair>, String> {
     Ok(match o {
         OptPair::Some(p) => vec![p].into(),
@@ -106,7 +109,8 @@ fn push_def(mut cx: TyCx, name: Str, ident: Str, span: Span) -> TyCx {
     cx
 }
 
-/// Each typedef with the doc of its declaration (an instance, its generic's).
+/// Gives each typedef the doc of its declaration (an instance, its
+/// generic's).
 pub fn type_docs(types: List<TypeDef>, decls: List<TypeDecl>) -> Result<List<TypeDef>, String> {
     Ok(types
         .iter()
@@ -121,7 +125,8 @@ pub fn type_docs(types: List<TypeDef>, decls: List<TypeDecl>) -> Result<List<Typ
         .collect())
 }
 
-/// cx with a new typedef: name, ident, declared at span.
+/// Adds a typedef to cx, its type still void: its name and ident, where it's
+/// declared (span), and its name to look it up by.
 pub fn new_def(cx: TyCx, name: Str, ident: Str, span: Span) -> Result<TyCx, String> {
     let id = cx.types.len() as i64;
     let mut cx = push_def(cx, name.clone(), ident, span);
@@ -142,7 +147,8 @@ pub fn set_ty(types: List<TypeDef>, id: i64, t: Type) -> Result<List<TypeDef>, S
     Ok(v.into())
 }
 
-/// errors[from..] with " (in key)" appended.
+/// Says which instance errors came from: appends " (in key)" to each of
+/// errors[from..], leaving earlier ones as they were.
 pub fn in_instance(errors: List<Diag>, from: i64, key: Str) -> Result<List<Diag>, String> {
     Ok(errors
         .into_iter()
@@ -156,7 +162,8 @@ pub fn in_instance(errors: List<Diag>, from: i64, key: Str) -> Result<List<Diag>
         .collect())
 }
 
-/// The innermost bound type parameter `name`, if any.
+/// Looks up the type parameter `name` in the instance being resolved, the
+/// innermost: the argument it's bound to, if any.
 pub fn bound(bound: List<Map<Str, Type>>, name: Str) -> Result<MaybeType, String> {
     Ok(bound
         .last()
@@ -302,7 +309,8 @@ pub fn inst_args(k: TypeKind) -> Result<List<TypeExpr>, String> {
     }
 }
 
-/// A type's direct parts, in order (what NamedIn looks inside).
+/// Lists a type's direct parts, in order: an array's element, a map's key and
+/// value, a struct's or enum's member types (what NamedIn looks inside).
 pub fn parts(t: Type) -> Result<List<Type>, String> {
     Ok(match t {
         Type::Prim(_) | Type::Named(_) => List::default(),
@@ -348,7 +356,8 @@ pub fn with_node(mut cx: Cx, n: NodeDecl) -> Result<Cx, String> {
     Ok(cx)
 }
 
-/// Where a span starts, as a key: "file:at".
+/// Turns where a span starts into a map key, "file:at", for finding the node
+/// an id(..) target became.
 pub fn span_key(s: Span) -> Result<Str, String> {
     Ok(format!("{}:{}", s.file, s.at).into())
 }
@@ -368,7 +377,7 @@ pub fn with_proc(mut cx: Cx, p: PendingProc) -> Result<Cx, String> {
     Ok(cx)
 }
 
-/// cx with proc `id`'s entry and locals set.
+/// Records proc `id`'s entry (its signature node) and its locals in cx.
 pub fn set_proc(mut cx: Cx, id: i64, entry: i64, locals: List<i64>) -> Result<Cx, String> {
     cx.nodes = updated(cx.nodes, id, |n| {
         if let NodeKind::Proc(p) = &mut n.kind {
@@ -379,8 +388,8 @@ pub fn set_proc(mut cx: Cx, id: i64, entry: i64, locals: List<i64>) -> Result<Cx
     Ok(cx)
 }
 
-/// cx with proc `pid`'s signature node after it: a local of the proc with
-/// the proc's name (`P.P`), so `P` in the body names it.
+/// Adds proc `pid`'s signature node after it: a local of the proc with the
+/// proc's name (`P.P`), so `P` in the body names it.
 pub fn with_sig(
     mut cx: Cx,
     p: Proc,
@@ -400,7 +409,7 @@ pub fn with_sig(
     Ok(cx)
 }
 
-/// The proc a signature node belongs to; any other node is itself.
+/// Finds the proc a signature node belongs to; any other node is itself.
 pub fn sig_proc(n: NodeDecl, b: i64) -> Result<i64, String> {
     Ok(match n.kind {
         NodeKind::Sig(s) => s.pid,
@@ -408,8 +417,9 @@ pub fn sig_proc(n: NodeDecl, b: i64) -> Result<i64, String> {
     })
 }
 
-/// A call target: the signature node of another proc (an enclosing one)
-/// calls that proc; in its own proc it's the back edge to the entry.
+/// Picks what a call of node n goes to: the signature node of another proc
+/// (an enclosing one) calls that proc; in its own proc it's the back edge to
+/// the entry.
 pub fn call_target(nodes: List<NodeDecl>, pid: i64, n: i64) -> Result<i64, String> {
     Ok(match &nodes[n as usize].kind {
         NodeKind::Sig(s) if s.pid != pid => s.pid,
@@ -417,7 +427,8 @@ pub fn call_target(nodes: List<NodeDecl>, pid: i64, n: i64) -> Result<i64, Strin
     })
 }
 
-/// `id(..) as N` before its type is known.
+/// Whether n is an `id(..) as N` whose type isn't known yet, as no value
+/// passed to it has been typed.
 pub fn is_untyped_id(n: NodeDecl) -> Result<bool, String> {
     Ok(matches!(&n.kind, NodeKind::Id(ps) if ps.is_empty()))
 }
@@ -509,8 +520,8 @@ pub fn alias_of(t: Target) -> Result<OptIdent, String> {
     Ok(t.alias)
 }
 
-/// The local called `name` of proc `pid` or an enclosing proc, innermost
-/// first; -1 if none.
+/// Finds the local called `name` of proc `pid` or an enclosing proc,
+/// innermost first; -1 if none.
 pub fn find_local(nodes: List<NodeDecl>, pid: i64, name: Str) -> Result<i64, String> {
     let mut scope = pid;
     while scope >= 0 {
@@ -547,7 +558,7 @@ pub fn is_prim_named(t: Type, p: Str) -> Result<bool, String> {
     Ok(matches!(&t, Type::Prim(q) if *q == p))
 }
 
-/// The primitive behind a type, or "" if it isn't one.
+/// Names the primitive behind a type, or "" if it isn't one.
 pub fn prim_name(t: Type) -> Result<Str, String> {
     Ok(match t {
         Type::Prim(p) => p,
@@ -571,7 +582,8 @@ pub fn is_struct(t: Type) -> Result<bool, String> {
     Ok(matches!(t, Type::Struct(_)))
 }
 
-/// The fields of a struct or variants of an enum (none otherwise).
+/// Lists a struct's fields or an enum's variants, already unfolded; none for
+/// any other type.
 pub fn members_of(t: Type) -> Result<List<Member>, String> {
     Ok(match t {
         Type::Struct(ms) | Type::Enum(ms) => ms,
@@ -593,7 +605,8 @@ pub fn key_of(t: Type) -> Result<Type, String> {
     }
 }
 
-/// The value type of a map, or element type of an array.
+/// Finds the type of what indexing gives: a map's value type, or an array's
+/// element type.
 pub fn indexed_value(t: Type) -> Result<Type, String> {
     match t {
         Type::Map(m) => Ok((*m.value).clone()),
@@ -602,7 +615,8 @@ pub fn indexed_value(t: Type) -> Result<Type, String> {
     }
 }
 
-/// A map literal key as written in messages: 3, "a".
+/// Writes a map literal's key as messages show it (3, "a"), so a key given
+/// twice can be caught; none for a key that isn't a literal.
 pub fn lit_key(e: Expr) -> Result<MaybeStr, String> {
     Ok(match e {
         Expr::Int(i) => MaybeStr::Some(i.to_string().into()),
@@ -618,7 +632,8 @@ pub fn some_strs(m: MaybeStr) -> Result<List<Str>, String> {
     })
 }
 
-/// A node's return and parameters (an alias's are those of what it instances).
+/// Finds the type a node returns: a func's or proc's result, an id's value, a
+/// signature node's parameters as a struct; an alias's is what it instances'.
 pub fn node_ret(nodes: List<NodeDecl>, n: i64) -> Result<Type, String> {
     match &nodes[n as usize].kind {
         NodeKind::Func(f) => Ok(f.ret.clone()),
@@ -803,8 +818,9 @@ pub fn allowed(op: Str) -> Result<Str, String> {
     Ok(allowed_prims(&op).join(", ").into())
 }
 
-/// Whether the operator applies to the two primitives, an int literal next
-/// to a float becoming a float.
+/// Checks that an operator applies to its two primitive operands, turning an
+/// int literal next to a float into a float, and gives the operands and their
+/// common type.
 pub fn operands(s: OperandsS) -> Result<OperandsOut, String> {
     let (mut l, mut r, mut lp, mut rp) = (s.l, s.r, s.lp, s.rp);
     // An int literal next to a float is a float.
@@ -843,7 +859,8 @@ pub fn head_index(arms: List<Arm>, kind: Str) -> Result<i64, String> {
         .map_or(-1, |i| i as i64))
 }
 
-/// The source text of a span, trimmed: an arm's head as written.
+/// Cuts the source text of a span, trimmed: an arm's head as written, for the
+/// diagram's labels.
 pub fn slice(src: Str, span: Span) -> Result<Str, String> {
     Ok(src
         .get(span.at as usize..span.end as usize)
@@ -887,7 +904,8 @@ pub fn variant_tag(k: PatKind) -> Result<Ident, String> {
     }
 }
 
-/// How to match a variant: `()` for one without payload, `(_)` otherwise.
+/// Says how to match a variant, for a hint: `()` for one without payload,
+/// `(_)` otherwise.
 pub fn variant_fix(t: Type) -> Result<Str, String> {
     Ok(if is_void(t)? {
         "()".into()
@@ -939,8 +957,8 @@ fn expand_rows(rows: &[List<P>]) -> Vec<List<P>> {
     out
 }
 
-/// Rows matching constructor c with `arity` arguments, the first column
-/// replaced by its arguments.
+/// Keeps the rows whose first column can match constructor c, replacing that
+/// column by its `arity` arguments (wildcards for a wildcard).
 pub fn specialize(rows: List<List<P>>, c: Str, arity: i64) -> Result<List<List<P>>, String> {
     Ok(expand_rows(&rows)
         .into_iter()
@@ -952,7 +970,7 @@ pub fn specialize(rows: List<List<P>>, c: Str, arity: i64) -> Result<List<List<P
         .collect())
 }
 
-/// Rows whose first column is a wildcard, without it.
+/// Keeps the rows whose first column is a wildcard, dropping that column.
 pub fn default_rows(rows: List<List<P>>) -> Result<List<List<P>>, String> {
     Ok(expand_rows(&rows)
         .into_iter()
@@ -961,7 +979,7 @@ pub fn default_rows(rows: List<List<P>>) -> Result<List<List<P>>, String> {
         .collect())
 }
 
-/// The constructors the first column names.
+/// Lists the constructors the rows' first column names.
 pub fn used(rows: List<List<P>>) -> Result<List<Str>, String> {
     Ok(expand_rows(&rows)
         .iter()
@@ -972,8 +990,8 @@ pub fn used(rows: List<List<P>>) -> Result<List<Str>, String> {
         .collect())
 }
 
-/// The constructors of an unfolded type and their argument types; none for
-/// types patterns can't take apart.
+/// Lists the constructors of an unfolded type and their argument types: an
+/// enum's variants, a struct's one; none for types patterns can't take apart.
 pub fn ctors(t: Type) -> Result<List<Ctor>, String> {
     Ok(match t {
         Type::Enum(vs) => vs
@@ -1055,7 +1073,8 @@ fn graph_of(mut g: Graph, f: impl FnOnce(&mut Graph)) -> Graph {
     g
 }
 
-/// g with a new region (its id is the old regions.len).
+/// Adds a region to g, a child of `parent` entered at `entry`, its elements
+/// of type elem; its id is the old regions.len.
 pub fn new_region(g: Graph, parent: i64, entry: i64, elem: Type) -> Result<Graph, String> {
     Ok(graph_of(g, |g| {
         g.regions = push(
@@ -1071,7 +1090,7 @@ pub fn new_region(g: Graph, parent: i64, entry: i64, elem: Type) -> Result<Graph
     }))
 }
 
-/// g with node n in region r.
+/// Puts node n in region r, recording both ways.
 pub fn in_region(g: Graph, n: i64, r: i64) -> Result<Graph, String> {
     Ok(graph_of(g, |g| {
         g.region_of = g.region_of.clone().merge(&Map::from_iter([(n, r)]));
@@ -1127,7 +1146,8 @@ fn calls_of(e: &SEdge) -> Vec<Call> {
     }
 }
 
-/// The calls an edge makes (a switch's, depth first).
+/// Lists the calls an edge makes: its call, a switch's (depth first), a
+/// spawn's branches and its join.
 pub fn edge_calls(e: SEdge) -> Result<List<Call>, String> {
     Ok(calls_of(&e).into())
 }
@@ -1145,14 +1165,16 @@ pub fn arg_values(calls: List<Call>) -> Result<List<Expr>, String> {
         .collect())
 }
 
-/// The conditions of arms and the switches nested in them, arm by arm.
+/// Lists the conditions of a switch's arms and of the switches nested in
+/// them, arm by arm.
 pub fn arm_conds(arms: List<SArm>) -> Result<List<Expr>, String> {
     let mut out = vec![];
     arms.iter().for_each(|a| conds(a, &mut out));
     Ok(out.into())
 }
 
-/// Each arm's conditions, then the arguments of its calls, arm by arm.
+/// Lists what a switch's arms read, arm by arm: each one's conditions, then
+/// the arguments of its calls.
 pub fn arm_reads(arms: List<SArm>) -> Result<List<Expr>, String> {
     let mut out = vec![];
     for a in arms.iter() {
@@ -1311,7 +1333,7 @@ fn qual(nodes: &List<NodeDecl>, n: i64) -> String {
     q.join(".")
 }
 
-/// A spawn's targets as written: the branches', then the join's.
+/// Lists a spawn's targets as written: the branches', then the join's.
 pub fn spawn_targets(branches: List<Branch>, join: Target) -> Result<List<Target>, String> {
     Ok(branches
         .iter()
@@ -1332,7 +1354,8 @@ pub fn last_name(n: NodeDecl) -> Result<Str, String> {
     Ok(n.qual.last().cloned().unwrap_or_default())
 }
 
-/// The first `this.X` argument of the join naming a detached branch X.
+/// Finds the first `this.X` argument of the join that names a detached branch
+/// X: what the join can't read.
 pub fn detached_ref(
     join: Target,
     out: List<SBranch>,
@@ -1359,8 +1382,8 @@ pub fn detached_ref(
     Ok(OptIdent::None)
 }
 
-/// g with each spawn's branches recorded; each runs in one branch only, with
-/// no edge of its own.
+/// Records each spawn's branches in g, with the node whose spawn runs each; a
+/// branch runs in one spawn only, and has no edge of its own.
 pub fn with_spawned(g: Graph, nodes: List<NodeDecl>) -> Result<ResGraph, String> {
     let mut spawned: std::collections::BTreeMap<i64, i64> = Default::default();
     for (&src, e) in g.edges.iter() {
@@ -1389,7 +1412,8 @@ pub fn with_spawned(g: Graph, nodes: List<NodeDecl>) -> Result<ResGraph, String>
     }))
 }
 
-/// Fails if a branch is also reached as a step of the proc.
+/// Fails if a spawn's branch is also reached as a step of the proc, outside
+/// its spawn.
 pub fn spawn_reach(g: Graph, nodes: List<NodeDecl>, span: Span) -> Result<ResGraph, String> {
     match g.spawned.keys().find(|n| g.region_of.contains_key(n)) {
         Some(&n) => {
@@ -1461,7 +1485,8 @@ pub fn same_set(a: Map<i64, bool>, b: Map<i64, bool>) -> Result<bool, String> {
     Ok(a.keys().eq(b.keys()))
 }
 
-/// Where a path skips node n, reading it from `at` in region r; -1 if none.
+/// Finds where a path can skip node n on its way to `at` in region r, through
+/// the regions enclosing it; -1 if every path runs n.
 pub fn skip(
     g: Graph,
     dom: Map<i64, Map<i64, bool>>,
@@ -1497,7 +1522,8 @@ pub fn pack_placed(l: Layout, _target: i64, back: bool) -> Result<RecordPlacedOu
     Ok(RecordPlacedOut { l, back })
 }
 
-/// The first of bfs not among fs, or "".
+/// Finds the first of bfs not among fs, or "": a field a struct update's base
+/// has that the result doesn't.
 pub fn extra_member(bfs: List<Member>, fs: List<Member>) -> Result<Str, String> {
     Ok(bfs
         .iter()
@@ -1505,7 +1531,8 @@ pub fn extra_member(bfs: List<Member>, fs: List<Member>) -> Result<Str, String> 
         .map_or("".into(), |b| b.name.clone()))
 }
 
-/// The source text of a span on one line: whitespace runs become a space.
+/// Gives the source text of a span on one line, whitespace runs squashed into
+/// a space: a call's arguments, or an arm's head, as written.
 pub fn squash(src: Str, span: Span) -> Result<Str, String> {
     let text = src.get(span.at as usize..span.end as usize).unwrap_or("");
     Ok(text.split_whitespace().collect::<Vec<_>>().join(" ").into())
@@ -1513,8 +1540,8 @@ pub fn squash(src: Str, span: Span) -> Result<Str, String> {
 
 // ---- id(..) as N ----
 
-/// The error for using `id(..) as N` before any value passed to it has a
-/// type.
+/// Builds the error for reading `id(..) as N` before any value passed to it
+/// has a type, saying how to give it one.
 pub fn untyped(n: NodeDecl, span: Span) -> Result<Diag, String> {
     let name = n.qual.last().cloned().unwrap_or_default();
     Ok(diag(
@@ -1525,7 +1552,7 @@ pub fn untyped(n: NodeDecl, span: Span) -> Result<Diag, String> {
     ))
 }
 
-/// Whether proc `pid` has an `id(..) as N` with no type yet.
+/// Whether proc `pid` has an `id(..) as N` whose type isn't known yet.
 pub fn has_untyped(nodes: List<NodeDecl>, pid: i64) -> Result<bool, String> {
     let NodeKind::Proc(p) = &nodes[pid as usize].kind else {
         return err("has_untyped: not a proc");
@@ -1535,14 +1562,14 @@ pub fn has_untyped(nodes: List<NodeDecl>, pid: i64) -> Result<bool, String> {
         .any(|&l| is_untyped_id(nodes[l as usize].clone()).unwrap_or(false)))
 }
 
-/// Whether the edge passes a value to an id that has no type yet.
+/// Whether the edge passes a value to an id whose type isn't known yet.
 pub fn types_ids(nodes: List<NodeDecl>, e: SEdge) -> Result<bool, String> {
     Ok(calls_of(&e)
         .iter()
         .any(|c| is_untyped_id(nodes[c.target as usize].clone()).unwrap_or(false)))
 }
 
-/// nodes with each untyped id the edge calls typed by its first call's value.
+/// Types each untyped id the edge calls by the value it passes it first.
 pub fn typed_ids(mut nodes: List<NodeDecl>, e: SEdge) -> Result<List<NodeDecl>, String> {
     for c in calls_of(&e).iter() {
         if is_untyped_id(nodes[c.target as usize].clone())? {

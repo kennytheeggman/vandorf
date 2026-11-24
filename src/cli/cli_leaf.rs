@@ -13,7 +13,9 @@ fn opt(v: Option<&toml::Value>) -> MaybeStr {
         .map_or(MaybeStr::None, |x| MaybeStr::Some(s(x)))
 }
 
-/// vandorf.toml, as src/project.rs reads it.
+/// Reads vandorf.toml as src/project.rs does: the project's name and sources,
+/// its [go] and [rust] targets, its bins and its servers, with defaults
+/// filled in; an error naming what's wrong otherwise.
 pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
     let fail = |e: String| {
         Ok(ResManifest::Err(Diag {
@@ -153,7 +155,8 @@ fn slash(p: &Path) -> String {
     p.to_string_lossy().replace('\\', "/")
 }
 
-/// a/b, `.` and `..` resolved lexically (b may be absolute).
+/// Joins a and b into one path, resolving `.` and `..` lexically; b may be
+/// absolute, and then wins.
 pub fn join(a: Str, b: Str) -> Result<Str, String> {
     Ok(slash(&normalize(&Path::new(&*a).join(&*b))).into())
 }
@@ -162,7 +165,8 @@ pub fn parent(p: Str) -> Result<Str, String> {
     Ok(Path::new(&*p).parent().map_or(s(""), |d| slash(d).into()))
 }
 
-/// target relative to the directory from; both absolute and normalized.
+/// Makes target relative to the directory from, with `..` where it's outside
+/// it; both absolute and normalized.
 pub fn relative(target: Str, from: Str) -> Result<Str, String> {
     let (t, f): (Vec<_>, Vec<_>) = (
         Path::new(&*target).components().collect(),
@@ -190,8 +194,9 @@ pub fn starts_with(text: Str, prefix: Str) -> Result<bool, String> {
     Ok(text.starts_with(&*prefix))
 }
 
-/// Each implementation path made relative to `out` instead of the .sys
-/// file naming it (dirs[file id] is that file's directory).
+/// Rebases each func's implementation paths from the .sys file naming them
+/// onto `out`, the output directory (dirs[file id] is that file's directory),
+/// so generated code can reach them.
 pub fn rebase_impls(prog: Program, dirs: List<Str>, out: Str) -> Result<Program, String> {
     let mut prog = prog;
     let nodes: Vec<NodeDecl> = prog
@@ -221,8 +226,8 @@ pub fn rebase_impls(prog: Program, dirs: List<Str>, out: Str) -> Result<Program,
     Ok(prog)
 }
 
-/// `name = "..."` in [lib], else in [package], of a Cargo.toml (with
-/// `-` as `_`); "" if the crate has no library.
+/// Finds the library crate's name in a Cargo.toml: `name = "..."` in [lib],
+/// else in [package], with `-` as `_`; "" if the crate has no library.
 pub fn cargo_lib_name(toml: Str, has_lib_rs: bool) -> Result<Str, String> {
     let mut section = "";
     let (mut lib, mut package) = (None, None);
@@ -318,13 +323,15 @@ pub fn dirs(root: Str, paths: List<Str>) -> Result<List<Str>, String> {
         .map(List::from)
 }
 
-/// The program with implementation paths relative to [rust]'s out.
+/// Rebases the program's implementation paths onto [rust]'s out, from the
+/// .sys files naming them.
 pub fn rebased(c: Checked) -> Result<Program, String> {
     let d = dirs(c.project.root.clone(), c.project.paths.clone())?;
     rebase_impls(c.prog.clone(), d, out_dir(c)?)
 }
 
-/// [rust]'s module_dir, or out relative to the crate's src/.
+/// Works out where the Rust output sits in its crate: [rust]'s module_dir, or
+/// else out relative to the crate's src/.
 pub fn module_dir(target: RustTarget, out: Str, croot: Str) -> Result<MaybeStr, String> {
     if let MaybeStr::Some(d) = target.module_dir {
         return Ok(MaybeStr::Some(d));
@@ -433,8 +440,8 @@ pub fn server_path(d: ServerDecl, name: Str) -> Result<Str, String> {
     })
 }
 
-/// The directory of a file under the crate's src/, out being module_dir
-/// below src/.
+/// Finds the directory of a file under the crate's src/ (path, relative to
+/// src/): src/ is found by going up from out once per segment of module_dir.
 pub fn file_dir(out: Str, module_dir: MaybeStr, path: Str) -> Result<Str, String> {
     let up = match &module_dir {
         MaybeStr::Some(d) => d.split('/').filter(|x| !x.is_empty()).count(),
@@ -448,7 +455,8 @@ pub fn file_dir(out: Str, module_dir: MaybeStr, path: Str) -> Result<Str, String
     Ok(slash(full.parent().unwrap_or(&src)).into())
 }
 
-/// "POST /api/calc" as a method and a path, if it is one.
+/// Splits "POST /api/calc" into a route's method and path, with the proc it
+/// runs; none if it isn't a method and a path.
 pub fn split_route(route: Str, proc: Str) -> Result<List<Route>, String> {
     let Some((m, p)) = route.split_once(' ').map(|(m, p)| (m.trim(), p.trim())) else {
         return Ok(List::default());
@@ -591,8 +599,8 @@ fn check_table(t: &toml::Table, fields: Fields) -> Result<(), String> {
     }
 }
 
-/// Why text isn't a manifest the reference would load (its fields and
-/// their types), or "".
+/// Checks that text is a manifest the reference would load, its fields and
+/// their types: why not, or "".
 pub fn manifest_error(text: Str) -> Result<Str, String> {
     let t: toml::Table = match text.parse() {
         Ok(t) => t,
@@ -626,12 +634,14 @@ The IDE is the ide executable built alongside vcc: ide [--addr 127.0.0.1:8080],
 on the working directory. It offers terminals only when listening on a
 loopback address.";
 
-/// vcc's usage, printed by --help.
+/// Builds vcc's usage text, the commands and options, which --help prints and
+/// a bad command line points at.
 pub fn usage(_n: i64) -> Result<Str, String> {
     Ok(USAGE.into())
 }
 
-/// The first argument after the command that is a flag, or "".
+/// Finds the first argument after the command that starts with `-`, a flag
+/// vcc doesn't know; "" if there's none.
 pub fn first_flag(args: List<Str>) -> Result<Str, String> {
     Ok(args
         .iter()
@@ -641,7 +651,9 @@ pub fn first_flag(args: List<Str>) -> Result<Str, String> {
         .unwrap_or_default())
 }
 
-/// Takes the `-C <dir>`s out of argv (anywhere, in order).
+/// Takes the `-C <dir>`s out of argv, wherever they are, keeping them in
+/// order and the rest of the command as it was; a `-C` with nothing after it
+/// is an error, returned rather than failed.
 pub fn split_c(argv: List<Str>) -> Result<CliOpts, String> {
     let (mut dirs, mut rest, mut err) = (vec![], vec![], String::new());
     let mut it = argv.iter();
@@ -672,8 +684,8 @@ fn floor(text: &str, mut i: usize) -> usize {
     i
 }
 
-/// One diagnostic: the message, `path:line:col`, and the line with the span
-/// underlined; notes follow as `= note` lines.
+/// Renders one diagnostic: the level and message, `path:line:col`, and the
+/// line with the span underlined, then the notes as `= note` lines.
 pub fn snippet(
     level: Str,
     msg: Str,
@@ -715,8 +727,9 @@ pub fn snippet(
     Ok(out.into())
 }
 
-/// Errors as snippets (message, path:line:col, the line underlined), a
-/// blank line apart (each once).
+/// Renders errors as snippets, each its message, path:line:col and the line
+/// with the span underlined, a blank line apart; an error repeated at the
+/// same span shows once.
 pub fn render_errors(errors: List<Diag>, paths: List<Str>, srcs: List<Str>) -> Result<Str, String> {
     let mut out = vec![];
     let mut seen = std::collections::HashSet::new();
@@ -743,20 +756,21 @@ pub fn render_errors(errors: List<Diag>, paths: List<Str>, srcs: List<Str>) -> R
     Ok(out.join("\n\n").into())
 }
 
-/// Fails with msg (rendered diagnostics without their first `error: `,
-/// which the executable prints).
+/// Fails the command with msg, dropping a rendered diagnostic's first `error:
+/// `, which the executable prints itself.
 pub fn fail_report(msg: Str) -> Result<(), String> {
     Err(msg.strip_prefix("error: ").unwrap_or(&msg).to_string())
 }
 
-/// A command's result, which isn't printed: build and test say nothing when
-/// they succeed.
+/// Swallows a command's result: build and test print nothing when they
+/// succeed.
 pub fn quiet(_s: Str) -> Result<(), String> {
     Ok(())
 }
 
-/// For each func implemented in Rust: its file (absolute), function, and
-/// the warning to print if the file is missing or doesn't define it.
+/// Lists a check for each func implemented in Rust: its file (absolute), its
+/// function, the warnings to print if the file is missing or doesn't define
+/// it, and its declaration's signature and doc.
 pub fn impl_checks(
     prog: Program,
     t: Table,
@@ -1173,8 +1187,8 @@ fn sig_diff(keyword: &str, want: &Sig, got: &Sig) -> Option<String> {
     None
 }
 
-/// The errors for an implementation src defines: its signature and doc
-/// comment against the declaration's.
+/// Compares an implementation src defines with its declaration: an error for
+/// a signature that doesn't match, and one for a doc comment that doesn't.
 pub fn impl_mismatches(src: Str, c: ImplCheck, t: Table) -> Result<List<Str>, String> {
     let rust = &*c.keyword == "fn";
     let aliases: std::collections::HashMap<String, String> = t
@@ -1267,8 +1281,8 @@ pub fn impl_mismatches(src: Str, c: ImplCheck, t: Table) -> Result<List<Str>, St
     Ok(out.into_iter().collect())
 }
 
-/// Whether src defines `fn function` (or a generic `fn function<` /
-/// `func Function[T any](`); keyword is fn or func.
+/// Whether src defines `fn function` (or a generic `fn function<` / `func
+/// Function[T any](`); keyword is fn or func.
 pub fn defines_fn(src: Str, function: Str, keyword: Str) -> Result<bool, String> {
     Ok(["(", "<", "["]
         .iter()
@@ -1304,13 +1318,15 @@ pub fn go_out_dir(root: Str, g: GoTarget) -> Result<Str, String> {
     join(root, g.out)
 }
 
-/// The program with implementation paths relative to out.
+/// Rebases the program's implementation paths onto out, the Go output
+/// directory, from the .sys files naming them.
 pub fn rebased_to(c: Checked, out: Str) -> Result<Program, String> {
     let d = dirs(c.project.root.clone(), c.project.paths.clone())?;
     rebase_impls(c.prog.clone(), d, out)
 }
 
-/// [go]'s package, or the output directory's name.
+/// Names the Go package: [go]'s package, or else the output directory's name,
+/// made an identifier.
 pub fn go_package(g: GoTarget, out: Str) -> Result<Str, String> {
     if let MaybeStr::Some(p) = g.package {
         return Ok(p);
@@ -1330,8 +1346,9 @@ pub fn go_package(g: GoTarget, out: Str) -> Result<Str, String> {
     .into())
 }
 
-/// [go]'s module, else go.mod's module path (root: go.mod's directory, ""
-/// if none) followed by out's directories below root.
+/// Works out the Go import path of out: [go]'s module if it's set, else
+/// go.mod's module path (root: go.mod's directory, "" if none) followed by
+/// out's directories below root.
 pub fn go_import_base(g: GoTarget, root: Str, gomod: Str, out: Str) -> Result<MaybeStr, String> {
     if let MaybeStr::Some(m) = g.module {
         return Ok(MaybeStr::Some(m));
@@ -1347,8 +1364,8 @@ pub fn go_import_base(g: GoTarget, root: Str, gomod: Str, out: Str) -> Result<Ma
     Ok(MaybeStr::Some(segs.join("/").into()))
 }
 
-/// Each bin's main package: [bin.*]'s go, by default <go.out>/../cmd/<name>,
-/// relative to go.out.
+/// Lays out each bin's Go main package: [bin.*]'s go, by default
+/// <go.out>/../cmd/<name>, relative to go.out, with the proc it runs.
 pub fn go_main_specs(
     c: Checked,
     g: GoTarget,
@@ -1374,7 +1391,7 @@ pub fn go_main_specs(
         .map(List::from)
 }
 
-/// A server's main package: [http.*]'s go, by default
+/// Places a server's Go main package: [http.*]'s go, by default
 /// <go.out>/../cmd/<name>, relative to go.out.
 pub fn go_server_path(c: Checked, g: GoTarget, name: Str) -> Result<Str, String> {
     let root = c.project.root.clone();
@@ -1404,7 +1421,9 @@ pub fn go_out_files(out: Str, files: List<GoFile>) -> Result<List<OutFile>, Stri
         .map(List::from)
 }
 
-/// For each func implemented in Go: as impl_checks, for `func`.
+/// Lists a check for each func implemented in Go, as impl_checks does for
+/// Rust: its file, its function (defined by `func`), and its declaration's
+/// signature and doc.
 #[allow(clippy::too_many_arguments)]
 pub fn go_impl_checks(
     prog: Program,

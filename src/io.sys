@@ -2,34 +2,42 @@
 // leaf funcs in the *_leaf.rs next to the .sys using them.
 
 interface Fs {
+	// Reads the file at path as text; fails, naming the path, if it can't.
 	func Read(path: string): string = "io.rs:read";
-	// Writes text to path, creating its directory.
+	// Writes text to path, creating its directory first; fails, naming the path,
+	// if it can't.
 	func Write(path: string, text: string): bool = "io.rs:write";
 	func IsFile(path: string): bool = "io.rs:is_file";
 	func IsDir(path: string): bool = "io.rs:is_dir";
-	// The working directory, with / separators like the paths JoinP builds.
+	// Reads the working directory, with / separators like the paths JoinP
+	// builds.
 	func Cwd(n: int): string = "io.rs:cwd";
-	// Changes the working directory (for -C).
+	// Changes the working directory to path (for -C), returning the error as a
+	// value if it can't.
 	func Chdir(path: string): Res<string> = "io.rs:chdir";
-	// The .sys files under dir, skipping hidden directories and build output.
+	// Lists the .sys files under dir, recursively, skipping hidden directories
+	// and build output (target, node_modules).
 	func Walk(dir: string): []string = "io.rs:walk";
 }
 
 interface Tools {
-	// Formats Rust files, if rustfmt is installed.
+	// Formats the generated Rust files in place, if rustfmt is installed; does
+	// nothing otherwise.
 	func Rustfmt(files: []string): bool = "io.rs:rustfmt";
-	// Formats Go files, if gofmt is installed.
+	// Formats the generated Go files in place, if gofmt is installed; does
+	// nothing otherwise.
 	func Gofmt(files: []string): bool = "io.rs:gofmt";
-	// Runs cmd with the platform's shell (sh -c, or cmd /C on Windows) in
-	// dir, on this process's terminal; Err with why if it fails.
+	// Runs cmd with the platform's shell (sh -c, or cmd /C on Windows) in dir,
+	// on this process's terminal; Err with why if it can't start or exits
+	// unsuccessfully.
 	func Shell(cmd: string, dir: string): Res<string> = "io.rs:shell";
 }
 
 interface Console {
-	// A line on stderr.
+	// Prints a line on stderr.
 	func Err(line: string): bool = "io.rs:eprint";
-	// A command's output, on stdout, and a closing note on stderr; each ends
-	// a proc that returns nothing.
+	// Prints a command's output on stdout, ending the proc that called it.
 	func Out(text: string): void = "io.rs:print_out";
+	// Prints a command's closing note on stderr, ending the proc that called it.
 	func Note(line: string): void = "io.rs:eprint_note";
 }

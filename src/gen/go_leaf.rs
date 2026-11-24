@@ -153,7 +153,8 @@ fn check_fields<'a>(names: impl Iterator<Item = &'a str>, is_enum: bool) -> Resu
     Ok(())
 }
 
-/// Programs whose names would collide or be invalid in Go.
+/// Checks a program's names for Go: names that would collide once exported,
+/// or be invalid, give the error; none otherwise.
 pub fn go_name_check(prog: Program, t: Table) -> Result<MaybeStr, String> {
     let fail = |e: String| Ok(MaybeStr::Some(e.into()));
     let mut seen: std::collections::HashMap<String, String> = Default::default();
@@ -245,7 +246,7 @@ fn region_fn(nodes: &List<NodeDecl>, pid: i64, r: i64) -> String {
     format!("run{}Region{r}", gn(nodes, pid))
 }
 
-/// `<proc>_vandorf.go`
+/// Names a top-level proc's file: `<proc>_vandorf.go`.
 pub fn go_proc_file(n: NodeDecl) -> Result<Str, String> {
     Ok(format!(
         "{}_vandorf.go",
@@ -283,7 +284,8 @@ fn gtype(t: &Table, tq: &str, ty: &Type) -> String {
         .to_string()
 }
 
-/// A vandorf type as written in the code package.
+/// Writes a vandorf type as the code package does, with the types package's
+/// qualifier before named ones.
 pub fn go_type(g: GGen, ty: Type) -> Result<Str, String> {
     Ok(gtype(&g.table, &g.tq, &ty).into())
 }
@@ -300,7 +302,8 @@ pub fn go_doc(t: Table, n: NamedType) -> Result<List<Line>, String> {
     Ok(lines.into_iter().map(|l| Line::L(l.into())).collect())
 }
 
-/// The doc comment of the typedef alias `name`.
+/// Writes the doc comment of the typedef alias `name`: its typedef's, or "//
+/// Name is a typedef.".
 pub fn go_alias_doc(t: Table, name: Str) -> Result<List<Line>, String> {
     let doc = super::gen_leaf::typedef_doc(&t, &name);
     let lines = if doc.is_empty() {
@@ -320,7 +323,8 @@ pub fn go_tag_doc(ms: List<RefMember>) -> Result<Str, String> {
     .into())
 }
 
-/// A field's type, a pointer where it would make the type contain itself.
+/// Writes a field's type, a pointer where it would make the type contain
+/// itself.
 pub fn go_field_type(t: Table, i: i64, m: RefMember) -> Result<Str, String> {
     let s = go_render(t.clone(), m.r, "".into())?;
     Ok(
@@ -341,7 +345,7 @@ pub fn gw(mut g: GGen, ls: List<Str>) -> Result<GGen, String> {
     Ok(g)
 }
 
-/// Keep the first error.
+/// Records an error writing an expression, keeping the first.
 pub fn go_failed(mut g: GGen, msg: Str) -> Result<GGen, String> {
     if let MaybeStr::None = g.failed {
         g.failed = MaybeStr::Some(msg);
@@ -369,7 +373,7 @@ pub fn go_coercion_name(at: GCoerceAt) -> Result<Str, String> {
     Ok(format!("coerce{}", at.g.coercions.len()).into())
 }
 
-/// Records the helper about to be written, so its parts can call it.
+/// Records the coercion helper about to be written, so its parts can call it.
 pub fn go_new_coercion(at: GCoerceAt) -> Result<GGen, String> {
     let (key, name) = (go_coerce_key(at.clone())?, go_coercion_name(at.clone())?);
     let mut g = at.g;
@@ -377,7 +381,7 @@ pub fn go_new_coercion(at: GCoerceAt) -> Result<GGen, String> {
     Ok(g)
 }
 
-/// `func coerceN(v src) (r dst) {`
+/// Writes a coercion helper's head: `func coerceN(v src) (r dst) {`.
 pub fn go_coerce_head(at: GCoerceAt) -> Result<Str, String> {
     Ok(format!(
         "func {}(v {}) (r {}) {{",
@@ -439,7 +443,8 @@ fn fails(e: &Expr) -> bool {
     }
 }
 
-/// Whether evaluating e can fail (it calls a func or indexes).
+/// Whether evaluating e can fail (it calls a func or indexes), so it needs
+/// statements of its own before the expression using it.
 pub fn can_fail(e: Expr) -> Result<bool, String> {
     Ok(fails(&e))
 }
@@ -451,8 +456,9 @@ pub fn in_map_e(e: Expr) -> Result<Expr, String> {
     }
 }
 
-/// `t, err := call` and its error check; `if t {` (or `if !t {`) for a
-/// short-circuit; mapGet or sliceGet into t.
+/// Writes the statements evaluating a call that can fail: `t, err := call`
+/// and its error check; `if t {` (or `if !t {`) for a short-circuit; mapGet
+/// or sliceGet into t.
 pub fn go_call_lines(t: Str, call: Str, qual: Str) -> Result<List<Str>, String> {
     Ok(lines(vec![
         format!("{t}, err := {call}"),
@@ -487,7 +493,7 @@ pub fn go_index_lines(t: Str, x: Str, k: Str, map: bool, proc: Str) -> Result<Li
     ]))
 }
 
-/// `(x).F`, dereferenced if F is boxed.
+/// Writes a field selection, `(x).F`, dereferenced if F is boxed.
 pub fn go_select(x: Str, name: Str, boxed: bool) -> Result<Str, String> {
     let v = format!("({x}).{}", exported(&name));
     Ok(if boxed { format!("(*{v})") } else { v }.into())
@@ -609,7 +615,8 @@ fn pat(t: &Table, p: &SPat, x: &str, tests: &mut Vec<String>, binds: &mut Vec<(S
     }
 }
 
-/// `{` or `if <tests> {`, then the bindings, matching p against this.
+/// Writes the head of an arm matching p against this: `{` or `if <tests> {`,
+/// then the bindings.
 pub fn go_pat_head(t: Table, p: SPat) -> Result<List<Str>, String> {
     let (mut tests, mut binds) = (vec![], vec![]);
     pat(&t, &p, "this", &mut tests, &mut binds);
@@ -634,7 +641,8 @@ pub fn go_pat_always(t: Table, p: SPat) -> Result<bool, String> {
 
 // ---- Procs ----
 
-/// The env struct, the pc constants, and Run<Proc> through `pc := ..`.
+/// Writes a proc's prelude: the env struct, the pc constants, and Run<Proc>
+/// through `pc := ..`.
 pub fn go_prelude(g: GGen, pid: i64) -> Result<List<Str>, String> {
     let nodes = &g.prog.nodes;
     let NodeKind::Proc(p) = &nodes[pid as usize].kind else {
@@ -695,7 +703,8 @@ pub fn go_prelude(g: GGen, pid: i64) -> Result<List<Str>, String> {
     Ok(lines(out))
 }
 
-/// `case pc..:` through `env.out.. = this`.
+/// Writes a node's state from `case pc..:` through `env.out.. = this`, the
+/// node run in between.
 pub fn go_node_head(g: GGen, pid: i64, n: i64, call: Str) -> Result<List<Str>, String> {
     let nodes = &g.prog.nodes;
     let id = gn(nodes, n);
@@ -757,8 +766,8 @@ pub fn go_node_head(g: GGen, pid: i64, n: i64, call: Str) -> Result<List<Str>, S
     Ok(lines(out))
 }
 
-/// `zeroOut(&env.out<N>)` for each node the transition's call reads for the
-/// last time, in node order.
+/// Writes `zeroOut(&env.out<N>)` for each node the transition's call reads
+/// for the last time, in node order, so its output can be collected.
 pub fn go_last_reads(g: GGen, pid: i64, c: Call) -> Result<List<Str>, String> {
     let nodes = &g.prog.nodes;
     let gr = graph(nodes, pid);
@@ -777,7 +786,8 @@ pub fn go_last_reads(g: GGen, pid: i64, c: Call) -> Result<List<Str>, String> {
     Ok(lines(out))
 }
 
-/// The for each's fanOut, through the `{` the collect's transition is in.
+/// Writes a for each's fanOut over its region's function, through the `{` the
+/// collect's transition is in.
 pub fn go_fan_out(g: GGen, pid: i64, n: i64, dim: Str) -> Result<List<Str>, String> {
     let nodes = &g.prog.nodes;
     let gr = graph(nodes, pid);
@@ -801,7 +811,7 @@ pub fn go_fan_out(g: GGen, pid: i64, n: i64, dim: Str) -> Result<List<Str>, Stri
     ]))
 }
 
-/// run<Proc>Region<r>'s head, through `_ = this`.
+/// Writes a region function's head, run<Proc>Region<r>, through `_ = this`.
 pub fn go_region_head(g: GGen, pid: i64, opener: i64) -> Result<List<Str>, String> {
     let nodes = &g.prog.nodes;
     let gr = graph(nodes, pid);
@@ -825,7 +835,8 @@ pub fn go_region_head(g: GGen, pid: i64, opener: i64) -> Result<List<Str>, Strin
     ]))
 }
 
-/// `env.in<Entry> = input` and `pc := ..` for the region opener opens.
+/// Writes `env.in<Entry> = input` and `pc := ..` for the region the opener
+/// opens.
 pub fn go_region_entry(g: GGen, pid: i64, opener: i64, input: Str) -> Result<List<Str>, String> {
     let nodes = &g.prog.nodes;
     let gr = graph(nodes, pid);
@@ -868,7 +879,7 @@ pub fn go_header(pkg: Str, imports: List<GoImport>) -> Result<Str, String> {
     Ok(header(&pkg, &imports).into())
 }
 
-/// context and fmt, then the impls' imports.
+/// Lists a proc file's imports: context and fmt, then the implementations'.
 pub fn go_proc_imports(imports: Map<Str, Str>) -> Result<List<GoImport>, String> {
     let mut out = vec![
         GoImport {
@@ -900,8 +911,8 @@ fn file_text(pkg: &str, body: &str, mut imports: Vec<(String, String)>, setup: &
     header(pkg, &imports) + body
 }
 
-/// A file of the code package: the header, importing the types package if
-/// the code mentions it.
+/// Writes a file of the code package: the header, importing the types package
+/// if the code mentions it, then the code.
 pub fn go_file_text(
     pkg: Str,
     body: Str,
@@ -942,7 +953,8 @@ pub fn go_signature(prog: Program, t: Table, tq: Str, n: i64, name: Str) -> Resu
     Ok(signature(&prog, &t, &tq, n, &name, true).into())
 }
 
-/// inputs_vandorf.go, stubs_vandorf.go (if any stubs) and runtime_vandorf.go.
+/// Writes the code package's other files: inputs_vandorf.go, stubs_vandorf.go
+/// (if any stubs) and runtime_vandorf.go.
 pub fn go_rest_files(g: GGen, package: Str, setup: GoSetup) -> Result<List<GoFile>, String> {
     let nodes = &g.prog.nodes;
     let file = |name: &str, text: String| GoFile {
@@ -1042,7 +1054,8 @@ pub fn go_sort_files(files: List<GoFile>) -> Result<List<GoFile>, String> {
 
 // ---- Mains ----
 
-/// The mains, each a package main in its directory; or the first error.
+/// Writes the bins' mains, each a package main in its directory; or the first
+/// error.
 pub fn go_main_files(
     prog: Program,
     t: Table,
@@ -1398,8 +1411,8 @@ func fanOut[E, R any](ctx context.Context, xs []E, f func(context.Context, E) (R
 
 // ---- Spawns ----
 
-/// Detached branches through spawnDetached, joined ones through joinAll,
-/// then this: the joined outputs.
+/// Writes a spawn's calls: detached branches through spawnDetached, joined
+/// ones through joinAll, then this: the joined outputs.
 pub fn go_spawn_lines(g: GGen, sp: SEdge, calls: List<Str>) -> Result<List<Str>, String> {
     let SEdge::Spawn(sp) = sp else {
         return err("go_spawn_lines");
@@ -2752,8 +2765,8 @@ fn go_http_body(
     Ok(render_lines(h.w.into(), "\t".into())?.to_string())
 }
 
-/// http_vandorf.go, if there are servers: the runtime, JSON for every type,
-/// and a handler per server (src/codegen/go_http.rs).
+/// Writes http_vandorf.go, if there are servers: the runtime, JSON for every
+/// type, and a handler per server (src/codegen/go_http.rs).
 pub fn go_http_files(
     prog: Program,
     t: Table,
@@ -2791,7 +2804,7 @@ pub fn go_http_files(
     })
 }
 
-/// Each server's package main: its static files, then HTTPRun (or
+/// Writes each server's package main: its static files, then HTTPRun (or
 /// HTTPRunSetup) with its handler.
 pub fn go_server_mains(
     package: Str,

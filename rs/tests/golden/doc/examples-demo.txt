@@ -7,7 +7,8 @@
             {
               "type": 3,
               "label": "Bar",
-              "sublabel": "(a: int, b: string)"
+              "sublabel": "(a: int, b: string)",
+              "doc": "Repeats b a times, then grows it until Loop gives 10 or more, and runs\nForEach on that: zero goes to a func with no implementation, anything else\nis described, passed to Foo.Call and logged."
             }
           ]
         },
@@ -33,7 +34,8 @@
           "nodes": [
             {
               "type": 1,
-              "label": "ForEach"
+              "label": "ForEach",
+              "doc": "Lists 0..i-1, and i as a string, then squares each element in a for each\nregion and sums the squares."
             }
           ]
         },
@@ -58,7 +60,7 @@
               "label": "Foo.Call",
               "sublabel": "../go/effects/foo.go:Call · ../rs/src/effects.rs:call",
               "interface": "Foo",
-              "doc": "Implemented outside the generated package/module."
+              "doc": "Counts the characters of s. Implemented outside the generated\npackage/module."
             }
           ]
         },
@@ -235,7 +237,8 @@
             {
               "type": 3,
               "label": "Calc",
-              "sublabel": "(base: int)"
+              "sublabel": "(base: int)",
+              "doc": "Builds `base + 2` as an expression, evaluates `-(base + 2) + 10` and then\n`base + 2` at double scale, and totals the two with 100."
             }
           ]
         },
@@ -245,7 +248,7 @@
               "type": 0,
               "label": "Build",
               "sublabel": "../go/app/impl.go:Build · ../rs/src/impls.rs:build",
-              "doc": "Returns base + 2."
+              "doc": "Builds the expression `base + 2`, of two literals."
             }
           ]
         },
@@ -344,7 +347,7 @@
               "type": 3,
               "label": "Classify",
               "sublabel": "(e: Expr)",
-              "doc": "Pattern switches match structure: variants, struct fields (all of them,\n`_` for the ones that don't matter) and bindings. Conditions on values go\nin a switch nested under a pattern arm, which sees its bindings. The\narms cover every Expr, so no else is needed. `id(value)` ends the proc\nwith a value."
+              "doc": "Classifies an expression by its shape: a small even literal, any other\nliteral, a negated literal, a sum of literals, or something else; under a\nNeg, it classifies what's negated, as \"minus ...\".\n\nPattern switches match structure: variants, struct fields (all of them,\n`_` for the ones that don't matter) and bindings. Conditions on values go\nin a switch nested under a pattern arm, which sees its bindings. The arms\ncover every Expr, so no else is needed. `id(value)` ends the proc with a\nvalue."
             }
           ]
         },
@@ -375,7 +378,7 @@
               "type": 1,
               "label": "Inner",
               "sublabel": "instance of Classify",
-              "doc": "Pattern switches match structure: variants, struct fields (all of them,\n`_` for the ones that don't matter) and bindings. Conditions on values go\nin a switch nested under a pattern arm, which sees its bindings. The\narms cover every Expr, so no else is needed. `id(value)` ends the proc\nwith a value."
+              "doc": "Classifies an expression by its shape: a small even literal, any other\nliteral, a negated literal, a sum of literals, or something else; under a\nNeg, it classifies what's negated, as \"minus ...\".\n\nPattern switches match structure: variants, struct fields (all of them,\n`_` for the ones that don't matter) and bindings. Conditions on values go\nin a switch nested under a pattern arm, which sees its bindings. The arms\ncover every Expr, so no else is needed. `id(value)` ends the proc with a\nvalue."
             },
             {
               "type": 0,
@@ -524,7 +527,8 @@
             {
               "type": 3,
               "label": "ForEach",
-              "sublabel": "(i: int)"
+              "sublabel": "(i: int)",
+              "doc": "Lists 0..i-1, and i as a string, then squares each element in a for each\nregion and sums the squares."
             }
           ]
         },
@@ -534,7 +538,7 @@
               "type": 0,
               "label": "Start",
               "sublabel": "../go/app/impl.go:Range · ../rs/src/impls.rs:range",
-              "doc": "Returns 0..i-1."
+              "doc": "Lists 0..i-1, with i as a string."
             }
           ]
         },
@@ -610,7 +614,7 @@
               "type": 3,
               "label": "Hello",
               "sublabel": "(name: string, times: int)",
-              "doc": "A greeting, for GET with a query string."
+              "doc": "Greets name, times times, for GET with a query string."
             }
           ]
         },
@@ -649,7 +653,7 @@
               "type": 3,
               "label": "Main",
               "sublabel": "(a: int, b: string)",
-              "doc": "The `demo` bin's entry (vandorf.toml): `demo <a: int> <b: string>`."
+              "doc": "Runs Bar on the `demo` bin's command-line arguments (vandorf.toml): `demo\n<a: int> <b: string>`."
             }
           ]
         },
@@ -659,7 +663,7 @@
               "type": 0,
               "label": "Start",
               "sublabel": "../go/app/impl.go:Args · ../rs/src/impls.rs:args",
-              "doc": "Passes Main's command-line arguments on to Bar."
+              "doc": "Passes Main's command-line arguments on to Bar, unchanged."
             }
           ]
         },
@@ -667,7 +671,8 @@
           "nodes": [
             {
               "type": 1,
-              "label": "Bar"
+              "label": "Bar",
+              "doc": "Repeats b a times, then grows it until Loop gives 10 or more, and runs\nForEach on that: zero goes to a func with no implementation, anything else\nis described, passed to Foo.Call and logged."
             }
           ]
         }
@@ -711,7 +716,7 @@
               "type": 3,
               "label": "Measure",
               "sublabel": "(shapes: []Shape)",
-              "doc": "The area of each shape, summed, and how many there are of each kind."
+              "doc": "Measures each shape's area in a for each region, then folds the areas into\na report: how many shapes there are, their total area, and how many of\neach kind."
             }
           ]
         },
@@ -848,7 +853,8 @@
             {
               "type": 3,
               "label": "Resolve",
-              "sublabel": "(names: []string, query: string)"
+              "sublabel": "(names: []string, query: string)",
+              "doc": "Looks query up in a scope of the names: declares each at its index, adds a\nbuiltin `len` and drops `tmp`, then says where query is declared, or which\nnames are known."
             }
           ]
         },

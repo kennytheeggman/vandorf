@@ -10,9 +10,11 @@
 // of a declaration's keyword (`func`, `proc`, `type`, `interface`).
 type Tok = { kind: string, text: string, at: int, end: int, file: int, doc: string };
 
-// Splits `src` into tokens, ending with an "eof" token. `//` starts a
-// comment; the comment lines directly above a token that starts its line
-// are its doc.
+// Scans `src` into tokens: names, numbers, decoded strings and symbols (the
+// longest first), ending with an "eof" token, each with its byte span and
+// file. Skips whitespace and `//` comments, but gives a token that starts
+// its line the comment lines directly above it as its doc. Fails at a
+// character no token starts with, or at a string left open.
 func Lex(src: string, file: int): []Tok = "leaf.rs:lex";
 
 // Pure helpers the parser calls in expressions.
@@ -21,5 +23,7 @@ func MkIdent(t: Tok): Ident = "leaf.rs:mk_ident";
 func SpanOf(t: Tok): Span = "leaf.rs:span_of";
 func IntOf(t: Tok): int = "leaf.rs:int_of";
 func FloatOf(t: Tok): float = "leaf.rs:float_of";
-// Splits a "file:function" string token, failing if it isn't one.
+// Splits a "file:function" string token at its last `:` into the
+// implementation it names, with the token's span; fails unless both sides
+// are there and the function is an identifier.
 func ImplOf(t: Tok): ImplRef = "leaf.rs:impl_of";

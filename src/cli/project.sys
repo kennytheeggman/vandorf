@@ -15,23 +15,29 @@ type Bin = { entry: string, go: MaybeStr, rust: MaybeStr };
 // root: the manifest's directory. paths: relative to root, sorted.
 type Project = { root: string, manifest: Manifest, paths: []string, srcs: []string };
 
-// vandorf.toml, as src/project.rs reads it.
+// Reads vandorf.toml as src/project.rs does: the project's name and sources,
+// its [go] and [rust] targets, its bins and its servers, with defaults
+// filled in; an error naming what's wrong otherwise.
 func ParseManifest(text: string): Res<Manifest> = "cli_leaf.rs:parse_manifest";
-// a/b, `.` and `..` resolved lexically (b may be absolute).
+// Joins a and b into one path, resolving `.` and `..` lexically; b may be
+// absolute, and then wins.
 func JoinP(a: string, b: string): string = "cli_leaf.rs:join";
 func Parent(p: string): string = "cli_leaf.rs:parent";
-// Each implementation path made relative to `out` instead of the .sys
-// file naming it (dirs[file id] is that file's directory).
+// Rebases each func's implementation paths from the .sys file naming them
+// onto `out`, the output directory (dirs[file id] is that file's directory),
+// so generated code can reach them.
 func RebaseImpls(prog: Program, dirs: []string, out: string): Program = "cli_leaf.rs:rebase_impls";
-// target relative to the directory from; both absolute and normalized.
+// Makes target relative to the directory from, with `..` where it's outside
+// it; both absolute and normalized.
 func Relative(target: string, from: string): string = "cli_leaf.rs:relative";
 func SortDedup(xs: []string): []string = "cli_leaf.rs:sort_dedup";
 func StartsWith(text: string, prefix: string): bool = "cli_leaf.rs:starts_with";
-// `name = "..."` in [lib], else in [package], of a Cargo.toml (with
-// `-` as `_`); "" if the crate has no library.
+// Finds the library crate's name in a Cargo.toml: `name = "..."` in [lib],
+// else in [package], with `-` as `_`; "" if the crate has no library.
 func CargoLibName(toml: string, has_lib_rs: bool): string = "cli_leaf.rs:cargo_lib_name";
 
-// The nearest directory at or above dir that has `marker`, or "".
+// Walks up from dir to the nearest directory that has the file `marker`; ""
+// if no directory up to the root has it.
 proc FindUp(s: { dir: string, marker: string }): string {
 	FindUp -> Fs.IsFile(path = JoinP(a = this.s.dir, b = this.s.marker));
 	Fs.IsFile switch {
@@ -41,7 +47,10 @@ proc FindUp(s: { dir: string, marker: string }): string {
 	};
 }
 
-// Reads the manifest at path and every .sys file under its sources.
+// Loads the project whose manifest is at path: reads and checks the
+// manifest, finds the .sys files under its sources, and reads each. Fails,
+// naming the manifest, if it doesn't parse or a source directory has no .sys
+// files.
 proc LoadProject(path: string): Res<Project> {
 	LoadProject -> Fs.Read(path = this.path) as Text;
 	Text -> ParseManifest(text = this);
@@ -62,7 +71,8 @@ proc LoadProject(path: string): Res<Project> {
 func UnwrapM(r: Res<Manifest>): Manifest = "cli_leaf.rs:unwrap_m";
 func UnwrapPaths(r: Res<[]string>): []string = "cli_leaf.rs:unwrap_paths";
 
-// The .sys files under each source directory, relative to root, sorted.
+// Lists the .sys files under each source directory, relative to root, sorted
+// and without duplicates; fails if a source directory doesn't exist.
 proc SourceFiles(s: { root: string, m: Manifest, i: int, acc: []string }): Res<[]string> {
 	func Rel(paths: []string, root: string): []string = "cli_leaf.rs:rel_all";
 	SourceFiles switch {
@@ -76,6 +86,7 @@ proc SourceFiles(s: { root: string, m: Manifest, i: int, acc: []string }): Res<[
 	Fs.Walk -> SourceFiles(s = { root = SourceFiles.s.root, m = SourceFiles.s.m, i = SourceFiles.s.i + 1, acc = SourceFiles.s.acc + Rel(paths = this, root = SourceFiles.s.root) });
 }
 
+// Reads each of the files at paths, relative to root, in order.
 proc ReadAll(s: { root: string, paths: []string, i: int, acc: []string }): []string {
 	ReadAll switch {
 		(this.s.i == this.s.paths.len) -> id(this.s.acc),
@@ -84,9 +95,11 @@ proc ReadAll(s: { root: string, paths: []string, i: int, acc: []string }): []str
 	Fs.Read -> ReadAll(s = { root = ReadAll.s.root, paths = ReadAll.s.paths, i = ReadAll.s.i + 1, acc = ReadAll.s.acc + [this] });
 }
 
-// Why text isn't a manifest the reference would load (its fields and
-// their types), or "".
+// Checks that text is a manifest the reference would load, its fields and
+// their types: why not, or "".
 func ManifestError(text: string): string = "cli_leaf.rs:manifest_error";
+// Checks a manifest's text, for the parity tests: why the reference wouldn't
+// load it, or "".
 proc CheckManifest(text: string): string {
 	CheckManifest -> id(ManifestError(text = this.text));
 }

@@ -3,6 +3,9 @@
 // lookups are guarded with `in`.
 type Scope = map[string]{ slot: int, kind: string };
 
+// Looks query up in a scope of the names: declares each at its index, adds a
+// builtin `len` and drops `tmp`, then says where query is declared, or which
+// names are known.
 proc Resolve(names: []string, query: string): string {
 	// Gives each name its index as a slot.
 	func Declare(names: []string, query: string): { scope: Scope, query: string } = "../go/app/impl.go:Declare", "../rs/src/impls.rs:declare";

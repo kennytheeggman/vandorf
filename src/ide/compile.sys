@@ -10,7 +10,8 @@ type MaybeProject = enum { None, Some(Project) };
 // The files compiled: names as shown, texts, the root names are relative to,
 // and which is the editor's; previews: whether to generate code.
 type Unit = { names: []string, srcs: []string, root: string, here: int, project: MaybeProject, previews: bool };
-// Whether the request wants generated code: unless it says `previews: false`.
+// Whether a compile request wants generated code: unless it says `previews:
+// false`.
 func WantsPreviews(j: Json): bool = "ide_leaf.rs:wants_previews";
 
 func NonBlank(m: MaybeStr): bool = "ide_leaf.rs:non_blank";
@@ -18,6 +19,13 @@ func NonEmpty(m: MaybeStr): bool = "ide_leaf.rs:non_empty";
 func PathIndex(paths: []string, root: string, abs: string): int = "ide_leaf.rs:index_of_path";
 func SetAt(xs: []string, i: int, x: string): []string = "ide_leaf.rs:set_at";
 
+// Serves POST /api/compile {source} or {path}: the document, symbols and
+// generated code, or diagnostics. With previews: false there's no generated
+// code (the diagram's part, quick). If the file belongs to a project (a
+// vandorf.toml at or above it, inside the source directory), the whole
+// project is compiled with the editor's text in place of the file, and
+// previewed with the manifest's settings; otherwise just the text, with
+// nominal output locations. Nothing is written.
 proc CompileRoute(req: HttpRequest): HttpResponse {
 	CompileRoute -> Session.Base(n = 0);
 	Session.Base -> ParseJson(text = CompileRoute.req.body);
@@ -54,16 +62,20 @@ proc CompileRoute(req: HttpRequest): HttpResponse {
 	};
 }
 
-// The editor's file as named in messages: its path, its "name", or <editor>.
+// Names the editor's file in messages: its path, its "name", or <editor>.
 func EditorName(j: Json): string = "ide_leaf.rs:editor_name";
 func UnwrapR2(r: Res<string>): string = "ide_leaf.rs:unwrap_res_string";
 
-// What a unit is checked from, as a cache key: its sources (their names
-// and the file asked about only change how the result is shown).
+// Makes a cache key of what a unit is checked from, its sources: two hashes
+// of them, so a collision is out of reach. Their names, and the file asked
+// about, only change how the result is shown.
 func CheckKey(srcs: []string): string = "ide_leaf.rs:check_key";
-// The program of a check that failed to parse: none.
+// Gives the program of a check that failed to parse: an empty one.
 func NoProgram(n: int): Program = "ide_leaf.rs:no_program";
 
+// Compiles a unit: its check is kept from an earlier compile or made
+// (parsed, then analyzed) and kept. Then it answers with the diagnostics, or
+// the document and symbols, and with previews the generated Rust and Go.
 proc CompileUnit(s: { base: string, unit: Unit }): HttpResponse {
 	// The unit's check: kept from an earlier compile, or made and kept.
 	CompileUnit -> Checks.Claim(key = CheckKey(srcs = this.s.unit.srcs));
@@ -111,7 +123,8 @@ proc CompileUnit(s: { base: string, unit: Unit }): HttpResponse {
 
 func ProjectName(p: MaybeProject): Json = "ide_leaf.rs:project_name_json";
 
-// Each file parsed, its errors kept (they're diagnostics, not failures).
+// Parses each of a unit's files in turn, merging what they declare; parse
+// errors are kept, as diagnostics, not failures.
 proc ParseUnit(s: { srcs: []string, i: int, file: File, errors: []Diag }): { file: File, errors: []Diag } {
 	ParseUnit switch {
 		(this.s.i == this.s.srcs.len) -> id({ file = this.s.file, errors = this.s.errors }),
@@ -123,7 +136,8 @@ proc ParseUnit(s: { srcs: []string, i: int, file: File, errors: []Diag }): { fil
 	};
 }
 
-// 200 with ok: false, so the client can still read the diagnostics.
+// Answers with a unit's errors, each with its file and position, and all of
+// them rendered: 200 with ok: false, so the client can still read them.
 proc Diagnostics(s: { unit: Unit, errors: []Diag }): HttpResponse {
 	func List(names: []string, srcs: []string, here: int, errors: []Diag): Json = "ide_leaf.rs:diagnostics_json";
 	func Rendered(names: []string, srcs: []string, errors: []Diag): string = "ide_leaf.rs:render_diagnostics";
@@ -136,15 +150,18 @@ proc Diagnostics(s: { unit: Unit, errors: []Diag }): HttpResponse {
 
 // ---- Symbols, for the viewer's preview drawer ----
 
-// Typedefs, funcs and procs, with their doc comments, where they're declared
-// (paths relative to the source directory, 0-based lines) and, for funcs,
-// their implementation files resolved the same way.
+// Lists the program's symbols for the viewer's preview drawer: typedefs,
+// funcs and procs, with their doc comments, where they're declared (paths
+// relative to the source directory, 0-based lines) and, for funcs, their
+// implementation files resolved the same way.
 proc Symbols(s: { base: string, unit: Unit, prog: Program }): Json {
 	Symbols -> TypeSymbols(s = { types = this.s.prog.types, i = 0, acc = [] });
 	TypeSymbols -> NodeSymbols(s = { base = Symbols.s.base, unit = Symbols.s.unit, prog = Symbols.s.prog, i = 0, acc = [] });
 	NodeSymbols -> id(Obj([{ key = "types", value = Obj(TypeSymbols) }, { key = "nodes", value = Obj(this) }]));
 }
 
+// Lists each typedef as a symbol: its definition shown, whether it's
+// recursive, and its doc.
 proc TypeSymbols(s: { types: []TypeDef, i: int, acc: []JsonField }): []JsonField {
 	TypeSymbols switch {
 		(this.s.i == this.s.types.len) -> id(this.s.acc),
@@ -153,10 +170,15 @@ proc TypeSymbols(s: { types: []TypeDef, i: int, acc: []JsonField }): []JsonField
 	ShowType -> TypeSymbols(s = { ..TypeSymbols.s, i = TypeSymbols.s.i + 1, acc = TypeSymbols.s.acc + [{ key = TypeSymbols.s.types[TypeSymbols.s.i].name, value = Obj([{ key = "def", value = Str(this) }, { key = "recursive", value = Bool(TypeSymbols.s.types[TypeSymbols.s.i].recursive) }, { key = "doc", value = Str(TypeSymbols.s.types[TypeSymbols.s.i].doc) }]) }] });
 }
 
+// Lists each func and proc as a symbol by its qualified name: its kind, doc,
+// parameters and result, where it's declared, and a func's implementations
+// or a proc's entry.
 proc NodeSymbols(s: { base: string, unit: Unit, prog: Program, i: int, acc: []JsonField }): []JsonField {
-	// { file, line } of a node: its file relative to base (or null).
+	// Places a node for the viewer: { file, line }, its file relative to base
+	// (or null).
 	func Loc(base: string, unit: Unit, span: Span): Json = "ide_leaf.rs:loc_json";
-	// A func's implementations: written, path (relative to base), function, lang.
+	// Lists a func's implementations for the viewer: each as written, its path
+	// (relative to base), function and language.
 	func Imps(base: string, unit: Unit, span: Span, imps: []ImplRef): Json = "ide_leaf.rs:imps_json";
 	NodeSymbols switch {
 		(this.s.i == this.s.prog.nodes.len) -> id(this.s.acc),
@@ -192,6 +214,8 @@ func EntryName(prog: Program, pid: int): string = "ide_leaf.rs:entry_name";
 
 // ---- The Rust preview: what `vcc build` would generate ----
 
+// Previews what vcc build would generate in Rust: with [rust]'s settings, or
+// nominal ones (module app in my_crate) for a file outside a project.
 proc RustPreview(s: { unit: Unit, prog: Program }): Json {
 	func NominalMains(prog: Program): map[string]Bin = "ide_leaf.rs:nominal_mains";
 	func Dirs(root: string, paths: []string): []string = "../cli/cli_leaf.rs:dirs";
@@ -217,8 +241,9 @@ proc RustPreview(s: { unit: Unit, prog: Program }): Json {
 
 func UnwrapPr(p: MaybeProject): Project = "ide_leaf.rs:unwrap_project";
 
-// What vcc build would generate in Go: with [go]'s settings, or nominal
-// ones (package app in example.com/app) for a file outside a project.
+// Previews what vcc build would generate in Go: with [go]'s settings, or
+// nominal ones (package app in example.com/app) for a file outside a
+// project.
 proc GoPreview(s: { unit: Unit, prog: Program }): Json {
 	func NominalGoMains(prog: Program): []GoMainSpec = "ide_leaf.rs:nominal_go_mains";
 	func UnwrapG(g: MaybeGo): GoTarget = "ide_leaf.rs:unwrap_go";
@@ -247,8 +272,8 @@ proc GoPreview(s: { unit: Unit, prog: Program }): Json {
 	}) as Configured;
 }
 
-// The generated files as JSON (artifacts: types, code, mains) and the
-// implementations they call; or the error.
+// Generates a program's Go and gives the files as JSON (artifacts: types,
+// code, mains) with the implementations they call; or the error.
 proc GoPreviewJson(s: GoGenIn): Json {
 	func Output(o: GoOut, prog: Program, t: Table, setup: GoSetup): Json = "ide_leaf.rs:go_output_json";
 	GoPreviewJson -> GoGenerate(s = this.s);
@@ -256,8 +281,8 @@ proc GoPreviewJson(s: GoGenIn): Json {
 	BuildTable -> id(Output(o = GoGenerate, prog = GoPreviewJson.s.prog, t = this, setup = GoSetupOf(package = GoPreviewJson.s.package, import_base = GoPreviewJson.s.import_base, types_dir = GoPreviewJson.s.types_dir)));
 }
 
-// The generated files as JSON: artifacts (types, code, mains) and the
-// implementations they call; or the error.
+// Generates a program's Rust and gives the files as JSON (artifacts: types,
+// code, mains) with the implementations they call; or the error.
 proc Preview(s: { prog: Program, module_dir: MaybeStr, krate: string, bins: map[string]Bin }): Json {
 	func Output(types: string, modrs: string, procs: string, mains: []OutFile, impls: Json): Json = "ide_leaf.rs:output_json";
 	func Impls(prog: Program, t: Table, module_dir: MaybeStr): Json = "ide_leaf.rs:impls_json";
@@ -276,10 +301,12 @@ proc Preview(s: { prog: Program, module_dir: MaybeStr, krate: string, bins: map[
 
 func UnwrapOut(r: Res<[]OutFile>): []OutFile = "ide_leaf.rs:unwrap_out";
 
-// The bins' files: dir (relative to the module) as path, file name as kind.
+// Generates each bin's Rust main for the preview, its directory (relative to
+// the module) as its path and its file name as its kind.
 proc PreviewMains(s: { prog: Program, bins: map[string]Bin, names: []string, module_dir: MaybeStr, krate: string, i: int, acc: []OutFile }): Res<[]OutFile> {
-	// An executable running proc `entry` (src/codegen/rust.rs: main_artifact):
-	// its directory relative to the output module, file name and text.
+	// Generates an executable running proc `entry` (src/codegen/rust.rs:
+	// main_artifact): its directory relative to the output module, its file name
+	// and its text, or why the proc can't be one.
 	func RustMain(prog: Program, t: Table, name: string, entry: string, path: string, module_dir: MaybeStr, krate: string): { dir: string, file: string, text: string, err: MaybeStr } = "../gen/gen_leaf.rs:rust_main";
 	func BinPath(b: Bin, name: string): string = "../cli/cli_leaf.rs:bin_path";
 	PreviewMains switch {

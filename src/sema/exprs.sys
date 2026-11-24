@@ -19,24 +19,31 @@ func IsArray(t: Type): bool = "sema_leaf.rs:is_array";
 func IsMap(t: Type): bool = "sema_leaf.rs:is_map";
 func IsEnum(t: Type): bool = "sema_leaf.rs:is_enum";
 func IsStruct(t: Type): bool = "sema_leaf.rs:is_struct";
-// The fields of a struct or variants of an enum (none otherwise).
+// Lists a struct's fields or an enum's variants, already unfolded; none for
+// any other type.
 func MembersOf(t: Type): []Member = "sema_leaf.rs:members_of";
 func ElemOf(t: Type): Type = "sema_leaf.rs:elem_of";
 func KeyOf(t: Type): Type = "sema_leaf.rs:key_of";
-// A map literal key as written in messages: 3, "a".
+// Writes a map literal's key as messages show it (3, "a"), so a key given
+// twice can be caught; none for a key that isn't a literal.
 func LitKey(e: Expr): MaybeStr = "sema_leaf.rs:lit_key";
-// A node's return and parameters (an alias's are those of what it instances).
+// Finds the type a node returns: a func's or proc's result, an id's value, a
+// signature node's parameters as a struct; an alias's is what it instances'.
 func NodeRet(nodes: []NodeDecl, n: int): Type = "sema_leaf.rs:node_ret";
 func NodeParams(nodes: []NodeDecl, n: int): []Member = "sema_leaf.rs:node_params";
 func IsFunc(n: NodeDecl): bool = "sema_leaf.rs:is_func";
-// `id(..) as N` before its type is known.
+// Whether n is an `id(..) as N` whose type isn't known yet, as no value
+// passed to it has been typed.
 func IsUntypedId(n: NodeDecl): bool = "sema_leaf.rs:is_untyped_id";
 func Prefixed(d: Diag, prefix: string): Diag = "sema_leaf.rs:prefixed";
 
 // ---- Checking against a type ----
 
+// Checks an expression against the type `want`, giving its checked form.
 // Literals of structs, arrays, maps and variants take their type from
-// `want`; anything else has its own type, which `want` must accept.
+// `want`, as do both sides of `[x] + rest`; an int literal where a float is
+// wanted becomes a float. Anything else has its own type, which `want` must
+// accept.
 proc Check(s: CheckIn): Res<Expr> {
 	Check -> Unfold(s = { t = this.s.want, defs = this.s.env.types }) as Shape;
 	Shape -> id(Check.s.v.kind) as K;
@@ -97,13 +104,15 @@ func BinaryR(k: ValueKind): Value = "sema_leaf.rs:binary_r";
 func ApplyName(k: ValueKind): Path = "sema_leaf.rs:apply_name";
 func UnwrapE(r: Res<Expr>): Expr = "sema_leaf.rs:unwrap_e";
 
-// "expected <want>, found <found>"
+// Fails with "expected <want>, found <found>", at the expression being
+// checked.
 proc Expected(s: { c: CheckIn, found: string }): Res<Expr> {
 	Expected -> ShowType(t = this.s.c.want);
 	ShowType -> id(Err({ msg = "expected " + this + ", found " + Expected.s.found, span = Expected.s.c.v.span }));
 }
 
-// A primitive literal, which has its own type.
+// Checks a primitive literal, which has its own type, against `want`,
+// failing with what kind of literal it is.
 proc CheckLit(s: CheckIn): Res<Expr> {
 	func Article(k: ValueKind): string = "sema_leaf.rs:article";
 	CheckLit -> Synth(s = { env = this.s.env, sc = this.s.sc, v = this.s.v });
@@ -120,7 +129,8 @@ proc CheckLit(s: CheckIn): Res<Expr> {
 
 func UnwrapTyped(r: Res<Typed>): Typed = "sema_leaf.rs:unwrap_typed";
 
-// Anything with its own type, which `want` must accept.
+// Checks an expression that has its own type: works the type out, then fails
+// unless `want` accepts it, saying what the expression is and both types.
 proc CheckSynth(s: CheckIn): Res<Expr> {
 	func What(v: Value): string = "sema_leaf.rs:what";
 	CheckSynth -> Synth(s = { env = this.s.env, sc = this.s.sc, v = this.s.v });
@@ -136,7 +146,8 @@ proc CheckSynth(s: CheckIn): Res<Expr> {
 	Want -> id(Err({ msg = What(v = CheckSynth.s.v) + " has type " + Found + ", but " + this + " is expected", span = CheckSynth.s.v.span }));
 }
 
-// Each item checked against `want`.
+// Checks each item of an array literal against the element type, stopping at
+// the first that fails.
 proc CheckAll(s: { c: CheckIn, items: []Value, want: Type, i: int, acc: []Expr }): Res<[]Expr> {
 	CheckAll switch {
 		(this.s.i == this.s.items.len) -> id(Ok(this.s.acc)),
@@ -148,6 +159,8 @@ proc CheckAll(s: { c: CheckIn, items: []Value, want: Type, i: int, acc: []Expr }
 	};
 }
 
+// Checks each entry of a map literal against the key and value types,
+// rejecting a literal key given twice.
 proc CheckEntries(s: { c: CheckIn, kvs: []Entry, kt: Type, vt: Type, i: int, seen: []string, acc: []ExprEntry }): Res<Expr> {
 	CheckEntries switch {
 		(this.s.i == this.s.kvs.len) -> id(Ok(Map(this.s.acc))),
@@ -172,7 +185,9 @@ proc CheckEntries(s: { c: CheckIn, kvs: []Entry, kt: Type, vt: Type, i: int, see
 
 func LitKeys(m: MaybeStr): []string = "sema_leaf.rs:some_strs";
 
-// A struct literal: every field of the type, each once.
+// Checks a struct literal's fields against the struct's: each field given
+// must be the type's, checked against its type, and given once; then every
+// field of the type must have been given.
 proc CheckFields(s: { c: CheckIn, fs: []Member, args: []Arg, i: int, given: map[string]Expr }): Res<Expr> {
 	CheckFields switch {
 		(this.s.i == this.s.args.len) -> FillFields(s = { c = this.s.c, fs = this.s.fs, given = this.s.given, i = 0, acc = [] }),
@@ -192,6 +207,8 @@ proc CheckFields(s: { c: CheckIn, fs: []Member, args: []Arg, i: int, given: map[
 	};
 }
 
+// Puts a struct literal's fields in the type's order, failing on the first
+// of the type's fields that wasn't given.
 proc FillFields(s: { c: CheckIn, fs: []Member, given: map[string]Expr, i: int, acc: []ExprMember }): Res<Expr> {
 	FillFields switch {
 		(this.s.i == this.s.fs.len) -> id(Ok(Struct(this.s.acc))),
@@ -201,7 +218,8 @@ proc FillFields(s: { c: CheckIn, fs: []Member, given: map[string]Expr, i: int, a
 	ShowType -> id(Err({ msg = "struct literal is missing field " + FillFields.s.fs[FillFields.s.i].name + " of " + this, span = FillFields.s.c.v.span }));
 }
 
-// `Tag(..)` where an enum with that variant is expected.
+// Checks `Tag(..)` where an enum with that variant is expected: its payload,
+// unnamed, against the variant's type, or none for a variant without one.
 proc CheckVariant(s: { c: CheckIn, tag: string, vty: Type, args: []ApplyArg }): Res<Expr> {
 	func FirstName(args: []ApplyArg): OptIdent = "sema_leaf.rs:first_arg_name";
 	CheckVariant -> FirstName(args = this.s.args);
@@ -227,6 +245,10 @@ proc CheckVariant(s: { c: CheckIn, tag: string, vty: Type, args: []ApplyArg }): 
 
 // ---- An expression's own type ----
 
+// Works out an expression's own type, giving its checked form with it:
+// literals, paths, field selections, indexes, `in`, calls of funcs, struct
+// updates, operators, and struct literals (a struct of their fields' types).
+// Fails where a type would be needed from context, as for an array literal.
 proc Synth(s: SynthIn): Res<Typed> {
 	Synth -> id(this.s.v.kind) as K;
 	K switch {
@@ -327,10 +349,12 @@ func InKey(k: ValueKind): Value = "sema_leaf.rs:in_key";
 func InMapValue(k: ValueKind): Value = "sema_leaf.rs:in_map";
 func UnaryOperand(k: ValueKind): Value = "sema_leaf.rs:unary_operand";
 func BinaryOp(k: ValueKind): string = "sema_leaf.rs:binary_op";
-// The value type of a map, or element type of an array.
+// Finds the type of what indexing gives: a map's value type, or an array's
+// element type.
 func IndexedValue(t: Type): Type = "sema_leaf.rs:indexed_value";
 
-// A binary operator other than && and ||, its left operand already typed.
+// Types a struct literal with no expected type: each field synthesized in
+// turn, the struct made of their types. A field given twice is an error.
 proc SynthFields(s: { env: Env, sc: Scope, args: []Arg, i: int, ms: []Member, es: []ExprMember }): Res<Typed> {
 	SynthFields switch {
 		(this.s.i == this.s.args.len) -> id(Ok({ e = Struct(this.s.es), t = Struct(this.s.ms) })),
@@ -343,6 +367,10 @@ proc SynthFields(s: { env: Env, sc: Scope, args: []Arg, i: int, ms: []Member, es
 	};
 }
 
+// Types a binary operator other than && and ||, its left operand already
+// typed. `+` joins arrays or maps and `-` removes keys from a map; otherwise
+// both operands are typed and must be primitives the operator applies to,
+// the same (an int literal next to a float becoming a float).
 proc SynthBinary(s: { env: Env, sc: Scope, v: Value, op: string, l: Typed, r: Value }): Res<Typed> {
 	SynthBinary -> Unfold(s = { t = this.s.l.t, defs = this.s.env.types }) as LShape;
 	LShape switch {
@@ -374,15 +402,18 @@ proc SynthBinary(s: { env: Env, sc: Scope, v: Value, op: string, l: Typed, r: Va
 	RT -> id(Err({ msg = SynthBinary.s.op + " needs two operands of the same type (" + Allowed(op = SynthBinary.s.op) + "), found " + LT + " and " + this, span = SynthBinary.s.v.span }));
 }
 
-// The primitive behind a type, or "" if it isn't one.
+// Names the primitive behind a type, or "" if it isn't one.
 func PrimName(t: Type): string = "sema_leaf.rs:prim_name";
-// Whether the operator applies to the two primitives, an int literal next
-// to a float becoming a float.
+// Checks that an operator applies to its two primitive operands, turning an
+// int literal next to a float into a float, and gives the operands and their
+// common type.
 func Operands(s: { op: string, l: Expr, lp: string, r: Expr, rp: string }): { ok: bool, op: string, l: Expr, r: Expr, operand: string } = "sema_leaf.rs:operands";
 func OpResult(op: string, operand: string): Type = "sema_leaf.rs:op_result";
 func Allowed(op: string): string = "sema_leaf.rs:allowed";
 
-// `F(param = value)` in an expression: calls the func's implementation.
+// Types `F(param = value)` in an expression, which calls the func's
+// implementation directly: F must be a func that returns something, and
+// every argument named and checked against its parameters.
 proc SynthCall(s: { env: Env, sc: Scope, name: Path, args: []ApplyArg }): Res<Typed> {
 	func Named(args: []ApplyArg): MaybeArgs = "sema_leaf.rs:named_args";
 	SynthCall -> ResolveNode(s = { nodes = this.s.env.nodes, globals = this.s.env.globals, pid = this.s.env.pid, path = this.s.name });
@@ -411,7 +442,8 @@ proc SynthCall(s: { env: Env, sc: Scope, name: Path, args: []ApplyArg }): Res<Ty
 type MaybeArgs = enum { Some([]Arg), None(Span) };
 func UnwrapN(r: ResolvedNode): int = "sema_leaf.rs:unwrap_n";
 
-// e.name, where e has type t: a struct field, or .len, .keys, .values.
+// Types `e.name`, where e has type t: a struct's field, `.len` of a map,
+// array or string, or `.keys` and `.values` of a map.
 proc Select(s: { env: Env, e: Expr, t: Type, name: Ident }): Res<Typed> {
 	Select -> Unfold(s = { t = this.s.t, defs = this.s.env.types });
 	Unfold switch {
@@ -426,7 +458,8 @@ proc Select(s: { env: Env, e: Expr, t: Type, name: Ident }): Res<Typed> {
 
 type RefUpto = { r: Ref, rest: []Ident };
 
-// A path's value: its struct fields as a Ref, then any .len, .keys, .values.
+// Types a path: its root and struct fields as one Ref, then any .len, .keys
+// or .values after them.
 proc PathValue(s: { env: Env, sc: Scope, path: Path }): Res<Typed> {
 	PathValue -> RefUpto(s = this.s);
 	RefUpto switch {
@@ -435,6 +468,7 @@ proc PathValue(s: { env: Env, sc: Scope, path: Path }): Res<Typed> {
 	};
 }
 
+// Types each of the selections that follow a path's Ref, in turn.
 proc Selects(s: { env: Env, e: Expr, t: Type, rest: []Ident, i: int }): Res<Typed> {
 	Selects switch {
 		(this.s.i == this.s.rest.len) -> id(Ok({ e = this.s.e, t = this.s.t })),
@@ -446,8 +480,9 @@ proc Selects(s: { env: Env, e: Expr, t: Type, rest: []Ident, i: int }): Res<Type
 	};
 }
 
-// The root of a path (this, a binding or a node) and its struct fields,
-// stopping at the first segment that isn't one; the rest are returned.
+// Resolves the root of a path (this, a binding or a node) and follows its
+// struct fields, stopping at the first segment that isn't one; the rest are
+// returned. An `id(..) as N` used before its type is known is an error.
 proc RefUpto(s: { env: Env, sc: Scope, path: Path }): Res<RefUpto> {
 	func Segs(ids: []Ident, from: int): []Ident = "sema_leaf.rs:segs_from";
 	RefUpto switch {
@@ -464,10 +499,13 @@ proc RefUpto(s: { env: Env, sc: Scope, path: Path }): Res<RefUpto> {
 	};
 }
 
-// The error for using `id(..) as N` before any value passed to it has a
-// type.
+// Builds the error for reading `id(..) as N` before any value passed to it
+// has a type, saying how to give it one.
 func Untyped(n: NodeDecl, span: Span): Diag = "sema_leaf.rs:untyped";
 
+// Follows a path's segments while they name struct fields, through typedefs,
+// into one Ref; stops at the first that doesn't, or fails on a field the
+// struct doesn't have.
 proc RefFields(s: { env: Env, root: Root, root_ty: Type, bind: string, ty: Type, rest: []Ident, fields: []string, span: Span }): Res<RefUpto> {
 	func Segs(ids: []Ident, from: int): []Ident = "sema_leaf.rs:segs_from";
 	RefFields -> Unfold(s = { t = this.s.ty, defs = this.s.env.types });
@@ -483,7 +521,9 @@ proc RefFields(s: { env: Env, root: Root, root_ty: Type, bind: string, ty: Type,
 
 type ArgsIn = { env: Env, sc: Scope, target: int, given: []Arg, span: Span, i: int, seen: map[string]Expr };
 
-// Named arguments checked against the target's parameters.
+// Checks a call's named arguments against its target's parameters: each must
+// be a parameter, given once, and its value is checked against the
+// parameter's type.
 proc Args(s: ArgsIn): Res<Call> {
 	Args switch {
 		(this.s.i == this.s.given.len) -> FillArgs(s = { env = this.s.env, target = this.s.target, seen = this.s.seen, span = this.s.span, ps = NodeParams(nodes = this.s.env.nodes, n = this.s.target), i = 0, acc = [] }),
@@ -502,6 +542,8 @@ proc Args(s: ArgsIn): Res<Call> {
 	};
 }
 
+// Puts a call's arguments in the parameters' order, failing on the first
+// parameter that wasn't given.
 proc FillArgs(s: { env: Env, target: int, seen: map[string]Expr, span: Span, ps: []Member, i: int, acc: []CallArg }): Res<Call> {
 	FillArgs switch {
 		(this.s.i == this.s.ps.len) -> id(Ok({ target = this.s.target, args = this.s.acc, span = this.s.span, text = "" })),
@@ -510,14 +552,17 @@ proc FillArgs(s: { env: Env, target: int, seen: map[string]Expr, span: Span, ps:
 	};
 }
 
-// The call a target makes: id(value) ends the proc with value; `as B2`
-// calls the alias instance.
+// Checks the call a target makes. `id(value)` passes value to its id node
+// (an untyped `id(..) as N` takes its type); `as B2` calls the alias
+// instance; anything else calls the node it names. The call keeps its
+// arguments' text, for the diagram.
 proc CallOf(s: { env: Env, sc: Scope, t: Target }): Res<Call> {
 	func IdValue(t: Target): OptValue = "sema_leaf.rs:id_value";
 	func AliasOf(t: Target): OptIdent = "sema_leaf.rs:alias_of";
 	func OwnLocal(nodes: []NodeDecl, pid: int, name: string): int = "sema_leaf.rs:own_local";
-	// A call target: the signature node of another proc (an enclosing one)
-	// calls that proc; in its own proc it's the back edge to the entry.
+	// Picks what a call of node n goes to: the signature node of another proc
+	// (an enclosing one) calls that proc; in its own proc it's the back edge to
+	// the entry.
 	func CallTarget(nodes: []NodeDecl, pid: int, n: int): int = "sema_leaf.rs:call_target";
 	CallOf -> IdValue(t = this.s.t);
 	IdValue switch {
@@ -552,10 +597,12 @@ proc CallOf(s: { env: Env, sc: Scope, t: Target }): Res<Call> {
 	};
 }
 
-// The source text of a span on one line: whitespace runs become a space.
+// Gives the source text of a span on one line, whitespace runs squashed into
+// a space: a call's arguments, or an arm's head, as written.
 func Squash(src: string, span: Span): string = "sema_leaf.rs:squash";
 
-// A bool condition or guard.
+// Checks a bool condition or guard, pointing an old-style quoted condition
+// at the new form.
 proc Cond(s: SynthIn): Res<Expr> {
 	Cond -> id(this.s.v.kind) as K;
 	K switch {
@@ -568,8 +615,9 @@ proc Cond(s: SynthIn): Res<Expr> {
 	};
 }
 
-// `{ ..base, f = v }`: the fields given, checked against `want`; the rest
-// read from base, which must be a path.
+// Checks `{ ..base, f = v }`: base must be a path to a struct with no fields
+// the expected type lacks; the fields given are checked against the expected
+// type's, the rest are read from base.
 proc CheckUpdate(s: { c: CheckIn, shape: Type, base: Value, args: []Arg }): Res<Expr> {
 	func What(v: Value): string = "sema_leaf.rs:what";
 	CheckUpdate -> Synth(s = { env = this.s.c.env, sc = this.s.c.sc, v = this.s.base });
@@ -593,11 +641,14 @@ proc CheckUpdate(s: { c: CheckIn, shape: Type, base: Value, args: []Arg }): Res<
 	HasExtra -> id(Err({ msg = What(v = CheckUpdate.s.base) + " has field " + Extra(bfs = MembersOf(t = BShape), fs = MembersOf(t = CheckUpdate.s.shape)) + ", which " + this + " doesn't", span = CheckUpdate.s.base.span }));
 }
 
-// The first of bfs not among fs, or "".
+// Finds the first of bfs not among fs, or "": a field a struct update's base
+// has that the result doesn't.
 func Extra(bfs: []Member, fs: []Member): string = "sema_leaf.rs:extra_member";
 
 type UpdateIn = { c: CheckIn, fs: []Member, base: Ref, bfs: []Member, what: string, args: []Arg, i: int, given: map[string]Expr };
 
+// Checks the fields a struct update gives, each against the expected type's
+// field, once each.
 proc UpdateFields(s: UpdateIn): Res<Expr> {
 	UpdateFields switch {
 		(this.s.i == this.s.args.len) -> FillUpdate(s = { ..this.s, i = 0, acc = [] }),
@@ -617,7 +668,9 @@ proc UpdateFields(s: UpdateIn): Res<Expr> {
 	};
 }
 
-// The fields in the type's order: given, or read from the base.
+// Puts a struct update's fields in the type's order: each given one, or else
+// read from the base, whose field must be there and of a type the expected
+// one accepts.
 proc FillUpdate(s: { c: CheckIn, fs: []Member, base: Ref, bfs: []Member, what: string, args: []Arg, i: int, given: map[string]Expr, acc: []ExprMember }): Res<Expr> {
 	FillUpdate switch {
 		(this.s.i == this.s.fs.len) -> id(Ok(Struct(this.s.acc))),

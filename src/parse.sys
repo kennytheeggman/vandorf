@@ -19,21 +19,26 @@ type Cur = { toks: []Tok, pos: int, tok: Tok, prev: Tok };
 // leaf.
 //   func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 
-// toks[pos] must be the symbol or word `text`.
+// Matches the symbol or word `text` at toks[pos] and moves past it; fails
+// with "expected <what>, found <token>" otherwise.
 func Expect(toks: []Tok, pos: int, text: string, what: string): Cur = "leaf.rs:expect";
-// toks[pos] must be an identifier other than a keyword.
+// Matches an identifier that isn't a keyword at toks[pos] and moves past it;
+// fails, saying what was wanted, otherwise.
 func NeedIdent(toks: []Tok, pos: int, what: string): Cur = "leaf.rs:need_ident";
-// toks[pos] must be an identifier; keywords allowed (field names).
+// Matches any identifier at toks[pos], keywords included (field and
+// parameter names may be keywords), and moves past it.
 func NeedName(toks: []Tok, pos: int, what: string): Cur = "leaf.rs:need_name";
-// toks[pos] must be a string.
+// Matches a string at toks[pos] and moves past it; fails, saying what was
+// wanted, otherwise.
 func NeedStr(toks: []Tok, pos: int, what: string): Cur = "leaf.rs:need_str";
 
 func IsSym(t: Tok, s: string): bool = "leaf.rs:is_sym";
 func IsWord(t: Tok, s: string): bool = "leaf.rs:is_word";
-// A closing bracket: where a list stops.
+// Whether t closes a bracket (`)`, `]` or `}`): where a list stops, leaving
+// it for its caller to expect.
 func IsClose(t: Tok): bool = "leaf.rs:is_close";
-// toks[pos] must be the `>` closing type arguments or parameters; `>=`
-// there is an error, since it lexes as the comparison operator.
+// Matches the `>` closing type arguments or parameters; fails on `>=` (which
+// lexes as the comparison) with a hint to write `> =`.
 func CloseAngle(toks: []Tok, pos: int): Cur = "leaf.rs:close_angle";
 
 // What a parse step returns: what it parsed, and the index of the next
@@ -43,12 +48,13 @@ type R<T> = { x: T, pos: int };
 type AtAcc<T> = { cur: Cur, acc: T };
 type BodyItems = { nodes: []Node, edges: []Edge };
 
-// Parses a whole file.
+// Parses one source file on its own, as file 0.
 proc Parse(src: string): File {
 	Parse -> ParseFile(src = this.src, file = 0);
 }
 
-// Parses the `file`th of a program's files.
+// Lexes and parses the `file`th of a program's files, its spans carrying
+// that index, into the file's typedefs, interfaces and nodes.
 proc ParseFile(src: string, file: int): File {
 	ParseFile -> Lex(src = this.src, file = this.file);
 	Lex -> PItems(toks = this, pos = 0, acc = { types = [], interfaces = [], nodes = [] });

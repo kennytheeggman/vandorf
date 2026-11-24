@@ -33,38 +33,45 @@ type RGen = {
 type Emit = { g: RGen, s: string };
 type EmitLines = { g: RGen, lines: []Line };
 
-// A vandorf type as written in procs.rs.
+// Writes a vandorf type as procs.rs does, with types:: before named ones.
 func RustType(t: Table, ty: Type): string = "gen_leaf.rs:rust_type";
-// Whether part (a field, or variant's payload) of ty is behind an Arc.
+// Whether part of ty (a field, or variant's payload) is behind an Arc, being
+// boxed against recursion.
 func TyBoxed(t: Table, ty: Type, part: string): bool = "gen_leaf.rs:ty_boxed";
-// A Ref's field path: `.a.b`, whether the last field is boxed, and
-// whether an earlier one is (a value can't move out from behind an Arc).
+// Writes a Ref's field path, `.a.b`, and says whether its last field is
+// boxed and whether an earlier one is (a value can't move out from behind an
+// Arc).
 func RefPath(t: Table, r: Ref): RefPathOut = "gen_leaf.rs:ref_path";
 func FloatLit(f: float): string = "gen_leaf.rs:float_lit";
 func InType(nodes: []NodeDecl, n: int): string = "gen_leaf.rs:in_type";
 func BaseOf(nodes: []NodeDecl, n: int): int = "gen_leaf.rs:base_of";
-// The func's implementation in a `.rs` file, if any.
+// Finds the func's implementation in a `.rs` file (the one whose extension
+// is ext), if it names one.
 func RsImpl(n: NodeDecl, ext: string): MaybeImpl = "gen_leaf.rs:rs_impl";
 func JoinPath(base: string, rel: string): MaybeStr = "gen_leaf.rs:join_path";
-// `impls.rs` -> `crate::impls`, `a/mod.rs` -> `crate::a`, `lib.rs` -> `crate`.
+// Turns a file under the crate's src/ into its module path: `impls.rs` ->
+// `crate::impls`, `a/mod.rs` -> `crate::a`, `lib.rs` -> `crate`.
 func ModulePath(file: string): MaybeStr = "gen_leaf.rs:module_path";
-// A bool expression testing whether x (a `&T`) matches p; None if it
-// always does.
+// Writes a bool expression testing whether x (a `&T`) matches p; none if p
+// always matches.
 func PatTest(t: Table, p: SPat, x: string): MaybeStr = "gen_leaf.rs:pat_test";
-// Expressions (of type `&T`) for p's bindings, given x matches p.
+// Writes expressions (of type `&T`) for p's bindings, given x matches p,
+// each cloned out of x.
 func PatBinds(t: Table, p: SPat, x: string): []PatBind = "gen_leaf.rs:pat_binds";
-// The reads to move: each owner's reads that no later read of the same
-// owner overlaps (one path a prefix of the other); a node's only if its
-// slot is taken.
+// Decides which reads of a transition move instead of cloning: for each
+// owner, the reads no later read of the same owner overlaps (one path a
+// prefix of the other); a node's only if its slot is taken.
 func MovedReads(seen: []Seen, taken: map[int]bool): map[int]bool = "gen_leaf.rs:moved_reads";
-// A field or variant payload's type.
+// Finds the type of a struct's field or a variant's payload, through typedef
+// names.
 func MemberOf(defs: []TypeDef, t: Type, name: string): Type = "gen_leaf.rs:member_of";
 func Unfolded(defs: []TypeDef, t: Type): Type = "gen_leaf.rs:unfolded";
 // Struct updates of the generator's state.
 
 func GFailed(g: RGen, msg: string): RGen = "gen_leaf.rs:g_failed";
 func GFatal(g: RGen, msg: string): RGen = "gen_leaf.rs:g_fatal";
-// Records a read; whether it moves (see Moves).
+// Records a read in the transition being written, and says whether it moves
+// (see Moves): only while moving, and only at the last read of its value.
 func Move(m: Moves, owner: string, node: int, path: []string): { m: Moves, moving: bool } = "gen_leaf.rs:move_read";
 func NoMoves(n: int): Moves = "gen_leaf.rs:no_moves";
 func SortedTaken(taken: map[int]bool): []int = "gen_leaf.rs:sorted_keys";
@@ -72,8 +79,10 @@ func SnakeG(n: NodeDecl): string = "gen_leaf.rs:snake_gname";
 
 // ---- Coercions ----
 
-// expr, of type `from`, as a `to`, which sema checked accepts it: through a
-// helper per pair of Rust types.
+// Writes expr, of type `from`, as a `to`, which sema checked accepts it.
+// Equal Rust types need nothing; otherwise a helper per pair of Rust types
+// converts it, recursively through arrays, maps, struct fields and enum
+// variants, made once and reused.
 proc RCoerce(s: { g: RGen, expr: string, from: Type, to: Type }): Emit {
 	RCoerce switch {
 		(RustType(t = this.s.g.table, ty = this.s.from) == RustType(t = this.s.g.table, ty = this.s.to)) -> id({ g = this.s.g, s = this.s.expr }),
@@ -96,13 +105,14 @@ proc RCoerce(s: { g: RGen, expr: string, from: Type, to: Type }): Emit {
 func CoercionName(at: { g: RGen, expr: string, from: Type, to: Type }): string = "gen_leaf.rs:coercion_name";
 func NewCoercion(at: { g: RGen, expr: string, from: Type, to: Type }): RGen = "gen_leaf.rs:new_coercion";
 
-// Pushes the helper and calls it.
+// Records a coercion helper's code and writes the call of it on the
+// expression.
 proc Helper(s: { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGen, lines: []Line }): Emit {
 	Helper -> id({ g = { ..this.s.g, helpers = this.s.g.helpers + [Lines(lines = this.s.lines, indent = "    ")] }, s = CoercionName(at = this.s.at) + "(" + this.s.at.expr + ")" });
 }
 
-// Converts part n (a field, or variant n's payload) held in expr, through
-// boxes where either side has one.
+// Converts part n (a field, or variant n's payload) held in expr, unboxing
+// and boxing it where either side has an Arc.
 proc CoercePart(s: { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGen, expr: string, n: string, f: Type, t: Type }): Emit {
 	CoercePart switch {
 		(TyBoxed(t = this.s.g.table, ty = this.s.at.from, part = this.s.n)) -> RCoerce(s = { g = this.s.g, expr = "(*" + this.s.expr + ").clone()", from = this.s.f, to = this.s.t }),
@@ -114,6 +124,8 @@ proc CoercePart(s: { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGe
 	};
 }
 
+// Writes a struct coercion helper's fields, each converted to the target's
+// field type.
 proc CoerceFields(s: { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGen, ms: []Member, i: int, acc: []Line }): EmitLines {
 	CoerceFields switch {
 		(this.s.i == this.s.ms.len) -> id({ g = this.s.g, lines = this.s.acc }),
@@ -122,6 +134,8 @@ proc CoerceFields(s: { at: { g: RGen, expr: string, from: Type, to: Type }, g: R
 	CoercePart -> CoerceFields(s = { at = CoerceFields.s.at, g = this.g, ms = CoerceFields.s.ms, i = CoerceFields.s.i + 1, acc = CoerceFields.s.acc + [L(RustIdent(s = CoerceFields.s.ms[CoerceFields.s.i].name) + ": " + this.s + ",")] });
 }
 
+// Writes an enum coercion helper's match arms, each variant's payload
+// converted to the target's.
 proc CoerceVariants(s: { at: { g: RGen, expr: string, from: Type, to: Type }, g: RGen, ms: []Member, i: int, acc: []Line }): EmitLines {
 	CoerceVariants switch {
 		(this.s.i == this.s.ms.len) -> id({ g = this.s.g, lines = this.s.acc }),
@@ -133,8 +147,9 @@ proc CoerceVariants(s: { at: { g: RGen, expr: string, from: Type, to: Type }, g:
 
 // ---- Expressions ----
 
-// A read of a node's output, `this` or a binding; moved at its last read
-// (see Moves), cloned otherwise.
+// Writes a read of a node's output, `this` or a binding: moved at its last
+// read (see Moves), cloned otherwise, and unboxed where its last field is
+// behind an Arc.
 proc RRef(s: { g: RGen, r: Ref }): Emit {
 	RRef -> id(this.s.r.root) as R;
 	R switch {
@@ -145,6 +160,9 @@ proc RRef(s: { g: RGen, r: Ref }): Emit {
 	M -> RefText(s = { g = { ..RRef.s.g, moves = this.m }, r = RRef.s.r, moving = this.moving && !RefPath(t = RRef.s.g.table, r = RRef.s.r).through, rp = RefPath(t = RRef.s.g.table, r = RRef.s.r) });
 }
 
+// Writes the text of a read: `this`, a binding's `b_<name>`, a node's taken
+// slot or its output from env (failing if the node hasn't run), with the
+// field path; then moves, clones or unboxes it.
 proc RefText(s: { g: RGen, r: Ref, moving: bool, rp: RefPathOut }): Emit {
 	RefText -> id(this.s.r.root) as R;
 	R switch {
@@ -165,7 +183,9 @@ proc RefText(s: { g: RGen, r: Ref, moving: bool, rp: RefPathOut }): Emit {
 
 type ValueIn = { g: RGen, e: Expr, want: Type };
 
-// e as a Rust expression of type `want`.
+// Writes e as a Rust expression of type `want`: literals of structs, arrays,
+// maps and variants at `want`, anything else at its own type, then coerced
+// to `want`.
 proc RValue(s: ValueIn): Emit {
 	RValue -> id(this.s.e) as E;
 	E switch {
@@ -220,6 +240,7 @@ func VariantTagE(e: Expr): string = "gen_leaf.rs:variant_tag_e";
 
 type Parts = { g: RGen, parts: []string };
 
+// Writes each item of an array literal at the element type.
 proc RValues(s: { g: RGen, es: []Expr, want: Type, i: int, acc: []string }): Parts {
 	RValues switch {
 		(this.s.i == this.s.es.len) -> id({ g = this.s.g, parts = this.s.acc }),
@@ -228,6 +249,8 @@ proc RValues(s: { g: RGen, es: []Expr, want: Type, i: int, acc: []string }): Par
 	RValue -> RValues(s = { g = this.g, es = RValues.s.es, want = RValues.s.want, i = RValues.s.i + 1, acc = RValues.s.acc + [this.s] });
 }
 
+// Writes a struct literal's fields as `name: value`, boxing those that are
+// behind an Arc.
 proc RFields(s: { g: RGen, fs: []ExprMember, want: Type, i: int, acc: []string }): Parts {
 	RFields switch {
 		(this.s.i == this.s.fs.len) -> id({ g = this.s.g, parts = this.s.acc }),
@@ -239,6 +262,8 @@ proc RFields(s: { g: RGen, fs: []ExprMember, want: Type, i: int, acc: []string }
 	};
 }
 
+// Writes each entry of a map literal as `(key, value)` at the map's key and
+// value types.
 proc REntries(s: { g: RGen, kvs: []ExprEntry, kt: Type, vt: Type, i: int, acc: []string }): Parts {
 	REntries switch {
 		(this.s.i == this.s.kvs.len) -> id({ g = this.s.g, parts = this.s.acc }),
@@ -248,8 +273,11 @@ proc REntries(s: { g: RGen, kvs: []ExprEntry, kt: Type, vt: Type, i: int, acc: [
 	V -> REntries(s = { g = this.g, kvs = REntries.s.kvs, kt = REntries.s.kt, vt = REntries.s.vt, i = REntries.s.i + 1, acc = REntries.s.acc + ["(" + K.s + ", " + this.s + ")"] });
 }
 
-// An expression that has its own type (not a struct, array, map or
-// variant literal), at that type.
+// Writes an expression that has its own type (not a struct, array, map or
+// variant literal), at that type: primitives, operators, calls of funcs
+// (their errors wrapped with the proc's name), indexes that fail on a
+// missing key, field selections, `in`, .len/.keys/.values, joins and
+// removals.
 proc ROwn(s: { g: RGen, e: Expr }): Emit {
 	ROwn -> id(this.s.e) as E;
 	E switch {
@@ -320,6 +348,7 @@ func QueryQ(e: Expr): string = "gen_leaf.rs:query_q";
 func MergeRE(e: Expr): Expr = "gen_leaf.rs:merge_r_e";
 func RemoveKeysE(e: Expr): Expr = "gen_leaf.rs:remove_keys_e";
 
+// Writes each argument of a func call at its parameter's type.
 proc RArgs(s: { g: RGen, args: []CallArg, i: int, acc: []string }): Parts {
 	RArgs switch {
 		(this.s.i == this.s.args.len) -> id({ g = this.s.g, parts = this.s.acc }),
@@ -328,8 +357,9 @@ proc RArgs(s: { g: RGen, args: []CallArg, i: int, acc: []string }): Parts {
 	RValue -> RArgs(s = { g = this.g, args = RArgs.s.args, i = RArgs.s.i + 1, acc = RArgs.s.acc + [this.s] });
 }
 
-// The Rust function a func node calls: its .rs implementation, or a stub.
-// An error is the generator's first, and the call is "unresolved".
+// Names the Rust function a func node calls: its .rs implementation, or a
+// stub if it names none. An implementation that can't be reached records the
+// generator's first error, and the call is "unresolved".
 proc RCallee(s: { g: RGen, n: int }): Emit {
 	RCallee -> RsImpl(n = this.s.g.prog.nodes[BaseOf(nodes = this.s.g.prog.nodes, n = this.s.n)], ext = "rs");
 	RsImpl switch {
@@ -346,14 +376,16 @@ proc RCallee(s: { g: RGen, n: int }): Emit {
 	};
 }
 
-// The .rs implementation's file (relative to the module).
+// Finds the file of a func's .rs implementation, relative to the module.
 func RsImplFile(n: NodeDecl): string = "gen_leaf.rs:rs_impl_file";
-// mod.rs's lines mounting files outside the crate's src/.
+// Writes mod.rs's lines mounting implementation files outside the crate's
+// src/, each as a module by its path.
 func MountLines(mounts: map[string]string): string = "gen_leaf.rs:mount_lines";
 
-// `crate::a::b::function` for an implementation, or why there isn't one. A
-// file outside the crate's src/ is mounted in mod.rs (mount: its module
-// name) and called as `super::<module>::function`.
+// Works out how generated code calls an implementation:
+// `crate::a::b::function`, or why it can't. A file outside the crate's src/
+// is mounted in mod.rs (mount: its module name) and called as
+// `super::<module>::function`; two such files can't share a name.
 proc RImplPath(s: { g: RGen, n: int, imp: ImplRef }): { path: MaybeStr, err: MaybeStr, mount: string } {
 	RImplPath -> id(this.s.g.module_dir) as Dir;
 	Dir switch {
@@ -374,17 +406,19 @@ proc RImplPath(s: { g: RGen, n: int, imp: ImplRef }): { path: MaybeStr, err: May
 	};
 }
 
-// A file's name without .rs, and whether it can name a module of the
-// output (an identifier other than types, procs and http).
+// Takes a file's name without .rs: the module a mounted implementation file
+// becomes.
 func Stem(file: string): string = "gen_leaf.rs:rs_stem";
 func MountableStem(file: string): bool = "gen_leaf.rs:mountable_stem";
 
-// `In<Target> { param: value, .. }`
+// Writes the input of c's target: `In<Target> { param: value, .. }`.
 proc RInput(s: { g: RGen, c: Call }): Emit {
 	RInput -> RNamedArgs(s = { g = this.s.g, args = this.s.c.args, i = 0, acc = [] });
 	RNamedArgs -> id({ g = this.g, s = InType(nodes = RInput.s.g.prog.nodes, n = RInput.s.c.target) + " { " + Join(parts = this.parts, sep = ", ") + " }" });
 }
 
+// Writes each of a call's arguments as `param: value`, at its parameter's
+// type.
 proc RNamedArgs(s: { g: RGen, args: []CallArg, i: int, acc: []string }): Parts {
 	RNamedArgs switch {
 		(this.s.i == this.s.args.len) -> id({ g = this.s.g, parts = this.s.acc }),
@@ -395,8 +429,9 @@ proc RNamedArgs(s: { g: RGen, args: []CallArg, i: int, acc: []string }): Parts {
 
 // ---- Procs ----
 
-// The input of c's target, then a jump to it. The input is written twice:
-// first recording reads, then moving each at its last read.
+// Writes the step to c's target: its input stored in env, then a jump to it.
+// The input is written twice: first recording reads, then moving each at its
+// last read, taking a node's output out of env when nothing reads it again.
 proc RTransition(s: { g: RGen, pid: int, c: Call }): EmitLines {
 	func Taken(seen: []Seen, g: Graph, target: int): map[int]bool = "gen_leaf.rs:taken_slots";
 	func Recording(n: int): Moves = "gen_leaf.rs:recording";
@@ -416,8 +451,10 @@ proc RTransition(s: { g: RGen, pid: int, c: Call }): EmitLines {
 
 type SwitchIn = { g: RGen, pid: int, n: int, arms: []SArm, top: bool, i: int, always: bool, acc: []Line };
 
-// Arms in order, as an if chain: a transition ends with continue, so the
-// first arm that matches is taken.
+// Writes a switch's arms in order, as an if chain: each tests its pattern
+// (binding what it binds) or its condition, and a transition ends with
+// continue, so the first arm that matches is taken. A top-level switch that
+// can fall through ends with an error.
 proc RSwitch(s: SwitchIn): EmitLines {
 	func BindLines(bs: []PatBind): []Line = "gen_leaf.rs:bind_lines";
 	RSwitch switch {
@@ -444,6 +481,7 @@ func IsSomeS(m: MaybeStr): bool = "gen_leaf.rs:is_some_s";
 func UnwrapS(m: MaybeStr): string = "gen_leaf.rs:unwrap_s";
 func PatOfTest(t: Test): SPat = "gen_leaf.rs:pat_of_test";
 
+// Writes an arm's body: a transition to its call, or a nested switch.
 proc RBody(s: { g: RGen, pid: int, n: int, body: SBody }): EmitLines {
 	RBody -> id(this.s.body) as B;
 	B switch {
@@ -452,11 +490,13 @@ proc RBody(s: { g: RGen, pid: int, n: int, body: SBody }): EmitLines {
 	};
 }
 
-// One state of a proc's machine: run the node, keep its output if read
-// later, then its edge.
+// Writes one state of a proc's machine: run the node (a func through its
+// implementation, a proc through its run_ function, an id or signature node
+// from its input), keep its output if it's read later, then its edge.
 proc RNode(s: { g: RGen, pid: int, n: int }): EmitLines {
 	func ArgList(nodes: []NodeDecl, n: int): string = "gen_leaf.rs:input_args";
-	// A signature node's output: its input's fields, as the struct of them.
+	// Writes a signature node's output: its input's fields, as the struct of
+	// them.
 	func SigValue(g: RGen, n: int): string = "gen_leaf.rs:sig_value";
 	RNode -> id(this.s.g.prog.nodes[BaseOf(nodes = this.s.g.prog.nodes, n = this.s.n)].kind) as K;
 	K switch {
@@ -472,6 +512,10 @@ proc RNode(s: { g: RGen, pid: int, n: int }): EmitLines {
 	};
 }
 
+// Writes a node's state after its run line: its edge (a transition, a
+// switch, a for each fanning out over its region's function and collecting
+// the results, or a spawn and its join), or, with none, returning its output
+// as the proc's.
 proc RNodeBody(s: { g: RGen, pid: int, n: int, run: string }): EmitLines {
 	func Head(g: RGen, pid: int, n: int, run: string): []Line = "gen_leaf.rs:node_head";
 	RNodeBody switch {
@@ -502,14 +546,14 @@ proc RNodeBody(s: { g: RGen, pid: int, n: int, run: string }): EmitLines {
 func CollectCall(g: Graph, n: int): Call = "gen_leaf.rs:collect_call";
 func SpawnJoin(e: SEdge): Call = "gen_leaf.rs:spawn_join";
 
-// A spawn's branches, each a call of its node (emit_spawn in the
+// Writes a spawn's branches, each a call of its node (emit_spawn in the
 // reference): every branch's arguments into variables, then the threads.
 proc RSpawn(s: { g: RGen, branches: []SBranch, joined: Type, i: int, lines: []Line, calls: []string }): EmitLines {
-	// `let a<i>_<arg> = <value>;` per argument, and the variables.
+	// Writes `let a<i>_<arg> = <value>;` for each of a branch's arguments.
 	func ArgLines(i: int, args: []CallArg, values: []string): []Line = "gen_leaf.rs:spawn_arg_lines";
 	func ArgVars(i: int, args: []CallArg): string = "gen_leaf.rs:spawn_arg_vars";
-	// Detached branches on threads of their own; joined ones on scoped
-	// threads, then this: the joined outputs.
+	// Writes a spawn's threads: detached branches on threads of their own,
+	// joined ones on scoped threads, then this: the joined outputs.
 	func Threads(g: RGen, branches: []SBranch, joined: Type, calls: []string): []Line = "gen_leaf.rs:spawn_threads";
 	RSpawn switch {
 		(this.s.i == this.s.branches.len) -> id({ g = this.s.g, lines = this.s.lines + Threads(g = this.s.g, branches = this.s.branches, joined = this.s.joined, calls = this.s.calls) }),
@@ -533,7 +577,8 @@ proc RSpawn(s: { g: RGen, branches: []SBranch, joined: Type, i: int, lines: []Li
 }
 func RegionFn(g: RGen, pid: int, r: int): string = "gen_leaf.rs:region_fn";
 
-// A region's state machine: a loop over its nodes' states.
+// Writes a region's state machine: a loop over a match on pc, one state per
+// node, failing on a state that isn't there.
 proc RLoop(s: { g: RGen, pid: int, nodes: []int, i: int, acc: []Line }): EmitLines {
 	RLoop switch {
 		(this.s.i == this.s.nodes.len) -> id({ g = this.s.g, lines = [L("loop {"), L("match pc {")] + this.s.acc + [L("_ => return Err(format!(" + Quote(s = QualName(n = this.s.g.prog.nodes[this.s.pid]) + ": invalid state {pc:?}") + ").into()),"), L("}"), L("}")] }),
@@ -542,6 +587,8 @@ proc RLoop(s: { g: RGen, pid: int, nodes: []int, i: int, acc: []Line }): EmitLin
 	RNode -> RLoop(s = { g = this.g, pid = RLoop.s.pid, nodes = RLoop.s.nodes, i = RLoop.s.i + 1, acc = RLoop.s.acc + this.lines });
 }
 
+// Writes a proc: its env and pc, run_<proc> with its machine over the body,
+// then a function per for each region.
 proc RProc(s: { g: RGen, pid: int }): EmitLines {
 	func Prelude(g: RGen, pid: int): []Line = "gen_leaf.rs:proc_prelude";
 	func Opens(g: Graph): []int = "gen_leaf.rs:opens_by_region";
@@ -549,7 +596,8 @@ proc RProc(s: { g: RGen, pid: int }): EmitLines {
 	RLoop -> RRegions(s = { g = this.g, pid = RProc.s.pid, opens = Opens(g = GraphOf(n = RProc.s.g.prog.nodes[RProc.s.pid])), i = 0, acc = Prelude(g = RProc.s.g, pid = RProc.s.pid) + this.lines + [L("}"), L("")] });
 }
 
-// One fn per for each region, run per element.
+// Writes one function per for each region, which runs the region on one
+// element: its input, then its own machine.
 proc RRegions(s: { g: RGen, pid: int, opens: []int, i: int, acc: []Line }): EmitLines {
 	func RegionHead(g: RGen, pid: int, opener: int): []Line = "gen_leaf.rs:region_head";
 	func EntryCall(g: Graph, opener: int): Call = "gen_leaf.rs:for_each_call_of";
@@ -569,11 +617,14 @@ proc RRegions(s: { g: RGen, pid: int, opens: []int, i: int, acc: []Line }): Emit
 // http: "" without servers.
 type RustOut = { types: string, procs: string, modrs: string, http: string, err: MaybeStr };
 
+// Generates a program's Rust: types.rs, procs.rs, mod.rs and, with servers,
+// http.rs. Fails on a bad module_dir or names that would clash in Rust, and
+// on the first error writing the procs or servers.
 proc RustGenerate(s: { prog: Program, module_dir: MaybeStr, servers: []ServerSpec }): RustOut {
 	func NameClash(prog: Program): MaybeStr = "gen_leaf.rs:name_clash";
 	func BadModuleDir(d: MaybeStr): MaybeStr = "gen_leaf.rs:bad_module_dir";
 	func Trimmed(d: MaybeStr): MaybeStr = "gen_leaf.rs:trim_dir";
-	// All procs, parents before children, in source order.
+	// Lists all procs, parents before children, in source order.
 	func Order(nodes: []NodeDecl, top: []int): []int = "gen_leaf.rs:all_procs_ordered";
 	RustGenerate -> BuildTable(prog = this.s.prog);
 	BuildTable switch {
@@ -604,11 +655,12 @@ proc RustGenerate(s: { prog: Program, module_dir: MaybeStr, servers: []ServerSpe
 }
 
 func ModRs(n: int): string = "gen_leaf.rs:mod_rs";
-// The rest of procs.rs around the procs' code: header and runtime, input
-// structs, stubs and coercion helpers.
+// Writes the rest of procs.rs around the procs' code: the header and
+// runtime, the input structs, the stubs and the coercion helpers.
 func ProcsFile(g: RGen, body: string): string = "gen_leaf.rs:procs_file";
 func FirstError(g: RGen): MaybeStr = "gen_leaf.rs:first_error";
 
+// Writes each proc in turn, stopping at an error that stops the generator.
 proc RProcs(s: { g: RGen, procs: []int, i: int, acc: []Line }): EmitLines {
 	RProcs switch {
 		(this.s.i == this.s.procs.len || IsSomeS(m = this.s.g.fatal)) -> id({ g = this.s.g, lines = this.s.acc }),

@@ -14,17 +14,19 @@ type HttpResponse = { status: int, headers: map[string]string, body: string };
 type TermChunk = { ok: bool, data: string, next: int, closed: bool };
 
 interface Session {
-	// A random token for this run, which writes and terminals must present.
+	// Makes a random token, once per run, which the pages carry and writes and
+	// terminals must present.
 	func Token(n: int): string = "ide_io.rs:token";
-	// The source directory: the working directory, canonical.
+	// Finds the source directory the IDE serves: the working directory,
+	// canonical, worked out once.
 	func Base(n: int): string = "ide_io.rs:base";
-	// Whether the server listens on a loopback address: terminals are
-	// offered only then.
+	// Whether the server listens on a loopback address: terminals are offered
+	// only then.
 	func Loopback(n: int): bool = "ide_io.rs:loopback";
 }
 
 interface Pages {
-	// An IDE page by name ("" if there's none).
+	// Reads an IDE page by name, embedded in the executable; "" if there's none.
 	func Get(name: string): string = "ide_io.rs:page";
 }
 
@@ -32,16 +34,17 @@ interface Files {
 	func Canon(path: string): Res<string> = "ide_io.rs:canon";
 	func Read(path: string): Res<string> = "ide_io.rs:try_read";
 	func Write(path: string, text: string): Res<string> = "ide_io.rs:try_write";
-	// The .sys files under base, relative to it, sorted.
+	// Lists the .sys files under base, relative to it, sorted.
 	func Walk(base: string): []string = "ide_io.rs:walk_rel";
 }
 
 interface Term {
-	// The user's shell on a pty in cwd; its id.
+	// Starts the user's shell on a pty in cwd, returning the terminal's id.
 	func Spawn(cwd: string): Res<int> = "ide_io.rs:term_spawn";
 	func List(n: int): []int = "ide_io.rs:term_list";
-	// Output from stream offset `from`, waiting up to 20 s for some. Only whole
-	// UTF-8 characters: `next` is where the next read starts.
+	// Reads a terminal's output from stream offset `from`, waiting up to 20 s
+	// for some. Only whole UTF-8 characters: `next` is where the next read
+	// starts.
 	func Read(id: int, from: int): TermChunk = "ide_io.rs:term_read";
 	func Input(id: int, data: string): Res<string> = "ide_io.rs:term_input";
 	func Resize(id: int, cols: int, rows: int): Res<string> = "ide_io.rs:term_resize";
@@ -56,38 +59,45 @@ type MaybeCheck = enum { None, Some(UnitCheck) };
 // Checks kept by the sources they were made from (CheckKey), so a project's
 // tabs, and a recompile with nothing changed, skip parsing and sema.
 interface Checks {
-	// The check of key: kept, or once another request making it has put it
-	// (waiting for that). None: this request is to make it and Put it.
+	// Gets the check of key: the one kept, or, if another request is making it,
+	// that one once it's put (waiting for it). None: this request is to make it
+	// and Put it.
 	func Claim(key: string): MaybeCheck = "ide_io.rs:check_claim";
-	// Keeps a check, dropping the least recently used past eight, and wakes
-	// the requests waiting for it.
+	// Keeps a check, dropping the least recently used past eight, and wakes the
+	// requests waiting for it.
 	func Put(key: string, c: UnitCheck): bool = "ide_io.rs:check_put";
 }
 
-// Parses a file, its failure a value: the message and where it is.
+// Parses a file, returning a failure as a value, its message and where it
+// is, rather than failing.
 func TryParse(src: string, file: int): Res<File> = "ide_io.rs:try_parse";
 func Compact(j: Json): string = "../doc/doc_leaf.rs:compact";
-// A JSON text as a Json; numbers that aren't ints are an error.
+// Parses a JSON text into a Json; numbers that aren't ints are an error.
 func ParseJson(text: string): Res<Json> = "../doc/doc_leaf.rs:parse_json";
-// A string field of a JSON object, if it is one.
+// Reads a string field of a JSON object, if there is one and it's a string.
 func JsonStr(j: Json, key: string): MaybeStr = "../doc/doc_leaf.rs:json_str";
-// The page served at a path ("" if none), and one carrying the token.
+// Maps a path to the IDE page served there ("" if none), and to the one
+// carrying the token.
 func PageName(path: string): string = "ide_leaf.rs:page_name";
-// A page, carrying the session token for the requests that need it.
+// Serves a page as HTML, with the session token put in for the requests that
+// need it.
 func PageResponse(text: string, token: string): HttpResponse = "ide_leaf.rs:page_response";
 func CssResponse(text: string): HttpResponse = "ide_leaf.rs:css_response";
-// 200 and the JSON; 400 and {"ok": false, "error": msg}; 403.
+// Answers with JSON: 200 and the JSON (ApiErr: 400 and {"ok": false,
+// "error": msg}; Forbidden: 403).
 func Api(j: Json): HttpResponse = "ide_leaf.rs:api";
 func ApiErr(msg: string): HttpResponse = "ide_leaf.rs:api_err";
 func Forbidden(n: int): HttpResponse = "ide_leaf.rs:forbidden";
-// The session's token, and (on a loopback address) a loopback Host.
+// Checks a write's headers: the session's token, and on a loopback address a
+// loopback Host, against DNS rebinding.
 func Authorized(headers: map[string]string, token: string, loopback: bool): bool = "ide_leaf.rs:authorized";
 func HasPrefix(text: string, prefix: string): bool = "../cli/cli_leaf.rs:starts_with";
 
 // Whether a request may go on, or the response that turns it away.
 type Gate = enum { Open, Shut(HttpResponse) };
 
-// Writes: the session token, and on a loopback address a loopback Host.
+// Lets a write through only with the session token, and on a loopback
+// address a loopback Host; a 403 otherwise.
 proc WriteGate(req: HttpRequest): Gate {
 	WriteGate -> Session.Token(n = 0);
 	Session.Token -> Session.Loopback(n = 0);
@@ -97,7 +107,8 @@ proc WriteGate(req: HttpRequest): Gate {
 	};
 }
 
-// Terminals: only on a loopback address, then as writes.
+// Lets a terminal request through only on a loopback address, and then as a
+// write.
 proc TermGate(req: HttpRequest): Gate {
 	TermGate -> Session.Loopback(n = 0);
 	Session.Loopback switch {
@@ -106,21 +117,21 @@ proc TermGate(req: HttpRequest): Gate {
 	};
 }
 
-// GET /, /explorer, /viewer, /terminal, /workbench, /project, /viz: an IDE
-// page, carrying the session token.
+// Serves GET /, /explorer, /viewer, /terminal, /workbench, /project and
+// /viz: the IDE page for the path, carrying the session token.
 proc PageRoute(req: HttpRequest): HttpResponse {
 	PageRoute -> Session.Token(n = 0);
 	Session.Token -> Pages.Get(name = PageName(path = PageRoute.req.path));
 	Pages.Get -> id(PageResponse(text = this, token = Session.Token));
 }
 
-// GET /ui.css
+// Serves GET /ui.css, the pages' shared stylesheet.
 proc CssRoute(req: HttpRequest): HttpResponse {
 	CssRoute -> Pages.Get(name = "ui.css");
 	Pages.Get -> id(CssResponse(text = this));
 }
 
-// GET /api/sources: the .sys files under the source directory.
+// Serves GET /api/sources: the .sys files under the source directory.
 proc SourcesRoute(req: HttpRequest): HttpResponse {
 	SourcesRoute -> Session.Base(n = 0);
 	Session.Base -> Files.Walk(base = this);
@@ -129,7 +140,8 @@ proc SourcesRoute(req: HttpRequest): HttpResponse {
 
 func Strs(xs: []string): []Json = "ide_leaf.rs:strs";
 
-// Resolves p under base, refusing paths that escape it.
+// Resolves p under base, refusing a path that's malformed or escapes it,
+// through symlinks too.
 proc ResolvePath(s: { base: string, p: string }): Res<string> {
 	func Bad(p: string): bool = "ide_leaf.rs:bad_path";
 	ResolvePath switch {
@@ -145,6 +157,7 @@ proc ResolvePath(s: { base: string, p: string }): Res<string> {
 	};
 }
 
+// Reads the source file at p, under base.
 proc ReadSource(s: { base: string, p: string }): Res<string> {
 	ReadSource -> ResolvePath(s = this.s);
 	ResolvePath switch {
@@ -157,7 +170,7 @@ proc ReadSource(s: { base: string, p: string }): Res<string> {
 	};
 }
 
-// GET /api/source?path=..
+// Serves GET /api/source?path=..: the file's text.
 proc SourceRoute(req: HttpRequest): HttpResponse {
 	SourceRoute -> Session.Base(n = 0);
 	Session.Base switch {
@@ -170,9 +183,10 @@ proc SourceRoute(req: HttpRequest): HttpResponse {
 	};
 }
 
-// POST /api/save {path, source}: writes an existing .sys file, or an
+// Serves POST /api/save {path, source}: writes an existing .sys file, or an
 // existing vandorf.toml if the new text is a valid manifest (one that
-// doesn't parse would break the project, and the IDE's view of it).
+// doesn't parse would break the project, and the IDE's view of it). Needs
+// the session token.
 proc SaveRoute(req: HttpRequest): HttpResponse {
 	func IsSys(p: string): bool = "ide_leaf.rs:is_sys";
 	func IsManifest(p: string): bool = "ide_leaf.rs:is_manifest";

@@ -56,25 +56,30 @@ type GoCallee = { s: string, stub: int, path: string, alias: string, err: MaybeS
 func GoSetupOf(package: string, import_base: MaybeStr, types_dir: string): GoSetup = "go_leaf.rs:go_setup";
 func GoHeader(pkg: string, imports: []GoImport): string = "go_leaf.rs:go_header";
 func GoRender(t: Table, r: TyRef, qual: string): string = "go_leaf.rs:go_render";
-// A vandorf type as written in the code package.
+// Writes a vandorf type as the code package does, with the types package's
+// qualifier before named ones.
 func GoType(g: GGen, ty: Type): string = "go_leaf.rs:go_type";
 func GoDoc(t: Table, n: NamedType): []Line = "go_leaf.rs:go_doc";
-// The doc comment of the typedef alias `name`.
+// Writes the doc comment of the typedef alias `name`: its typedef's, or "//
+// Name is a typedef.".
 func GoAliasDoc(t: Table, name: string): []Line = "go_leaf.rs:go_alias_doc";
 func GoTagDoc(ms: []RefMember): string = "go_leaf.rs:go_tag_doc";
-// A field's type, a pointer where it would make the type contain itself.
+// Writes a field's type, a pointer where it would make the type contain
+// itself.
 func GoFieldType(t: Table, i: int, m: RefMember): string = "go_leaf.rs:go_field_type";
-// Programs whose names would collide or be invalid in Go.
+// Checks a program's names for Go: names that would collide once exported,
+// or be invalid, give the error; none otherwise.
 func GoNameCheck(prog: Program, t: Table): MaybeStr = "go_leaf.rs:go_name_check";
 // Appends lines to the proc being written.
 func GW(g: GGen, ls: []string): GGen = "go_leaf.rs:gw";
-// Keep the first error.
+// Records an error writing an expression, keeping the first.
 func GoFailed(g: GGen, msg: string): GGen = "go_leaf.rs:go_failed";
 func GoFatal(g: GGen, msg: string): GGen = "go_leaf.rs:go_fatal";
 func GoRef(g: GGen, r: Ref): string = "go_leaf.rs:go_ref";
 func GoFloat(f: float): string = "go_leaf.rs:go_float";
 func GoBoxIf(b: bool, s: string): string = "go_leaf.rs:go_box_if";
-// Whether evaluating e can fail (it calls a func or indexes).
+// Whether evaluating e can fail (it calls a func or indexes), so it needs
+// statements of its own before the expression using it.
 func CanFail(e: Expr): bool = "go_leaf.rs:can_fail";
 func InMapE(e: Expr): Expr = "go_leaf.rs:in_map_e";
 func GoInType(nodes: []NodeDecl, n: int): string = "go_leaf.rs:go_in_type";
@@ -82,12 +87,16 @@ func GoPc(nodes: []NodeDecl, pid: int, n: int): string = "go_leaf.rs:go_pc";
 
 // ---- types_vandorf.go ----
 
+// Generates the types package: a struct per shape in the table (an enum as a
+// Tag and a field per variant), then the typedef aliases.
 proc GoTypegen(s: { t: Table, pkg: string }): string {
 	GoTypegen -> GoTypeLines(s = { t = this.s.t, i = 0, acc = [Raw(GoHeader(pkg = this.s.pkg, imports = []))] });
 	GoTypeLines -> GoAliasLines(s = { t = GoTypegen.s.t, i = 0, acc = this });
 	GoAliasLines -> id(Lines(lines = this, indent = "\t"));
 }
 
+// Writes each named shape in the table as a Go struct, with its doc comment;
+// an enum gets a Tag naming its variant and a field per payload.
 proc GoTypeLines(s: { t: Table, i: int, acc: []Line }): []Line {
 	GoTypeLines switch {
 		(this.s.i == this.s.t.types.len) -> id(this.s.acc),
@@ -100,6 +109,8 @@ proc GoTypeLines(s: { t: Table, i: int, acc: []Line }): []Line {
 	Ms -> GoTypeLines(s = { t = GoTypeLines.s.t, i = GoTypeLines.s.i + 1, acc = this + [L("}"), L("")] });
 }
 
+// Writes a struct's fields, or an enum's payload fields, each exported with
+// its Go type.
 proc GoMemberLines(s: { t: Table, i: int, ms: []RefMember, j: int, acc: []Line }): []Line {
 	GoMemberLines switch {
 		(this.s.j == this.s.ms.len) -> id(this.s.acc),
@@ -107,6 +118,7 @@ proc GoMemberLines(s: { t: Table, i: int, ms: []RefMember, j: int, acc: []Line }
 	};
 }
 
+// Writes each typedef alias as `type Name = type`, with its doc comment.
 proc GoAliasLines(s: { t: Table, i: int, acc: []Line }): []Line {
 	GoAliasLines switch {
 		(this.s.i == this.s.t.aliases.len) -> id(this.s.acc),
@@ -118,14 +130,16 @@ proc GoAliasLines(s: { t: Table, i: int, acc: []Line }): []Line {
 
 func GoCoerceKey(at: GCoerceAt): string = "go_leaf.rs:go_coerce_key";
 func GoCoercionName(at: GCoerceAt): string = "go_leaf.rs:go_coercion_name";
-// Records the helper about to be written, so its parts can call it.
+// Records the coercion helper about to be written, so its parts can call it.
 func GoNewCoercion(at: GCoerceAt): GGen = "go_leaf.rs:go_new_coercion";
-// `func coerceN(v src) (r dst) {`
+// Writes a coercion helper's head: `func coerceN(v src) (r dst) {`.
 func GoCoerceHead(at: GCoerceAt): string = "go_leaf.rs:go_coerce_head";
 func GoLines(ls: []string): string = "go_leaf.rs:go_lines";
 
-// expr, of type `from`, as a `to`, which sema checked accepts it: through a
-// helper per pair of Go types.
+// Writes expr, of type `from`, as a `to`, which sema checked accepts it.
+// Equal Go types need nothing; otherwise a helper per pair of Go types
+// converts it, through arrays, maps, struct fields and enum variants, made
+// once and reused.
 proc GCoerce(s: GCoerceAt): GEmit {
 	GCoerce switch {
 		(GoType(g = this.s.g, ty = this.s.from) == GoType(g = this.s.g, ty = this.s.to)) -> id({ g = this.s.g, s = this.s.expr }),
@@ -145,13 +159,14 @@ proc GCoerce(s: GCoerceAt): GEmit {
 	Vs -> GHelper(s = { at = GCoerce.s, g = this.g, lines = this.lines + ["}", "return r", "}"] });
 }
 
-// Pushes the helper and calls it.
+// Records a coercion helper's code and writes the call of it on the
+// expression.
 proc GHelper(s: { at: GCoerceAt, g: GGen, lines: []string }): GEmit {
 	GHelper -> id({ g = { ..this.s.g, helpers = this.s.g.helpers + [GoLines(ls = this.s.lines)] }, s = GoCoercionName(at = this.s.at) + "(" + this.s.at.expr + ")" });
 }
 
-// Copies part n (a field, or variant n's payload), through pointers where
-// either side boxes it.
+// Copies part n (a field, or variant n's payload) in a coercion helper,
+// through pointers where either side boxes it.
 proc GCoercePart(s: { at: GCoerceAt, g: GGen, n: string, f: Type, t: Type }): GLines {
 	GCoercePart switch {
 		(TyBoxed(t = this.s.g.table, ty = this.s.at.from, part = this.s.n)) -> GCoerce(s = { g = this.s.g, expr = "(*v." + Exported(s = this.s.n) + ")", from = this.s.f, to = this.s.t }) as Boxed,
@@ -161,6 +176,7 @@ proc GCoercePart(s: { at: GCoerceAt, g: GGen, n: string, f: Type, t: Type }): GL
 	Plain -> id({ g = this.g, lines = ["r." + Exported(s = GCoercePart.s.n) + " = " + GoBoxIf(b = TyBoxed(t = GCoercePart.s.g.table, ty = GCoercePart.s.at.to, part = GCoercePart.s.n), s = this.s)] });
 }
 
+// Writes a struct coercion helper's fields, each converted to the target's.
 proc GCoerceFields(s: { at: GCoerceAt, g: GGen, ms: []Member, i: int, acc: []string }): GLines {
 	GCoerceFields switch {
 		(this.s.i == this.s.ms.len) -> id({ g = this.s.g, lines = this.s.acc }),
@@ -169,6 +185,8 @@ proc GCoerceFields(s: { at: GCoerceAt, g: GGen, ms: []Member, i: int, acc: []str
 	GCoercePart -> GCoerceFields(s = { ..GCoerceFields.s, g = this.g, i = GCoerceFields.s.i + 1, acc = GCoerceFields.s.acc + this.lines });
 }
 
+// Writes an enum coercion helper's cases, one per variant, each payload
+// converted to the target's.
 proc GCoerceVariants(s: { at: GCoerceAt, g: GGen, ms: []Member, i: int, acc: []string }): GLines {
 	GCoerceVariants switch {
 		(this.s.i == this.s.ms.len) -> id({ g = this.s.g, lines = this.s.acc }),
@@ -182,8 +200,8 @@ proc GCoerceVariants(s: { at: GCoerceAt, g: GGen, ms: []Member, i: int, acc: []s
 
 type GValueIn = { g: GGen, e: Expr, want: Type };
 
-// e as a Go expression of type `want`. Calls in e can fail, so they're
-// evaluated by statements written first, which return on error.
+// Writes e as a Go expression of type `want`. Calls in e can fail, so
+// they're evaluated by statements written first, which return on error.
 proc GValue(s: GValueIn): GEmit {
 	GValue -> id(this.s.e) as E;
 	E switch {
@@ -221,6 +239,7 @@ proc GValue(s: GValueIn): GEmit {
 	Payload -> id({ g = this.g, s = GoType(g = GValue.s.g, ty = GValue.s.want) + "{Tag: " + Quote(s = VariantTagE(e = GValue.s.e)) + ", " + Exported(s = VariantTagE(e = GValue.s.e)) + ": " + GoBoxIf(b = TyBoxed(t = GValue.s.g.table, ty = GValue.s.want, part = VariantTagE(e = GValue.s.e)), s = this.s) + "}" });
 }
 
+// Writes each item of an array literal at the element type.
 proc GValues(s: { g: GGen, es: []Expr, want: Type, i: int, acc: []string }): GParts {
 	GValues switch {
 		(this.s.i == this.s.es.len) -> id({ g = this.s.g, parts = this.s.acc }),
@@ -229,6 +248,7 @@ proc GValues(s: { g: GGen, es: []Expr, want: Type, i: int, acc: []string }): GPa
 	GValue -> GValues(s = { ..GValues.s, g = this.g, i = GValues.s.i + 1, acc = GValues.s.acc + [this.s] });
 }
 
+// Writes each entry of a map literal as `key: value` at the map's types.
 proc GEntries(s: { g: GGen, kvs: []ExprEntry, kt: Type, vt: Type, i: int, acc: []string }): GParts {
 	GEntries switch {
 		(this.s.i == this.s.kvs.len) -> id({ g = this.s.g, parts = this.s.acc }),
@@ -238,6 +258,8 @@ proc GEntries(s: { g: GGen, kvs: []ExprEntry, kt: Type, vt: Type, i: int, acc: [
 	V -> GEntries(s = { ..GEntries.s, g = this.g, i = GEntries.s.i + 1, acc = GEntries.s.acc + [K.s + ": " + this.s] });
 }
 
+// Writes a struct literal's fields as `Name: value`, taking the address of
+// those it boxes.
 proc GFields(s: { g: GGen, fs: []ExprMember, want: Type, i: int, acc: []string }): GParts {
 	GFields switch {
 		(this.s.i == this.s.fs.len) -> id({ g = this.s.g, parts = this.s.acc }),
@@ -246,16 +268,20 @@ proc GFields(s: { g: GGen, fs: []ExprMember, want: Type, i: int, acc: []string }
 	GValue -> GFields(s = { ..GFields.s, g = this.g, i = GFields.s.i + 1, acc = GFields.s.acc + [Exported(s = GFields.s.fs[GFields.s.i].name) + ": " + GoBoxIf(b = TyBoxed(t = GFields.s.g.table, ty = GFields.s.want, part = GFields.s.fs[GFields.s.i].name), s = this.s)] });
 }
 
-// `t, err := call` and its error check; `if t {` (or `if !t {`) for a
-// short-circuit; mapGet or sliceGet into t.
+// Writes the statements evaluating a call that can fail: `t, err := call`
+// and its error check; `if t {` (or `if !t {`) for a short-circuit; mapGet
+// or sliceGet into t.
 func GoCallLines(t: string, call: string, qual: string): []string = "go_leaf.rs:go_call_lines";
 func GoShortIf(op: string, t: string): string = "go_leaf.rs:go_short_if";
 func GoIndexLines(t: string, x: string, k: string, map: bool, proc: string): []string = "go_leaf.rs:go_index_lines";
-// `(x).F`, dereferenced if F is boxed.
+// Writes a field selection, `(x).F`, dereferenced if F is boxed.
 func GoSelect(x: string, name: string, boxed: bool): string = "go_leaf.rs:go_select";
 
-// An expression that has its own type (not a struct, array, map or
-// variant literal), at that type.
+// Writes an expression that has its own type (not a struct, array, map or
+// variant literal), at that type: primitives, operators (&& and ||
+// short-circuiting through statements), calls of funcs, indexes that fail on
+// a missing key, field selections, `in`, .len/.keys/.values, joins and
+// removals.
 proc GOwn(s: { g: GGen, e: Expr }): GEmit {
 	GOwn -> id(this.s.e) as E;
 	E switch {
@@ -316,6 +342,7 @@ proc GOwn(s: { g: GGen, e: Expr }): GEmit {
 	RK -> id({ g = this.g, s = "mapRemove(" + RM.s + ", " + this.s + ")" });
 }
 
+// Writes each argument of a func call at its parameter's type.
 proc GArgs(s: { g: GGen, args: []CallArg, i: int, acc: []string }): GParts {
 	GArgs switch {
 		(this.s.i == this.s.args.len) -> id({ g = this.s.g, parts = this.s.acc }),
@@ -326,7 +353,7 @@ proc GArgs(s: { g: GGen, args: []CallArg, i: int, acc: []string }): GParts {
 
 func GoCalleeOf(g: GGen, n: int): GoCallee = "go_leaf.rs:go_callee";
 
-// The Go function a func node (or an alias of one) calls: its .go
+// Names the Go function a func node (or an alias of one) calls: its .go
 // implementation, imported if it's in another directory, or a stub. On an
 // error, the call is "unresolved".
 proc GCallee(s: { g: GGen, n: int }): GCall {
@@ -339,12 +366,14 @@ proc GCallee(s: { g: GGen, n: int }): GCall {
 	};
 }
 
-// `in<Target>{Param: value, ..}`
+// Writes the input of c's target: `in<Target>{Param: value, ..}`.
 proc GInput(s: { g: GGen, c: Call }): GEmit {
 	GInput -> GNamedArgs(s = { g = this.s.g, args = this.s.c.args, i = 0, acc = [] });
 	GNamedArgs -> id({ g = this.g, s = GoInType(nodes = GInput.s.g.prog.nodes, n = GInput.s.c.target) + "{" + Join(parts = this.parts, sep = ", ") + "}" });
 }
 
+// Writes each of a call's arguments as `Param: value`, at its parameter's
+// type.
 proc GNamedArgs(s: { g: GGen, args: []CallArg, i: int, acc: []string }): GParts {
 	GNamedArgs switch {
 		(this.s.i == this.s.args.len) -> id({ g = this.s.g, parts = this.s.acc }),
@@ -355,26 +384,29 @@ proc GNamedArgs(s: { g: GGen, args: []CallArg, i: int, acc: []string }): GParts 
 
 // ---- Procs ----
 
-// The target's input, then a jump to it.
+// Writes the step to c's target: its input stored in env, zeroing the
+// outputs read for the last time, then a jump to it.
 proc GTransition(s: { g: GGen, pid: int, c: Call }): GGen {
 	GTransition -> GInput(s = { g = this.s.g, c = this.s.c });
 	// Outputs no later state reads go, so the collector can reclaim them.
 	GInput -> id(GW(g = this.g, ls = ["env.in" + Gname(n = GTransition.s.g.prog.nodes[GTransition.s.c.target]) + " = " + this.s] + GoLastReads(g = GTransition.s.g, pid = GTransition.s.pid, c = GTransition.s.c) + ["pc = " + GoPc(nodes = GTransition.s.g.prog.nodes, pid = GTransition.s.pid, n = GTransition.s.c.target), "continue"]));
 }
 
-// `zeroOut(&env.out<N>)` for each node the transition's call reads for the
-// last time, in node order.
+// Writes `zeroOut(&env.out<N>)` for each node the transition's call reads
+// for the last time, in node order, so its output can be collected.
 func GoLastReads(g: GGen, pid: int, c: Call): []string = "go_leaf.rs:go_last_reads";
 
 type GSwitchIn = { g: GGen, pid: int, n: int, arms: []SArm, top: bool, i: int, always: bool };
 
-// `{` or `if <tests> {`, then the bindings, matching p against this.
+// Writes the head of an arm matching p against this: `{` or `if <tests> {`,
+// then the bindings.
 func GoPatHead(t: Table, p: SPat): []string = "go_leaf.rs:go_pat_head";
 // Whether p matches every value.
 func GoPatAlways(t: Table, p: SPat): bool = "go_leaf.rs:go_pat_always";
 
-// Arms in order; a transition ends with `continue`, so the first arm that
-// matches is taken.
+// Writes a switch's arms in order, each testing its pattern or condition; a
+// transition ends with `continue`, so the first arm that matches is taken. A
+// top-level switch that can fall through returns an error.
 proc GSwitch(s: GSwitchIn): GGen {
 	GSwitch switch {
 		(this.s.i == this.s.arms.len && this.s.top && !this.s.always) -> id(GW(g = this.s.g, ls = ["return zero, fmt.Errorf(" + Quote(s = QualName(n = this.s.g.prog.nodes[this.s.n]) + ": no match arm for %v") + ", this)"])),
@@ -392,6 +424,7 @@ proc GSwitch(s: GSwitchIn): GGen {
 	PatBody -> GSwitch(s = { ..GSwitch.s, g = GW(g = this, ls = ["}"]), i = GSwitch.s.i + 1, always = GoPatAlways(t = GSwitch.s.g.table, p = PatOfTest(t = T)) });
 }
 
+// Writes an arm's body: a transition to its call, or a nested switch.
 proc GBody(s: { g: GGen, pid: int, n: int, body: SBody }): GGen {
 	GBody -> id(this.s.body) as B;
 	B switch {
@@ -400,8 +433,9 @@ proc GBody(s: { g: GGen, pid: int, n: int, body: SBody }): GGen {
 	};
 }
 
-// One state of a proc's machine: run the node, keep its output, then its
-// edge.
+// Writes one state of a proc's machine: run the node (a func through its
+// implementation, a proc through its run function, an id or signature node
+// from its input), keep its output, then its edge.
 proc GNode(s: { g: GGen, pid: int, n: int }): GGen {
 	GNode -> id(this.s.g.prog.nodes[BaseOf(nodes = this.s.g.prog.nodes, n = this.s.n)].kind) as K;
 	K switch {
@@ -416,11 +450,16 @@ proc GNode(s: { g: GGen, pid: int, n: int }): GGen {
 	};
 }
 
-// `case pc..:` through `env.out.. = this`.
+// Writes a node's state from `case pc..:` through `env.out.. = this`, the
+// node run in between.
 func GoNodeHead(g: GGen, pid: int, n: int, call: string): []string = "go_leaf.rs:go_node_head";
-// The for each's fanOut, through the `{` the collect's transition is in.
+// Writes a for each's fanOut over its region's function, through the `{` the
+// collect's transition is in.
 func GoFanOut(g: GGen, pid: int, n: int, dim: string): []string = "go_leaf.rs:go_fan_out";
 
+// Writes a node's state after its run: its edge (a transition, a switch, a
+// for each fanning out and collecting, or a spawn and its join), or, with
+// none, returning its output as the proc's.
 proc GNodeBody(s: { g: GGen, pid: int, n: int, call: string }): GGen {
 	GNodeBody switch {
 		(this.s.n in GraphOf(n = this.s.g.prog.nodes[this.s.pid]).edges) -> id(GraphOf(n = this.s.g.prog.nodes[this.s.pid]).edges[this.s.n]) as E,
@@ -440,11 +479,11 @@ proc GNodeBody(s: { g: GGen, pid: int, n: int, call: string }): GGen {
 	Collected -> id(GW(g = this, ls = ["}"]));
 }
 
-// Detached branches through spawnDetached, joined ones through joinAll,
-// then this: the joined outputs.
+// Writes a spawn's calls: detached branches through spawnDetached, joined
+// ones through joinAll, then this: the joined outputs.
 func GoSpawnLines(g: GGen, sp: SEdge, calls: []string): []string = "go_leaf.rs:go_spawn_lines";
 
-// A spawn's branches, each a call of its node (emit_spawn in the
+// Writes a spawn's branches, each a call of its node (emit_spawn in the
 // reference): every branch's arguments into variables, and the calls.
 proc GSpawn(s: { g: GGen, branches: []SBranch, i: int, calls: []string }): GParts {
 	GSpawn switch {
@@ -464,7 +503,8 @@ proc GSpawn(s: { g: GGen, branches: []SBranch, i: int, calls: []string }): GPart
 	GSpawnArgs -> GSpawn(s = { ..GSpawn.s, g = this.g, i = GSpawn.s.i + 1, calls = GSpawn.s.calls + [Called.callee + "(" + Join(parts = ["ctx"] + this.parts, sep = ", ") + ")"] });
 }
 
-// `a<i><Arg> := <value>` per argument of branch i; the variables.
+// Writes `a<i><Arg> := <value>` for each argument of branch i, and gives the
+// variables.
 proc GSpawnArgs(s: { g: GGen, i: int, args: []CallArg, j: int, acc: []string }): GParts {
 	GSpawnArgs switch {
 		(this.s.j == this.s.args.len) -> id({ g = this.s.g, parts = this.s.acc }),
@@ -473,7 +513,8 @@ proc GSpawnArgs(s: { g: GGen, i: int, args: []CallArg, j: int, acc: []string }):
 	GValue -> GSpawnArgs(s = { ..GSpawnArgs.s, g = GW(g = this.g, ls = ["a" + Itoa(i = GSpawnArgs.s.i) + Exported(s = GSpawnArgs.s.args[GSpawnArgs.s.j].name) + " := " + this.s]), j = GSpawnArgs.s.j + 1, acc = GSpawnArgs.s.acc + ["a" + Itoa(i = GSpawnArgs.s.i) + Exported(s = GSpawnArgs.s.args[GSpawnArgs.s.j].name)] });
 }
 
-// A region's state machine: a loop over its nodes' states.
+// Writes a region's state machine: a loop that stops when the context is
+// cancelled, over a switch on pc with a case per node.
 proc GLoop(s: { g: GGen, pid: int, r: int }): GGen {
 	GLoop -> GNodes(s = { g = GW(g = this.s.g, ls = ["for {", "if err := ctx.Err(); err != nil {", "return zero, err", "}", "switch pc {"]), pid = this.s.pid, nodes = GraphOf(n = this.s.g.prog.nodes[this.s.pid]).regions[this.s.r].nodes, i = 0 });
 	GNodes switch {
@@ -482,6 +523,7 @@ proc GLoop(s: { g: GGen, pid: int, r: int }): GGen {
 	};
 }
 
+// Writes each node's state in turn.
 proc GNodes(s: { g: GGen, pid: int, nodes: []int, i: int }): GGen {
 	GNodes switch {
 		(this.s.i == this.s.nodes.len || IsSomeS(m = this.s.g.fatal)) -> id(this.s.g),
@@ -490,21 +532,26 @@ proc GNodes(s: { g: GGen, pid: int, nodes: []int, i: int }): GGen {
 	GNode -> GNodes(s = { ..GNodes.s, g = this, i = GNodes.s.i + 1 });
 }
 
-// The env struct, the pc constants, and Run<Proc> through `pc := ..`.
+// Writes a proc's prelude: the env struct, the pc constants, and Run<Proc>
+// through `pc := ..`.
 func GoPrelude(g: GGen, pid: int): []string = "go_leaf.rs:go_prelude";
 
+// Writes a proc: Run<Proc> with its machine over the body, then a function
+// per for each region.
 proc GProc(s: { g: GGen, pid: int }): GGen {
 	func Opens(g: Graph): []int = "gen_leaf.rs:opens_by_region";
 	GProc -> GLoop(s = { g = GW(g = { ..this.s.g, proc_name = QualName(n = this.s.g.prog.nodes[this.s.pid]) }, ls = GoPrelude(g = this.s.g, pid = this.s.pid)), pid = this.s.pid, r = 0 });
 	GLoop -> GRegions(s = { g = GW(g = this, ls = ["}", ""]), pid = GProc.s.pid, opens = Opens(g = GraphOf(n = GProc.s.g.prog.nodes[GProc.s.pid])), i = 0 });
 }
 
-// run<Proc>Region<r>'s head, through `_ = this`.
+// Writes a region function's head, run<Proc>Region<r>, through `_ = this`.
 func GoRegionHead(g: GGen, pid: int, opener: int): []string = "go_leaf.rs:go_region_head";
-// `env.in<Entry> = input` and `pc := ..` for the region opener opens.
+// Writes `env.in<Entry> = input` and `pc := ..` for the region the opener
+// opens.
 func GoRegionEntry(g: GGen, pid: int, opener: int, input: string): []string = "go_leaf.rs:go_region_entry";
 
-// One func per for each region, run per element.
+// Writes one function per for each region, which runs the region on one
+// element: its input, then its own machine.
 proc GRegions(s: { g: GGen, pid: int, opens: []int, i: int }): GGen {
 	func EntryCall(g: Graph, opener: int): Call = "gen_leaf.rs:for_each_call_of";
 	GRegions switch {
@@ -515,7 +562,8 @@ proc GRegions(s: { g: GGen, pid: int, opens: []int, i: int }): GGen {
 	GLoop -> GRegions(s = { ..GRegions.s, g = GW(g = this, ls = ["}", ""]), i = GRegions.s.i + 1 });
 }
 
-// A top-level proc and the procs local to it, parents first.
+// Writes a top-level proc and the procs local to it, parents first, as one
+// file's code.
 proc GTree(s: { g: GGen, procs: []int, i: int, acc: string }): GEmit {
 	GTree switch {
 		(this.s.i == this.s.procs.len || IsSomeS(m = this.s.g.fatal)) -> id({ g = this.s.g, s = this.s.acc }),
@@ -524,17 +572,17 @@ proc GTree(s: { g: GGen, procs: []int, i: int, acc: string }): GEmit {
 	GProc -> GTree(s = { ..GTree.s, g = this, i = GTree.s.i + 1, acc = GTree.s.acc + Lines(lines = this.w, indent = "\t") });
 }
 
-// `<proc>_vandorf.go`
+// Names a top-level proc's file: `<proc>_vandorf.go`.
 func GoProcFile(n: NodeDecl): string = "go_leaf.rs:go_proc_file";
-// context and fmt, then the impls' imports.
+// Lists a proc file's imports: context and fmt, then the implementations'.
 func GoProcImports(imports: map[string]string): []GoImport = "go_leaf.rs:go_proc_imports";
-// A file of the code package: the header, importing the types package if
-// the code mentions it.
+// Writes a file of the code package: the header, importing the types package
+// if the code mentions it, then the code.
 func GoFileText(pkg: string, body: string, imports: []GoImport, setup: GoSetup): string = "go_leaf.rs:go_file_text";
 
-// A file per top-level proc.
+// Writes a file per top-level proc, with the procs local to it.
 proc GFiles(s: { g: GGen, package: string, setup: GoSetup, procs: []int, i: int, acc: []GoFile }): { g: GGen, files: []GoFile } {
-	// All procs, parents before children, in source order.
+	// Lists all procs, parents before children, in source order.
 	func Order(nodes: []NodeDecl, top: []int): []int = "gen_leaf.rs:all_procs_ordered";
 	GFiles switch {
 		(this.s.i == this.s.procs.len || IsSomeS(m = this.s.g.fatal)) -> id({ g = this.s.g, files = this.s.acc }),
@@ -545,21 +593,25 @@ proc GFiles(s: { g: GGen, package: string, setup: GoSetup, procs: []int, i: int,
 
 // ---- The whole backend ----
 
-// inputs_vandorf.go, stubs_vandorf.go (if any stubs) and runtime_vandorf.go.
+// Writes the code package's other files: inputs_vandorf.go, stubs_vandorf.go
+// (if any stubs) and runtime_vandorf.go.
 func GoRestFiles(g: GGen, package: string, setup: GoSetup): []GoFile = "go_leaf.rs:go_rest_files";
-// The mains, each a package main in its directory; or the first error.
+// Writes the bins' mains, each a package main in its directory; or the first
+// error.
 func GoMainFiles(prog: Program, t: Table, package: string, import_base: MaybeStr, mains: []GoMainSpec): GoOut = "go_leaf.rs:go_main_files";
 
-// http_vandorf.go, if there are servers: the runtime, JSON for every type,
-// and a handler per server (src/codegen/go_http.rs).
+// Writes http_vandorf.go, if there are servers: the runtime, JSON for every
+// type, and a handler per server (src/codegen/go_http.rs).
 func GoHttpFiles(prog: Program, t: Table, package: string, setup: GoSetup, servers: []GoServerSpec): GoOut = "go_leaf.rs:go_http_files";
-// Each server's package main: its static files, then HTTPRun (or
+// Writes each server's package main: its static files, then HTTPRun (or
 // HTTPRunSetup) with its handler.
 func GoServerMains(package: string, import_base: MaybeStr, servers: []GoServerSpec): GoOut = "go_leaf.rs:go_server_mains";
 
-// The Go for a program: files sorted by directory and name, or the first
-// error, in the reference's order: the types' import path, names, an error
-// that stopped the generator, one from an expression, then the mains.
+// Generates a program's Go: the types package, a file per top-level proc,
+// the inputs, stubs and runtime, the servers' handlers, and the bins' and
+// servers' mains, sorted by directory and name. Or the first error, in the
+// reference's order: the types' import path, names, an error that stopped
+// the generator, one from an expression, then the mains.
 proc GoGenerate(s: GoGenIn): GoOut {
 	func Sorted(files: []GoFile): []GoFile = "go_leaf.rs:go_sort_files";
 	GoGenerate -> id(GoSetupOf(package = this.s.package, import_base = this.s.import_base, types_dir = this.s.types_dir)) as Setup;

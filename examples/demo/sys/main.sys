@@ -1,6 +1,7 @@
-// The `demo` bin's entry (vandorf.toml): `demo <a: int> <b: string>`.
+// Runs Bar on the `demo` bin's command-line arguments (vandorf.toml): `demo
+// <a: int> <b: string>`.
 proc Main(a: int, b: string): string {
-	// Passes Main's command-line arguments on to Bar.
+	// Passes Main's command-line arguments on to Bar, unchanged.
 	func Start(a: int, b: string): { a: int, b: string } = "../go/app/impl.go:Args", "../rs/src/impls.rs:args";
 
 	Main -> Start(a = this.a, b = this.b);
