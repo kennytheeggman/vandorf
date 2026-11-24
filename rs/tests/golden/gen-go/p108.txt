@@ -4,6 +4,12 @@
 
 package app
 
+// inPP is the input of P.P.
+type inPP struct {
+	Acc []int
+	I int
+}
+
 // inPS is the input of P.S.
 type inPS struct {
 	Acc []int
@@ -42,6 +48,8 @@ import (
 )
 
 type envP struct {
+	inPP inPP
+	outPP types.St
 	inPS inPS
 	outPS types.St
 	inPT inPT
@@ -55,7 +63,8 @@ type envP struct {
 }
 
 const (
-	pcP_PS = iota
+	pcP_PP = iota
+	pcP_PS
 	pcP_PT
 	pcP_PK
 	pcP_PL
@@ -66,13 +75,20 @@ const (
 func RunP(ctx context.Context, acc []int, i int) ([]int, error) {
 	var zero []int
 	env := &envP{}
-	env.inPS = inPS{Acc: acc, I: i}
-	pc := pcP_PS
+	env.inPP = inPP{Acc: acc, I: i}
+	pc := pcP_PP
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcP_PP:
+			this := types.St{Acc: env.inPP.Acc, I: env.inPP.I}
+			zeroOut(&env.inPP)
+			_ = this
+			env.inPS = inPS{Acc: this.Acc, I: this.I}
+			pc = pcP_PS
+			continue
 		case pcP_PS:
 			this, err := unimplementedPS(ctx, env.inPS.Acc, env.inPS.I)
 			if err != nil {
@@ -411,6 +427,12 @@ type St struct {
 
 package app
 
+// inPP is the input of P.P.
+type inPP struct {
+	Acc []int
+	I int
+}
+
 // inPS is the input of P.S.
 type inPS struct {
 	Acc []int
@@ -448,6 +470,8 @@ import (
 )
 
 type envP struct {
+	inPP inPP
+	outPP St
 	inPS inPS
 	outPS St
 	inPT inPT
@@ -461,7 +485,8 @@ type envP struct {
 }
 
 const (
-	pcP_PS = iota
+	pcP_PP = iota
+	pcP_PS
 	pcP_PT
 	pcP_PK
 	pcP_PL
@@ -472,13 +497,20 @@ const (
 func RunP(ctx context.Context, acc []int, i int) ([]int, error) {
 	var zero []int
 	env := &envP{}
-	env.inPS = inPS{Acc: acc, I: i}
-	pc := pcP_PS
+	env.inPP = inPP{Acc: acc, I: i}
+	pc := pcP_PP
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcP_PP:
+			this := St{Acc: env.inPP.Acc, I: env.inPP.I}
+			zeroOut(&env.inPP)
+			_ = this
+			env.inPS = inPS{Acc: this.Acc, I: this.I}
+			pc = pcP_PS
+			continue
 		case pcP_PS:
 			this, err := unimplementedPS(ctx, env.inPS.Acc, env.inPS.I)
 			if err != nil {

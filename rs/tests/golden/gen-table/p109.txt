@@ -1,1 +1,1 @@
-
+#0 MainArgs struct { n: int, verbose: bool, name: string } (parameters of Main)

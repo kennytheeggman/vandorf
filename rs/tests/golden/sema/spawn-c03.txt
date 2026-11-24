@@ -1,4 +1,4 @@
 interface I { func B(n: int): int; } interface J { func B(n: int): int; }
-            proc P(A): int { func A(): int; func B(n: int): int; func C(n: int): string; func L(s: string): void; func D(b: int): int; func E(b: int): int; A -> spawn { B(n = 1) } join D(b = this.B); B -> D(b = this); }
+            proc P(): int { func A(): int; P -> A(); func B(n: int): int; func C(n: int): string; func L(s: string): void; func D(b: int): int; func E(b: int): int; A -> spawn { B(n = 1) } join D(b = this.B); B -> D(b = this); }
 ---
-error: P.B runs in a spawn, so it can't have an edge of its own: its output goes to the join @243..244
+error: P.B runs in a spawn, so it can't have an edge of its own: its output goes to the join @252..253

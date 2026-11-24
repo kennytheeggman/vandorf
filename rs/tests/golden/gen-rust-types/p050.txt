@@ -165,3 +165,8 @@ pub struct SC {
     pub d: i64,
 }
 
+/// The type of the parameters of P.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PArgs {
+}
+

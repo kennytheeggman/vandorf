@@ -220,7 +220,9 @@ pub fn go_setup(package: Str, import_base: MaybeStr, types_dir: Str) -> Result<G
 
 pub fn go_in_type(nodes: List<NodeDecl>, n: i64) -> Result<Str, String> {
     match &nodes[n as usize].kind {
-        NodeKind::Func(_) | NodeKind::Id(_) => Ok(format!("in{}", gn(&nodes, n)).into()),
+        NodeKind::Func(_) | NodeKind::Id(_) | NodeKind::Sig(_) => {
+            Ok(format!("in{}", gn(&nodes, n)).into())
+        }
         NodeKind::Proc(p) => go_in_type(nodes.clone(), p.entry),
         NodeKind::Alias(b) => go_in_type(nodes.clone(), *b),
     }
@@ -670,8 +672,30 @@ pub fn go_node_head(g: GGen, pid: i64, n: i64, call: Str) -> Result<List<Str>, S
     }
     call.push(')');
     let mut out = vec![format!("case {}:", pc(nodes, pid, n))];
-    let is_id = matches!(nodes[n as usize].kind, NodeKind::Id(_));
-    if is_id {
+    let is_id = matches!(nodes[n as usize].kind, NodeKind::Id(_) | NodeKind::Sig(_));
+    if let NodeKind::Sig(_) = &nodes[n as usize].kind {
+        // A signature node: its output is its input's fields.
+        let ty = ret_of(nodes, n);
+        let fields = params_of(nodes, n)
+            .iter()
+            .map(|m| {
+                let f = exported(&m.name);
+                let v = format!("env.in{id}.{f}");
+                if super::gen_leaf::ty_boxed(g.table.clone(), ty.clone(), m.name.clone())
+                    .unwrap_or(false)
+                {
+                    format!("{f}: ptrTo({v})")
+                } else {
+                    format!("{f}: {v}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push(format!(
+            "this := {}{{{fields}}}",
+            gtype(&g.table, &g.tq, &ty)
+        ));
+    } else if is_id {
         // id: the value is the output.
         out.push(format!("this := env.in{id}.Value"));
     } else if matches!(nodes[base as usize].kind, NodeKind::Func(_)) && is_void(&ret_of(nodes, n)) {
@@ -890,7 +914,7 @@ pub fn go_rest_files(g: GGen, package: Str, setup: GoSetup) -> Result<List<GoFil
     let mut w = vec![];
     for (id, n) in nodes.iter().enumerate() {
         let id = id as i64;
-        if let NodeKind::Func(_) | NodeKind::Id(_) = &n.kind {
+        if let NodeKind::Func(_) | NodeKind::Id(_) | NodeKind::Sig(_) = &n.kind {
             w.push(format!(
                 "// {} is the input of {}.",
                 in_type(nodes, id),

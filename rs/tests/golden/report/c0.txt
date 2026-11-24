@@ -1,5 +1,5 @@
 error: msg
- --> f.sys:1:25
+ --> f.sys:1:24
   |
-1 | proc P(A): int { func A(: int; }
-  |                         ^
+1 | proc P(): int { func A(: int; }
+  |                        ^

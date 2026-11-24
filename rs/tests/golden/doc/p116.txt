@@ -5,16 +5,49 @@
         {
           "nodes": [
             {
+              "type": 3,
+              "label": "Calc",
+              "sublabel": "(n: int)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "C"
             }
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ n: int }",
+          "call": "C(n: int)",
+          "args": "n = this.n"
+        }
+      ]
     },
     "Hi": {
       "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Hi",
+              "sublabel": "(name: string, ctx: Ctx)"
+            }
+          ]
+        },
         {
           "nodes": [
             {
@@ -24,10 +57,34 @@
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ name: string, ctx: Ctx }",
+          "call": "B(name: string, ctx: Ctx)",
+          "args": "name = this.name, ctx = this.ctx"
+        }
+      ]
     },
     "Page": {
       "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Page",
+              "sublabel": "(ctx: Ctx, req: Req)"
+            }
+          ]
+        },
         {
           "nodes": [
             {
@@ -37,10 +94,34 @@
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ ctx: Ctx, req: Req }",
+          "call": "P(ctx: Ctx, req: Req)",
+          "args": "ctx = this.ctx, req = this.req"
+        }
+      ]
     },
     "Setup": {
       "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Setup",
+              "sublabel": "()"
+            }
+          ]
+        },
         {
           "nodes": [
             {
@@ -50,7 +131,21 @@
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{  }",
+          "call": "S()"
+        }
+      ]
     }
   }
 }

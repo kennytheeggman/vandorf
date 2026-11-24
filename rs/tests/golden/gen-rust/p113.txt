@@ -93,22 +93,32 @@ fn fan_out<E: Send, R: Send>(xs: Vec<E>, f: impl Fn(E) -> Result<R, Error> + Syn
 
 #[derive(Debug, Clone, Default)]
 struct EnvArea {
+    in_area_area: Option<InAreaArea>,
+    out_area_area: Option<types::AreaArgs>,
     in_area_a: Option<InAreaA>,
     out_area_a: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcArea {
+    AreaArea,
     AreaA,
 }
 
 /// Runs proc Area.
-pub fn run_area(s: types::Shape, k: types::AreaAK) -> Result<f64, Error> {
+pub fn run_area(s: types::Shape, k: types::AreaK) -> Result<f64, Error> {
     let mut env = EnvArea::default();
-    env.in_area_a = Some(InAreaA { s: s, k: k });
-    let mut pc = PcArea::AreaA;
+    env.in_area_area = Some(InAreaArea { s: s, k: k });
+    let mut pc = PcArea::AreaArea;
     loop {
         match pc {
+            PcArea::AreaArea => {
+                let input = take_slot(&mut env.in_area_area, "Area.Area")?;
+                let this = types::AreaArgs { s: input.s, k: input.k };
+                env.in_area_a = Some(InAreaA { s: this.s, k: this.k });
+                pc = PcArea::AreaA;
+                continue;
+            }
             PcArea::AreaA => {
                 let input = take_slot(&mut env.in_area_a, "Area.A")?;
                 let this = unimplemented_area_a(input.s, input.k).map_err(|e| wrap("Area.A", e.into()))?;
@@ -123,22 +133,32 @@ pub fn run_area(s: types::Shape, k: types::AreaAK) -> Result<f64, Error> {
 
 #[derive(Debug, Clone, Default)]
 struct EnvHi {
+    in_hi_hi: Option<InHiHi>,
+    out_hi_hi: Option<types::HiArgs>,
     in_hi_b: Option<InHiB>,
     out_hi_b: Option<types::Str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcHi {
+    HiHi,
     HiB,
 }
 
 /// Runs proc Hi.
 pub fn run_hi(name: types::Str) -> Result<types::Str, Error> {
     let mut env = EnvHi::default();
-    env.in_hi_b = Some(InHiB { name: name });
-    let mut pc = PcHi::HiB;
+    env.in_hi_hi = Some(InHiHi { name: name });
+    let mut pc = PcHi::HiHi;
     loop {
         match pc {
+            PcHi::HiHi => {
+                let input = take_slot(&mut env.in_hi_hi, "Hi.Hi")?;
+                let this = types::HiArgs { name: input.name };
+                env.in_hi_b = Some(InHiB { name: this.name });
+                pc = PcHi::HiB;
+                continue;
+            }
             PcHi::HiB => {
                 let input = take_slot(&mut env.in_hi_b, "Hi.B")?;
                 let this = unimplemented_hi_b(input.name).map_err(|e| wrap("Hi.B", e.into()))?;
@@ -153,22 +173,32 @@ pub fn run_hi(name: types::Str) -> Result<types::Str, Error> {
 
 #[derive(Debug, Clone, Default)]
 struct EnvPage {
+    in_page_page: Option<InPagePage>,
+    out_page_page: Option<types::PageArgs>,
     in_page_c: Option<InPageC>,
     out_page_c: Option<types::PageOut>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcPage {
+    PagePage,
     PageC,
 }
 
 /// Runs proc Page.
 pub fn run_page(req: types::Req) -> Result<types::PageOut, Error> {
     let mut env = EnvPage::default();
-    env.in_page_c = Some(InPageC { req: req });
-    let mut pc = PcPage::PageC;
+    env.in_page_page = Some(InPagePage { req: req });
+    let mut pc = PcPage::PagePage;
     loop {
         match pc {
+            PcPage::PagePage => {
+                let input = take_slot(&mut env.in_page_page, "Page.Page")?;
+                let this = types::PageArgs { req: input.req };
+                env.in_page_c = Some(InPageC { req: this.req });
+                pc = PcPage::PageC;
+                continue;
+            }
             PcPage::PageC => {
                 let input = take_slot(&mut env.in_page_c, "Page.C")?;
                 let this = unimplemented_page_c(input.req).map_err(|e| wrap("Page.C", e.into()))?;
@@ -179,17 +209,36 @@ pub fn run_page(req: types::Req) -> Result<types::PageOut, Error> {
     }
 }
 
+/// Input of Area.Area.
+#[derive(Debug, Clone)]
+struct InAreaArea {
+    s: types::Shape,
+    k: types::AreaK,
+}
+
 /// Input of Area.A.
 #[derive(Debug, Clone)]
 struct InAreaA {
     s: types::Shape,
-    k: types::AreaAK,
+    k: types::AreaK,
+}
+
+/// Input of Hi.Hi.
+#[derive(Debug, Clone)]
+struct InHiHi {
+    name: types::Str,
 }
 
 /// Input of Hi.B.
 #[derive(Debug, Clone)]
 struct InHiB {
     name: types::Str,
+}
+
+/// Input of Page.Page.
+#[derive(Debug, Clone)]
+struct InPagePage {
+    req: types::Req,
 }
 
 /// Input of Page.C.
@@ -199,9 +248,9 @@ struct InPageC {
 }
 
 /// Stands in for Area.A, which names no .rs implementation. Write
-/// `pub fn name(s: types::Shape, k: types::AreaAK) -> Result<f64, E>`
+/// `pub fn name(s: types::Shape, k: types::AreaK) -> Result<f64, E>`
 /// and add `= "file.rs:name"` to its declaration.
-fn unimplemented_area_a(_: types::Shape, _: types::AreaAK) -> Result<f64, Error> {
+fn unimplemented_area_a(_: types::Shape, _: types::AreaK) -> Result<f64, Error> {
     Err("Area.A is not implemented".into())
 }
 
@@ -401,10 +450,23 @@ pub struct Req {
     pub body: Str,
 }
 
-/// The type of the parameter k of Area.A.
+/// The type of the parameter k of Area.Area.
 #[derive(Debug, Clone, PartialEq)]
-pub struct AreaAK {
+pub struct AreaK {
     pub n: i64,
+}
+
+/// The type of the parameters of Area.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AreaArgs {
+    pub s: Shape,
+    pub k: AreaK,
+}
+
+/// The type of the parameters of Hi.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HiArgs {
+    pub name: Str,
 }
 
 /// The type of the return of Page.
@@ -413,6 +475,12 @@ pub struct PageOut {
     pub status: i64,
     pub headers: Map<Str, Str>,
     pub body: Str,
+}
+
+/// The type of the parameters of Page.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PageArgs {
+    pub req: Req,
 }
 
 

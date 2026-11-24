@@ -93,6 +93,8 @@ fn fan_out<E: Send, R: Send>(xs: Vec<E>, f: impl Fn(E) -> Result<R, Error> + Syn
 
 #[derive(Debug, Clone, Default)]
 struct EnvP {
+    in_p_p: Option<InPP>,
+    out_p_p: Option<types::PArgs>,
     in_p_a: Option<InPA>,
     out_p_a: Option<i64>,
     in_p_id1: Option<InPId1>,
@@ -101,6 +103,7 @@ struct EnvP {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcP {
+    PP,
     PA,
     PId1,
 }
@@ -108,10 +111,17 @@ enum PcP {
 /// Runs proc P.
 pub fn run_p() -> Result<i64, Error> {
     let mut env = EnvP::default();
-    env.in_p_a = Some(InPA {  });
-    let mut pc = PcP::PA;
+    env.in_p_p = Some(InPP {  });
+    let mut pc = PcP::PP;
     loop {
         match pc {
+            PcP::PP => {
+                let input = take_slot(&mut env.in_p_p, "P.P")?;
+                let this = types::PArgs {  };
+                env.in_p_a = Some(InPA {  });
+                pc = PcP::PA;
+                continue;
+            }
             PcP::PA => {
                 let input = take_slot(&mut env.in_p_a, "P.A")?;
                 let this = unimplemented_p_a().map_err(|e| wrap("P.A", e.into()))?;
@@ -121,7 +131,7 @@ pub fn run_p() -> Result<i64, Error> {
                 thread_builder().spawn(move || if let Err(e) = unimplemented_p_l(a0_s).map_err(|e| wrap("P.L", e.into())) { eprintln!("error: {}", describe_error(&e)); }).expect("cannot spawn a thread");
                 thread_builder().spawn(move || if let Err(e) = unimplemented_p_l(a1_s).map_err(|e| wrap("P.L2", e.into())) { eprintln!("error: {}", describe_error(&e)); }).expect("cannot spawn a thread");
                 let this = std::thread::scope(|s| -> Result<_, Error> {
-                    Ok(types::PAJoined {  })
+                    Ok(types::PArgs {  })
                 })?;
                 let slot_p_a = take_slot(&mut env.out_p_a, "P.A")?;
                 env.in_p_id1 = Some(InPId1 { value: slot_p_a });
@@ -136,6 +146,11 @@ pub fn run_p() -> Result<i64, Error> {
             _ => return Err(format!("P: invalid state {pc:?}").into()),
         }
     }
+}
+
+/// Input of P.P.
+#[derive(Debug, Clone)]
+struct InPP {
 }
 
 /// Input of P.A.
@@ -334,9 +349,9 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
     }
 }
 
-/// The type of the joined branches of P.A's spawn.
+/// The type of the parameters of P.
 #[derive(Debug, Clone, PartialEq)]
-pub struct PAJoined {
+pub struct PArgs {
 }
 
 

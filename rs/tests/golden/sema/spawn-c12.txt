@@ -1,8 +1,9 @@
 interface I { func B(n: int): int; } interface J { func B(n: int): int; }
-            proc P(A): int { func A(): int; func B(n: int): int; func C(n: int): string; func L(s: string): void; func D(b: int): int; func E(b: int): int; A -> spawn { B(n = 1) } join D(b = this.B); D -> spawn { B(n = 2) as B3 } join E(b = this.B3 + A); }
+            proc P(): int { func A(): int; P -> A(); func B(n: int): int; func C(n: int): string; func L(s: string): void; func D(b: int): int; func E(b: int): int; A -> spawn { B(n = 1) } join D(b = this.B); D -> spawn { B(n = 2) as B3 } join E(b = this.B3 + A); }
 ---
-#2 edge #3: spawn { call #4(n:int=1) @243..244 text="n = 1" } join :{ B: int } -> call #7(b:int=this.B:int@265..271) @259..260 text="b = this.B"
-#2 edge #7: spawn { call #9(n:int=2) @287..288 text="n = 2" } join :{ B3: int } -> call #8(b:int=(this.B3:int@315..322 + #3:int@325..326 :int)) @309..310 text="b = this.B3 + A"
-#2 spawned={4: 3, 9: 7}
-#2 region 0: parent=-1 entry=3 elem=void nodes=[3, 7, 8] sink=-1
-#2 region_of={3: 0, 7: 0, 8: 0} opens={}
+#2 edge #3: call #4() @122..123 text=""
+#2 edge #4: spawn { call #5(n:int=1) @252..253 text="n = 1" } join :{ B: int } -> call #8(b:int=this.B:int@274..280) @268..269 text="b = this.B"
+#2 edge #8: spawn { call #10(n:int=2) @296..297 text="n = 2" } join :{ B3: int } -> call #9(b:int=(this.B3:int@324..331 + #4:int@334..335 :int)) @318..319 text="b = this.B3 + A"
+#2 spawned={5: 4, 10: 8}
+#2 region 0: parent=-1 entry=3 elem=void nodes=[3, 4, 8, 9] sink=-1
+#2 region_of={3: 0, 4: 0, 8: 0, 9: 0} opens={}

@@ -1,3 +1,7 @@
 #0 Ctx struct { greeting: string } (typedef Ctx)
 #1 Req struct { method: string, path: string, query: map[string]string, headers: map[string]string, body: string } (typedef Req)
-#2 PageOut struct { status: int, headers: map[string]string, body: string } (return of Page)
+#2 SetupArgs struct {  } (parameters of Setup)
+#3 HiArgs struct { name: string, ctx: #0 } (parameters of Hi)
+#4 CalcArgs struct { n: int } (parameters of Calc)
+#5 PageOut struct { status: int, headers: map[string]string, body: string } (return of Page)
+#6 PageArgs struct { ctx: #0, req: #1 } (parameters of Page)

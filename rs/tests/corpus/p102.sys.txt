@@ -1,7 +1,8 @@
 
-        proc P(A): int {
+        proc P(): int {
             func A(): { n: int } = "a.go:A", "../impls/a.rs:a";
             func B(i: int): int = "../other/b.go:B";
+            P -> A();
             A -> B(i = A.n);
         }
     

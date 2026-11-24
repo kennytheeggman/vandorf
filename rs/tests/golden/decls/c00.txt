@@ -1,6 +1,6 @@
 type S = { a: int, b: string, c: { d: int } };
-       proc P(A): S {
-           func A(): S;
+       proc P(): S {
+           func A(): S; P -> A();
            func N(s: S): int;
            func W(w: { a: int, b: string, c: { d: int }, n: int }): int;
            A -> N(s = { ..this, a = 1 });
@@ -8,10 +8,11 @@ type S = { a: int, b: string, c: { d: int } };
            W -> id({ ..A });
        }
 ---
-P @59..60 proc parent=-1 entry=1 ret=S locals=[1, 2, 3, 4]
-P.A @85..86 func (): S = 
-P.N @109..110 func (s: S): int = 
-P.W @139..140 func (w: { a: int, b: string, c: { d: int }, n: int }): int = 
-P.id1 @332..334 id (value: S)
+P @59..60 proc parent=-1 entry=1 ret=S locals=[1, 2, 3, 4, 5]
+P.P @59..60 sig of 0 ()
+P.A @84..85 func (): S = 
+P.N @118..119 func (s: S): int = 
+P.W @148..149 func (w: { a: int, b: string, c: { d: int }, n: int }): int = 
+P.id1 @341..343 id (value: S)
 global P = 0
 top [0]

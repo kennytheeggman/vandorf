@@ -1,9 +1,10 @@
 
             type R<T> = { x: T, pos: int };
             type Toks = R<[]string>;
-            proc P(A): R<int> { func A(r: Toks): R<int>; }
+            proc P(r: Toks): R<int> { func A(r: Toks): R<int>; P -> A(r = this.r); }
         
 ---
+#0 edge #1: call #2(r:Toks=this.r:Toks@156..162) @150..151 text="r = this.r"
 #0 spawned={}
-#0 region 0: parent=-1 entry=1 elem=void nodes=[1] sink=-1
-#0 region_of={1: 0} opens={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2] sink=-1
+#0 region_of={1: 0, 2: 0} opens={}

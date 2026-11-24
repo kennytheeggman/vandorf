@@ -1,1 +1,2 @@
-#0 PAOut enum { L: void, R: void } (return of P.A)
+#0 PArgs struct {  } (parameters of P)
+#1 PAOut enum { L: void, R: void } (return of P.A)

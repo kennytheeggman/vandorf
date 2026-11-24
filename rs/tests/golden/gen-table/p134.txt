@@ -1,0 +1,2 @@
+#0 CountArgs struct { n: int, acc: int } (parameters of Count)
+#1 FibArgs struct { n: int } (parameters of Fib)

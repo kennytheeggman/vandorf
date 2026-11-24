@@ -1,1 +1,1 @@
-type T = { x: int }; proc P(A): int { func A(): T; func B(t: T): int; A -> B(t = this); }
+type T = { x: int }; proc P(): int { func A(): T; func B(t: T): int; P -> A(); A -> B(t = this); }

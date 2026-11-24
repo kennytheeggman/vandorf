@@ -1,4 +1,4 @@
 interface I { func B(n: int): int; } interface J { func B(n: int): int; }
-            proc P(A): int { func A(): int; func B(n: int): int; func C(n: int): string; func L(s: string): void; func D(b: int): int; func E(b: int): int; A -> spawn { B(n = 1) } join D(b = this.B); D -> E(b = B); }
+            proc P(): int { func A(): int; P -> A(); func B(n: int): int; func C(n: int): string; func L(s: string): void; func D(b: int): int; func E(b: int): int; A -> spawn { B(n = 1) } join D(b = this.B); D -> E(b = B); }
 ---
-error: P.B runs in P.A's spawn, so its output is only visible to the join, as this.B @285..286
+error: P.B runs in P.A's spawn, so its output is only visible to the join, as this.B @294..295

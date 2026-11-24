@@ -1,3 +1,3 @@
-type W<T> = W<T>; type A = W<int>; proc P(X): int { func X(): int; }
+type W<T> = W<T>; type A = W<int>; proc P(): int { func X(): int; P -> X(); }
 ---
 error: type W<int> refers to itself, so it must be a struct or enum @27..28

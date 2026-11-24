@@ -1,2 +1,3 @@
-#0 PSOut struct { a: bool, b: #1 } (return of P.S)
-#1 PSOutB enum { X: void, Y: int } (return of P.S)
+#0 PArgs struct {  } (parameters of P)
+#1 PSOut struct { a: bool, b: #2 } (return of P.S)
+#2 PSOutB enum { X: void, Y: int } (return of P.S)

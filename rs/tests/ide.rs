@@ -53,9 +53,9 @@ fn reads_sources_and_compiles() {
     assert!(src.body.starts_with(r#"{"ok":true,"path":"src/lib.rs","source":"#), "{}", src.body);
     let esc = req("GET", "/api/source", &[("path", "../../../../../etc/passwd")], &[], "");
     assert_eq!(esc.status, 400);
-    let c = req("POST", "/api/compile", &[], &[], r#"{"source": "proc Main(A): int { func A(n: int): int; A -> id(this + 1); }"}"#);
+    let c = req("POST", "/api/compile", &[], &[], r#"{"source": "proc Main(n: int): int { func A(n: int): int; Main -> A(n = this.n); A -> id(this + 1); }"}"#);
     assert_eq!(c.status, 200);
     assert!(c.body.contains(r#""grids":1"#) && c.body.contains(r#""ok":true"#) && c.body.contains(r#""signature""#) == false, "{}", &c.body[..200]);
-    let e = req("POST", "/api/compile", &[], &[], r#"{"source": "proc P(A): int { func A(): string; }"}"#);
+    let e = req("POST", "/api/compile", &[], &[], r#"{"source": "proc P(): int { func A(): string; P -> A(); }"}"#);
     assert!(e.body.contains(r#""diagnostics":[{"file":"<editor>","from":{"ch":5,"line":0},"here":true,"msg":"P.A ends proc P but returns string, expected int""#), "{}", e.body);
 }

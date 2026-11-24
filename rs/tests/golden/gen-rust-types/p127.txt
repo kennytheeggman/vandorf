@@ -151,3 +151,9 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
     }
 }
 
+/// The type of the parameters of Tool.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToolArgs {
+    pub args: List<Str>,
+}
+

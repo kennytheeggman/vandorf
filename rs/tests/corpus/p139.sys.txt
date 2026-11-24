@@ -1,0 +1,1 @@
+proc P(a: int): int { func P(x: int): int; P -> id(1); }

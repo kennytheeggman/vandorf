@@ -1,5 +1,6 @@
-type T = enum { Leaf(int), Node({ kids: []T, m: map[string]T }) }; proc P(X): int { func X(): int; }
+type T = enum { Leaf(int), Node({ kids: []T, m: map[string]T }) }; proc P(): int { func X(): int; P -> X(); }
 ---
+#0 edge #1: call #2() @103..104 text=""
 #0 spawned={}
-#0 region 0: parent=-1 entry=1 elem=void nodes=[1] sink=-1
-#0 region_of={1: 0} opens={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2] sink=-1
+#0 region_of={1: 0, 2: 0} opens={}

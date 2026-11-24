@@ -1,0 +1,1 @@
+proc P(a: int): string { func F(x: int): int; P -> F(x = this.a) as X; X -> id(this) as Y; }

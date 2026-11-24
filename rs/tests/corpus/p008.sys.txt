@@ -1,1 +1,1 @@
-proc P(A): int { func A(): string; }
+proc P(): int { func A(): string; P -> A(); }

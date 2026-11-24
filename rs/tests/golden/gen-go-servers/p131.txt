@@ -689,14 +689,14 @@ func httpPercentDecode(s string) string {
 	return strings.ToValidUTF8(string(out), "�")
 }
 
-func httpEncPAJoined(b *strings.Builder, x types.PAJoined) {
+func httpEncPArgs(b *strings.Builder, x types.PArgs) {
 	b.WriteByte('{')
 	b.WriteByte('}')
 }
 
-func httpDecPAJoined(v any) (types.PAJoined, error) {
-	var x types.PAJoined
-	_, err := httpObject(v, "PAJoined")
+func httpDecPArgs(v any) (types.PArgs, error) {
+	var x types.PArgs
+	_, err := httpObject(v, "PArgs")
 	if err != nil {
 		return x, err
 	}
@@ -736,6 +736,10 @@ func HTTPHandlePlain(ctx context.Context, req *HTTPRequest) (HTTPResponse, bool)
 
 package app
 
+// inPP is the input of P.P.
+type inPP struct {
+}
+
 // inPA is the input of P.A.
 type inPA struct {
 }
@@ -763,6 +767,8 @@ import (
 )
 
 type envP struct {
+	inPP inPP
+	outPP types.PArgs
 	inPA inPA
 	outPA int
 	inPId1 inPId1
@@ -770,7 +776,8 @@ type envP struct {
 }
 
 const (
-	pcP_PA = iota
+	pcP_PP = iota
+	pcP_PA
 	pcP_PId1
 )
 
@@ -778,13 +785,20 @@ const (
 func RunP(ctx context.Context) (int, error) {
 	var zero int
 	env := &envP{}
-	env.inPA = inPA{}
-	pc := pcP_PA
+	env.inPP = inPP{}
+	pc := pcP_PP
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcP_PP:
+			this := types.PArgs{}
+			zeroOut(&env.inPP)
+			_ = this
+			env.inPA = inPA{}
+			pc = pcP_PA
+			continue
 		case pcP_PA:
 			this, err := unimplementedPA(ctx)
 			if err != nil {
@@ -813,7 +827,7 @@ func RunP(ctx context.Context) (int, error) {
 			); err != nil {
 				return zero, err
 			}
-			this := types.PAJoined{}
+			this := types.PArgs{}
 			_ = this
 			env.inPId1 = inPId1{Value: env.outPA}
 			zeroOut(&env.outPA)
@@ -1115,8 +1129,8 @@ func main() {
 
 package types
 
-// PAJoined is the type of the joined branches of P.A's spawn.
-type PAJoined struct {
+// PArgs is the type of the parameters of P.
+type PArgs struct {
 }
 
 

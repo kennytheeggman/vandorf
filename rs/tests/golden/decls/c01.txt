@@ -1,12 +1,12 @@
 interface IO { func Read(p: string): string = "io.go:Read", "io.rs:read"; func Read(): int; }
        func Top(x: int): R<int>;
        type R<T> = { x: T };
-       proc P(A): int {
-           func A(): int;
-           proc Q(B): int { func B(): int; B -> A(); };
+       proc P(): int {
+           func A(): int; P -> A();
+           proc Q(): int { func B(): int; Q -> B(); B -> A(); };
            A -> Q() as Q2;
            Q2 switch { (this > 0) -> id(1), else -> Q() as Q2 };
        }
-       proc Main(S): int { func S(): int; S -> P(); }
+       proc Main(): int { func S(): int; Main -> S(); S -> P(); }
 ---
 error: duplicate func Read in interface IO @79..83

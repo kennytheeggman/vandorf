@@ -1,0 +1,10 @@
+// A proc declared with its signature: the body starts from the proc's own
+// name, whose output is its parameters.
+proc Greet(name: string, times: int): string {
+	func Repeat(s: string, n: int): string;
+	Greet -> Repeat(s = "hello " + this.name, n = Greet.times);
+}
+
+proc Main(): string {
+	Main -> Greet(name = "x", times = 2);
+}

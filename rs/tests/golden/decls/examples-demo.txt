@@ -1,17 +1,21 @@
 Foo.Call func (s: string): int = ../go/effects/foo.go:Call, ../rs/src/effects.rs:call
-Measure proc parent=-1 entry=2 ret=Report locals=[2, 3, 4, 5]
+Measure proc parent=-1 entry=2 ret=Report locals=[2, 3, 4, 5, 6]
+Measure.Measure sig of 1 (shapes: []Shape)
 Measure.Shapes func (shapes: []Shape): []Shape = ../go/app/impl.go:Shapes, ../rs/src/impls.rs:shapes
 Measure.Area func (s: Shape): Measured = ../go/app/impl.go:Area, ../rs/src/impls.rs:area
 Measure.Step func (f: Fold): Fold = ../go/app/impl.go:Step, ../rs/src/impls.rs:step
 Measure.id1 id (value: Report)
-Hello proc parent=-1 entry=7 ret=string locals=[7]
+Hello proc parent=-1 entry=8 ret=string locals=[8, 9]
+Hello.Hello sig of 7 (name: string, times: int)
 Hello.Greet func (name: string, times: int): string = ../go/app/impl.go:Greet, ../rs/src/impls.rs:greet
-Calc proc parent=-1 entry=9 ret=int locals=[9, 10, 11, 12]
+Calc proc parent=-1 entry=11 ret=int locals=[11, 12, 13, 14, 15]
+Calc.Calc sig of 10 (base: int)
 Calc.Build func (base: int): Expr = ../go/app/impl.go:Build, ../rs/src/impls.rs:build
 Calc.Eval func (e: Expr, scale: int): int = ../go/app/impl.go:Eval, ../rs/src/impls.rs:eval
 Calc.Total func (xs: []int): int = ../go/app/impl.go:Total, ../rs/src/impls.rs:total
-Calc.Twice alias of 10
-Classify proc parent=-1 entry=14 ret=string locals=[14, 15, 16, 17, 18, 19, 20, 21, 22]
+Calc.Twice alias of 13
+Classify proc parent=-1 entry=17 ret=string locals=[17, 18, 19, 20, 21, 22, 23, 24, 25, 26]
+Classify.Classify sig of 16 (e: Expr)
 Classify.Look func (e: Expr): Expr = ../go/app/impl.go:Look, ../rs/src/impls.rs:look
 Classify.Small func (i: int): bool = ../go/app/impl.go:Small, ../rs/src/impls.rs:small
 Classify.id1 id (value: string)
@@ -20,32 +24,36 @@ Classify.id3 id (value: string)
 Classify.id4 id (value: string)
 Classify.id5 id (value: string)
 Classify.id6 id (value: string)
-Classify.Inner alias of 13
-ForEach proc parent=-1 entry=24 ret=int locals=[24, 25, 26]
+Classify.Inner alias of 16
+ForEach proc parent=-1 entry=28 ret=int locals=[28, 29, 30, 31]
+ForEach.ForEach sig of 27 (i: int)
 ForEach.Start func (i: int): { l: []int, s: string } = ../go/app/impl.go:Range, ../rs/src/impls.rs:range
 ForEach.Process func (i: int, l: []int): int = ../go/app/impl.go:Square, ../rs/src/impls.rs:square
 ForEach.Collect func (l: []int): int = ../go/app/impl.go:Sum, ../rs/src/impls.rs:sum
-Bar proc parent=-1 entry=28 ret=string locals=[28, 29, 30, 31, 32, 33]
+Bar proc parent=-1 entry=33 ret=string locals=[33, 34, 35, 36, 37, 38, 39]
+Bar.Bar sig of 32 (a: int, b: string)
 Bar.Start func (a: int, b: string): string = ../go/app/impl.go:Repeat, ../rs/src/impls.rs:repeat
 Bar.Loop func (s: string): int = ../go/app/impl.go:Grow, ../rs/src/impls.rs:grow
 Bar.Branch1 func (i: int): string = 
 Bar.Branch2Begin func (i: int): string = ../go/app/impl.go:Describe, ../rs/src/impls.rs:describe
 Bar.Branch2End func (i: int): void = ../go/app/impl.go:Log, ../rs/src/impls.rs:log
 Bar.End func (r: Outcome): string = ../go/app/impl.go:Finish, ../rs/src/impls.rs:finish
-Main proc parent=-1 entry=35 ret=string locals=[35]
+Main proc parent=-1 entry=41 ret=string locals=[41, 42]
+Main.Main sig of 40 (a: int, b: string)
 Main.Start func (a: int, b: string): { a: int, b: string } = ../go/app/impl.go:Args, ../rs/src/impls.rs:args
-Resolve proc parent=-1 entry=37 ret=string locals=[37, 38, 39, 40]
+Resolve proc parent=-1 entry=44 ret=string locals=[44, 45, 46, 47, 48]
+Resolve.Resolve sig of 43 (names: []string, query: string)
 Resolve.Declare func (names: []string, query: string): { scope: Scope, query: string } = ../go/app/impl.go:Declare, ../rs/src/impls.rs:declare
 Resolve.Adjust func (scope: Scope, query: string): { scope: Scope, query: string } = ../go/app/impl.go:Adjust, ../rs/src/impls.rs:adjust
 Resolve.Found func (name: string, slot: int, kind: string, total: int): string = ../go/app/impl.go:Found, ../rs/src/impls.rs:found
 Resolve.Missing func (name: string, known: []string): string = ../go/app/impl.go:Missing, ../rs/src/impls.rs:missing
-global Bar = 27 = 27
-global Calc = 8 = 8
-global Classify = 13 = 13
+global Bar = 32 = 32
+global Calc = 10 = 10
+global Classify = 16 = 16
 global Foo = interface {"Call": 0} = interface {"Call": 0}
-global ForEach = 23 = 23
-global Hello = 6 = 6
-global Main = 34 = 34
+global ForEach = 27 = 27
+global Hello = 7 = 7
+global Main = 40 = 40
 global Measure = 1 = 1
-global Resolve = 36 = 36
-top [1, 6, 8, 13, 23, 27, 34, 36] 6, 8, 13, 23, 27, 34, 36]
+global Resolve = 43 = 43
+top [1, 7, 10, 16, 27, 32, 40, 43] 7, 10, 16, 27, 32, 40, 43]

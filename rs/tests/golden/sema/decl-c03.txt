@@ -1,3 +1,3 @@
-proc P(A): int { func B(): int; }
+proc P(): int { func B(): int; P -> A(); }
 ---
-error: entry A is not declared in proc P @7..8
+error: unknown node A @36..37

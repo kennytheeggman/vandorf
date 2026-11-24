@@ -1,8 +1,9 @@
 
-        proc P(A): { n: int, tags: []string } {
+        proc P(): { n: int, tags: []string } {
             func A(): int;
             func B(i: int): []int;
             func C(i: int): int;
+            P -> A();
             A switch {
                 (this > 0) -> id({ n = this, tags = ["pos"] }),
                 (this == 0) -> B(i = this),
@@ -13,10 +14,11 @@
         }
         
 ---
-#0 edge #1: switch [(this > 0)] ((this:int@184..188 > 0 :int)) -> call #4(value:{ n: int, tags: []string }={n=this:int@206..210,tags=["pos"]}) @197..199 text="{ n = this, tags = [\"pos\"] }"; [(this == 0)] ((this:int@248..252 == 0 :int)) -> call #2(i:int=this:int@268..272) @262..263 text="i = this"; [else] else -> call #5(value:{ n: int, tags: []string }={n=(-this:int@309..313),tags=[]}) @299..301 text="{ n = -this, tags = [] }"
-#0 edge #2: for each this:[]int@367..371 :int -> call #3(i:int=this:int@382..386) @376..377 text="i = this"
-#0 edge #3: collect -> call #6(value:{ n: int, tags: []string }={n=this:[]int@432..440.len@[]int,tags=["many"]}) @423..425 text="{ n = this.len, tags = [\"many\"] }"
+#0 edge #1: call #2() @160..161 text=""
+#0 edge #2: switch [(this > 0)] ((this:int@205..209 > 0 :int)) -> call #5(value:{ n: int, tags: []string }={n=this:int@227..231,tags=["pos"]}) @218..220 text="{ n = this, tags = [\"pos\"] }"; [(this == 0)] ((this:int@269..273 == 0 :int)) -> call #3(i:int=this:int@289..293) @283..284 text="i = this"; [else] else -> call #6(value:{ n: int, tags: []string }={n=(-this:int@330..334),tags=[]}) @320..322 text="{ n = -this, tags = [] }"
+#0 edge #3: for each this:[]int@388..392 :int -> call #4(i:int=this:int@403..407) @397..398 text="i = this"
+#0 edge #4: collect -> call #7(value:{ n: int, tags: []string }={n=this:[]int@453..461.len@[]int,tags=["many"]}) @444..446 text="{ n = this.len, tags = [\"many\"] }"
 #0 spawned={}
-#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 4, 2, 5, 6] sink=-1
-#0 region 1: parent=0 entry=3 elem=int nodes=[3] sink=3
-#0 region_of={1: 0, 2: 0, 3: 1, 4: 0, 5: 0, 6: 0} opens={2: 1}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2, 5, 3, 6, 7] sink=-1
+#0 region 1: parent=0 entry=4 elem=int nodes=[4] sink=4
+#0 region_of={1: 0, 2: 0, 3: 0, 4: 1, 5: 0, 6: 0, 7: 0} opens={3: 1}

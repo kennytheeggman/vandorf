@@ -13,11 +13,13 @@ import (
 )
 
 type envBar struct {
+	inBarBar inBarBar
+	outBarBar types.BarArgs
 	inBarStart inBarStart
 	outBarStart string
 	inBarLoop inBarLoop
 	outBarLoop int
-	inForEach inForEachStart
+	inForEach inForEachForEach
 	outForEach int
 	inBarBranch1 inBarBranch1
 	outBarBranch1 string
@@ -32,7 +34,8 @@ type envBar struct {
 }
 
 const (
-	pcBar_BarStart = iota
+	pcBar_BarBar = iota
+	pcBar_BarStart
 	pcBar_BarLoop
 	pcBar_ForEach
 	pcBar_BarBranch1
@@ -46,13 +49,20 @@ const (
 func RunBar(ctx context.Context, a int, b string) (string, error) {
 	var zero string
 	env := &envBar{}
-	env.inBarStart = inBarStart{A: a, B: b}
-	pc := pcBar_BarStart
+	env.inBarBar = inBarBar{A: a, B: b}
+	pc := pcBar_BarBar
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcBar_BarBar:
+			this := types.BarArgs{A: env.inBarBar.A, B: env.inBarBar.B}
+			zeroOut(&env.inBarBar)
+			_ = this
+			env.inBarStart = inBarStart{A: this.A, B: this.B}
+			pc = pcBar_BarStart
+			continue
 		case pcBar_BarStart:
 			this, err := app.Repeat(ctx, env.inBarStart.A, env.inBarStart.B)
 			if err != nil {
@@ -77,7 +87,7 @@ func RunBar(ctx context.Context, a int, b string) (string, error) {
 					continue
 				}
 			}
-			env.inForEach = inForEachStart{I: this}
+			env.inForEach = inForEachForEach{I: this}
 			pc = pcBar_ForEach
 			continue
 		case pcBar_ForEach:
@@ -166,6 +176,8 @@ import (
 )
 
 type envCalc struct {
+	inCalcCalc inCalcCalc
+	outCalcCalc types.CalcArgs
 	inCalcBuild inCalcBuild
 	outCalcBuild types.Expr
 	inCalcEval inCalcEval
@@ -177,7 +189,8 @@ type envCalc struct {
 }
 
 const (
-	pcCalc_CalcBuild = iota
+	pcCalc_CalcCalc = iota
+	pcCalc_CalcBuild
 	pcCalc_CalcEval
 	pcCalc_CalcTwice
 	pcCalc_CalcTotal
@@ -187,13 +200,20 @@ const (
 func RunCalc(ctx context.Context, base int) (int, error) {
 	var zero int
 	env := &envCalc{}
-	env.inCalcBuild = inCalcBuild{Base: base}
-	pc := pcCalc_CalcBuild
+	env.inCalcCalc = inCalcCalc{Base: base}
+	pc := pcCalc_CalcCalc
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcCalc_CalcCalc:
+			this := types.CalcArgs{Base: env.inCalcCalc.Base}
+			zeroOut(&env.inCalcCalc)
+			_ = this
+			env.inCalcBuild = inCalcBuild{Base: this.Base}
+			pc = pcCalc_CalcBuild
+			continue
 		case pcCalc_CalcBuild:
 			this, err := app.Build(ctx, env.inCalcBuild.Base)
 			if err != nil {
@@ -255,6 +275,8 @@ import (
 )
 
 type envClassify struct {
+	inClassifyClassify inClassifyClassify
+	outClassifyClassify types.ClassifyArgs
 	inClassifyLook inClassifyLook
 	outClassifyLook types.Expr
 	inClassifyId1 inClassifyId1
@@ -263,7 +285,7 @@ type envClassify struct {
 	outClassifyId2 string
 	inClassifyId3 inClassifyId3
 	outClassifyId3 string
-	inClassifyInner inClassifyLook
+	inClassifyInner inClassifyClassify
 	outClassifyInner string
 	inClassifyId4 inClassifyId4
 	outClassifyId4 string
@@ -274,7 +296,8 @@ type envClassify struct {
 }
 
 const (
-	pcClassify_ClassifyLook = iota
+	pcClassify_ClassifyClassify = iota
+	pcClassify_ClassifyLook
 	pcClassify_ClassifyId1
 	pcClassify_ClassifyId2
 	pcClassify_ClassifyId3
@@ -288,13 +311,20 @@ const (
 func RunClassify(ctx context.Context, e types.Expr) (string, error) {
 	var zero string
 	env := &envClassify{}
-	env.inClassifyLook = inClassifyLook{E: e}
-	pc := pcClassify_ClassifyLook
+	env.inClassifyClassify = inClassifyClassify{E: e}
+	pc := pcClassify_ClassifyClassify
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcClassify_ClassifyClassify:
+			this := types.ClassifyArgs{E: env.inClassifyClassify.E}
+			zeroOut(&env.inClassifyClassify)
+			_ = this
+			env.inClassifyLook = inClassifyLook{E: this.E}
+			pc = pcClassify_ClassifyLook
+			continue
 		case pcClassify_ClassifyLook:
 			this, err := app.Look(ctx, env.inClassifyLook.E)
 			if err != nil {
@@ -328,7 +358,7 @@ func RunClassify(ctx context.Context, e types.Expr) (string, error) {
 			if this.Tag == "Neg" {
 				b_e := (*this.Neg)
 				_ = b_e
-				env.inClassifyInner = inClassifyLook{E: b_e}
+				env.inClassifyInner = inClassifyClassify{E: b_e}
 				pc = pcClassify_ClassifyInner
 				continue
 			}
@@ -404,6 +434,8 @@ import (
 )
 
 type envForEach struct {
+	inForEachForEach inForEachForEach
+	outForEachForEach types.OutcomeB
 	inForEachStart inForEachStart
 	outForEachStart types.ForEachStartOut
 	inForEachCollect inForEachCollect
@@ -413,7 +445,8 @@ type envForEach struct {
 }
 
 const (
-	pcForEach_ForEachStart = iota
+	pcForEach_ForEachForEach = iota
+	pcForEach_ForEachStart
 	pcForEach_ForEachCollect
 	pcForEach_ForEachProcess
 )
@@ -422,13 +455,20 @@ const (
 func RunForEach(ctx context.Context, i int) (int, error) {
 	var zero int
 	env := &envForEach{}
-	env.inForEachStart = inForEachStart{I: i}
-	pc := pcForEach_ForEachStart
+	env.inForEachForEach = inForEachForEach{I: i}
+	pc := pcForEach_ForEachForEach
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcForEach_ForEachForEach:
+			this := types.OutcomeB{I: env.inForEachForEach.I}
+			zeroOut(&env.inForEachForEach)
+			_ = this
+			env.inForEachStart = inForEachStart{I: this.I}
+			pc = pcForEach_ForEachStart
+			continue
 		case pcForEach_ForEachStart:
 			this, err := app.Range(ctx, env.inForEachStart.I)
 			if err != nil {
@@ -500,28 +540,39 @@ import (
 	"context"
 	"fmt"
 	app "example.com/go/app"
+	"example.com/app/types"
 )
 
 type envHello struct {
+	inHelloHello inHelloHello
+	outHelloHello types.HelloArgs
 	inHelloGreet inHelloGreet
 	outHelloGreet string
 }
 
 const (
-	pcHello_HelloGreet = iota
+	pcHello_HelloHello = iota
+	pcHello_HelloGreet
 )
 
 // RunHello runs proc Hello.
 func RunHello(ctx context.Context, name string, times int) (string, error) {
 	var zero string
 	env := &envHello{}
-	env.inHelloGreet = inHelloGreet{Name: name, Times: times}
-	pc := pcHello_HelloGreet
+	env.inHelloHello = inHelloHello{Name: name, Times: times}
+	pc := pcHello_HelloHello
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcHello_HelloHello:
+			this := types.HelloArgs{Name: env.inHelloHello.Name, Times: env.inHelloHello.Times}
+			zeroOut(&env.inHelloHello)
+			_ = this
+			env.inHelloGreet = inHelloGreet{Name: this.Name, Times: this.Times}
+			pc = pcHello_HelloGreet
+			continue
 		case pcHello_HelloGreet:
 			this, err := app.Greet(ctx, env.inHelloGreet.Name, env.inHelloGreet.Times)
 			if err != nil {
@@ -1626,6 +1677,107 @@ func httpDecScopeValue(v any) (types.ScopeValue, error) {
 	return x, nil
 }
 
+func httpEncMeasureArgs(b *strings.Builder, x types.MeasureArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"shapes\":")
+	httpListW(httpEncShape)(b, x.Shapes)
+	b.WriteByte('}')
+}
+
+func httpDecMeasureArgs(v any) (types.MeasureArgs, error) {
+	var x types.MeasureArgs
+	fs, err := httpObject(v, "MeasureArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "shapes"); err != nil {
+		return x, err
+	} else if y, err := httpListR(httpDecShape)(f); err != nil {
+		return x, errors.New("shapes: " + err.Error())
+	} else {
+		x.Shapes = y
+	}
+	return x, nil
+}
+
+func httpEncHelloArgs(b *strings.Builder, x types.HelloArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"name\":")
+	httpWriteString(b, x.Name)
+	b.WriteString(",\"times\":")
+	httpWriteInt(b, x.Times)
+	b.WriteByte('}')
+}
+
+func httpDecHelloArgs(v any) (types.HelloArgs, error) {
+	var x types.HelloArgs
+	fs, err := httpObject(v, "HelloArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "name"); err != nil {
+		return x, err
+	} else if y, err := httpReadString(f); err != nil {
+		return x, errors.New("name: " + err.Error())
+	} else {
+		x.Name = y
+	}
+	if f, err := httpField(fs, "times"); err != nil {
+		return x, err
+	} else if y, err := httpReadInt(f); err != nil {
+		return x, errors.New("times: " + err.Error())
+	} else {
+		x.Times = y
+	}
+	return x, nil
+}
+
+func httpEncCalcArgs(b *strings.Builder, x types.CalcArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"base\":")
+	httpWriteInt(b, x.Base)
+	b.WriteByte('}')
+}
+
+func httpDecCalcArgs(v any) (types.CalcArgs, error) {
+	var x types.CalcArgs
+	fs, err := httpObject(v, "CalcArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "base"); err != nil {
+		return x, err
+	} else if y, err := httpReadInt(f); err != nil {
+		return x, errors.New("base: " + err.Error())
+	} else {
+		x.Base = y
+	}
+	return x, nil
+}
+
+func httpEncClassifyArgs(b *strings.Builder, x types.ClassifyArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"e\":")
+	httpEncExpr(b, x.E)
+	b.WriteByte('}')
+}
+
+func httpDecClassifyArgs(v any) (types.ClassifyArgs, error) {
+	var x types.ClassifyArgs
+	fs, err := httpObject(v, "ClassifyArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "e"); err != nil {
+		return x, err
+	} else if y, err := httpDecExpr(f); err != nil {
+		return x, errors.New("e: " + err.Error())
+	} else {
+		x.E = y
+	}
+	return x, nil
+}
+
 func httpEncForEachStartOut(b *strings.Builder, x types.ForEachStartOut) {
 	b.WriteByte('{')
 	b.WriteString("\"l\":")
@@ -1658,7 +1810,7 @@ func httpDecForEachStartOut(v any) (types.ForEachStartOut, error) {
 	return x, nil
 }
 
-func httpEncMainStartOut(b *strings.Builder, x types.MainStartOut) {
+func httpEncBarArgs(b *strings.Builder, x types.BarArgs) {
 	b.WriteByte('{')
 	b.WriteString("\"a\":")
 	httpWriteInt(b, x.A)
@@ -1667,9 +1819,9 @@ func httpEncMainStartOut(b *strings.Builder, x types.MainStartOut) {
 	b.WriteByte('}')
 }
 
-func httpDecMainStartOut(v any) (types.MainStartOut, error) {
-	var x types.MainStartOut
-	fs, err := httpObject(v, "MainStartOut")
+func httpDecBarArgs(v any) (types.BarArgs, error) {
+	var x types.BarArgs
+	fs, err := httpObject(v, "BarArgs")
 	if err != nil {
 		return x, err
 	}
@@ -1686,6 +1838,38 @@ func httpDecMainStartOut(v any) (types.MainStartOut, error) {
 		return x, errors.New("b: " + err.Error())
 	} else {
 		x.B = y
+	}
+	return x, nil
+}
+
+func httpEncResolveArgs(b *strings.Builder, x types.ResolveArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"names\":")
+	httpListW(httpWriteString)(b, x.Names)
+	b.WriteString(",\"query\":")
+	httpWriteString(b, x.Query)
+	b.WriteByte('}')
+}
+
+func httpDecResolveArgs(v any) (types.ResolveArgs, error) {
+	var x types.ResolveArgs
+	fs, err := httpObject(v, "ResolveArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "names"); err != nil {
+		return x, err
+	} else if y, err := httpListR(httpReadString)(f); err != nil {
+		return x, errors.New("names: " + err.Error())
+	} else {
+		x.Names = y
+	}
+	if f, err := httpField(fs, "query"); err != nil {
+		return x, err
+	} else if y, err := httpReadString(f); err != nil {
+		return x, errors.New("query: " + err.Error())
+	} else {
+		x.Query = y
 	}
 	return x, nil
 }
@@ -1903,6 +2087,11 @@ type inFooCall struct {
 	S string
 }
 
+// inMeasureMeasure is the input of Measure.Measure.
+type inMeasureMeasure struct {
+	Shapes []types.Shape
+}
+
 // inMeasureShapes is the input of Measure.Shapes.
 type inMeasureShapes struct {
 	Shapes []types.Shape
@@ -1923,10 +2112,21 @@ type inMeasureId1 struct {
 	Value types.Report
 }
 
+// inHelloHello is the input of Hello.Hello.
+type inHelloHello struct {
+	Name string
+	Times int
+}
+
 // inHelloGreet is the input of Hello.Greet.
 type inHelloGreet struct {
 	Name string
 	Times int
+}
+
+// inCalcCalc is the input of Calc.Calc.
+type inCalcCalc struct {
+	Base int
 }
 
 // inCalcBuild is the input of Calc.Build.
@@ -1943,6 +2143,11 @@ type inCalcEval struct {
 // inCalcTotal is the input of Calc.Total.
 type inCalcTotal struct {
 	Xs []int
+}
+
+// inClassifyClassify is the input of Classify.Classify.
+type inClassifyClassify struct {
+	E types.Expr
 }
 
 // inClassifyLook is the input of Classify.Look.
@@ -1985,6 +2190,11 @@ type inClassifyId6 struct {
 	Value string
 }
 
+// inForEachForEach is the input of ForEach.ForEach.
+type inForEachForEach struct {
+	I int
+}
+
 // inForEachStart is the input of ForEach.Start.
 type inForEachStart struct {
 	I int
@@ -1999,6 +2209,12 @@ type inForEachProcess struct {
 // inForEachCollect is the input of ForEach.Collect.
 type inForEachCollect struct {
 	L []int
+}
+
+// inBarBar is the input of Bar.Bar.
+type inBarBar struct {
+	A int
+	B string
 }
 
 // inBarStart is the input of Bar.Start.
@@ -2032,10 +2248,22 @@ type inBarEnd struct {
 	R types.Outcome
 }
 
+// inMainMain is the input of Main.Main.
+type inMainMain struct {
+	A int
+	B string
+}
+
 // inMainStart is the input of Main.Start.
 type inMainStart struct {
 	A int
 	B string
+}
+
+// inResolveResolve is the input of Resolve.Resolve.
+type inResolveResolve struct {
+	Names []string
+	Query string
 }
 
 // inResolveDeclare is the input of Resolve.Declare.
@@ -2078,14 +2306,17 @@ import (
 )
 
 type envMain struct {
+	inMainMain inMainMain
+	outMainMain types.BarArgs
 	inMainStart inMainStart
-	outMainStart types.MainStartOut
-	inBar inBarStart
+	outMainStart types.BarArgs
+	inBar inBarBar
 	outBar string
 }
 
 const (
-	pcMain_MainStart = iota
+	pcMain_MainMain = iota
+	pcMain_MainStart
 	pcMain_Bar
 )
 
@@ -2093,13 +2324,20 @@ const (
 func RunMain(ctx context.Context, a int, b string) (string, error) {
 	var zero string
 	env := &envMain{}
-	env.inMainStart = inMainStart{A: a, B: b}
-	pc := pcMain_MainStart
+	env.inMainMain = inMainMain{A: a, B: b}
+	pc := pcMain_MainMain
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcMain_MainMain:
+			this := types.BarArgs{A: env.inMainMain.A, B: env.inMainMain.B}
+			zeroOut(&env.inMainMain)
+			_ = this
+			env.inMainStart = inMainStart{A: this.A, B: this.B}
+			pc = pcMain_MainStart
+			continue
 		case pcMain_MainStart:
 			this, err := app.Args(ctx, env.inMainStart.A, env.inMainStart.B)
 			if err != nil {
@@ -2107,7 +2345,7 @@ func RunMain(ctx context.Context, a int, b string) (string, error) {
 			}
 			zeroOut(&env.inMainStart)
 			_ = this
-			env.inBar = inBarStart{A: this.A, B: this.B}
+			env.inBar = inBarBar{A: this.A, B: this.B}
 			pc = pcMain_Bar
 			continue
 		case pcMain_Bar:
@@ -2138,6 +2376,8 @@ import (
 )
 
 type envMeasure struct {
+	inMeasureMeasure inMeasureMeasure
+	outMeasureMeasure types.MeasureArgs
 	inMeasureShapes inMeasureShapes
 	outMeasureShapes []types.Shape
 	inMeasureStep inMeasureStep
@@ -2149,7 +2389,8 @@ type envMeasure struct {
 }
 
 const (
-	pcMeasure_MeasureShapes = iota
+	pcMeasure_MeasureMeasure = iota
+	pcMeasure_MeasureShapes
 	pcMeasure_MeasureStep
 	pcMeasure_MeasureId1
 	pcMeasure_MeasureArea
@@ -2159,13 +2400,20 @@ const (
 func RunMeasure(ctx context.Context, shapes []types.Shape) (types.Report, error) {
 	var zero types.Report
 	env := &envMeasure{}
-	env.inMeasureShapes = inMeasureShapes{Shapes: shapes}
-	pc := pcMeasure_MeasureShapes
+	env.inMeasureMeasure = inMeasureMeasure{Shapes: shapes}
+	pc := pcMeasure_MeasureMeasure
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcMeasure_MeasureMeasure:
+			this := types.MeasureArgs{Shapes: env.inMeasureMeasure.Shapes}
+			zeroOut(&env.inMeasureMeasure)
+			_ = this
+			env.inMeasureShapes = inMeasureShapes{Shapes: this.Shapes}
+			pc = pcMeasure_MeasureShapes
+			continue
 		case pcMeasure_MeasureShapes:
 			this, err := app.Shapes(ctx, env.inMeasureShapes.Shapes)
 			if err != nil {
@@ -2290,6 +2538,8 @@ import (
 )
 
 type envResolve struct {
+	inResolveResolve inResolveResolve
+	outResolveResolve types.ResolveArgs
 	inResolveDeclare inResolveDeclare
 	outResolveDeclare types.ResolveDeclareOut
 	inResolveAdjust inResolveAdjust
@@ -2301,7 +2551,8 @@ type envResolve struct {
 }
 
 const (
-	pcResolve_ResolveDeclare = iota
+	pcResolve_ResolveResolve = iota
+	pcResolve_ResolveDeclare
 	pcResolve_ResolveAdjust
 	pcResolve_ResolveFound
 	pcResolve_ResolveMissing
@@ -2311,13 +2562,20 @@ const (
 func RunResolve(ctx context.Context, names []string, query string) (string, error) {
 	var zero string
 	env := &envResolve{}
-	env.inResolveDeclare = inResolveDeclare{Names: names, Query: query}
-	pc := pcResolve_ResolveDeclare
+	env.inResolveResolve = inResolveResolve{Names: names, Query: query}
+	pc := pcResolve_ResolveResolve
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcResolve_ResolveResolve:
+			this := types.ResolveArgs{Names: env.inResolveResolve.Names, Query: env.inResolveResolve.Query}
+			zeroOut(&env.inResolveResolve)
+			_ = this
+			env.inResolveDeclare = inResolveDeclare{Names: this.Names, Query: this.Query}
+			pc = pcResolve_ResolveDeclare
+			continue
 		case pcResolve_ResolveDeclare:
 			this, err := app.Declare(ctx, env.inResolveDeclare.Names, env.inResolveDeclare.Query)
 			if err != nil {
@@ -2736,16 +2994,43 @@ type ScopeValue struct {
 	Kind string
 }
 
+// MeasureArgs is the type of the parameters of Measure.
+type MeasureArgs struct {
+	Shapes []Shape
+}
+
+// HelloArgs is the type of the parameters of Hello.
+type HelloArgs struct {
+	Name string
+	Times int
+}
+
+// CalcArgs is the type of the parameters of Calc.
+type CalcArgs struct {
+	Base int
+}
+
+// ClassifyArgs is the type of the parameters of Classify.
+type ClassifyArgs struct {
+	E Expr
+}
+
 // ForEachStartOut is the type of the return of ForEach.Start.
 type ForEachStartOut struct {
 	L []int
 	S string
 }
 
-// MainStartOut is the type of the return of Main.Start.
-type MainStartOut struct {
+// BarArgs is the type of the parameters of Bar.
+type BarArgs struct {
 	A int
 	B string
+}
+
+// ResolveArgs is the type of the parameters of Resolve.
+type ResolveArgs struct {
+	Names []string
+	Query string
 }
 
 // ResolveDeclareOut is the type of the return of Resolve.Declare.

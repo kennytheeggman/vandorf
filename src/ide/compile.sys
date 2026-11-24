@@ -17,21 +17,19 @@ func NonEmpty(m: MaybeStr): bool = "ide_leaf.rs:non_empty";
 func PathIndex(paths: []string, root: string, abs: string): int = "ide_leaf.rs:index_of_path";
 func SetAt(xs: []string, i: int, x: string): []string = "ide_leaf.rs:set_at";
 
-proc CompileRoute(At): HttpResponse {
-	func At(req: HttpRequest): HttpRequest = "../leaf.rs:same";
-	func Text(s: string): string = "../leaf.rs:same";
-	At -> Session.Base(n = 0);
-	Session.Base -> ParseJson(text = At.body);
+proc CompileRoute(req: HttpRequest): HttpResponse {
+	CompileRoute -> Session.Base(n = 0);
+	Session.Base -> ParseJson(text = CompileRoute.req.body);
 	ParseJson switch {
 		Ok(j) -> switch {
-			(NonBlank(m = JsonStr(j = j, key = "source"))) -> Text(s = UnwrapS(m = JsonStr(j = j, key = "source"))),
+			(NonBlank(m = JsonStr(j = j, key = "source"))) -> id(UnwrapS(m = JsonStr(j = j, key = "source"))) as Text,
 			(NonEmpty(m = JsonStr(j = j, key = "path"))) -> ReadSource(s = { base = Session.Base, p = UnwrapS(m = JsonStr(j = j, key = "path")) }),
 			else -> id(ApiErr(msg = "provide either \"path\" or \"source\""))
 		},
 		Err(e) -> id(ApiErr(msg = "bad request: " + e.msg))
 	};
 	ReadSource switch {
-		Ok(text) -> Text(s = text),
+		Ok(text) -> id(text) as Text,
 		Err(e) -> id(ApiErr(msg = e.msg))
 	};
 	Text switch {
@@ -64,45 +62,43 @@ func UnwrapR2(r: Res<string>): string = "ide_leaf.rs:unwrap_res_string";
 func CheckKey(srcs: []string): string = "ide_leaf.rs:check_key";
 func NoProgram(n: int): Program = "ide_leaf.rs:no_program";
 
-proc CompileUnit(At): HttpResponse {
-	func At(s: { base: string, unit: Unit }): { base: string, unit: Unit } = "../leaf.rs:same";
+proc CompileUnit(s: { base: string, unit: Unit }): HttpResponse {
 	// The unit's check: kept from an earlier compile, or made and kept.
-	func Have(c: UnitCheck): UnitCheck = "../leaf.rs:same";
-	At -> Checks.Claim(key = CheckKey(srcs = this.unit.srcs));
+	CompileUnit -> Checks.Claim(key = CheckKey(srcs = this.s.unit.srcs));
 	Checks.Claim switch {
-		Some(c) -> Have(c = c),
-		else -> ParseUnit(s = { srcs = At.unit.srcs, i = 0, file = { types = [], interfaces = [], nodes = [] }, errors = [] })
+		Some(c) -> id(c) as Have,
+		else -> ParseUnit(s = { srcs = CompileUnit.s.unit.srcs, i = 0, file = { types = [], interfaces = [], nodes = [] }, errors = [] })
 	};
 	ParseUnit switch {
-		(this.errors.len > 0) -> Checks.Put(key = CheckKey(srcs = At.unit.srcs), c = { parse_errors = this.errors, sema_errors = [], prog = NoProgram(n = 0) }) as KeepParse,
-		else -> Analyze(s = { srcs = At.unit.srcs, file = this.file })
+		(this.errors.len > 0) -> Checks.Put(key = CheckKey(srcs = CompileUnit.s.unit.srcs), c = { parse_errors = this.errors, sema_errors = [], prog = NoProgram(n = 0) }) as KeepParse,
+		else -> Analyze(s = { srcs = CompileUnit.s.unit.srcs, file = this.file })
 	};
-	Analyze -> Checks.Put(key = CheckKey(srcs = At.unit.srcs), c = { parse_errors = [], sema_errors = this.errors, prog = this.prog }) as KeepSema;
-	KeepParse -> Have(c = { parse_errors = ParseUnit.errors, sema_errors = [], prog = NoProgram(n = 0) });
-	KeepSema -> Have(c = { parse_errors = [], sema_errors = Analyze.errors, prog = Analyze.prog });
+	Analyze -> Checks.Put(key = CheckKey(srcs = CompileUnit.s.unit.srcs), c = { parse_errors = [], sema_errors = this.errors, prog = this.prog }) as KeepSema;
+	KeepParse -> id({ parse_errors = ParseUnit.errors, sema_errors = [], prog = NoProgram(n = 0) }) as Have;
+	KeepSema -> id({ parse_errors = [], sema_errors = Analyze.errors, prog = Analyze.prog }) as Have;
 	Have switch {
-		(this.parse_errors.len > 0) -> Diagnostics(s = { unit = At.unit, errors = this.parse_errors }) as ParseErrors,
-		(this.sema_errors.len > 0) -> Diagnostics(s = { unit = At.unit, errors = this.sema_errors }) as SemaErrors,
-		else -> Symbols(s = { base = At.base, unit = At.unit, prog = this.prog })
+		(this.parse_errors.len > 0) -> Diagnostics(s = { unit = CompileUnit.s.unit, errors = this.parse_errors }) as ParseErrors,
+		(this.sema_errors.len > 0) -> Diagnostics(s = { unit = CompileUnit.s.unit, errors = this.sema_errors }) as SemaErrors,
+		else -> Symbols(s = { base = CompileUnit.s.base, unit = CompileUnit.s.unit, prog = this.prog })
 	};
 	Symbols switch {
-		(At.unit.previews) -> RustPreview(s = { unit = At.unit, prog = Have.prog }),
+		(CompileUnit.s.unit.previews) -> RustPreview(s = { unit = CompileUnit.s.unit, prog = Have.prog }),
 		else -> DocumentJson(prog = Have.prog) as DiagramOnly
 	};
-	RustPreview -> GoPreview(s = { unit = At.unit, prog = Have.prog });
+	RustPreview -> GoPreview(s = { unit = CompileUnit.s.unit, prog = Have.prog });
 	GoPreview -> DocumentJson(prog = Have.prog);
 	DiagramOnly -> id(Api(j = Obj([
 		{ key = "ok", value = Bool(true) },
-		{ key = "name", value = Str(At.unit.names[At.unit.here]) },
-		{ key = "project", value = ProjectName(p = At.unit.project) },
+		{ key = "name", value = Str(CompileUnit.s.unit.names[CompileUnit.s.unit.here]) },
+		{ key = "project", value = ProjectName(p = CompileUnit.s.unit.project) },
 		{ key = "grids", value = Num(Procs(nodes = Have.prog.nodes).len) },
 		{ key = "document", value = this },
 		{ key = "symbols", value = Symbols }
 	])));
 	DocumentJson -> id(Api(j = Obj([
 		{ key = "ok", value = Bool(true) },
-		{ key = "name", value = Str(At.unit.names[At.unit.here]) },
-		{ key = "project", value = ProjectName(p = At.unit.project) },
+		{ key = "name", value = Str(CompileUnit.s.unit.names[CompileUnit.s.unit.here]) },
+		{ key = "project", value = ProjectName(p = CompileUnit.s.unit.project) },
 		{ key = "grids", value = Num(Procs(nodes = Have.prog.nodes).len) },
 		{ key = "document", value = this },
 		{ key = "symbols", value = Symbols },
@@ -114,27 +110,25 @@ proc CompileUnit(At): HttpResponse {
 func ProjectName(p: MaybeProject): Json = "ide_leaf.rs:project_name_json";
 
 // Each file parsed, its errors kept (they're diagnostics, not failures).
-proc ParseUnit(At): { file: File, errors: []Diag } {
-	func At(s: { srcs: []string, i: int, file: File, errors: []Diag }): { srcs: []string, i: int, file: File, errors: []Diag } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.srcs.len) -> id({ file = this.file, errors = this.errors }),
-		else -> TryParse(src = this.srcs[this.i], file = this.i)
+proc ParseUnit(s: { srcs: []string, i: int, file: File, errors: []Diag }): { file: File, errors: []Diag } {
+	ParseUnit switch {
+		(this.s.i == this.s.srcs.len) -> id({ file = this.s.file, errors = this.s.errors }),
+		else -> TryParse(src = this.s.srcs[this.s.i], file = this.s.i)
 	};
 	TryParse switch {
-		Ok(f) -> At(s = { ..At, i = At.i + 1, file = { types = At.file.types + f.types, interfaces = At.file.interfaces + f.interfaces, nodes = At.file.nodes + f.nodes } }),
-		Err(e) -> At(s = { ..At, i = At.i + 1, errors = At.errors + [e] })
+		Ok(f) -> ParseUnit(s = { ..ParseUnit.s, i = ParseUnit.s.i + 1, file = { types = ParseUnit.s.file.types + f.types, interfaces = ParseUnit.s.file.interfaces + f.interfaces, nodes = ParseUnit.s.file.nodes + f.nodes } }),
+		Err(e) -> ParseUnit(s = { ..ParseUnit.s, i = ParseUnit.s.i + 1, errors = ParseUnit.s.errors + [e] })
 	};
 }
 
 // 200 with ok: false, so the client can still read the diagnostics.
-proc Diagnostics(At): HttpResponse {
-	func At(s: { unit: Unit, errors: []Diag }): { unit: Unit, errors: []Diag } = "../leaf.rs:same";
+proc Diagnostics(s: { unit: Unit, errors: []Diag }): HttpResponse {
 	func List(names: []string, srcs: []string, here: int, errors: []Diag): Json = "ide_leaf.rs:diagnostics_json";
 	func Rendered(names: []string, srcs: []string, errors: []Diag): string = "ide_leaf.rs:render_diagnostics";
-	At -> id(Api(j = Obj([
+	Diagnostics -> id(Api(j = Obj([
 		{ key = "ok", value = Bool(false) },
-		{ key = "error", value = Str(Rendered(names = this.unit.names, srcs = this.unit.srcs, errors = this.errors)) },
-		{ key = "diagnostics", value = List(names = this.unit.names, srcs = this.unit.srcs, here = this.unit.here, errors = this.errors) }
+		{ key = "error", value = Str(Rendered(names = this.s.unit.names, srcs = this.s.unit.srcs, errors = this.s.errors)) },
+		{ key = "diagnostics", value = List(names = this.s.unit.names, srcs = this.s.unit.srcs, here = this.s.unit.here, errors = this.s.errors) }
 	])));
 }
 
@@ -143,53 +137,49 @@ proc Diagnostics(At): HttpResponse {
 // Typedefs, funcs and procs, with where they're declared (paths relative to
 // the source directory, 0-based lines) and, for funcs, their implementation
 // files resolved the same way.
-proc Symbols(At): Json {
-	func At(s: { base: string, unit: Unit, prog: Program }): { base: string, unit: Unit, prog: Program } = "../leaf.rs:same";
-	At -> TypeSymbols(s = { types = this.prog.types, i = 0, acc = [] });
-	TypeSymbols -> NodeSymbols(s = { base = At.base, unit = At.unit, prog = At.prog, i = 0, acc = [] });
+proc Symbols(s: { base: string, unit: Unit, prog: Program }): Json {
+	Symbols -> TypeSymbols(s = { types = this.s.prog.types, i = 0, acc = [] });
+	TypeSymbols -> NodeSymbols(s = { base = Symbols.s.base, unit = Symbols.s.unit, prog = Symbols.s.prog, i = 0, acc = [] });
 	NodeSymbols -> id(Obj([{ key = "types", value = Obj(TypeSymbols) }, { key = "nodes", value = Obj(this) }]));
 }
 
-proc TypeSymbols(At): []JsonField {
-	func At(s: { types: []TypeDef, i: int, acc: []JsonField }): { types: []TypeDef, i: int, acc: []JsonField } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.types.len) -> id(this.acc),
-		else -> ShowType(t = this.types[this.i].ty)
+proc TypeSymbols(s: { types: []TypeDef, i: int, acc: []JsonField }): []JsonField {
+	TypeSymbols switch {
+		(this.s.i == this.s.types.len) -> id(this.s.acc),
+		else -> ShowType(t = this.s.types[this.s.i].ty)
 	};
-	ShowType -> At(s = { ..At, i = At.i + 1, acc = At.acc + [{ key = At.types[At.i].name, value = Obj([{ key = "def", value = Str(this) }, { key = "recursive", value = Bool(At.types[At.i].recursive) }]) }] });
+	ShowType -> TypeSymbols(s = { ..TypeSymbols.s, i = TypeSymbols.s.i + 1, acc = TypeSymbols.s.acc + [{ key = TypeSymbols.s.types[TypeSymbols.s.i].name, value = Obj([{ key = "def", value = Str(this) }, { key = "recursive", value = Bool(TypeSymbols.s.types[TypeSymbols.s.i].recursive) }]) }] });
 }
 
-proc NodeSymbols(At): []JsonField {
-	func At(s: { base: string, unit: Unit, prog: Program, i: int, acc: []JsonField }): { base: string, unit: Unit, prog: Program, i: int, acc: []JsonField } = "../leaf.rs:same";
-	func K(k: NodeKind): NodeKind = "../leaf.rs:same";
+proc NodeSymbols(s: { base: string, unit: Unit, prog: Program, i: int, acc: []JsonField }): []JsonField {
 	// { file, line } of a node: its file relative to base (or null).
 	func Loc(base: string, unit: Unit, span: Span): Json = "ide_leaf.rs:loc_json";
 	// A func's implementations: written, path (relative to base), function, lang.
 	func Imps(base: string, unit: Unit, span: Span, imps: []ImplRef): Json = "ide_leaf.rs:imps_json";
-	At switch {
-		(this.i == this.prog.nodes.len) -> id(this.acc),
-		else -> K(k = this.prog.nodes[this.i].kind)
+	NodeSymbols switch {
+		(this.s.i == this.s.prog.nodes.len) -> id(this.s.acc),
+		else -> id(this.s.prog.nodes[this.s.i].kind) as K
 	};
 	K switch {
 		Func(f) -> ShowParams(s = { ps = f.params, i = 0, acc = "" }) as FP,
-		Proc(p) -> ShowParams(s = { ps = NodeParams(nodes = At.prog.nodes, n = p.entry), i = 0, acc = "" }) as PP,
-		else -> At(s = { ..At, i = At.i + 1 })
+		Proc(p) -> ShowParams(s = { ps = NodeParams(nodes = NodeSymbols.s.prog.nodes, n = p.entry), i = 0, acc = "" }) as PP,
+		else -> NodeSymbols(s = { ..NodeSymbols.s, i = NodeSymbols.s.i + 1 })
 	};
-	FP -> ShowType(t = NodeRet(nodes = At.prog.nodes, n = At.i)) as FR;
-	FR -> At(s = { ..At, i = At.i + 1, acc = At.acc + [{ key = QualName(n = At.prog.nodes[At.i]), value = Obj([
+	FP -> ShowType(t = NodeRet(nodes = NodeSymbols.s.prog.nodes, n = NodeSymbols.s.i)) as FR;
+	FR -> NodeSymbols(s = { ..NodeSymbols.s, i = NodeSymbols.s.i + 1, acc = NodeSymbols.s.acc + [{ key = QualName(n = NodeSymbols.s.prog.nodes[NodeSymbols.s.i]), value = Obj([
 		{ key = "kind", value = Str("func") },
 		{ key = "params", value = Str(FP) },
 		{ key = "ret", value = Str(this) },
-		{ key = "imps", value = Imps(base = At.base, unit = At.unit, span = At.prog.nodes[At.i].span, imps = FuncImps(n = At.prog.nodes[At.i])) },
-		{ key = "loc", value = Loc(base = At.base, unit = At.unit, span = At.prog.nodes[At.i].span) }
+		{ key = "imps", value = Imps(base = NodeSymbols.s.base, unit = NodeSymbols.s.unit, span = NodeSymbols.s.prog.nodes[NodeSymbols.s.i].span, imps = FuncImps(n = NodeSymbols.s.prog.nodes[NodeSymbols.s.i])) },
+		{ key = "loc", value = Loc(base = NodeSymbols.s.base, unit = NodeSymbols.s.unit, span = NodeSymbols.s.prog.nodes[NodeSymbols.s.i].span) }
 	]) }] });
-	PP -> ShowType(t = NodeRet(nodes = At.prog.nodes, n = At.i)) as PR;
-	PR -> At(s = { ..At, i = At.i + 1, acc = At.acc + [{ key = QualName(n = At.prog.nodes[At.i]), value = Obj([
+	PP -> ShowType(t = NodeRet(nodes = NodeSymbols.s.prog.nodes, n = NodeSymbols.s.i)) as PR;
+	PR -> NodeSymbols(s = { ..NodeSymbols.s, i = NodeSymbols.s.i + 1, acc = NodeSymbols.s.acc + [{ key = QualName(n = NodeSymbols.s.prog.nodes[NodeSymbols.s.i]), value = Obj([
 		{ key = "kind", value = Str("proc") },
 		{ key = "params", value = Str(PP) },
 		{ key = "ret", value = Str(this) },
-		{ key = "entry", value = Str(EntryName(prog = At.prog, pid = At.i)) },
-		{ key = "loc", value = Loc(base = At.base, unit = At.unit, span = At.prog.nodes[At.i].span) }
+		{ key = "entry", value = Str(EntryName(prog = NodeSymbols.s.prog, pid = NodeSymbols.s.i)) },
+		{ key = "loc", value = Loc(base = NodeSymbols.s.base, unit = NodeSymbols.s.unit, span = NodeSymbols.s.prog.nodes[NodeSymbols.s.i].span) }
 	]) }] });
 }
 
@@ -198,27 +188,24 @@ func EntryName(prog: Program, pid: int): string = "ide_leaf.rs:entry_name";
 
 // ---- The Rust preview: what `vcc build` would generate ----
 
-proc RustPreview(At): Json {
-	func At(s: { unit: Unit, prog: Program }): { unit: Unit, prog: Program } = "../leaf.rs:same";
-	func P(p: MaybeProject): MaybeProject = "../leaf.rs:same";
-	func R(r: MaybeRust): MaybeRust = "../leaf.rs:same";
+proc RustPreview(s: { unit: Unit, prog: Program }): Json {
 	func NominalMains(prog: Program): map[string]Bin = "ide_leaf.rs:nominal_mains";
 	func Dirs(root: string, paths: []string): []string = "../cli/cli_leaf.rs:dirs";
-	At -> P(p = this.unit.project);
+	RustPreview -> id(this.s.unit.project) as P;
 	P switch {
-		Some(p) -> R(r = p.manifest.rust),
+		Some(p) -> id(p.manifest.rust) as R,
 		// Nominal locations: impl paths as written, as if the output were
 		// next to the file.
-		else -> Preview(s = { prog = At.prog, module_dir = Some("app"), krate = "my_crate", bins = NominalMains(prog = At.prog) }) as Nominal
+		else -> Preview(s = { prog = RustPreview.s.prog, module_dir = Some("app"), krate = "my_crate", bins = NominalMains(prog = RustPreview.s.prog) }) as Nominal
 	};
 	R switch {
-		Some(r) -> FindUp(s = { dir = JoinP(a = At.unit.root, b = r.out), marker = "Cargo.toml" }),
+		Some(r) -> FindUp(s = { dir = JoinP(a = RustPreview.s.unit.root, b = r.out), marker = "Cargo.toml" }),
 		else -> id(Obj([{ key = "ok", value = Bool(false) }, { key = "error", value = Str("not configured in vandorf.toml") }]))
 	};
 	FindUp -> CrateName(dir = this);
 	CrateName -> Preview(s = {
-		prog = RebaseImpls(prog = At.prog, dirs = Dirs(root = At.unit.root, paths = At.unit.names), out = JoinP(a = At.unit.root, b = UnwrapR(r = R).out)),
-		module_dir = ModuleDir(target = UnwrapR(r = R), out = JoinP(a = At.unit.root, b = UnwrapR(r = R).out), croot = FindUp),
+		prog = RebaseImpls(prog = RustPreview.s.prog, dirs = Dirs(root = RustPreview.s.unit.root, paths = RustPreview.s.unit.names), out = JoinP(a = RustPreview.s.unit.root, b = UnwrapR(r = R).out)),
+		module_dir = ModuleDir(target = UnwrapR(r = R), out = JoinP(a = RustPreview.s.unit.root, b = UnwrapR(r = R).out), croot = FindUp),
 		krate = this,
 		bins = UnwrapPr(p = P).manifest.bins
 	}) as Configured;
@@ -228,81 +215,74 @@ func UnwrapPr(p: MaybeProject): Project = "ide_leaf.rs:unwrap_project";
 
 // What vcc build would generate in Go: with [go]'s settings, or nominal
 // ones (package app in example.com/app) for a file outside a project.
-proc GoPreview(At): Json {
-	func At(s: { unit: Unit, prog: Program }): { unit: Unit, prog: Program } = "../leaf.rs:same";
-	func P(p: MaybeProject): MaybeProject = "../leaf.rs:same";
-	func G(g: MaybeGo): MaybeGo = "../leaf.rs:same";
-	func Base(b: MaybeStr): MaybeStr = "../leaf.rs:same";
+proc GoPreview(s: { unit: Unit, prog: Program }): Json {
 	func NominalGoMains(prog: Program): []GoMainSpec = "ide_leaf.rs:nominal_go_mains";
 	func UnwrapG(g: MaybeGo): GoTarget = "ide_leaf.rs:unwrap_go";
 	func Dirs(root: string, paths: []string): []string = "../cli/cli_leaf.rs:dirs";
-	At -> P(p = this.unit.project);
+	GoPreview -> id(this.s.unit.project) as P;
 	P switch {
-		Some(p) -> G(g = p.manifest.go),
-		else -> GoPreviewJson(s = { prog = At.prog, package = "app", import_base = Some("example.com/app"), types_dir = "types", mains = NominalGoMains(prog = At.prog), servers = [] }) as Nominal
+		Some(p) -> id(p.manifest.go) as G,
+		else -> GoPreviewJson(s = { prog = GoPreview.s.prog, package = "app", import_base = Some("example.com/app"), types_dir = "types", mains = NominalGoMains(prog = GoPreview.s.prog), servers = [] }) as Nominal
 	};
 	G switch {
-		Some(g) -> FindUp(s = { dir = JoinP(a = At.unit.root, b = g.out), marker = "go.mod" }),
+		Some(g) -> FindUp(s = { dir = JoinP(a = GoPreview.s.unit.root, b = g.out), marker = "go.mod" }),
 		else -> id(Obj([{ key = "ok", value = Bool(false) }, { key = "error", value = Str("not configured in vandorf.toml") }]))
 	};
 	FindUp switch {
-		(this == "") -> Base(b = GoImportBase(g = UnwrapG(g = G), root = "", gomod = "", out = JoinP(a = At.unit.root, b = UnwrapG(g = G).out))),
+		(this == "") -> id(GoImportBase(g = UnwrapG(g = G), root = "", gomod = "", out = JoinP(a = GoPreview.s.unit.root, b = UnwrapG(g = G).out))) as Base,
 		else -> Fs.Read(path = JoinP(a = this, b = "go.mod"))
 	};
-	Fs.Read -> Base(b = GoImportBase(g = UnwrapG(g = G), root = FindUp, gomod = this, out = JoinP(a = At.unit.root, b = UnwrapG(g = G).out)));
+	Fs.Read -> id(GoImportBase(g = UnwrapG(g = G), root = FindUp, gomod = this, out = JoinP(a = GoPreview.s.unit.root, b = UnwrapG(g = G).out))) as Base;
 	Base -> GoPreviewJson(s = {
-		prog = RebaseImpls(prog = At.prog, dirs = Dirs(root = At.unit.root, paths = At.unit.names), out = JoinP(a = At.unit.root, b = UnwrapG(g = G).out)),
-		package = GoPackage(g = UnwrapG(g = G), out = JoinP(a = At.unit.root, b = UnwrapG(g = G).out)),
+		prog = RebaseImpls(prog = GoPreview.s.prog, dirs = Dirs(root = GoPreview.s.unit.root, paths = GoPreview.s.unit.names), out = JoinP(a = GoPreview.s.unit.root, b = UnwrapG(g = G).out)),
+		package = GoPackage(g = UnwrapG(g = G), out = JoinP(a = GoPreview.s.unit.root, b = UnwrapG(g = G).out)),
 		import_base = this,
 		types_dir = UnwrapOr(m = UnwrapG(g = G).types_dir, d = "types"),
-		mains = GoMainSpecs(c = { project = UnwrapPr(p = P), prog = At.prog }, g = UnwrapG(g = G), names = UnwrapPr(p = P).manifest.bins.keys),
+		mains = GoMainSpecs(c = { project = UnwrapPr(p = P), prog = GoPreview.s.prog }, g = UnwrapG(g = G), names = UnwrapPr(p = P).manifest.bins.keys),
 		servers = []
 	}) as Configured;
 }
 
 // The generated files as JSON (artifacts: types, code, mains) and the
 // implementations they call; or the error.
-proc GoPreviewJson(At): Json {
-	func At(s: GoGenIn): GoGenIn = "../leaf.rs:same";
+proc GoPreviewJson(s: GoGenIn): Json {
 	func Output(o: GoOut, prog: Program, t: Table, setup: GoSetup): Json = "ide_leaf.rs:go_output_json";
-	At -> GoGenerate(s = this);
-	GoGenerate -> BuildTable(prog = At.prog);
-	BuildTable -> id(Output(o = GoGenerate, prog = At.prog, t = this, setup = GoSetupOf(package = At.package, import_base = At.import_base, types_dir = At.types_dir)));
+	GoPreviewJson -> GoGenerate(s = this.s);
+	GoGenerate -> BuildTable(prog = GoPreviewJson.s.prog);
+	BuildTable -> id(Output(o = GoGenerate, prog = GoPreviewJson.s.prog, t = this, setup = GoSetupOf(package = GoPreviewJson.s.package, import_base = GoPreviewJson.s.import_base, types_dir = GoPreviewJson.s.types_dir)));
 }
 
 // The generated files as JSON: artifacts (types, code, mains) and the
 // implementations they call; or the error.
-proc Preview(At): Json {
-	func At(s: { prog: Program, module_dir: MaybeStr, krate: string, bins: map[string]Bin }): { prog: Program, module_dir: MaybeStr, krate: string, bins: map[string]Bin } = "../leaf.rs:same";
+proc Preview(s: { prog: Program, module_dir: MaybeStr, krate: string, bins: map[string]Bin }): Json {
 	func Output(types: string, modrs: string, procs: string, mains: []OutFile, impls: Json): Json = "ide_leaf.rs:output_json";
 	func Impls(prog: Program, t: Table, module_dir: MaybeStr): Json = "ide_leaf.rs:impls_json";
 	func Error(msg: string): Json = "ide_leaf.rs:error_json";
-	At -> RustGenerate(s = { prog = this.prog, module_dir = this.module_dir, servers = [] });
+	Preview -> RustGenerate(s = { prog = this.s.prog, module_dir = this.s.module_dir, servers = [] });
 	RustGenerate switch {
 		{ types = _, procs = _, modrs = _, http = _, err = Some(e) } -> id(Error(msg = e)),
-		else -> PreviewMains(s = { prog = At.prog, bins = At.bins, names = At.bins.keys, module_dir = At.module_dir, krate = At.krate, i = 0, acc = [] })
+		else -> PreviewMains(s = { prog = Preview.s.prog, bins = Preview.s.bins, names = Preview.s.bins.keys, module_dir = Preview.s.module_dir, krate = Preview.s.krate, i = 0, acc = [] })
 	};
 	PreviewMains switch {
-		Ok(mains) -> BuildTable(prog = At.prog),
+		Ok(mains) -> BuildTable(prog = Preview.s.prog),
 		Err(e) -> id(Error(msg = e.msg))
 	};
-	BuildTable -> id(Output(types = RustGenerate.types, modrs = RustGenerate.modrs, procs = RustGenerate.procs, mains = UnwrapOut(r = PreviewMains), impls = Impls(prog = At.prog, t = this, module_dir = At.module_dir)));
+	BuildTable -> id(Output(types = RustGenerate.types, modrs = RustGenerate.modrs, procs = RustGenerate.procs, mains = UnwrapOut(r = PreviewMains), impls = Impls(prog = Preview.s.prog, t = this, module_dir = Preview.s.module_dir)));
 }
 
 func UnwrapOut(r: Res<[]OutFile>): []OutFile = "ide_leaf.rs:unwrap_out";
 
 // The bins' files: dir (relative to the module) as path, file name as kind.
-proc PreviewMains(At): Res<[]OutFile> {
-	func At(s: { prog: Program, bins: map[string]Bin, names: []string, module_dir: MaybeStr, krate: string, i: int, acc: []OutFile }): { prog: Program, bins: map[string]Bin, names: []string, module_dir: MaybeStr, krate: string, i: int, acc: []OutFile } = "../leaf.rs:same";
+proc PreviewMains(s: { prog: Program, bins: map[string]Bin, names: []string, module_dir: MaybeStr, krate: string, i: int, acc: []OutFile }): Res<[]OutFile> {
 	func RustMain(prog: Program, t: Table, name: string, entry: string, path: string, module_dir: MaybeStr, krate: string): { dir: string, file: string, text: string, err: MaybeStr } = "../gen/gen_leaf.rs:rust_main";
 	func BinPath(b: Bin, name: string): string = "../cli/cli_leaf.rs:bin_path";
-	At switch {
-		(this.i == this.names.len) -> id(Ok(this.acc)),
-		else -> BuildTable(prog = this.prog)
+	PreviewMains switch {
+		(this.s.i == this.s.names.len) -> id(Ok(this.s.acc)),
+		else -> BuildTable(prog = this.s.prog)
 	};
-	BuildTable -> RustMain(prog = At.prog, t = this, name = At.names[At.i], entry = At.bins[At.names[At.i]].entry, path = BinPath(b = At.bins[At.names[At.i]], name = At.names[At.i]), module_dir = At.module_dir, krate = At.krate);
+	BuildTable -> RustMain(prog = PreviewMains.s.prog, t = this, name = PreviewMains.s.names[PreviewMains.s.i], entry = PreviewMains.s.bins[PreviewMains.s.names[PreviewMains.s.i]].entry, path = BinPath(b = PreviewMains.s.bins[PreviewMains.s.names[PreviewMains.s.i]], name = PreviewMains.s.names[PreviewMains.s.i]), module_dir = PreviewMains.s.module_dir, krate = PreviewMains.s.krate);
 	RustMain switch {
 		{ dir = _, file = _, text = _, err = Some(e) } -> id(Err({ msg = e, span = { at = 0, end = 0, file = 0 } })),
-		else -> At(s = { ..At, i = At.i + 1, acc = At.acc + [{ path = this.dir, text = this.text, kind = this.file }] })
+		else -> PreviewMains(s = { ..PreviewMains.s, i = PreviewMains.s.i + 1, acc = PreviewMains.s.acc + [{ path = this.dir, text = this.text, kind = this.file }] })
 	};
 }

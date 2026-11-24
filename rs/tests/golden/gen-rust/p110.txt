@@ -93,22 +93,32 @@ fn fan_out<E: Send, R: Send>(xs: Vec<E>, f: impl Fn(E) -> Result<R, Error> + Syn
 
 #[derive(Debug, Clone, Default)]
 struct EnvTool {
+    in_tool_tool: Option<InToolTool>,
+    out_tool_tool: Option<types::ToolArgs>,
     in_tool_a: Option<InToolA>,
     out_tool_a: Option<types::Str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcTool {
+    ToolTool,
     ToolA,
 }
 
 /// Runs proc Tool.
 pub fn run_tool(n: i64) -> Result<types::Str, Error> {
     let mut env = EnvTool::default();
-    env.in_tool_a = Some(InToolA { n: n });
-    let mut pc = PcTool::ToolA;
+    env.in_tool_tool = Some(InToolTool { n: n });
+    let mut pc = PcTool::ToolTool;
     loop {
         match pc {
+            PcTool::ToolTool => {
+                let input = take_slot(&mut env.in_tool_tool, "Tool.Tool")?;
+                let this = types::ToolArgs { n: input.n };
+                env.in_tool_a = Some(InToolA { n: this.n });
+                pc = PcTool::ToolA;
+                continue;
+            }
             PcTool::ToolA => {
                 let input = take_slot(&mut env.in_tool_a, "Tool.A")?;
                 let this = unimplemented_tool_a(input.n).map_err(|e| wrap("Tool.A", e.into()))?;
@@ -117,6 +127,12 @@ pub fn run_tool(n: i64) -> Result<types::Str, Error> {
             _ => return Err(format!("Tool: invalid state {pc:?}").into()),
         }
     }
+}
+
+/// Input of Tool.Tool.
+#[derive(Debug, Clone)]
+struct InToolTool {
+    n: i64,
 }
 
 /// Input of Tool.A.
@@ -295,6 +311,12 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
         }
         self
     }
+}
+
+/// The type of the parameters of Tool.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToolArgs {
+    pub n: i64,
 }
 
 

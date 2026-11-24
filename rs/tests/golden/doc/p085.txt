@@ -5,6 +5,15 @@
         {
           "nodes": [
             {
+              "type": 3,
+              "label": "A",
+              "sublabel": "()"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "S",
               "sublabel": "rs/src/impls.rs:s"
@@ -12,7 +21,21 @@
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{  }",
+          "call": "S()"
+        }
+      ]
     }
   }
 }

@@ -5,13 +5,37 @@
         {
           "nodes": [
             {
+              "type": 3,
+              "label": "Tool",
+              "sublabel": "(args: []string)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "A"
             }
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ args: []string }",
+          "call": "A(args: []string)",
+          "args": "args = this.args"
+        }
+      ]
     }
   }
 }

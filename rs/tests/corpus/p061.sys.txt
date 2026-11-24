@@ -1,1 +1,1 @@
-proc P(A): int { func A(): int; func B(i: int): int; A -> B(i = this) as B2; B2 -> B2(i = this) as B3; }
+proc P(): int { func A(): int; func B(i: int): int; P -> A(); A -> B(i = this) as B2; B2 -> B2(i = this) as B3; }

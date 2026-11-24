@@ -1,5 +1,6 @@
-proc B(Q): int { func Q(): int = "../../go/q.go:Q"; }
+proc B(): int { func Q(): int = "../../go/q.go:Q"; B -> Q(); }
 ---
+#0 edge #1: call #2() @56..57 text=""
 #0 spawned={}
-#0 region 0: parent=-1 entry=1 elem=void nodes=[1] sink=-1
-#0 region_of={1: 0} opens={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2] sink=-1
+#0 region_of={1: 0, 2: 0} opens={}

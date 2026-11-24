@@ -1,3 +1,3 @@
-proc P(A): int { func A(): []int; A for each (this) -> id(this); }
+proc P(): int { func A(): []int; P -> A(); A for each (this) -> id(this); }
 ---
 error: path through P.id1 ends inside a for each region without a collect @5..6

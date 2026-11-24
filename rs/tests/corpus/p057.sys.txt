@@ -1,8 +1,9 @@
 
-        proc P(A): int {
+        proc P(): int {
             func A(): int;
             func B(i: int): int;
             func C(i: int): int;
+            P -> A();
             A switch { (this > 0) -> B(i = this) as B2, else -> B(i = 0) as B2 };
             B2 -> B(i = B2);
             B -> C(i = this) as C2;

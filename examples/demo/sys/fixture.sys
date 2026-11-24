@@ -5,11 +5,12 @@ interface Foo {
 	func Call(s: string): int = "../go/effects/foo.go:Call", "../rs/src/effects.rs:call";
 }
 
-proc ForEach(Start): int {
+proc ForEach(i: int): int {
 	func Start(i: int): { l: []int, s: string } = "../go/app/impl.go:Range", "../rs/src/impls.rs:range";
 	func Process(i: int, l: []int): int = "../go/app/impl.go:Square", "../rs/src/impls.rs:square";
 	func Collect(l: []int): int = "../go/app/impl.go:Sum", "../rs/src/impls.rs:sum";
 
+	ForEach -> Start(i = this.i);
 	Start for each (Start.l) -> Process(i = this, l = Start.l);
 	Process collect each (Process) -> Collect(l = this);
 }
@@ -17,7 +18,7 @@ proc ForEach(Start): int {
 // How a Bar run ended; a typedef gives the generated type its name.
 type Outcome = enum { I(string), S, B({ i: int }) };
 
-proc Bar(Start): string {
+proc Bar(a: int, b: string): string {
 	func Start(a: int, b: string): string = "../go/app/impl.go:Repeat", "../rs/src/impls.rs:repeat";
 	func Loop(s: string): int = "../go/app/impl.go:Grow", "../rs/src/impls.rs:grow";
 	// No implementation: calls a generated stub that returns an error.
@@ -26,6 +27,7 @@ proc Bar(Start): string {
 	func Branch2End(i: int) = "../go/app/impl.go:Log", "../rs/src/impls.rs:log";
 	func End(r: Outcome): string = "../go/app/impl.go:Finish", "../rs/src/impls.rs:finish";
 
+	Bar -> Start(a = this.a, b = this.b);
 	Start -> Loop(s = this);
 	Loop switch {
 		(this < 10) -> Loop(s = Start),

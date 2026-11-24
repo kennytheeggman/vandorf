@@ -55,8 +55,8 @@ func Finish(ctx context.Context, r types.Outcome) (string, error) {
 }
 
 // Args passes Main's command-line arguments on to Bar.
-func Args(ctx context.Context, a int, b string) (types.MainStartOut, error) {
-	return types.MainStartOut{A: a, B: b}, nil
+func Args(ctx context.Context, a int, b string) (types.BarArgs, error) {
+	return types.BarArgs{A: a, B: b}, nil
 }
 
 // Build returns base + 2.

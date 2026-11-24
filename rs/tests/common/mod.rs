@@ -75,7 +75,7 @@ pub fn analyze(srcs: &[&str]) -> Result<vcc::vcc::types::Program, Vec<String>> {
         let f = vcc::vcc::run_parse_file((*s).into(), i as i64).map_err(|e| vec![e.to_string()])?;
         all = v::File { types: all.types.concat(&f.types), interfaces: all.interfaces.concat(&f.interfaces), nodes: all.nodes.concat(&f.nodes) };
     }
-    let a = vcc::vcc::run_analyze(v::AnalyzeAtS { srcs: srcs.iter().map(|s| v::Str::from(*s)).collect(), file: all }).unwrap();
+    let a = vcc::vcc::run_analyze(v::AnalyzeS { srcs: srcs.iter().map(|s| v::Str::from(*s)).collect(), file: all }).unwrap();
     if a.errors.is_empty() { Ok(a.prog) } else { Err(a.errors.iter().map(|e| e.msg.to_string()).collect()) }
 }
 

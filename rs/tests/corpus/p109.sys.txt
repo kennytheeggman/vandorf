@@ -1,5 +1,6 @@
 
-        proc Main(A): string {
+        proc Main(n: int, verbose: bool, name: string): string {
             func A(n: int, verbose: bool, name: string): string;
+            Main -> A(n = this.n, verbose = this.verbose, name = this.name);
         }
     

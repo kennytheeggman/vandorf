@@ -151,3 +151,11 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
     }
 }
 
+/// The type of the parameters of Main.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MainArgs {
+    pub n: i64,
+    pub verbose: bool,
+    pub name: Str,
+}
+

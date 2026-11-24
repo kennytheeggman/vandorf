@@ -303,6 +303,43 @@ fn interface_of(prog: &Program, n: i64) -> Option<String> {
     }
 }
 
+/// `id1`, `id2`, ...: an id(..) without `as`.
+fn is_unnamed_id(name: &str) -> bool {
+    name.strip_prefix("id")
+        .is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// A type as written.
+fn show_ty(t: &Type) -> String {
+    let members = |ms: &List<Member>, variants: bool| {
+        ms.iter()
+            .map(|m| match (variants, &m.ty) {
+                (true, Type::Prim(p)) if &**p == "void" => m.name.to_string(),
+                (true, ty) => format!("{}({})", m.name, show_ty(ty)),
+                (false, ty) => format!("{}: {}", m.name, show_ty(ty)),
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    match t {
+        Type::Prim(p) => p.to_string(),
+        Type::Array(e) => format!("[]{}", show_ty(e)),
+        Type::Map(m) => format!("map[{}]{}", show_ty(&m.key), show_ty(&m.value)),
+        Type::Struct(ms) => format!("{{ {} }}", members(ms, false)),
+        Type::Enum(ms) => format!("enum {{ {} }}", members(ms, true)),
+        Type::Named(n) => n.name.to_string(),
+    }
+}
+
+/// A signature's parameters as written: `(a: int, b: []string)`.
+fn show_params(ps: &List<Member>) -> String {
+    let shown: Vec<String> = ps
+        .iter()
+        .map(|m| format!("{}: {}", m.name, show_ty(&m.ty)))
+        .collect();
+    format!("({})", shown.join(", "))
+}
+
 fn node_json(prog: &Program, pid: i64, n: i64) -> Json {
     let decl = &prog.nodes[n as usize];
     let mut iface = None;
@@ -321,7 +358,18 @@ fn node_json(prog: &Program, pid: i64, n: i64) -> Json {
             )
         }
         NodeKind::Proc(_) => (1, qual(decl), None),
-        NodeKind::Id(_) => (0, "id".to_string(), None),
+        NodeKind::Id(ps) if decl.qual.last().is_some_and(|l| is_unnamed_id(l)) || ps.is_empty() => {
+            (0, "id".to_string(), None)
+        }
+        // `id(..) as N`: a node named N.
+        NodeKind::Id(_) => (0, display(prog, pid, n), Some("id".to_string())),
+        // The proc's signature node (type 3): drawn as its header, with its
+        // params.
+        NodeKind::Sig(s) => (
+            3,
+            decl.qual.last().map_or(String::new(), |l| l.to_string()),
+            Some(show_params(&s.params)),
+        ),
         NodeKind::Alias(b) => {
             let ty = if matches!(prog.nodes[*b as usize].kind, NodeKind::Proc(_)) {
                 1

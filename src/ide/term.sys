@@ -20,15 +20,14 @@ func Dim(s: { q: map[string]string, k: string }): bool = "ide_leaf.rs:is_dim";
 
 // POST /api/term?cwd=..: a new terminal in cwd if it's a directory under the
 // source directory, else in the source directory.
-proc TermNewRoute(At): HttpResponse {
-	func At(req: HttpRequest): HttpRequest = "../leaf.rs:same";
-	At -> TermGate(req = this);
+proc TermNewRoute(req: HttpRequest): HttpResponse {
+	TermNewRoute -> TermGate(req = this.req);
 	TermGate switch {
 		Shut(r) -> id(r),
 		else -> Session.Base(n = 0)
 	};
 	Session.Base switch {
-		("cwd" in At.query && At.query["cwd"] != "") -> ResolvePath(s = { base = this, p = At.query["cwd"] }),
+		("cwd" in TermNewRoute.req.query && TermNewRoute.req.query["cwd"] != "") -> ResolvePath(s = { base = this, p = TermNewRoute.req.query["cwd"] }),
 		else -> Term.Spawn(cwd = this)
 	};
 	ResolvePath switch {
@@ -46,9 +45,8 @@ proc TermNewRoute(At): HttpResponse {
 }
 
 // GET /api/term/list
-proc TermListRoute(At): HttpResponse {
-	func At(req: HttpRequest): HttpRequest = "../leaf.rs:same";
-	At -> TermGate(req = this);
+proc TermListRoute(req: HttpRequest): HttpResponse {
+	TermListRoute -> TermGate(req = this.req);
 	TermGate switch {
 		Shut(r) -> id(r),
 		else -> Term.List(n = 0)
@@ -57,14 +55,13 @@ proc TermListRoute(At): HttpResponse {
 }
 
 // GET /api/term/read?id=&from=
-proc TermReadRoute(At): HttpResponse {
-	func At(req: HttpRequest): HttpRequest = "../leaf.rs:same";
-	At -> TermGate(req = this);
+proc TermReadRoute(req: HttpRequest): HttpResponse {
+	TermReadRoute -> TermGate(req = this.req);
 	TermGate switch {
 		Shut(r) -> id(r),
 		else -> switch {
-			(!HasId(q = At.query)) -> id(ApiErr(msg = "no such terminal")),
-			else -> Term.Read(id = QueryInt(s = { q = At.query, k = "id" }), from = QueryInt(s = { q = At.query, k = "from" }))
+			(!HasId(q = TermReadRoute.req.query)) -> id(ApiErr(msg = "no such terminal")),
+			else -> Term.Read(id = QueryInt(s = { q = TermReadRoute.req.query, k = "id" }), from = QueryInt(s = { q = TermReadRoute.req.query, k = "from" }))
 		}
 	};
 	Term.Read switch {
@@ -74,14 +71,13 @@ proc TermReadRoute(At): HttpResponse {
 }
 
 // POST /api/term/input?id=: the body, typed.
-proc TermInputRoute(At): HttpResponse {
-	func At(req: HttpRequest): HttpRequest = "../leaf.rs:same";
-	At -> TermGate(req = this);
+proc TermInputRoute(req: HttpRequest): HttpResponse {
+	TermInputRoute -> TermGate(req = this.req);
 	TermGate switch {
 		Shut(r) -> id(r),
 		else -> switch {
-			(!HasId(q = At.query)) -> id(ApiErr(msg = "no such terminal")),
-			else -> Term.Input(id = QueryInt(s = { q = At.query, k = "id" }), data = At.body)
+			(!HasId(q = TermInputRoute.req.query)) -> id(ApiErr(msg = "no such terminal")),
+			else -> Term.Input(id = QueryInt(s = { q = TermInputRoute.req.query, k = "id" }), data = TermInputRoute.req.body)
 		}
 	};
 	Term.Input switch {
@@ -91,17 +87,16 @@ proc TermInputRoute(At): HttpResponse {
 }
 
 // POST /api/term/resize?id=&cols=&rows=
-proc TermResizeRoute(At): HttpResponse {
-	func At(req: HttpRequest): HttpRequest = "../leaf.rs:same";
-	At -> TermGate(req = this);
+proc TermResizeRoute(req: HttpRequest): HttpResponse {
+	TermResizeRoute -> TermGate(req = this.req);
 	TermGate switch {
 		Shut(r) -> id(r),
 		else -> Term.List(n = 0)
 	};
 	// The terminal first, then its size (each a u16 above zero).
 	Term.List switch {
-		(!HasId(q = At.query) || !IdIn(ids = this, id = QueryInt(s = { q = At.query, k = "id" }))) -> id(ApiErr(msg = "no such terminal")),
-		(Dim(s = { q = At.query, k = "cols" }) && Dim(s = { q = At.query, k = "rows" })) -> Term.Resize(id = QueryInt(s = { q = At.query, k = "id" }), cols = QueryInt(s = { q = At.query, k = "cols" }), rows = QueryInt(s = { q = At.query, k = "rows" })),
+		(!HasId(q = TermResizeRoute.req.query) || !IdIn(ids = this, id = QueryInt(s = { q = TermResizeRoute.req.query, k = "id" }))) -> id(ApiErr(msg = "no such terminal")),
+		(Dim(s = { q = TermResizeRoute.req.query, k = "cols" }) && Dim(s = { q = TermResizeRoute.req.query, k = "rows" })) -> Term.Resize(id = QueryInt(s = { q = TermResizeRoute.req.query, k = "id" }), cols = QueryInt(s = { q = TermResizeRoute.req.query, k = "cols" }), rows = QueryInt(s = { q = TermResizeRoute.req.query, k = "rows" })),
 		else -> id(ApiErr(msg = "need cols and rows"))
 	};
 	Term.Resize switch {
@@ -111,14 +106,13 @@ proc TermResizeRoute(At): HttpResponse {
 }
 
 // POST /api/term/kill?id=
-proc TermKillRoute(At): HttpResponse {
-	func At(req: HttpRequest): HttpRequest = "../leaf.rs:same";
-	At -> TermGate(req = this);
+proc TermKillRoute(req: HttpRequest): HttpResponse {
+	TermKillRoute -> TermGate(req = this.req);
 	TermGate switch {
 		Shut(r) -> id(r),
 		else -> switch {
-			(!HasId(q = At.query)) -> id(ApiErr(msg = "no such terminal")),
-			else -> Term.Kill(id = QueryInt(s = { q = At.query, k = "id" }))
+			(!HasId(q = TermKillRoute.req.query)) -> id(ApiErr(msg = "no such terminal")),
+			else -> Term.Kill(id = QueryInt(s = { q = TermKillRoute.req.query, k = "id" }))
 		}
 	};
 	Term.Kill switch {

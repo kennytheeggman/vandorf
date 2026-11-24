@@ -3,4 +3,5 @@
 #2 ListIntCons struct { h: int, t*: #1 } (typedef List<int>)
 #3 RListInt struct { x: #1, pos: int } (typedef R<List<int>>)
 #4 RInt struct { x: int, pos: int } (typedef R<int>)
+#5 PArgs struct { r: #0, s: #0, m: map[string]#4 } (parameters of P)
 alias Toks = #0

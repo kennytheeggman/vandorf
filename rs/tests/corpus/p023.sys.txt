@@ -2,7 +2,8 @@
         type R<T> = { x: T, pos: int };
         type List<T> = enum { Nil, Cons({ h: T, t: List<T> }) };
         type Toks = R<[]string>;
-        proc P(A): R<List<int>> {
+        proc P(r: Toks, s: R<[]string>, m: map[string]R<int>): R<List<int>> {
             func A(r: Toks, s: R<[]string>, m: map[string]R<int>): R<List<int>>;
+            P -> A(r = this.r, s = this.s, m = this.m);
         }
         

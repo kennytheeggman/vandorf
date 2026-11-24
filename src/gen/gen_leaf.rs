@@ -154,8 +154,33 @@ pub fn gname(n: NodeDecl) -> Result<Str, String> {
 pub fn func_params(n: NodeDecl) -> Result<List<Member>, String> {
     Ok(match n.kind {
         NodeKind::Func(f) => f.params,
+        NodeKind::Sig(s) => s.params,
         _ => List::default(),
     })
+}
+
+pub fn hint_base(nodes: List<NodeDecl>, n: i64) -> Result<Str, String> {
+    match &nodes[n as usize].kind {
+        NodeKind::Sig(s) => gname(nodes[s.pid as usize].clone()),
+        _ => gname(nodes[n as usize].clone()),
+    }
+}
+
+pub fn ret_hint(nodes: List<NodeDecl>, n: i64) -> Result<Str, String> {
+    let base = hint_base(nodes.clone(), n)?;
+    Ok(match &nodes[n as usize].kind {
+        NodeKind::Sig(_) => format!("{base}Args"),
+        _ => format!("{base}Out"),
+    }
+    .into())
+}
+
+pub fn ret_origin(nodes: List<NodeDecl>, n: i64) -> Result<Str, String> {
+    Ok(match &nodes[n as usize].kind {
+        NodeKind::Sig(s) => format!("parameters of {}", qn(&nodes, s.pid)),
+        _ => format!("return of {}", qn(&nodes, n)),
+    }
+    .into())
 }
 
 // ---- Text ----
@@ -617,7 +642,7 @@ pub fn float_lit(f: f64) -> Result<Str, String> {
 
 pub fn in_type(nodes: List<NodeDecl>, n: i64) -> Result<Str, String> {
     match &nodes[n as usize].kind {
-        NodeKind::Func(_) | NodeKind::Id(_) => {
+        NodeKind::Func(_) | NodeKind::Id(_) | NodeKind::Sig(_) => {
             Ok(format!("In{}", gname(nodes[n as usize].clone())?).into())
         }
         NodeKind::Proc(p) => in_type(nodes.clone(), p.entry),
@@ -1053,11 +1078,11 @@ pub fn bind_lines(bs: List<PatBind>) -> Result<List<Line>, String> {
         .collect())
 }
 
-pub fn coercion_name(at: RCoerceAtS) -> Result<Str, String> {
+pub fn coercion_name(at: RCoerceS) -> Result<Str, String> {
     Ok(format!("coerce_{}", at.g.coercions.len()).into())
 }
 
-pub fn new_coercion(at: RCoerceAtS) -> Result<RGen, String> {
+pub fn new_coercion(at: RCoerceS) -> Result<RGen, String> {
     let key = format!(
         "{} -> {}",
         rtype(&at.g.table, &at.from)?,
@@ -1218,6 +1243,25 @@ pub fn in_key_e(e: Expr) -> Result<Expr, String> {
 
 fn params_of(nodes: &List<NodeDecl>, n: i64) -> List<Member> {
     super::sema_leaf::node_params(nodes.clone(), n).unwrap()
+}
+
+/// A signature node's output: its input's fields, as the struct of them.
+pub fn sig_value(g: RGen, n: i64) -> Result<Str, String> {
+    let nodes = &g.prog.nodes;
+    let ty = super::sema_leaf::node_ret(nodes.clone(), n)?;
+    let fields = params_of(nodes, n)
+        .iter()
+        .map(|m| {
+            let f = rust_ident_of(&m.name);
+            if boxed(&g.table, &ty, &m.name) {
+                format!("{f}: std::sync::Arc::new(input.{f})")
+            } else {
+                format!("{f}: input.{f}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(format!("let this = {} {{ {fields} }};", rtype(&g.table, &ty)?).into())
 }
 
 pub fn input_args(nodes: List<NodeDecl>, n: i64) -> Result<Str, String> {
@@ -1576,7 +1620,10 @@ pub fn procs_file(g: RGen, body: Str) -> Result<Str, String> {
     let l = |s: String| Line::L(s.into());
     for (id, n) in nodes.iter().enumerate() {
         let id = id as i64;
-        if matches!(n.kind, NodeKind::Func(_) | NodeKind::Id(_)) {
+        if matches!(
+            n.kind,
+            NodeKind::Func(_) | NodeKind::Id(_) | NodeKind::Sig(_)
+        ) {
             ls.push(l(format!("/// Input of {}.", qn(nodes, id))));
             ls.push(l("#[derive(Debug, Clone)]".into()));
             ls.push(l(format!("struct {} {{", in_type(nodes.clone(), id)?)));

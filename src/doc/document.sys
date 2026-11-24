@@ -36,29 +36,26 @@ func GraphOf(n: NodeDecl): Graph = "doc_leaf.rs:graph_of";
 func Frontier(l: Layout, g: Graph): []int = "doc_leaf.rs:frontier";
 
 // One grid per proc, nested ones included, keyed by qualified name.
-proc Document(At): string {
-	func At(prog: Program): Program = "../leaf.rs:same";
-	At -> Grids(s = { prog = this, procs = Procs(nodes = this.nodes), i = 0, acc = [:] });
+proc Document(prog: Program): string {
+	Document -> Grids(s = { prog = this.prog, procs = Procs(nodes = this.prog.nodes), i = 0, acc = [:] });
 	Grids -> id(Pretty(j = Obj([{ key = "grids", value = Obj(JsonFields(m = this)) }])));
 }
 
 // The document as a JSON value.
-proc DocumentJson(At): Json {
-	func At(prog: Program): Program = "../leaf.rs:same";
-	At -> Grids(s = { prog = this, procs = Procs(nodes = this.nodes), i = 0, acc = [:] });
+proc DocumentJson(prog: Program): Json {
+	DocumentJson -> Grids(s = { prog = this.prog, procs = Procs(nodes = this.prog.nodes), i = 0, acc = [:] });
 	Grids -> id(Obj([{ key = "grids", value = Obj(JsonFields(m = this)) }]));
 }
 
 func JsonFields(m: map[string]Json): []JsonField = "doc_leaf.rs:fields";
 
-proc Grids(At): map[string]Json {
-	func At(s: { prog: Program, procs: []int, i: int, acc: map[string]Json }): { prog: Program, procs: []int, i: int, acc: map[string]Json } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.procs.len) -> id(this.acc),
-		else -> Sweep(s = { prog = this.prog, pid = this.procs[this.i], g = GraphOf(n = this.prog.nodes[this.procs[this.i]]), l = Place(l = { rows = [[]], pos = [:], out = [:] }, n = ProcEntry(nodes = this.prog.nodes, pid = this.procs[this.i]), r = 0) })
+proc Grids(s: { prog: Program, procs: []int, i: int, acc: map[string]Json }): map[string]Json {
+	Grids switch {
+		(this.s.i == this.s.procs.len) -> id(this.s.acc),
+		else -> Sweep(s = { prog = this.s.prog, pid = this.s.procs[this.s.i], g = GraphOf(n = this.s.prog.nodes[this.s.procs[this.s.i]]), l = Place(l = { rows = [[]], pos = [:], out = [:] }, n = ProcEntry(nodes = this.s.prog.nodes, pid = this.s.procs[this.s.i]), r = 0) })
 	};
-	Sweep -> GridJson(s = { prog = At.prog, pid = At.procs[At.i], l = TrimRows(l = this) });
-	GridJson -> At(s = { prog = At.prog, procs = At.procs, i = At.i + 1, acc = At.acc + [QualName(n = At.prog.nodes[At.procs[At.i]]): this] });
+	Sweep -> GridJson(s = { prog = Grids.s.prog, pid = Grids.s.procs[Grids.s.i], l = TrimRows(l = this) });
+	GridJson -> Grids(s = { prog = Grids.s.prog, procs = Grids.s.procs, i = Grids.s.i + 1, acc = Grids.s.acc + [QualName(n = Grids.s.prog.nodes[Grids.s.procs[Grids.s.i]]): this] });
 }
 
 func ProcEntry(nodes: []NodeDecl, pid: int): int = "../sema/sema_leaf.rs:proc_entry";
@@ -68,78 +65,72 @@ type SweepIn = { prog: Program, pid: int, g: Graph, l: Layout };
 // One row per step, until the last row has no edges out. Every pushdown
 // moves a node strictly lower, so the grid can't grow past a row per node;
 // guard regardless.
-proc Sweep(At): Layout {
-	func At(s: SweepIn): SweepIn = "../leaf.rs:same";
-	At switch {
-		(this.l.rows.len > this.g.region_of.len + this.g.spawned.len + 1 || Frontier(l = this.l, g = this.g).len == 0) -> id(this.l),
-		else -> Sources(s = { at = this, srcs = Frontier(l = this.l, g = this.g), last = this.l.rows.len - 1, row = this.l.rows.len, l = { ..this.l, rows = this.l.rows + [[]] }, i = 0 })
+proc Sweep(s: SweepIn): Layout {
+	Sweep switch {
+		(this.s.l.rows.len > this.s.g.region_of.len + this.s.g.spawned.len + 1 || Frontier(l = this.s.l, g = this.s.g).len == 0) -> id(this.s.l),
+		else -> Sources(s = { at = this.s, srcs = Frontier(l = this.s.l, g = this.s.g), last = this.s.l.rows.len - 1, row = this.s.l.rows.len, l = { ..this.s.l, rows = this.s.l.rows + [[]] }, i = 0 })
 	};
-	Sources -> At(s = { prog = At.prog, pid = At.pid, g = At.g, l = this });
+	Sources -> Sweep(s = { prog = Sweep.s.prog, pid = Sweep.s.pid, g = Sweep.s.g, l = this });
 }
 
 type SourcesIn = { at: SweepIn, srcs: []int, last: int, row: int, l: Layout, i: int };
 
-proc Sources(At): Layout {
-	func At(s: SourcesIn): SourcesIn = "../leaf.rs:same";
-	At switch {
-		(this.i == this.srcs.len) -> id(this.l),
+proc Sources(s: SourcesIn): Layout {
+	Sources switch {
+		(this.s.i == this.s.srcs.len) -> id(this.s.l),
 		// A pushdown earlier in this sweep may have moved src down a row (it
 		// will be swept from there) or already recorded its edges.
-		(!(this.srcs[this.i] in this.l.pos) || this.l.pos[this.srcs[this.i]].r != this.last || this.srcs[this.i] in this.l.out) -> At(s = { at = this.at, srcs = this.srcs, last = this.last, row = this.row, l = this.l, i = this.i + 1 }),
-		else -> EdgeTargets(s = { prog = this.at.prog, g = this.at.g, src = this.srcs[this.i] })
+		(!(this.s.srcs[this.s.i] in this.s.l.pos) || this.s.l.pos[this.s.srcs[this.s.i]].r != this.s.last || this.s.srcs[this.s.i] in this.s.l.out) -> Sources(s = { at = this.s.at, srcs = this.s.srcs, last = this.s.last, row = this.s.row, l = this.s.l, i = this.s.i + 1 }),
+		else -> EdgeTargets(s = { prog = this.s.at.prog, g = this.s.at.g, src = this.s.srcs[this.s.i] })
 	};
-	EdgeTargets -> Record(s = { prog = At.at.prog, pid = At.at.pid, src = At.srcs[At.i], row = At.row, outs = this, i = 0, l = At.l, acc = [] });
-	Record -> At(s = { at = At.at, srcs = At.srcs, last = At.last, row = At.row, l = this, i = At.i + 1 });
+	EdgeTargets -> Record(s = { prog = Sources.s.at.prog, pid = Sources.s.at.pid, src = Sources.s.srcs[Sources.s.i], row = Sources.s.row, outs = this, i = 0, l = Sources.s.l, acc = [] });
+	Record -> Sources(s = { at = Sources.s.at, srcs = Sources.s.srcs, last = Sources.s.last, row = Sources.s.row, l = this, i = Sources.s.i + 1 });
 }
 
 // Each edge out of src: placing (or pushing down) its target, or a back edge.
-proc Record(At): Layout {
-	func At(s: { prog: Program, pid: int, src: int, row: int, outs: []Out, i: int, l: Layout, acc: []Pending }): { prog: Program, pid: int, src: int, row: int, outs: []Out, i: int, l: Layout, acc: []Pending } = "../leaf.rs:same";
+proc Record(s: { prog: Program, pid: int, src: int, row: int, outs: []Out, i: int, l: Layout, acc: []Pending }): Layout {
 	func Placed(l: Layout, target: int, back: bool): { l: Layout, back: bool } = "../sema/sema_leaf.rs:pack_placed";
-	At switch {
-		(this.i == this.outs.len) -> id({ ..this.l, out = this.l.out + [this.src: this.acc] }),
-		(!(this.outs[this.i].target in this.l.pos)) -> Placed(l = Place(l = this.l, n = this.outs[this.i].target, r = this.row), target = this.outs[this.i].target, back = false),
-		(this.l.pos[this.outs[this.i].target].r == this.row) -> Placed(l = this.l, target = this.outs[this.i].target, back = false),
-		else -> Downstream(s = { l = this.l, stack = [this.outs[this.i].target], seen = [:] })
+	Record switch {
+		(this.s.i == this.s.outs.len) -> id({ ..this.s.l, out = this.s.l.out + [this.s.src: this.s.acc] }),
+		(!(this.s.outs[this.s.i].target in this.s.l.pos)) -> Placed(l = Place(l = this.s.l, n = this.s.outs[this.s.i].target, r = this.s.row), target = this.s.outs[this.s.i].target, back = false),
+		(this.s.l.pos[this.s.outs[this.s.i].target].r == this.s.row) -> Placed(l = this.s.l, target = this.s.outs[this.s.i].target, back = false),
+		else -> Downstream(s = { l = this.s.l, stack = [this.s.outs[this.s.i].target], seen = [:] })
 	};
 	Downstream switch {
-		(At.outs[At.i].target == At.src || At.src in this) -> Placed(l = At.l, target = At.outs[At.i].target, back = true),
-		else -> Placed(l = Place(l = PushDown(l = At.l, set = this), n = At.outs[At.i].target, r = At.row), target = At.outs[At.i].target, back = false)
+		(Record.s.outs[Record.s.i].target == Record.s.src || Record.s.src in this) -> Placed(l = Record.s.l, target = Record.s.outs[Record.s.i].target, back = true),
+		else -> Placed(l = Place(l = PushDown(l = Record.s.l, set = this), n = Record.s.outs[Record.s.i].target, r = Record.s.row), target = Record.s.outs[Record.s.i].target, back = false)
 	};
-	Placed -> CallSig(s = { prog = At.prog, pid = At.pid, n = At.outs[At.i].target });
-	CallSig -> At(s = { prog = At.prog, pid = At.pid, src = At.src, row = At.row, outs = At.outs, i = At.i + 1, l = Placed.l, acc = At.acc + [{ ty = At.outs[At.i].ty, target = At.outs[At.i].target, label = At.outs[At.i].label, value = At.outs[At.i].value, call = this, args = At.outs[At.i].args, back = Placed.back }] });
+	Placed -> CallSig(s = { prog = Record.s.prog, pid = Record.s.pid, n = Record.s.outs[Record.s.i].target });
+	CallSig -> Record(s = { prog = Record.s.prog, pid = Record.s.pid, src = Record.s.src, row = Record.s.row, outs = Record.s.outs, i = Record.s.i + 1, l = Placed.l, acc = Record.s.acc + [{ ty = Record.s.outs[Record.s.i].ty, target = Record.s.outs[Record.s.i].target, label = Record.s.outs[Record.s.i].label, value = Record.s.outs[Record.s.i].value, call = this, args = Record.s.outs[Record.s.i].args, back = Placed.back }] });
 }
 
 // `from` and every placed node reachable from it along forward edges.
-proc Downstream(At): map[int]bool {
-	func At(s: { l: Layout, stack: []int, seen: map[int]bool }): { l: Layout, stack: []int, seen: map[int]bool } = "../leaf.rs:same";
+proc Downstream(s: { l: Layout, stack: []int, seen: map[int]bool }): map[int]bool {
 	func Last(xs: []int): int = "../sema/sema_leaf.rs:last_int";
 	func Pop(xs: []int): []int = "../sema/sema_leaf.rs:pop_int";
 	func Forward(l: Layout, n: int): []int = "doc_leaf.rs:forward";
-	At switch {
-		(this.stack.len == 0) -> id(this.seen),
-		(!(Last(xs = this.stack) in this.l.pos) || Last(xs = this.stack) in this.seen) -> At(s = { l = this.l, stack = Pop(xs = this.stack), seen = this.seen }),
-		else -> At(s = { l = this.l, stack = Pop(xs = this.stack) + Forward(l = this.l, n = Last(xs = this.stack)), seen = this.seen + [Last(xs = this.stack): true] })
+	Downstream switch {
+		(this.s.stack.len == 0) -> id(this.s.seen),
+		(!(Last(xs = this.s.stack) in this.s.l.pos) || Last(xs = this.s.stack) in this.s.seen) -> Downstream(s = { l = this.s.l, stack = Pop(xs = this.s.stack), seen = this.s.seen }),
+		else -> Downstream(s = { l = this.s.l, stack = Pop(xs = this.s.stack) + Forward(l = this.s.l, n = Last(xs = this.s.stack)), seen = this.s.seen + [Last(xs = this.s.stack): true] })
 	};
 }
 
-proc EdgeTargets(At): []Out {
-	func At(s: { prog: Program, g: Graph, src: int }): { prog: Program, g: Graph, src: int } = "../leaf.rs:same";
-	func E(e: SEdge): SEdge = "../leaf.rs:same";
+proc EdgeTargets(s: { prog: Program, g: Graph, src: int }): []Out {
 	// A spawner's edges, one to each branch.
 	func SpawnOuts(branches: []SBranch, value: string): []Out = "doc_leaf.rs:spawn_outs";
 	// A branch leads on to its spawn's join.
 	func BranchOuts(g: Graph, src: int, value: string): []Out = "doc_leaf.rs:branch_outs";
 	func Joined(g: Graph, src: int): Type = "doc_leaf.rs:joined_type";
-	At switch {
-		(this.src in this.g.spawned) -> ShowType(t = Joined(g = this.g, src = this.src)) as JoinedType,
-		else -> ShowType(t = NodeRet(nodes = this.prog.nodes, n = this.src)) as Ret
+	EdgeTargets switch {
+		(this.s.src in this.s.g.spawned) -> ShowType(t = Joined(g = this.s.g, src = this.s.src)) as JoinedType,
+		else -> ShowType(t = NodeRet(nodes = this.s.prog.nodes, n = this.s.src)) as Ret
 	};
-	JoinedType -> id(BranchOuts(g = At.g, src = At.src, value = this));
-	Ret -> E(e = At.g.edges[At.src]);
+	JoinedType -> id(BranchOuts(g = EdgeTargets.s.g, src = EdgeTargets.s.src, value = this));
+	Ret -> id(EdgeTargets.s.g.edges[EdgeTargets.s.src]) as E;
 	E switch {
 		Call(c) -> switch {
-			(At.src in At.g.region_of && At.g.region_of[At.src] != 0) -> id([{ ty = 3, target = c.target, label = None(), value = Ret, args = c.text }]),
+			(EdgeTargets.s.src in EdgeTargets.s.g.region_of && EdgeTargets.s.g.region_of[EdgeTargets.s.src] != 0) -> id([{ ty = 3, target = c.target, label = None(), value = Ret, args = c.text }]),
 			else -> id([{ ty = 0, target = c.target, label = None(), value = Ret, args = c.text }])
 		},
 		Match(arms) -> MatchOuts(s = { paths = ArmPaths(arms = arms), value = Ret, i = 0, acc = [] }),
@@ -151,30 +142,27 @@ proc EdgeTargets(At): []Out {
 }
 
 // A nested switch's arms are flattened into one edge per call.
-proc MatchOuts(At): []Out {
-	func At(s: { paths: []{ labels: []string, call: Call }, value: string, i: int, acc: []Out }): { paths: []{ labels: []string, call: Call }, value: string, i: int, acc: []Out } = "../leaf.rs:same";
+proc MatchOuts(s: { paths: []{ labels: []string, call: Call }, value: string, i: int, acc: []Out }): []Out {
 	func Labels(ls: []string): string = "doc_leaf.rs:join_labels";
-	At switch {
-		(this.i == this.paths.len) -> id(this.acc),
-		else -> At(s = { paths = this.paths, value = this.value, i = this.i + 1, acc = this.acc + [{ ty = 1, target = this.paths[this.i].call.target, label = Some(Labels(ls = this.paths[this.i].labels)), value = this.value, args = this.paths[this.i].call.text }] })
+	MatchOuts switch {
+		(this.s.i == this.s.paths.len) -> id(this.s.acc),
+		else -> MatchOuts(s = { paths = this.s.paths, value = this.s.value, i = this.s.i + 1, acc = this.s.acc + [{ ty = 1, target = this.s.paths[this.s.i].call.target, label = Some(Labels(ls = this.s.paths[this.s.i].labels)), value = this.s.value, args = this.s.paths[this.s.i].call.text }] })
 	};
 }
 
 // `B(i: int, l: []int)`: what a call to n receives.
-proc CallSig(At): string {
-	func At(s: { prog: Program, pid: int, n: int }): { prog: Program, pid: int, n: int } = "../leaf.rs:same";
-	At -> ShowParams(s = { ps = NodeParams(nodes = this.prog.nodes, n = this.n), i = 0, acc = "" });
-	ShowParams -> id(DisplayLabel(prog = At.prog, pid = At.pid, n = At.n) + "(" + this + ")");
+proc CallSig(s: { prog: Program, pid: int, n: int }): string {
+	CallSig -> ShowParams(s = { ps = NodeParams(nodes = this.s.prog.nodes, n = this.s.n), i = 0, acc = "" });
+	ShowParams -> id(DisplayLabel(prog = CallSig.s.prog, pid = CallSig.s.pid, n = CallSig.s.n) + "(" + this + ")");
 }
 
 // `p: t, q: u`
-proc ShowParams(At): string {
-	func At(s: { ps: []Member, i: int, acc: string }): { ps: []Member, i: int, acc: string } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.ps.len) -> id(this.acc),
-		else -> ShowType(t = this.ps[this.i].ty)
+proc ShowParams(s: { ps: []Member, i: int, acc: string }): string {
+	ShowParams switch {
+		(this.s.i == this.s.ps.len) -> id(this.s.acc),
+		else -> ShowType(t = this.s.ps[this.s.i].ty)
 	};
-	ShowType -> At(s = { ps = At.ps, i = At.i + 1, acc = At.acc + Sep(i = At.i) + At.ps[At.i].name + ": " + this });
+	ShowType -> ShowParams(s = { ps = ShowParams.s.ps, i = ShowParams.s.i + 1, acc = ShowParams.s.acc + Sep(i = ShowParams.s.i) + ShowParams.s.ps[ShowParams.s.i].name + ": " + this });
 }
 
 // Funcs local to the proc by bare name; others (interface funcs, top-level
@@ -183,9 +171,8 @@ func DisplayLabel(prog: Program, pid: int, n: int): string = "doc_leaf.rs:displa
 
 // ---- JSON ----
 
-proc GridJson(At): Json {
-	func At(s: { prog: Program, pid: int, l: Layout }): { prog: Program, pid: int, l: Layout } = "../leaf.rs:same";
+proc GridJson(s: { prog: Program, pid: int, l: Layout }): Json {
 	func Rows(prog: Program, pid: int, l: Layout): Json = "doc_leaf.rs:rows_json";
 	func Edges(l: Layout): Json = "doc_leaf.rs:edges_json";
-	At -> id(Obj([{ key = "rows", value = Rows(prog = this.prog, pid = this.pid, l = this.l) }, { key = "edges", value = Edges(l = this.l) }]));
+	GridJson -> id(Obj([{ key = "rows", value = Rows(prog = this.s.prog, pid = this.s.pid, l = this.s.l) }, { key = "edges", value = Edges(l = this.s.l) }]));
 }

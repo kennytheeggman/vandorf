@@ -1,6 +1,7 @@
-type T = { x: int }; proc P(A): int { func A(): T; func B(t: T): int; A -> B(t = this); }
+type T = { x: int }; proc P(): int { func A(): T; func B(t: T): int; P -> A(); A -> B(t = this); }
 ---
-#0 edge #1: call #2(t:T=this:T@81..85) @75..76 text="t = this"
+#0 edge #1: call #2() @74..75 text=""
+#0 edge #2: call #3(t:T=this:T@90..94) @84..85 text="t = this"
 #0 spawned={}
-#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2] sink=-1
-#0 region_of={1: 0, 2: 0} opens={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2, 3] sink=-1
+#0 region_of={1: 0, 2: 0, 3: 0} opens={}

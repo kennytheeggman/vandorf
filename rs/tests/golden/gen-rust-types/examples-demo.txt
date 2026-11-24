@@ -225,6 +225,31 @@ pub struct ScopeValue {
     pub kind: Str,
 }
 
+/// The type of the parameters of Measure.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MeasureArgs {
+    pub shapes: List<Shape>,
+}
+
+/// The type of the parameters of Hello.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HelloArgs {
+    pub name: Str,
+    pub times: i64,
+}
+
+/// The type of the parameters of Calc.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CalcArgs {
+    pub base: i64,
+}
+
+/// The type of the parameters of Classify.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassifyArgs {
+    pub e: Expr,
+}
+
 /// The type of the return of ForEach.Start.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForEachStartOut {
@@ -232,11 +257,18 @@ pub struct ForEachStartOut {
     pub s: Str,
 }
 
-/// The type of the return of Main.Start.
+/// The type of the parameters of Bar.
 #[derive(Debug, Clone, PartialEq)]
-pub struct MainStartOut {
+pub struct BarArgs {
     pub a: i64,
     pub b: Str,
+}
+
+/// The type of the parameters of Resolve.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolveArgs {
+    pub names: List<Str>,
+    pub query: Str,
 }
 
 /// The type of the return of Resolve.Declare.

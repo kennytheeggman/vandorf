@@ -1,1 +1,1 @@
-proc B(Q): int { func Q(): int = "../../go/q.go:Q"; }
+proc B(): int { func Q(): int = "../../go/q.go:Q"; B -> Q(); }

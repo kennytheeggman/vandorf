@@ -5,13 +5,37 @@
         {
           "nodes": [
             {
+              "type": 3,
+              "label": "P",
+              "sublabel": "(r: Toks, s: R<[]string>, m: map[string]R<int>)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "A"
             }
           ]
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ r: Toks, s: R<[]string>, m: map[string]R<int> }",
+          "call": "A(r: Toks, s: R<[]string>, m: map[string]R<int>)",
+          "args": "r = this.r, s = this.s, m = this.m"
+        }
+      ]
     }
   }
 }

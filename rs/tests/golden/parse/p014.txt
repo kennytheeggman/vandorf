@@ -1,1 +1,1 @@
-(file(type A @5:6(named B @9:10 @9:10))(type B @17:18(named A @21:22 @21:22))(proc P @29:30 X @31:32(named int @35:38 @35:38)(func X @46:47(named int @51:54 @51:54))))
+(file(type A @5:6(named B @9:10 @9:10))(type B @17:18(named A @21:22 @21:22))(proc P @29:30(params)(named int @34:37 @34:37)(func X @45:46(named int @50:53 @50:53))(edge(path P @55:56 @55:56)(call(target text=""(path X @60:61 @60:61))) @55:63)))

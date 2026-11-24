@@ -1,6 +1,7 @@
 type T = { x: int };
-proc B(Q): int { func Q(i: int): int; }
+proc B(i: int): int { func Q(i: int): int; B -> Q(i = this.i); }
 ---
+#0 edge #1: call #2(i:int=this.i:int@75..81) @69..70 text="i = this.i"
 #0 spawned={}
-#0 region 0: parent=-1 entry=1 elem=void nodes=[1] sink=-1
-#0 region_of={1: 0} opens={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2] sink=-1
+#0 region_of={1: 0, 2: 0} opens={}

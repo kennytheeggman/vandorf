@@ -753,6 +753,29 @@ func httpDecRInt(v any) (types.RInt, error) {
 	return x, nil
 }
 
+func httpEncPArgs(b *strings.Builder, x types.PArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"r\":")
+	httpEncRStringList(b, x.R)
+	b.WriteByte('}')
+}
+
+func httpDecPArgs(v any) (types.PArgs, error) {
+	var x types.PArgs
+	fs, err := httpObject(v, "PArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "r"); err != nil {
+		return x, err
+	} else if y, err := httpDecRStringList(f); err != nil {
+		return x, errors.New("r: " + err.Error())
+	} else {
+		x.R = y
+	}
+	return x, nil
+}
+
 // httpCallP runs proc P with the request's parameters.
 func httpCallP(ctx context.Context, params any) (string, int, error) {
 	argR, err := httpArg(params, "r", httpDecRStringList)
@@ -794,6 +817,11 @@ import (
 	"example.com/app/types"
 )
 
+// inPP is the input of P.P.
+type inPP struct {
+	R types.RStringList
+}
+
 // inPA is the input of P.A.
 type inPA struct {
 	R types.RStringList
@@ -812,25 +840,35 @@ import (
 )
 
 type envP struct {
+	inPP inPP
+	outPP types.PArgs
 	inPA inPA
 	outPA types.RInt
 }
 
 const (
-	pcP_PA = iota
+	pcP_PP = iota
+	pcP_PA
 )
 
 // RunP runs proc P.
 func RunP(ctx context.Context, r types.RStringList) (types.RInt, error) {
 	var zero types.RInt
 	env := &envP{}
-	env.inPA = inPA{R: r}
-	pc := pcP_PA
+	env.inPP = inPP{R: r}
+	pc := pcP_PP
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcP_PP:
+			this := types.PArgs{R: env.inPP.R}
+			zeroOut(&env.inPP)
+			_ = this
+			env.inPA = inPA{R: this.R}
+			pc = pcP_PA
+			continue
 		case pcP_PA:
 			this, err := unimplementedPA(ctx, env.inPA.R)
 			if err != nil {
@@ -1133,6 +1171,11 @@ type RStringList struct {
 type RInt struct {
 	X int
 	Pos int
+}
+
+// PArgs is the type of the parameters of P.
+type PArgs struct {
+	R RStringList
 }
 
 // Toks is a typedef.

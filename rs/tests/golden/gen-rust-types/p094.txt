@@ -158,3 +158,8 @@ pub struct POut {
     pub tags: List<Str>,
 }
 
+/// The type of the parameters of P.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PArgs {
+}
+

@@ -1,5 +1,5 @@
-// The parser's steps and results. Every parse proc takes (toks, pos), starts
-// with a local `At` (the shared leaf below), and ends with
+// The parser's steps and results. Every parse proc takes (toks, pos), goes
+// first to a local `At` (the shared leaf below), and ends with
 // id({ x = <what it parsed>, pos = <the next token> }), an R<T>. Lists are
 // loops: a back edge to a loop head (an AtAcc<T> leaf) that carries the
 // items so far. A list proc stops at a closing bracket and leaves it for
@@ -14,8 +14,9 @@
 // token before it (for spans).
 type Cur = { toks: []Tok, pos: int, tok: Tok, prev: Tok };
 
-// At(toks, pos): the position, unchanged. Each proc declares its own (an
-// entry has to be local), all implemented by this one leaf.
+// At(toks, pos): the position, as a Cur. Each proc declares its own (a
+// local, so other steps can read it as At), all implemented by this one
+// leaf.
 //   func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 
 // toks[pos] must be the symbol or word `text`.
@@ -43,15 +44,13 @@ type AtAcc<T> = { cur: Cur, acc: T };
 type BodyItems = { nodes: []Node, edges: []Edge };
 
 // Parses a whole file.
-proc Parse(Start): File {
-	func Start(src: string): string = "leaf.rs:same";
-	Start -> ParseFile(src = this, file = 0);
+proc Parse(src: string): File {
+	Parse -> ParseFile(src = this.src, file = 0);
 }
 
 // Parses the `file`th of a program's files.
-proc ParseFile(Start): File {
-	func Start(src: string, file: int): { src: string, file: int } = "leaf.rs:src_file";
-	Start -> Lex(src = this.src, file = this.file);
+proc ParseFile(src: string, file: int): File {
+	ParseFile -> Lex(src = this.src, file = this.file);
 	Lex -> PItems(toks = this, pos = 0, acc = { types = [], interfaces = [], nodes = [] });
 	PItems -> id(this.x);
 }

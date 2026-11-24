@@ -1,4 +1,3 @@
-proc P(A): int { func A(x: Q): int; }
+proc P(x: Q): int { func A(x: Q): int; P -> A(x = this.x); }
 ---
-error: unknown type Q @27..28
-error: entry A is not declared in proc P @7..8
+error: unknown type Q @10..11

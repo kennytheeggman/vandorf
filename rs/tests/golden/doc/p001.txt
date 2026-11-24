@@ -5,6 +5,15 @@
         {
           "nodes": [
             {
+              "type": 3,
+              "label": "P",
+              "sublabel": "(i: int)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "A"
             }
@@ -46,9 +55,9 @@
             1,
             0
           ],
-          "valueType": "int",
-          "call": "B(i: int)",
-          "args": "i = this"
+          "valueType": "{ i: int }",
+          "call": "A(i: int)",
+          "args": "i = this.i"
         },
         {
           "type": 0,
@@ -61,17 +70,31 @@
             0
           ],
           "valueType": "int",
+          "call": "B(i: int)",
+          "args": "i = this"
+        },
+        {
+          "type": 0,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            3,
+            0
+          ],
+          "valueType": "int",
           "call": "C(i: int)",
           "args": "i = this"
         },
         {
           "type": 1,
           "source": [
-            2,
+            3,
             0
           ],
           "target": [
-            0,
+            1,
             0
           ],
           "label": "this < 3",
@@ -82,11 +105,11 @@
         {
           "type": 1,
           "source": [
-            2,
+            3,
             0
           ],
           "target": [
-            3,
+            4,
             0
           ],
           "label": "else",

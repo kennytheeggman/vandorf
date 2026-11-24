@@ -1,10 +1,11 @@
 
             type Ctx = { greeting: string };
-            proc Setup(S): Ctx { func S(): Ctx; }
-            proc Hi(B): string { func B(name: string, ctx: Ctx): string; }
-            proc Calc(C): int { func C(n: int): int; }
+            proc Setup(): Ctx { func S(): Ctx; Setup -> S(); }
+            proc Hi(name: string, ctx: Ctx): string { func B(name: string, ctx: Ctx): string; Hi -> B(name = this.name, ctx = this.ctx); }
+            proc Calc(n: int): int { func C(n: int): int; Calc -> C(n = this.n); }
             type Req = { method: string, path: string, query: map[string]string, headers: map[string]string, body: string };
-            proc Page(P): { status: int, headers: map[string]string, body: string } {
+            proc Page(ctx: Ctx, req: Req): { status: int, headers: map[string]string, body: string } {
                 func P(ctx: Ctx, req: Req): { status: int, headers: map[string]string, body: string };
+                Page -> P(ctx = this.ctx, req = this.req);
             }
         

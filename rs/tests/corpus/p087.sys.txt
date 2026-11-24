@@ -1,1 +1,1 @@
-proc P(A): int {{ {funcs} {edges} }}
+proc P(): int {{ {funcs} P -> A(); {edges} }}

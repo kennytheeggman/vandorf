@@ -1,3 +1,3 @@
-type S = { a: int, b: string }; func F(x: int): S; proc P(A): int { func A(): S; func N(s: S): int; func M(t: { a: int }): int; func W(w: { a: int, b: string, z: int }): int; func V(v: { a: string, b: string }): int; A -> N(s = { ..F(x = 1), a = 1 }); }
+type S = { a: int, b: string }; func F(x: int): S; proc P(): int { func A(): S; P -> A(); func N(s: S): int; func M(t: { a: int }): int; func W(w: { a: int, b: string, z: int }): int; func V(v: { a: string, b: string }): int; A -> N(s = { ..F(x = 1), a = 1 }); }
 ---
-error: argument s of P.N: the base of a struct update must be a path (a node, this, a binding, or a field of one) @232..240
+error: argument s of P.N: the base of a struct update must be a path (a node, this, a binding, or a field of one) @241..249

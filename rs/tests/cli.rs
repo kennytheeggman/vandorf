@@ -31,15 +31,15 @@ fn files_share_one_namespace() {
     // Types, interfaces and procs in one file are usable from another, in any order.
     let dir = project("ns", &[
         ("vandorf.toml", MANIFEST),
-        ("sys/a.sys", "proc A(S): int { func S(t: T): int; S -> B(i = this); }"),
-        ("sys/b.sys", "type T = { x: int };\nproc B(Q): int { func Q(i: int): int; }"),
+        ("sys/a.sys", "proc A(t: T): int { func S(t: T): int; A -> S(t = this.t); S -> B(i = this); }"),
+        ("sys/b.sys", "type T = { x: int };\nproc B(i: int): int { func Q(i: int): int; B -> Q(i = this.i); }"),
     ]);
     let (ok, out) = vcc(&dir, &["check"]);
     assert!(ok && out.contains("ok: 2 files, 2 procs"), "{out}");
 
     // An error names its file and position.
-    std::fs::write(dir.join("sys/a.sys"), "proc A(S): int { func S(): int; }").unwrap();
-    std::fs::write(dir.join("sys/b.sys"), "\n\nproc A(S): int { func S(): int; }").unwrap();
+    std::fs::write(dir.join("sys/a.sys"), "proc A(): int { func S(): int; A -> S(); }").unwrap();
+    std::fs::write(dir.join("sys/b.sys"), "\n\nproc A(): int { func S(): int; A -> S(); }").unwrap();
     let (ok, out) = vcc(&dir, &["check"]);
     assert!(!ok && out.contains("duplicate name A") && out.contains("sys/b.sys:3:6"), "{out}");
 
@@ -52,11 +52,11 @@ fn files_share_one_namespace() {
 
 #[test]
 fn parse_errors_are_rendered() {
-    let dir = project("render", &[("vandorf.toml", MANIFEST), ("sys/a.sys", "proc P(A): int { func A(: int; }")]);
+    let dir = project("render", &[("vandorf.toml", MANIFEST), ("sys/a.sys", "proc P(): int { func A(: int; }")]);
     let (ok, out) = vcc(&dir, &["check"]);
     assert!(!ok, "{out}");
     // The message, where, the line, and a caret under the column.
-    let tail = "\n --> sys/a.sys:1:25\n  |\n1 | proc P(A): int { func A(: int; }\n  |                         ^";
+    let tail = "\n --> sys/a.sys:1:24\n  |\n1 | proc P(): int { func A(: int; }\n  |                        ^";
     assert!(out.contains("found ':'") && out.contains(tail), "{out}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -69,8 +69,8 @@ fn finds_projects_and_rebases_impl_paths() {
     let manifest = "[project]\nname = \"t\"\nsources = [\"sys\"]\n[rust]\nout = \"rs/src/app\"\n[bin.tool]\nentry = \"A\"\n";
     let dir = project("load", &[
         ("vandorf.toml", manifest),
-        ("sys/a.sys", r#"proc A(S): int { func S(): int = "impl.rs:s"; S -> B(); }"#),
-        ("sys/sub/b.sys", r#"proc B(Q): int { func Q(): int = "../../rs/q.rs:q"; }"#),
+        ("sys/a.sys", r#"proc A(): int { func S(): int = "impl.rs:s"; A -> S(); S -> B(); }"#),
+        ("sys/sub/b.sys", r#"proc B(): int { func Q(): int = "../../rs/q.rs:q"; B -> Q(); }"#),
         // Hidden directories aren't sources.
         (".hidden/c.sys", "not even vandorf"),
         ("sys/.hidden/d.sys", "not either"),
@@ -97,7 +97,7 @@ fn rebases_impl_paths_from_the_project_root() {
     let manifest = "[project]\nname = \"t\"\n[rust]\nout = \"rs/src/app\"\n";
     let dir = project("root", &[
         ("vandorf.toml", manifest),
-        ("f.sys", r#"proc A(S): int { func S(): int = "rs/src/impls.rs:s"; }"#),
+        ("f.sys", r#"proc A(): int { func S(): int = "rs/src/impls.rs:s"; A -> S(); }"#),
         CRATE[0],
         ("rs/src/lib.rs", "pub mod app;\npub mod impls;\n"),
     ]);

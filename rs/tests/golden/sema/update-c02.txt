@@ -1,3 +1,3 @@
-type S = { a: int, b: string }; func F(x: int): S; proc P(A): int { func A(): S; func N(s: S): int; func M(t: { a: int }): int; func W(w: { a: int, b: string, z: int }): int; func V(v: { a: string, b: string }): int; A -> N(s = { ..this, z = 1 }); }
+type S = { a: int, b: string }; func F(x: int): S; proc P(): int { func A(): S; P -> A(); func N(s: S): int; func M(t: { a: int }): int; func W(w: { a: int, b: string, z: int }): int; func V(v: { a: string, b: string }): int; A -> N(s = { ..this, z = 1 }); }
 ---
-error: argument s of P.N: S has no field z @238..239
+error: argument s of P.N: S has no field z @247..248

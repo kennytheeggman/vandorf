@@ -158,3 +158,8 @@ pub struct Pt {
     pub y: i64,
 }
 
+/// The type of the parameters of P.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PArgs {
+}
+

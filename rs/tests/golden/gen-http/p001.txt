@@ -567,6 +567,21 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+impl Json for types::PArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"i\":");
+        self.i.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("PArgs")?;
+        Ok(types::PArgs {
+            i: Json::from_json(field(fs, "i")?).map_err(|e| format!("i: {e}"))?,
+        })
+    }
+}
+
 /// Runs proc P with the request's parameters.
 fn call_p(params: &Value) -> Result<String, (u16, String)> {
     let i: i64 = arg(params, "i")?;

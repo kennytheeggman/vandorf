@@ -1,2 +1,3 @@
-proc P(S): int { func S(): { a: bool, b: enum { X, Y(int) } }; func T(i: int): int; 
+proc P(): int { func S(): { a: bool, b: enum { X, Y(int) } }; func T(i: int): int; 
+         P -> S();
          S switch { { a = _, b = Y(n) } -> T(i = n), { a = _, b = X() } -> T(i = 0) }; }

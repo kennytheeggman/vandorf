@@ -1,1 +1,1 @@
-proc P(X): int { func X(t: T): int; }
+proc P(t: T): int { func X(t: T): int; P -> X(t = this.t); }

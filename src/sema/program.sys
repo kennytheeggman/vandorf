@@ -16,9 +16,14 @@ type NodeKind = enum {
 	Proc(ProcDecl),
 	// `-> B(..) as B2`: another instance of node B (its id).
 	Alias(int),
-	// `-> id(value)`: ends the proc; its one parameter, `value`, has the
-	// proc's return type.
-	Id([]Member)
+	// `-> id(value)`: its one parameter, `value`, has the proc's return
+	// type, and it ends the proc. `id(value) as N` is a node N that may have
+	// an edge of its own, with the type of the values passed to it: its
+	// parameters are empty until sema has found that type.
+	Id([]Member),
+	// The signature node of proc `pid` (`proc P(a: int)`), its entry: it
+	// takes the proc's parameters and its output is them, by name.
+	Sig({ pid: int, params: []Member })
 };
 
 type FuncDecl = { params: []Member, ret: Type, imps: []ImplRef };

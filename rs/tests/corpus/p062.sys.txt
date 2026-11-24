@@ -1,1 +1,1 @@
-type E = enum {{ A(int), B, C({{ x: int, e: E }}) }}; proc P(S): int {{ func S(): E; func T(i: int): int; func Q(i: int): bool; S switch {{ {arms} }}; }}
+type E = enum {{ A(int), B, C({{ x: int, e: E }}) }}; proc P(): int {{ func S(): E; func T(i: int): int; func Q(i: int): bool; P -> S(); S switch {{ {arms} }}; }}

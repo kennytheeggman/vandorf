@@ -5,6 +5,15 @@
         {
           "nodes": [
             {
+              "type": 3,
+              "label": "P",
+              "sublabel": "()"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "A"
             }
@@ -45,13 +54,26 @@
       ],
       "edges": [
         {
-          "type": 1,
+          "type": 0,
           "source": [
             0,
             0
           ],
           "target": [
             1,
+            0
+          ],
+          "valueType": "{  }",
+          "call": "A()"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
             0
           ],
           "label": "this > 0",
@@ -62,11 +84,11 @@
         {
           "type": 1,
           "source": [
-            0,
+            1,
             0
           ],
           "target": [
-            1,
+            2,
             1
           ],
           "label": "this == 0",
@@ -77,11 +99,11 @@
         {
           "type": 1,
           "source": [
-            0,
+            1,
             0
           ],
           "target": [
-            1,
+            2,
             2
           ],
           "label": "else",
@@ -92,11 +114,11 @@
         {
           "type": 2,
           "source": [
-            1,
+            2,
             1
           ],
           "target": [
-            2,
+            3,
             0
           ],
           "valueType": "int",
@@ -106,11 +128,11 @@
         {
           "type": 4,
           "source": [
-            2,
+            3,
             0
           ],
           "target": [
-            3,
+            4,
             0
           ],
           "valueType": "[]int",

@@ -1,2 +1,3 @@
 #0 S struct { a: int, b: string, c: #1 } (typedef S)
 #1 SC struct { d: int } (typedef S)
+#2 PArgs struct {  } (parameters of P)

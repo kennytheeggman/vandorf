@@ -19,9 +19,13 @@ ide --addr 127.0.0.1:9000
   Diagnostics show in place, with the same messages as `vcc check`.
 - **Diagrams** are drawn from the graph: funcs, procs (orange), interface
   funcs (purple), switches with their arm labels, loops, for each regions
-  and spawns. Click a proc in a diagram to expand it in place, or click any
-  node for its details, including its implementations' source, read out of
-  their files.
+  and spawns. A proc's diagram starts with its signature node at the top,
+  a pill with the proc's name and parameters; click it for the proc's
+  signature and source. Click a proc in a diagram to expand it in place:
+  its panel's header stands for its signature, so loops back to the
+  signature end under the header. Click any node for its details,
+  including its implementations' source, read out of their files. Edit in
+  the text tab; the diagram follows.
 - **Terminal** (bottom): shells in the project, and Check, Build and Test
   buttons that run vcc on the active file's project. Terminals are offered
   only when the IDE listens on a loopback address.

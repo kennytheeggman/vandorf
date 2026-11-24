@@ -1,2 +1,2 @@
 interface I {{ func B(n: int): int; }} interface J {{ func B(n: int): int; }}
-            proc P(A): int {{ func A(): int; func B(n: int): int; func D(b: int): int; func E(b: int): int; {edges} }}
+            proc P(): int {{ func A(): int; func B(n: int): int; func D(b: int): int; func E(b: int): int; P -> A(); {edges} }}

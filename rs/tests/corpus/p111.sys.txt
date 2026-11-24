@@ -1,8 +1,9 @@
 
-            proc P(A): int {
+            proc P(): int {
                 func A(): int = "../../leaves/lf.rs:a";
                 func B(n: int): int = "../../leaves/lf.rs:b";
                 func C(n: int): int = "../impls.rs:c";
+                P -> A();
                 A -> B(n = this);
                 B -> C(n = this);
             }

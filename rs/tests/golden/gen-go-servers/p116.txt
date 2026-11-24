@@ -7,28 +7,39 @@ package app
 import (
 	"context"
 	"fmt"
+	"example.com/app/types"
 )
 
 type envCalc struct {
+	inCalcCalc inCalcCalc
+	outCalcCalc types.CalcArgs
 	inCalcC inCalcC
 	outCalcC int
 }
 
 const (
-	pcCalc_CalcC = iota
+	pcCalc_CalcCalc = iota
+	pcCalc_CalcC
 )
 
 // RunCalc runs proc Calc.
 func RunCalc(ctx context.Context, n int) (int, error) {
 	var zero int
 	env := &envCalc{}
-	env.inCalcC = inCalcC{N: n}
-	pc := pcCalc_CalcC
+	env.inCalcCalc = inCalcCalc{N: n}
+	pc := pcCalc_CalcCalc
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcCalc_CalcCalc:
+			this := types.CalcArgs{N: env.inCalcCalc.N}
+			zeroOut(&env.inCalcCalc)
+			_ = this
+			env.inCalcC = inCalcC{N: this.N}
+			pc = pcCalc_CalcC
+			continue
 		case pcCalc_CalcC:
 			this, err := unimplementedCalcC(ctx, env.inCalcC.N)
 			if err != nil {
@@ -56,25 +67,35 @@ import (
 )
 
 type envHi struct {
+	inHiHi inHiHi
+	outHiHi types.HiArgs
 	inHiB inHiB
 	outHiB string
 }
 
 const (
-	pcHi_HiB = iota
+	pcHi_HiHi = iota
+	pcHi_HiB
 )
 
 // RunHi runs proc Hi.
 func RunHi(ctx context.Context, name string, ctx_ types.Ctx) (string, error) {
 	var zero string
 	env := &envHi{}
-	env.inHiB = inHiB{Name: name, Ctx: ctx_}
-	pc := pcHi_HiB
+	env.inHiHi = inHiHi{Name: name, Ctx: ctx_}
+	pc := pcHi_HiHi
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcHi_HiHi:
+			this := types.HiArgs{Name: env.inHiHi.Name, Ctx: env.inHiHi.Ctx}
+			zeroOut(&env.inHiHi)
+			_ = this
+			env.inHiB = inHiB{Name: this.Name, Ctx: this.Ctx}
+			pc = pcHi_HiB
+			continue
 		case pcHi_HiB:
 			this, err := unimplementedHiB(ctx, env.inHiB.Name, env.inHiB.Ctx)
 			if err != nil {
@@ -862,6 +883,75 @@ func httpDecReq(v any) (types.Req, error) {
 	return x, nil
 }
 
+func httpEncSetupArgs(b *strings.Builder, x types.SetupArgs) {
+	b.WriteByte('{')
+	b.WriteByte('}')
+}
+
+func httpDecSetupArgs(v any) (types.SetupArgs, error) {
+	var x types.SetupArgs
+	_, err := httpObject(v, "SetupArgs")
+	if err != nil {
+		return x, err
+	}
+	return x, nil
+}
+
+func httpEncHiArgs(b *strings.Builder, x types.HiArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"name\":")
+	httpWriteString(b, x.Name)
+	b.WriteString(",\"ctx\":")
+	httpEncCtx(b, x.Ctx)
+	b.WriteByte('}')
+}
+
+func httpDecHiArgs(v any) (types.HiArgs, error) {
+	var x types.HiArgs
+	fs, err := httpObject(v, "HiArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "name"); err != nil {
+		return x, err
+	} else if y, err := httpReadString(f); err != nil {
+		return x, errors.New("name: " + err.Error())
+	} else {
+		x.Name = y
+	}
+	if f, err := httpField(fs, "ctx"); err != nil {
+		return x, err
+	} else if y, err := httpDecCtx(f); err != nil {
+		return x, errors.New("ctx: " + err.Error())
+	} else {
+		x.Ctx = y
+	}
+	return x, nil
+}
+
+func httpEncCalcArgs(b *strings.Builder, x types.CalcArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"n\":")
+	httpWriteInt(b, x.N)
+	b.WriteByte('}')
+}
+
+func httpDecCalcArgs(v any) (types.CalcArgs, error) {
+	var x types.CalcArgs
+	fs, err := httpObject(v, "CalcArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "n"); err != nil {
+		return x, err
+	} else if y, err := httpReadInt(f); err != nil {
+		return x, errors.New("n: " + err.Error())
+	} else {
+		x.N = y
+	}
+	return x, nil
+}
+
 func httpEncPageOut(b *strings.Builder, x types.PageOut) {
 	b.WriteByte('{')
 	b.WriteString("\"status\":")
@@ -899,6 +989,38 @@ func httpDecPageOut(v any) (types.PageOut, error) {
 		return x, errors.New("body: " + err.Error())
 	} else {
 		x.Body = y
+	}
+	return x, nil
+}
+
+func httpEncPageArgs(b *strings.Builder, x types.PageArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"ctx\":")
+	httpEncCtx(b, x.Ctx)
+	b.WriteString(",\"req\":")
+	httpEncReq(b, x.Req)
+	b.WriteByte('}')
+}
+
+func httpDecPageArgs(v any) (types.PageArgs, error) {
+	var x types.PageArgs
+	fs, err := httpObject(v, "PageArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "ctx"); err != nil {
+		return x, err
+	} else if y, err := httpDecCtx(f); err != nil {
+		return x, errors.New("ctx: " + err.Error())
+	} else {
+		x.Ctx = y
+	}
+	if f, err := httpField(fs, "req"); err != nil {
+		return x, err
+	} else if y, err := httpDecReq(f); err != nil {
+		return x, errors.New("req: " + err.Error())
+	} else {
+		x.Req = y
 	}
 	return x, nil
 }
@@ -999,8 +1121,18 @@ import (
 	"example.com/app/types"
 )
 
+// inSetupSetup is the input of Setup.Setup.
+type inSetupSetup struct {
+}
+
 // inSetupS is the input of Setup.S.
 type inSetupS struct {
+}
+
+// inHiHi is the input of Hi.Hi.
+type inHiHi struct {
+	Name string
+	Ctx types.Ctx
 }
 
 // inHiB is the input of Hi.B.
@@ -1009,9 +1141,20 @@ type inHiB struct {
 	Ctx types.Ctx
 }
 
+// inCalcCalc is the input of Calc.Calc.
+type inCalcCalc struct {
+	N int
+}
+
 // inCalcC is the input of Calc.C.
 type inCalcC struct {
 	N int
+}
+
+// inPagePage is the input of Page.Page.
+type inPagePage struct {
+	Ctx types.Ctx
+	Req types.Req
 }
 
 // inPageP is the input of Page.P.
@@ -1033,25 +1176,35 @@ import (
 )
 
 type envPage struct {
+	inPagePage inPagePage
+	outPagePage types.PageArgs
 	inPageP inPageP
 	outPageP types.PageOut
 }
 
 const (
-	pcPage_PageP = iota
+	pcPage_PagePage = iota
+	pcPage_PageP
 )
 
 // RunPage runs proc Page.
 func RunPage(ctx context.Context, ctx_ types.Ctx, req types.Req) (types.PageOut, error) {
 	var zero types.PageOut
 	env := &envPage{}
-	env.inPageP = inPageP{Ctx: ctx_, Req: req}
-	pc := pcPage_PageP
+	env.inPagePage = inPagePage{Ctx: ctx_, Req: req}
+	pc := pcPage_PagePage
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcPage_PagePage:
+			this := types.PageArgs{Ctx: env.inPagePage.Ctx, Req: env.inPagePage.Req}
+			zeroOut(&env.inPagePage)
+			_ = this
+			env.inPageP = inPageP{Ctx: this.Ctx, Req: this.Req}
+			pc = pcPage_PageP
+			continue
 		case pcPage_PageP:
 			this, err := unimplementedPageP(ctx, env.inPageP.Ctx, env.inPageP.Req)
 			if err != nil {
@@ -1294,25 +1447,35 @@ import (
 )
 
 type envSetup struct {
+	inSetupSetup inSetupSetup
+	outSetupSetup types.SetupArgs
 	inSetupS inSetupS
 	outSetupS types.Ctx
 }
 
 const (
-	pcSetup_SetupS = iota
+	pcSetup_SetupSetup = iota
+	pcSetup_SetupS
 )
 
 // RunSetup runs proc Setup.
 func RunSetup(ctx context.Context) (types.Ctx, error) {
 	var zero types.Ctx
 	env := &envSetup{}
-	env.inSetupS = inSetupS{}
-	pc := pcSetup_SetupS
+	env.inSetupSetup = inSetupSetup{}
+	pc := pcSetup_SetupSetup
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcSetup_SetupSetup:
+			this := types.SetupArgs{}
+			zeroOut(&env.inSetupSetup)
+			_ = this
+			env.inSetupS = inSetupS{}
+			pc = pcSetup_SetupS
+			continue
 		case pcSetup_SetupS:
 			this, err := unimplementedSetupS(ctx)
 			if err != nil {
@@ -1434,11 +1597,32 @@ type Req struct {
 	Body string
 }
 
+// SetupArgs is the type of the parameters of Setup.
+type SetupArgs struct {
+}
+
+// HiArgs is the type of the parameters of Hi.
+type HiArgs struct {
+	Name string
+	Ctx Ctx
+}
+
+// CalcArgs is the type of the parameters of Calc.
+type CalcArgs struct {
+	N int
+}
+
 // PageOut is the type of the return of Page.
 type PageOut struct {
 	Status int
 	Headers map[string]string
 	Body string
+}
+
+// PageArgs is the type of the parameters of Page.
+type PageArgs struct {
+	Ctx Ctx
+	Req Req
 }
 
 
@@ -1455,28 +1639,39 @@ package app
 import (
 	"context"
 	"fmt"
+	"example.com/app/types"
 )
 
 type envCalc struct {
+	inCalcCalc inCalcCalc
+	outCalcCalc types.CalcArgs
 	inCalcC inCalcC
 	outCalcC int
 }
 
 const (
-	pcCalc_CalcC = iota
+	pcCalc_CalcCalc = iota
+	pcCalc_CalcC
 )
 
 // RunCalc runs proc Calc.
 func RunCalc(ctx context.Context, n int) (int, error) {
 	var zero int
 	env := &envCalc{}
-	env.inCalcC = inCalcC{N: n}
-	pc := pcCalc_CalcC
+	env.inCalcCalc = inCalcCalc{N: n}
+	pc := pcCalc_CalcCalc
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcCalc_CalcCalc:
+			this := types.CalcArgs{N: env.inCalcCalc.N}
+			zeroOut(&env.inCalcCalc)
+			_ = this
+			env.inCalcC = inCalcC{N: this.N}
+			pc = pcCalc_CalcC
+			continue
 		case pcCalc_CalcC:
 			this, err := unimplementedCalcC(ctx, env.inCalcC.N)
 			if err != nil {
@@ -1504,25 +1699,35 @@ import (
 )
 
 type envHi struct {
+	inHiHi inHiHi
+	outHiHi types.HiArgs
 	inHiB inHiB
 	outHiB string
 }
 
 const (
-	pcHi_HiB = iota
+	pcHi_HiHi = iota
+	pcHi_HiB
 )
 
 // RunHi runs proc Hi.
 func RunHi(ctx context.Context, name string, ctx_ types.Ctx) (string, error) {
 	var zero string
 	env := &envHi{}
-	env.inHiB = inHiB{Name: name, Ctx: ctx_}
-	pc := pcHi_HiB
+	env.inHiHi = inHiHi{Name: name, Ctx: ctx_}
+	pc := pcHi_HiHi
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcHi_HiHi:
+			this := types.HiArgs{Name: env.inHiHi.Name, Ctx: env.inHiHi.Ctx}
+			zeroOut(&env.inHiHi)
+			_ = this
+			env.inHiB = inHiB{Name: this.Name, Ctx: this.Ctx}
+			pc = pcHi_HiB
+			continue
 		case pcHi_HiB:
 			this, err := unimplementedHiB(ctx, env.inHiB.Name, env.inHiB.Ctx)
 			if err != nil {
@@ -2310,6 +2515,75 @@ func httpDecReq(v any) (types.Req, error) {
 	return x, nil
 }
 
+func httpEncSetupArgs(b *strings.Builder, x types.SetupArgs) {
+	b.WriteByte('{')
+	b.WriteByte('}')
+}
+
+func httpDecSetupArgs(v any) (types.SetupArgs, error) {
+	var x types.SetupArgs
+	_, err := httpObject(v, "SetupArgs")
+	if err != nil {
+		return x, err
+	}
+	return x, nil
+}
+
+func httpEncHiArgs(b *strings.Builder, x types.HiArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"name\":")
+	httpWriteString(b, x.Name)
+	b.WriteString(",\"ctx\":")
+	httpEncCtx(b, x.Ctx)
+	b.WriteByte('}')
+}
+
+func httpDecHiArgs(v any) (types.HiArgs, error) {
+	var x types.HiArgs
+	fs, err := httpObject(v, "HiArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "name"); err != nil {
+		return x, err
+	} else if y, err := httpReadString(f); err != nil {
+		return x, errors.New("name: " + err.Error())
+	} else {
+		x.Name = y
+	}
+	if f, err := httpField(fs, "ctx"); err != nil {
+		return x, err
+	} else if y, err := httpDecCtx(f); err != nil {
+		return x, errors.New("ctx: " + err.Error())
+	} else {
+		x.Ctx = y
+	}
+	return x, nil
+}
+
+func httpEncCalcArgs(b *strings.Builder, x types.CalcArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"n\":")
+	httpWriteInt(b, x.N)
+	b.WriteByte('}')
+}
+
+func httpDecCalcArgs(v any) (types.CalcArgs, error) {
+	var x types.CalcArgs
+	fs, err := httpObject(v, "CalcArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "n"); err != nil {
+		return x, err
+	} else if y, err := httpReadInt(f); err != nil {
+		return x, errors.New("n: " + err.Error())
+	} else {
+		x.N = y
+	}
+	return x, nil
+}
+
 func httpEncPageOut(b *strings.Builder, x types.PageOut) {
 	b.WriteByte('{')
 	b.WriteString("\"status\":")
@@ -2347,6 +2621,38 @@ func httpDecPageOut(v any) (types.PageOut, error) {
 		return x, errors.New("body: " + err.Error())
 	} else {
 		x.Body = y
+	}
+	return x, nil
+}
+
+func httpEncPageArgs(b *strings.Builder, x types.PageArgs) {
+	b.WriteByte('{')
+	b.WriteString("\"ctx\":")
+	httpEncCtx(b, x.Ctx)
+	b.WriteString(",\"req\":")
+	httpEncReq(b, x.Req)
+	b.WriteByte('}')
+}
+
+func httpDecPageArgs(v any) (types.PageArgs, error) {
+	var x types.PageArgs
+	fs, err := httpObject(v, "PageArgs")
+	if err != nil {
+		return x, err
+	}
+	if f, err := httpField(fs, "ctx"); err != nil {
+		return x, err
+	} else if y, err := httpDecCtx(f); err != nil {
+		return x, errors.New("ctx: " + err.Error())
+	} else {
+		x.Ctx = y
+	}
+	if f, err := httpField(fs, "req"); err != nil {
+		return x, err
+	} else if y, err := httpDecReq(f); err != nil {
+		return x, errors.New("req: " + err.Error())
+	} else {
+		x.Req = y
 	}
 	return x, nil
 }
@@ -2442,8 +2748,18 @@ import (
 	"example.com/app/types"
 )
 
+// inSetupSetup is the input of Setup.Setup.
+type inSetupSetup struct {
+}
+
 // inSetupS is the input of Setup.S.
 type inSetupS struct {
+}
+
+// inHiHi is the input of Hi.Hi.
+type inHiHi struct {
+	Name string
+	Ctx types.Ctx
 }
 
 // inHiB is the input of Hi.B.
@@ -2452,9 +2768,20 @@ type inHiB struct {
 	Ctx types.Ctx
 }
 
+// inCalcCalc is the input of Calc.Calc.
+type inCalcCalc struct {
+	N int
+}
+
 // inCalcC is the input of Calc.C.
 type inCalcC struct {
 	N int
+}
+
+// inPagePage is the input of Page.Page.
+type inPagePage struct {
+	Ctx types.Ctx
+	Req types.Req
 }
 
 // inPageP is the input of Page.P.
@@ -2476,25 +2803,35 @@ import (
 )
 
 type envPage struct {
+	inPagePage inPagePage
+	outPagePage types.PageArgs
 	inPageP inPageP
 	outPageP types.PageOut
 }
 
 const (
-	pcPage_PageP = iota
+	pcPage_PagePage = iota
+	pcPage_PageP
 )
 
 // RunPage runs proc Page.
 func RunPage(ctx context.Context, ctx_ types.Ctx, req types.Req) (types.PageOut, error) {
 	var zero types.PageOut
 	env := &envPage{}
-	env.inPageP = inPageP{Ctx: ctx_, Req: req}
-	pc := pcPage_PageP
+	env.inPagePage = inPagePage{Ctx: ctx_, Req: req}
+	pc := pcPage_PagePage
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcPage_PagePage:
+			this := types.PageArgs{Ctx: env.inPagePage.Ctx, Req: env.inPagePage.Req}
+			zeroOut(&env.inPagePage)
+			_ = this
+			env.inPageP = inPageP{Ctx: this.Ctx, Req: this.Req}
+			pc = pcPage_PageP
+			continue
 		case pcPage_PageP:
 			this, err := unimplementedPageP(ctx, env.inPageP.Ctx, env.inPageP.Req)
 			if err != nil {
@@ -2737,25 +3074,35 @@ import (
 )
 
 type envSetup struct {
+	inSetupSetup inSetupSetup
+	outSetupSetup types.SetupArgs
 	inSetupS inSetupS
 	outSetupS types.Ctx
 }
 
 const (
-	pcSetup_SetupS = iota
+	pcSetup_SetupSetup = iota
+	pcSetup_SetupS
 )
 
 // RunSetup runs proc Setup.
 func RunSetup(ctx context.Context) (types.Ctx, error) {
 	var zero types.Ctx
 	env := &envSetup{}
-	env.inSetupS = inSetupS{}
-	pc := pcSetup_SetupS
+	env.inSetupSetup = inSetupSetup{}
+	pc := pcSetup_SetupSetup
 	for {
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 		switch pc {
+		case pcSetup_SetupSetup:
+			this := types.SetupArgs{}
+			zeroOut(&env.inSetupSetup)
+			_ = this
+			env.inSetupS = inSetupS{}
+			pc = pcSetup_SetupS
+			continue
 		case pcSetup_SetupS:
 			this, err := unimplementedSetupS(ctx)
 			if err != nil {
@@ -2874,11 +3221,32 @@ type Req struct {
 	Body string
 }
 
+// SetupArgs is the type of the parameters of Setup.
+type SetupArgs struct {
+}
+
+// HiArgs is the type of the parameters of Hi.
+type HiArgs struct {
+	Name string
+	Ctx Ctx
+}
+
+// CalcArgs is the type of the parameters of Calc.
+type CalcArgs struct {
+	N int
+}
+
 // PageOut is the type of the return of Page.
 type PageOut struct {
 	Status int
 	Headers map[string]string
 	Body string
+}
+
+// PageArgs is the type of the parameters of Page.
+type PageArgs struct {
+	Ctx Ctx
+	Req Req
 }
 
 

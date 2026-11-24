@@ -1,1 +1,1 @@
-proc P(A): int { func A(): int; func B(i: int): int; A -> B(); }
+proc P(): int { func A(): int; func B(i: int): int; P -> A(); A -> B(); }

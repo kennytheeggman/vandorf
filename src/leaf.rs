@@ -25,19 +25,6 @@ const KEYWORDS: &[&str] = &[
     "id",
 ];
 
-/// The identity: entries and pass-through nodes.
-pub fn same<T>(x: T) -> Result<T, String> {
-    Ok(x)
-}
-
-pub fn src_file(src: Str, file: i64) -> Result<ParseFileStartOut, String> {
-    Ok(ParseFileStartOut { src, file })
-}
-
-pub fn same_strs(s: List<Str>) -> Result<List<Str>, String> {
-    Ok(s)
-}
-
 pub fn fail(msg: Str) -> Result<Str, String> {
     Err(msg.to_string())
 }
@@ -588,4 +575,25 @@ pub fn inner_span(toks: List<Tok>, from: i64, to: i64) -> Result<Span, String> {
         end: last.end,
         file: first.file,
     })
+}
+
+/// A proc starts its body from its signature node, its own name: the first
+/// edge must leave it.
+pub fn starts_at_sig(name: Ident, edges: List<Edge>) -> Result<List<Edge>, String> {
+    if let Some(e) = edges.first() {
+        let src = &e.source;
+        if src.segs.len() != 1 || src.segs[0].name != name.name {
+            let shown = src
+                .segs
+                .iter()
+                .map(|s| &*s.name)
+                .collect::<Vec<_>>()
+                .join(".");
+            return Err(format!(
+                "{}:{}: the body of proc {} starts from {}: write `{} -> ..` first, found {shown}",
+                src.span.at, src.span.end, name.name, name.name, name.name
+            ));
+        }
+    }
+    Ok(edges)
 }

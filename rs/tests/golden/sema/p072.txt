@@ -1,4 +1,3 @@
-proc P(S): int { func S(): map[float]int; }
+proc P(): int { func S(): map[float]int; P -> S(); }
 ---
-error: map keys are ints or strings, not float @31..36
-error: entry S is not declared in proc P @7..8
+error: map keys are ints or strings, not float @30..35

@@ -5,6 +5,15 @@
         {
           "nodes": [
             {
+              "type": 3,
+              "label": "P",
+              "sublabel": "()"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
               "type": 0,
               "label": "S"
             }
@@ -21,13 +30,26 @@
       ],
       "edges": [
         {
-          "type": 1,
+          "type": 0,
           "source": [
             0,
             0
           ],
           "target": [
             1,
+            0
+          ],
+          "valueType": "{  }",
+          "call": "S()"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
             0
           ],
           "label": "{ a = _, b = Y(n) }",
@@ -38,11 +60,11 @@
         {
           "type": 1,
           "source": [
-            0,
+            1,
             0
           ],
           "target": [
-            1,
+            2,
             0
           ],
           "label": "{ a = _, b = X() }",

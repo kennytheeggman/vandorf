@@ -1,0 +1,2 @@
+#0 GreetArgs struct { name: string, times: int } (parameters of Greet)
+#1 MainArgs struct {  } (parameters of Main)

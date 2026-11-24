@@ -1,0 +1,63 @@
+{
+  "grids": {
+    "P": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "P",
+              "sublabel": "()"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "A"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "X",
+              "sublabel": "id"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{  }",
+          "call": "A()"
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "int",
+          "call": "X(value: int)",
+          "args": "this"
+        }
+      ]
+    }
+  }
+}

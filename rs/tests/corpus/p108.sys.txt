@@ -1,10 +1,11 @@
 
             type St = { acc: []int, i: int };
-            proc P(S): []int {
+            proc P(acc: []int, i: int): []int {
                 func S(acc: []int, i: int): St;
                 func T(x: int): int;
                 func K(): int;
                 func L(x: int): int;
+                P -> S(acc = this.acc, i = this.i);
                 S -> T(x = this.i);
                 T switch {
                     (this > 3) -> K(),

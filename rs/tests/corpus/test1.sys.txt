@@ -2,16 +2,17 @@ interface Foo {
 	func Call(s: string): int;
 }
 
-proc ForEach(Start): int {
+proc ForEach(i: int): int {
 	func Start(i: int): { l: []int, s: string };
 	func Process(i: int, l: []int): int;
 	func Collect(l: []int): int;
 
+	ForEach -> Start(i = this.i);
 	Start for each (Start.l) -> Process(i = this, l = Start.l);
 	Process collect each (Process) -> Collect(l = this);
 }
 
-proc Bar(Start): string {
+proc Bar(a: int, b: string): string {
 	func Start(a: int, b: string): string;
 	func Loop(s: string): int;
 	func Branch1(i: int): string;
@@ -19,6 +20,7 @@ proc Bar(Start): string {
 	func Branch2End(i: int);
 	func End(r: enum { I(string), S, B({i: int}) }): string;
 
+	Bar -> Start(a = this.a, b = this.b);
 	Start -> Loop(s = this);
 	Loop switch {
 		(this < 10) -> Loop(s = Start),

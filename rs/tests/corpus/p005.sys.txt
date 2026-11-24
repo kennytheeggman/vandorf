@@ -1,5 +1,6 @@
 
-        proc Outer(Inner): int {
-            proc Inner(A): int { func A(): int; };
+        proc Outer(): int {
+            proc Inner(): int { func A(): int; Inner -> A(); };
+            Outer -> Inner();
         }
         

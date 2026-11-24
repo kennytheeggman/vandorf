@@ -151,3 +151,9 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
     }
 }
 
+/// The type of the parameters of P.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PArgs {
+    pub i: i64,
+}
+

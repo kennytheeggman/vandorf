@@ -1,0 +1,18 @@
+// A bare self-edge is a loop back to the signature node; an aliased one is
+// a recursive call.
+proc Count(n: int, acc: int): int {
+	Count switch {
+		(this.n == 0) -> id(this.acc),
+		else -> Count(n = this.n - 1, acc = this.acc + this.n)
+	};
+}
+
+proc Fib(n: int): int {
+	func Add(a: int, b: int): int;
+	Fib switch {
+		(this.n < 2) -> id(this.n),
+		else -> Fib(n = this.n - 1) as A
+	};
+	A -> Fib(n = Fib.n - 2) as B;
+	B -> Add(a = A, b = this);
+}

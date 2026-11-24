@@ -1,15 +1,17 @@
 
-            proc P(A): int {
+            proc P(): int {
                 func A(): int = "../../leaves/lf.rs:a";
                 func B(n: int): int = "../../leaves/lf.rs:b";
                 func C(n: int): int = "../impls.rs:c";
+                P -> A();
                 A -> B(n = this);
                 B -> C(n = this);
             }
         
 ---
-#0 edge #1: call #2(n:int=this:int@230..234) @224..225 text="n = this"
-#0 edge #2: call #3(n:int=this:int@264..268) @258..259 text="n = this"
+#0 edge #1: call #2() @223..224 text=""
+#0 edge #2: call #3(n:int=this:int@255..259) @249..250 text="n = this"
+#0 edge #3: call #4(n:int=this:int@289..293) @283..284 text="n = this"
 #0 spawned={}
-#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2, 3] sink=-1
-#0 region_of={1: 0, 2: 0, 3: 0} opens={}
+#0 region 0: parent=-1 entry=1 elem=void nodes=[1, 2, 3, 4] sink=-1
+#0 region_of={1: 0, 2: 0, 3: 0, 4: 0} opens={}

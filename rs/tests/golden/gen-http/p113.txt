@@ -620,7 +620,7 @@ impl Json for types::Req {
     }
 }
 
-impl Json for types::AreaAK {
+impl Json for types::AreaK {
     fn to_json(&self, out: &mut String) {
         out.push('{');
         out.push_str("\"n\":");
@@ -628,9 +628,42 @@ impl Json for types::AreaAK {
         out.push('}');
     }
     fn from_json(v: &Value) -> Result<Self, String> {
-        let fs = v.object("AreaAK")?;
-        Ok(types::AreaAK {
+        let fs = v.object("AreaK")?;
+        Ok(types::AreaK {
             n: Json::from_json(field(fs, "n")?).map_err(|e| format!("n: {e}"))?,
+        })
+    }
+}
+
+impl Json for types::AreaArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"s\":");
+        self.s.to_json(out);
+        out.push_str(",\"k\":");
+        self.k.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("AreaArgs")?;
+        Ok(types::AreaArgs {
+            s: Json::from_json(field(fs, "s")?).map_err(|e| format!("s: {e}"))?,
+            k: Json::from_json(field(fs, "k")?).map_err(|e| format!("k: {e}"))?,
+        })
+    }
+}
+
+impl Json for types::HiArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"name\":");
+        self.name.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("HiArgs")?;
+        Ok(types::HiArgs {
+            name: Json::from_json(field(fs, "name")?).map_err(|e| format!("name: {e}"))?,
         })
     }
 }
@@ -656,10 +689,25 @@ impl Json for types::PageOut {
     }
 }
 
+impl Json for types::PageArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"req\":");
+        self.req.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("PageArgs")?;
+        Ok(types::PageArgs {
+            req: Json::from_json(field(fs, "req")?).map_err(|e| format!("req: {e}"))?,
+        })
+    }
+}
+
 /// Runs proc Area with the request's parameters.
 fn call_area(params: &Value) -> Result<String, (u16, String)> {
     let s: types::Shape = arg(params, "s")?;
-    let k: types::AreaAK = arg(params, "k")?;
+    let k: types::AreaK = arg(params, "k")?;
     let result = super::run_area(s, k).map_err(|e| (500, e.to_string()))?;
     Ok(json(&result))
 }

@@ -22,32 +22,39 @@ func EdgeNodes(g: Graph): []int = "sema_leaf.rs:edge_nodes";
 func Ancestors(g: Graph, r: int): map[int]bool = "sema_leaf.rs:ancestors";
 func Opener(g: Graph, r: int): int = "sema_leaf.rs:opener";
 
+// A proc's graph, and the program's nodes with its `id(..) as N` typed.
+type Built = { g: Graph, nodes: []NodeDecl };
+
 // The graph of proc env.pid, declared as p.
-proc BuildGraph(At): Res<Graph> {
-	func At(s: { env: Env, p: Proc }): { env: Env, p: Proc } = "../leaf.rs:same";
+proc BuildGraph(s: { env: Env, p: Proc }): Res<Built> {
 	func Entry(nodes: []NodeDecl, pid: int): int = "sema_leaf.rs:proc_entry";
-	At -> GraphEdges(s = { env = this.env, p = this.p, g = NoGraph(n = 0), i = 0 });
+	BuildGraph -> TypedEnv(s = this.s);
+	TypedEnv -> GraphEdges(s = { env = this, p = BuildGraph.s.p, g = NoGraph(n = 0), i = 0 });
 	GraphEdges switch {
-		Ok(g) -> WithSpawned(g = g, nodes = At.env.nodes),
+		Ok(g) -> WithSpawned(g = g, nodes = TypedEnv.nodes),
 		Err(e) -> id(Err(e))
 	};
 	WithSpawned switch {
-		Ok(g) -> Fill(s = { env = At.env, p = At.p, g = NewRegion(g = g, parent = -1, entry = Entry(nodes = At.env.nodes, pid = At.env.pid), elem = Prim("void")), r = 0, work = [Entry(nodes = At.env.nodes, pid = At.env.pid)], i = 0 }),
+		Ok(g) -> Fill(s = { env = TypedEnv, p = BuildGraph.s.p, g = NewRegion(g = g, parent = -1, entry = Entry(nodes = TypedEnv.nodes, pid = TypedEnv.pid), elem = Prim("void")), r = 0, work = [Entry(nodes = TypedEnv.nodes, pid = TypedEnv.pid)], i = 0 }),
 		Err(e) -> id(Err(e))
 	};
 	Fill switch {
-		Ok(g) -> SpawnReach(g = g, nodes = At.env.nodes, span = At.p.name.span),
+		Ok(g) -> SpawnReach(g = g, nodes = TypedEnv.nodes, span = BuildGraph.s.p.name.span),
 		Err(e) -> id(Err(e))
 	};
 	SpawnReach switch {
-		Ok(g) -> CheckScopes(s = { env = At.env, p = At.p, g = g, edges = EdgeNodes(g = g), i = 0 }),
+		Ok(g) -> CheckScopes(s = { env = TypedEnv, p = BuildGraph.s.p, g = g, edges = EdgeNodes(g = g), i = 0 }),
 		Err(e) -> id(Err(e))
 	};
 	CheckScopes switch {
 		Ok(g) -> Dominators(s = { g = g, r = 0, dom = [:] }),
 		Err(e) -> id(Err(e))
 	};
-	Dominators -> CheckRuns(s = { env = At.env, g = UnwrapG(r = CheckScopes), dom = this, edges = EdgeNodes(g = UnwrapG(r = CheckScopes)), i = 0 });
+	Dominators -> CheckRuns(s = { env = TypedEnv, g = UnwrapG(r = CheckScopes), dom = this, edges = EdgeNodes(g = UnwrapG(r = CheckScopes)), i = 0 });
+	CheckRuns switch {
+		Ok(g) -> id(Ok({ g = g, nodes = TypedEnv.nodes })),
+		Err(e) -> id(Err(e))
+	};
 }
 
 func UnwrapG(r: Res<Graph>): Graph = "sema_leaf.rs:unwrap_g";
@@ -57,54 +64,100 @@ func WithSpawned(g: Graph, nodes: []NodeDecl): Res<Graph> = "sema_leaf.rs:with_s
 // Fails if a branch is also reached as a step of the proc.
 func SpawnReach(g: Graph, nodes: []NodeDecl, span: Span): Res<Graph> = "sema_leaf.rs:spawn_reach";
 
-proc GraphEdges(At): Res<Graph> {
-	func At(s: { env: Env, p: Proc, g: Graph, i: int }): { env: Env, p: Proc, g: Graph, i: int } = "../leaf.rs:same";
-	func K(k: EdgeKind): EdgeKind = "../leaf.rs:same";
-	At switch {
-		(this.i == this.p.edges.len) -> id(Ok(this.g)),
-		else -> ResolveNode(s = { nodes = this.env.nodes, globals = this.env.globals, pid = this.env.pid, path = this.p.edges[this.i].source })
+// env, with the proc's `id(..) as N` typed if it has any.
+proc TypedEnv(s: { env: Env, p: Proc }): Env {
+	func HasUntyped(nodes: []NodeDecl, pid: int): bool = "sema_leaf.rs:has_untyped";
+	TypedEnv switch {
+		(HasUntyped(nodes = this.s.env.nodes, pid = this.s.env.pid)) -> IdTypes(s = { env = this.s.env, p = this.s.p, i = 0, typed = false }),
+		else -> id(this.s.env)
 	};
+	IdTypes -> id(this);
+}
+
+// Types each `id(..) as N` from the first value passed to it: rounds over
+// the edges, each checking the edges it can (their sources and reads have
+// types) and typing the ids they pass values to, until a round types none.
+// Edges that can't be checked yet are checked again by GraphEdges, which
+// reports their errors.
+proc IdTypes(s: { env: Env, p: Proc, i: int, typed: bool }): Env {
+	// Whether the edge passes a value to an id that has no type yet; and
+	// nodes with those ids typed by the first value each is passed.
+	func TypesIds(nodes: []NodeDecl, e: SEdge): bool = "sema_leaf.rs:types_ids";
+	func TypedIds(nodes: []NodeDecl, e: SEdge): []NodeDecl = "sema_leaf.rs:typed_ids";
+	IdTypes switch {
+		(this.s.i == this.s.p.edges.len && this.s.typed) -> IdTypes(s = { ..this.s, i = 0, typed = false }),
+		(this.s.i == this.s.p.edges.len) -> id(this.s.env),
+		else -> EdgeOf(s = { env = this.s.env, p = this.s.p, i = this.s.i })
+	};
+	EdgeOf switch {
+		Ok(x) -> switch {
+			(TypesIds(nodes = IdTypes.s.env.nodes, e = x.e)) -> IdTypes(s = { ..IdTypes.s, env = { ..IdTypes.s.env, nodes = TypedIds(nodes = IdTypes.s.env.nodes, e = x.e) }, i = IdTypes.s.i + 1, typed = true }),
+			else -> IdTypes(s = { ..IdTypes.s, i = IdTypes.s.i + 1 })
+		},
+		Err(_) -> IdTypes(s = { ..IdTypes.s, i = IdTypes.s.i + 1 })
+	};
+}
+
+proc GraphEdges(s: { env: Env, p: Proc, g: Graph, i: int }): Res<Graph> {
+	GraphEdges switch {
+		(this.s.i == this.s.p.edges.len) -> id(Ok(this.s.g)),
+		else -> EdgeOf(s = { env = this.s.env, p = this.s.p, i = this.s.i })
+	};
+	EdgeOf switch {
+		Ok(x) -> AddEdge(s = { at = GraphEdges.s, src = x.src, e = x.e }),
+		Err(e) -> id(Err(e))
+	};
+	AddEdge -> id(this);
+}
+
+type SrcEdge = { src: int, e: SEdge };
+
+// Edge p.edges[i], typed, and its source.
+proc EdgeOf(s: { env: Env, p: Proc, i: int }): Res<SrcEdge> {
+	EdgeOf -> ResolveNode(s = { nodes = this.s.env.nodes, globals = this.s.env.globals, pid = this.s.env.pid, path = this.s.p.edges[this.s.i].source });
 	ResolveNode switch {
-		Ok(src) -> K(k = At.p.edges[At.i].kind),
+		Ok(src) -> switch {
+			(IsUntypedId(n = EdgeOf.s.env.nodes[src])) -> id(Err(Untyped(n = EdgeOf.s.env.nodes[src], span = EdgeOf.s.p.edges[EdgeOf.s.i].source.span))),
+			else -> id(EdgeOf.s.p.edges[EdgeOf.s.i].kind) as K
+		},
 		Err(e) -> id(Err(e))
 	};
 	K switch {
-		Call(t) -> CallOf(s = { env = At.env, sc = { this = NodeRet(nodes = At.env.nodes, n = UnwrapN(r = ResolveNode)), binds = [] }, t = t }) as EC,
-		Match(arms) -> Switch(s = { env = At.env, sc = { this = NodeRet(nodes = At.env.nodes, n = UnwrapN(r = ResolveNode)), binds = [] }, src = At.p.edges[At.i].source, arms = arms, span = At.p.edges[At.i].span, nested = false }) as EM,
-		Collect(c) -> CallOf(s = { env = At.env, sc = { this = Array(NodeRet(nodes = At.env.nodes, n = UnwrapN(r = ResolveNode))), binds = [] }, t = c.target }) as ECol,
-		ForEach(f) -> Synth(s = { env = At.env, sc = { this = NodeRet(nodes = At.env.nodes, n = UnwrapN(r = ResolveNode)), binds = [] }, v = f.dim }) as Dim,
-		Spawn(sp) -> SpawnEdge(s = { env = At.env, ret = NodeRet(nodes = At.env.nodes, n = UnwrapN(r = ResolveNode)), branches = sp.branches, join = sp.join, i = 0, out = [], fields = [] })
+		Call(t) -> CallOf(s = { env = EdgeOf.s.env, sc = { this = NodeRet(nodes = EdgeOf.s.env.nodes, n = UnwrapN(r = ResolveNode)), binds = [] }, t = t }) as EC,
+		Match(arms) -> Switch(s = { env = EdgeOf.s.env, sc = { this = NodeRet(nodes = EdgeOf.s.env.nodes, n = UnwrapN(r = ResolveNode)), binds = [] }, src = EdgeOf.s.p.edges[EdgeOf.s.i].source, arms = arms, span = EdgeOf.s.p.edges[EdgeOf.s.i].span, nested = false }) as EM,
+		Collect(c) -> CallOf(s = { env = EdgeOf.s.env, sc = { this = Array(NodeRet(nodes = EdgeOf.s.env.nodes, n = UnwrapN(r = ResolveNode))), binds = [] }, t = c.target }) as ECol,
+		ForEach(f) -> Synth(s = { env = EdgeOf.s.env, sc = { this = NodeRet(nodes = EdgeOf.s.env.nodes, n = UnwrapN(r = ResolveNode)), binds = [] }, v = f.dim }) as Dim,
+		Spawn(sp) -> SpawnEdge(s = { env = EdgeOf.s.env, ret = NodeRet(nodes = EdgeOf.s.env.nodes, n = UnwrapN(r = ResolveNode)), branches = sp.branches, join = sp.join, i = 0, out = [], fields = [] })
 	};
 	SpawnEdge switch {
-		Ok(e) -> AddEdge(s = { at = At, src = UnwrapN(r = ResolveNode), e = e }),
+		Ok(e) -> id(Ok({ src = UnwrapN(r = ResolveNode), e = e })),
 		Err(e) -> id(Err(e))
 	};
 	EC switch {
-		Ok(c) -> AddEdge(s = { at = At, src = UnwrapN(r = ResolveNode), e = Call(c) }),
+		Ok(c) -> id(Ok({ src = UnwrapN(r = ResolveNode), e = Call(c) })),
 		Err(e) -> id(Err(e))
 	};
 	EM switch {
-		Ok(arms) -> AddEdge(s = { at = At, src = UnwrapN(r = ResolveNode), e = Match(arms) }),
+		Ok(arms) -> id(Ok({ src = UnwrapN(r = ResolveNode), e = Match(arms) })),
 		Err(e) -> id(Err(e))
 	};
 	ECol switch {
-		Ok(c) -> AddEdge(s = { at = At, src = UnwrapN(r = ResolveNode), e = Collect(c) }),
+		Ok(c) -> id(Ok({ src = UnwrapN(r = ResolveNode), e = Collect(c) })),
 		Err(e) -> id(Err(e))
 	};
 	Dim switch {
-		Ok(d) -> Unfold(s = { t = d.t, defs = At.env.types }) as DimShape,
+		Ok(d) -> Unfold(s = { t = d.t, defs = EdgeOf.s.env.types }) as DimShape,
 		Err(e) -> id(Err(e))
 	};
 	DimShape switch {
-		(IsArray(t = this)) -> CallOf(s = { env = At.env, sc = { this = ElemOf(t = this), binds = [] }, t = ForEachTarget(k = K) }) as EF,
+		(IsArray(t = this)) -> CallOf(s = { env = EdgeOf.s.env, sc = { this = ElemOf(t = this), binds = [] }, t = ForEachTarget(k = K) }) as EF,
 		else -> ShowType(t = UnwrapTyped(r = Dim).t) as NotArray
 	};
 	NotArray -> id(Err({ msg = "for each needs an array, found " + this, span = ForEachDim(k = K).span }));
 	EF switch {
-		Ok(c) -> AddEdge(s = { at = At, src = UnwrapN(r = ResolveNode), e = ForEach({ dim = UnwrapTyped(r = Dim).e, elem = ElemOf(t = DimShape), call = c }) }),
+		Ok(c) -> id(Ok({ src = UnwrapN(r = ResolveNode), e = ForEach({ dim = UnwrapTyped(r = Dim).e, elem = ElemOf(t = DimShape), call = c }) })),
 		Err(e) -> id(Err(e))
 	};
-	AddEdge -> id(this);
 }
 
 func ForEachTarget(k: EdgeKind): Target = "sema_leaf.rs:for_each_target";
@@ -113,76 +166,72 @@ func ForEachDim(k: EdgeKind): Value = "sema_leaf.rs:for_each_dim";
 // `-> spawn { .. } join J(..)`: each branch is called with the spawner's
 // output as this; the join with the joined branches' outputs, by node name
 // (void ones left out).
-proc SpawnEdge(At): Res<SEdge> {
-	func At(s: { env: Env, ret: Type, branches: []Branch, join: Target, i: int, out: []SBranch, fields: []Member }): { env: Env, ret: Type, branches: []Branch, join: Target, i: int, out: []SBranch, fields: []Member } = "../leaf.rs:same";
+proc SpawnEdge(s: { env: Env, ret: Type, branches: []Branch, join: Target, i: int, out: []SBranch, fields: []Member }): Res<SEdge> {
 	func HasId(t: Target): bool = "sema_leaf.rs:has_id";
 	func HasTarget(out: []SBranch, n: int): bool = "sema_leaf.rs:has_branch_target";
 	func HasMember(ms: []Member, name: string): bool = "sema_leaf.rs:has_member";
 	func Name(n: NodeDecl): string = "sema_leaf.rs:last_name";
 	// The first this.X argument of the join naming a detached branch X.
 	func Detached(join: Target, out: []SBranch, nodes: []NodeDecl): OptIdent = "sema_leaf.rs:detached_ref";
-	At switch {
-		(this.i == this.branches.len) -> Detached(join = this.join, out = this.out, nodes = this.env.nodes),
-		(HasId(t = this.branches[this.i].target)) -> id(Err({ msg = "id ends the proc, so it can't run in a spawn branch", span = this.branches[this.i].target.node.span })),
-		else -> CallOf(s = { env = this.env, sc = { this = this.ret, binds = [] }, t = this.branches[this.i].target }) as Branch
+	SpawnEdge switch {
+		(this.s.i == this.s.branches.len) -> Detached(join = this.s.join, out = this.s.out, nodes = this.s.env.nodes),
+		(HasId(t = this.s.branches[this.s.i].target)) -> id(Err({ msg = "id ends the proc, so it can't run in a spawn branch", span = this.s.branches[this.s.i].target.node.span })),
+		else -> CallOf(s = { env = this.s.env, sc = { this = this.s.ret, binds = [] }, t = this.s.branches[this.s.i].target }) as Branch
 	};
 	Branch switch {
 		Ok(c) -> switch {
-			(HasTarget(out = At.out, n = c.target)) -> id(Err({ msg = QualName(n = At.env.nodes[c.target]) + " runs twice in this spawn; name one with `as`", span = At.branches[At.i].target.node.span })),
-			(At.branches[At.i].detach || IsVoid(t = NodeRet(nodes = At.env.nodes, n = c.target))) -> At(s = { ..At, i = At.i + 1, out = At.out + [{ call = c, detach = At.branches[At.i].detach }] }),
-			(HasMember(ms = At.fields, name = Name(n = At.env.nodes[c.target]))) -> id(Err({ msg = "two joined branches are named " + Name(n = At.env.nodes[c.target]) + "; name one with `as`", span = At.branches[At.i].target.node.span })),
-			else -> At(s = { ..At, i = At.i + 1, out = At.out + [{ call = c, detach = false }], fields = At.fields + [{ name = Name(n = At.env.nodes[c.target]), ty = NodeRet(nodes = At.env.nodes, n = c.target) }] })
+			(HasTarget(out = SpawnEdge.s.out, n = c.target)) -> id(Err({ msg = QualName(n = SpawnEdge.s.env.nodes[c.target]) + " runs twice in this spawn; name one with `as`", span = SpawnEdge.s.branches[SpawnEdge.s.i].target.node.span })),
+			(SpawnEdge.s.branches[SpawnEdge.s.i].detach || IsVoid(t = NodeRet(nodes = SpawnEdge.s.env.nodes, n = c.target))) -> SpawnEdge(s = { ..SpawnEdge.s, i = SpawnEdge.s.i + 1, out = SpawnEdge.s.out + [{ call = c, detach = SpawnEdge.s.branches[SpawnEdge.s.i].detach }] }),
+			(HasMember(ms = SpawnEdge.s.fields, name = Name(n = SpawnEdge.s.env.nodes[c.target]))) -> id(Err({ msg = "two joined branches are named " + Name(n = SpawnEdge.s.env.nodes[c.target]) + "; name one with `as`", span = SpawnEdge.s.branches[SpawnEdge.s.i].target.node.span })),
+			else -> SpawnEdge(s = { ..SpawnEdge.s, i = SpawnEdge.s.i + 1, out = SpawnEdge.s.out + [{ call = c, detach = false }], fields = SpawnEdge.s.fields + [{ name = Name(n = SpawnEdge.s.env.nodes[c.target]), ty = NodeRet(nodes = SpawnEdge.s.env.nodes, n = c.target) }] })
 		},
 		Err(e) -> id(Err(e))
 	};
 	Detached switch {
 		Some(x) -> id(Err({ msg = x.name + " is detached, so the join doesn't get its output", span = x.span })),
-		else -> CallOf(s = { env = At.env, sc = { this = Struct(At.fields), binds = [] }, t = At.join }) as Join
+		else -> CallOf(s = { env = SpawnEdge.s.env, sc = { this = Struct(SpawnEdge.s.fields), binds = [] }, t = SpawnEdge.s.join }) as Join
 	};
 	Join switch {
-		Ok(c) -> id(Ok(Spawn({ branches = At.out, join = c, joined = Struct(At.fields) }))),
+		Ok(c) -> id(Ok(Spawn({ branches = SpawnEdge.s.out, join = c, joined = Struct(SpawnEdge.s.fields) }))),
 		Err(e) -> id(Err(e))
 	};
 }
 
 // One source's edge, then the rest of GraphEdges.
-proc AddEdge(At): Res<Graph> {
-	func At(s: { at: { env: Env, p: Proc, g: Graph, i: int }, src: int, e: SEdge }): { at: { env: Env, p: Proc, g: Graph, i: int }, src: int, e: SEdge } = "../leaf.rs:same";
-	At switch {
-		(this.src in this.at.g.edges) -> id(Err({ msg = ShowPath(p = this.at.p.edges[this.at.i].source) + " already has an outgoing edge", span = this.at.p.edges[this.at.i].source.span })),
-		else -> GraphEdges(s = { env = this.at.env, p = this.at.p, g = { ..this.at.g, edges = this.at.g.edges + [this.src: this.e] }, i = this.at.i + 1 })
+proc AddEdge(s: { at: { env: Env, p: Proc, g: Graph, i: int }, src: int, e: SEdge }): Res<Graph> {
+	AddEdge switch {
+		(this.s.src in this.s.at.g.edges) -> id(Err({ msg = ShowPath(p = this.s.at.p.edges[this.s.at.i].source) + " already has an outgoing edge", span = this.s.at.p.edges[this.s.at.i].source.span })),
+		else -> GraphEdges(s = { env = this.s.at.env, p = this.s.at.p, g = { ..this.s.at.g, edges = this.s.at.g.edges + [this.s.src: this.s.e] }, i = this.s.at.i + 1 })
 	};
 }
 
 // Assigns every node reachable from region r's entry to r, opening a child
 // region at each for each and resuming after its collect.
-proc Fill(At): Res<Graph> {
-	func At(s: { env: Env, p: Proc, g: Graph, r: int, work: []int, i: int }): { env: Env, p: Proc, g: Graph, r: int, work: []int, i: int } = "../leaf.rs:same";
-	func E(e: SEdge): SEdge = "../leaf.rs:same";
+proc Fill(s: { env: Env, p: Proc, g: Graph, r: int, work: []int, i: int }): Res<Graph> {
 	func Leaves(arms: []SArm): []int = "sema_leaf.rs:leaf_targets";
-	At switch {
-		(this.i == this.work.len) -> id(Ok(this.g)),
-		(this.work[this.i] in this.g.region_of && this.g.region_of[this.work[this.i]] != this.r) -> id(Err({ msg = QualName(n = this.env.nodes[this.work[this.i]]) + " is reachable both inside and outside a for each region", span = this.p.name.span })),
-		(this.work[this.i] in this.g.region_of) -> At(s = { env = this.env, p = this.p, g = this.g, r = this.r, work = this.work, i = this.i + 1 }),
-		(this.work[this.i] in this.g.edges) -> E(e = this.g.edges[this.work[this.i]]),
-		(this.r != 0) -> id(Err({ msg = "path through " + QualName(n = this.env.nodes[this.work[this.i]]) + " ends inside a for each region without a collect", span = this.p.name.span })),
-		else -> At(s = { env = this.env, p = this.p, g = InRegion(g = this.g, n = this.work[this.i], r = this.r), r = this.r, work = this.work, i = this.i + 1 })
+	Fill switch {
+		(this.s.i == this.s.work.len) -> id(Ok(this.s.g)),
+		(this.s.work[this.s.i] in this.s.g.region_of && this.s.g.region_of[this.s.work[this.s.i]] != this.s.r) -> id(Err({ msg = QualName(n = this.s.env.nodes[this.s.work[this.s.i]]) + " is reachable both inside and outside a for each region", span = this.s.p.name.span })),
+		(this.s.work[this.s.i] in this.s.g.region_of) -> Fill(s = { env = this.s.env, p = this.s.p, g = this.s.g, r = this.s.r, work = this.s.work, i = this.s.i + 1 }),
+		(this.s.work[this.s.i] in this.s.g.edges) -> id(this.s.g.edges[this.s.work[this.s.i]]) as E,
+		(this.s.r != 0) -> id(Err({ msg = "path through " + QualName(n = this.s.env.nodes[this.s.work[this.s.i]]) + " ends inside a for each region without a collect", span = this.s.p.name.span })),
+		else -> Fill(s = { env = this.s.env, p = this.s.p, g = InRegion(g = this.s.g, n = this.s.work[this.s.i], r = this.s.r), r = this.s.r, work = this.s.work, i = this.s.i + 1 })
 	};
 	E switch {
-		Call(c) -> At(s = { env = At.env, p = At.p, g = InRegion(g = At.g, n = At.work[At.i], r = At.r), r = At.r, work = At.work + [c.target], i = At.i + 1 }),
-		Match(arms) -> At(s = { env = At.env, p = At.p, g = InRegion(g = At.g, n = At.work[At.i], r = At.r), r = At.r, work = At.work + Leaves(arms = arms), i = At.i + 1 }),
-		Spawn(sp) -> At(s = { env = At.env, p = At.p, g = InRegion(g = At.g, n = At.work[At.i], r = At.r), r = At.r, work = At.work + [sp.join.target], i = At.i + 1 }),
+		Call(c) -> Fill(s = { env = Fill.s.env, p = Fill.s.p, g = InRegion(g = Fill.s.g, n = Fill.s.work[Fill.s.i], r = Fill.s.r), r = Fill.s.r, work = Fill.s.work + [c.target], i = Fill.s.i + 1 }),
+		Match(arms) -> Fill(s = { env = Fill.s.env, p = Fill.s.p, g = InRegion(g = Fill.s.g, n = Fill.s.work[Fill.s.i], r = Fill.s.r), r = Fill.s.r, work = Fill.s.work + Leaves(arms = arms), i = Fill.s.i + 1 }),
+		Spawn(sp) -> Fill(s = { env = Fill.s.env, p = Fill.s.p, g = InRegion(g = Fill.s.g, n = Fill.s.work[Fill.s.i], r = Fill.s.r), r = Fill.s.r, work = Fill.s.work + [sp.join.target], i = Fill.s.i + 1 }),
 		Collect(c) -> switch {
-			(At.r == 0) -> id(Err({ msg = QualName(n = At.env.nodes[At.work[At.i]]) + " collects outside of any for each", span = c.span })),
-			(At.g.regions[At.r].sink >= 0 && At.g.regions[At.r].sink != At.work[At.i]) -> id(Err({ msg = "for each region collects at both " + QualName(n = At.env.nodes[At.g.regions[At.r].sink]) + " and " + QualName(n = At.env.nodes[At.work[At.i]]), span = c.span })),
-			else -> At(s = { env = At.env, p = At.p, g = WithSink(g = InRegion(g = At.g, n = At.work[At.i], r = At.r), r = At.r, n = At.work[At.i]), r = At.r, work = At.work, i = At.i + 1 })
+			(Fill.s.r == 0) -> id(Err({ msg = QualName(n = Fill.s.env.nodes[Fill.s.work[Fill.s.i]]) + " collects outside of any for each", span = c.span })),
+			(Fill.s.g.regions[Fill.s.r].sink >= 0 && Fill.s.g.regions[Fill.s.r].sink != Fill.s.work[Fill.s.i]) -> id(Err({ msg = "for each region collects at both " + QualName(n = Fill.s.env.nodes[Fill.s.g.regions[Fill.s.r].sink]) + " and " + QualName(n = Fill.s.env.nodes[Fill.s.work[Fill.s.i]]), span = c.span })),
+			else -> Fill(s = { env = Fill.s.env, p = Fill.s.p, g = WithSink(g = InRegion(g = Fill.s.g, n = Fill.s.work[Fill.s.i], r = Fill.s.r), r = Fill.s.r, n = Fill.s.work[Fill.s.i]), r = Fill.s.r, work = Fill.s.work, i = Fill.s.i + 1 })
 		},
-		ForEach(f) -> Fill(s = { env = At.env, p = At.p, g = WithOpen(g = NewRegion(g = InRegion(g = At.g, n = At.work[At.i], r = At.r), parent = At.r, entry = f.call.target, elem = f.elem), n = At.work[At.i], r = At.g.regions.len), r = At.g.regions.len, work = [f.call.target], i = 0 }) as Child
+		ForEach(f) -> Fill(s = { env = Fill.s.env, p = Fill.s.p, g = WithOpen(g = NewRegion(g = InRegion(g = Fill.s.g, n = Fill.s.work[Fill.s.i], r = Fill.s.r), parent = Fill.s.r, entry = f.call.target, elem = f.elem), n = Fill.s.work[Fill.s.i], r = Fill.s.g.regions.len), r = Fill.s.g.regions.len, work = [f.call.target], i = 0 }) as Child
 	};
 	Child switch {
 		Ok(g) -> switch {
-			(g.regions[At.g.regions.len].sink < 0) -> id(Err({ msg = "for each from " + QualName(n = At.env.nodes[At.work[At.i]]) + " never collects", span = ForEachCall(e = E).span })),
-			else -> At(s = { env = At.env, p = At.p, g = g, r = At.r, work = At.work + [CollectTarget(g = g, sink = g.regions[At.g.regions.len].sink)], i = At.i + 1 })
+			(g.regions[Fill.s.g.regions.len].sink < 0) -> id(Err({ msg = "for each from " + QualName(n = Fill.s.env.nodes[Fill.s.work[Fill.s.i]]) + " never collects", span = ForEachCall(e = E).span })),
+			else -> Fill(s = { env = Fill.s.env, p = Fill.s.p, g = g, r = Fill.s.r, work = Fill.s.work + [CollectTarget(g = g, sink = g.regions[Fill.s.g.regions.len].sink)], i = Fill.s.i + 1 })
 		},
 		Err(e) -> id(Err(e))
 	};
@@ -193,78 +242,72 @@ func CollectTarget(g: Graph, sink: int): int = "sema_leaf.rs:collect_target";
 
 // Every read is of a node in its own region or an enclosing one, and every
 // node that ends the proc returns the proc's type.
-proc CheckScopes(At): Res<Graph> {
-	func At(s: { env: Env, p: Proc, g: Graph, edges: []int, i: int }): { env: Env, p: Proc, g: Graph, edges: []int, i: int } = "../leaf.rs:same";
-	func E(e: SEdge): SEdge = "../leaf.rs:same";
-	At switch {
-		(this.i == this.edges.len) -> Terminals(s = { env = this.env, p = this.p, g = this.g, i = 0 }),
-		(!(this.edges[this.i] in this.g.region_of)) -> At(s = { env = this.env, p = this.p, g = this.g, edges = this.edges, i = this.i + 1 }),
-		else -> E(e = this.g.edges[this.edges[this.i]])
+proc CheckScopes(s: { env: Env, p: Proc, g: Graph, edges: []int, i: int }): Res<Graph> {
+	CheckScopes switch {
+		(this.s.i == this.s.edges.len) -> Terminals(s = { env = this.s.env, p = this.s.p, g = this.s.g, i = 0 }),
+		(!(this.s.edges[this.s.i] in this.s.g.region_of)) -> CheckScopes(s = { env = this.s.env, p = this.s.p, g = this.s.g, edges = this.s.edges, i = this.s.i + 1 }),
+		else -> id(this.s.g.edges[this.s.edges[this.s.i]]) as E
 	};
 	E switch {
-		ForEach(f) -> InScope(s = { env = At.env, g = At.g, scope = At.g.region_of[At.edges[At.i]], refs = [], todo = [f.dim] }) as DimOk,
-		Collect(_) -> InScope(s = { env = At.env, g = At.g, scope = At.g.regions[At.g.region_of[At.edges[At.i]]].parent, refs = [], todo = ArgValues(calls = EdgeCalls(e = this)) }) as Reads,
-		Match(arms) -> InScope(s = { env = At.env, g = At.g, scope = At.g.region_of[At.edges[At.i]], refs = [], todo = ArgValues(calls = EdgeCalls(e = this)) + ArmConds(arms = arms) }) as Reads,
-		Call(_) | Spawn(_) -> InScope(s = { env = At.env, g = At.g, scope = At.g.region_of[At.edges[At.i]], refs = [], todo = ArgValues(calls = EdgeCalls(e = this)) }) as Reads
+		ForEach(f) -> InScope(s = { env = CheckScopes.s.env, g = CheckScopes.s.g, scope = CheckScopes.s.g.region_of[CheckScopes.s.edges[CheckScopes.s.i]], refs = [], todo = [f.dim] }) as DimOk,
+		Collect(_) -> InScope(s = { env = CheckScopes.s.env, g = CheckScopes.s.g, scope = CheckScopes.s.g.regions[CheckScopes.s.g.region_of[CheckScopes.s.edges[CheckScopes.s.i]]].parent, refs = [], todo = ArgValues(calls = EdgeCalls(e = this)) }) as Reads,
+		Match(arms) -> InScope(s = { env = CheckScopes.s.env, g = CheckScopes.s.g, scope = CheckScopes.s.g.region_of[CheckScopes.s.edges[CheckScopes.s.i]], refs = [], todo = ArgValues(calls = EdgeCalls(e = this)) + ArmConds(arms = arms) }) as Reads,
+		Call(_) | Spawn(_) -> InScope(s = { env = CheckScopes.s.env, g = CheckScopes.s.g, scope = CheckScopes.s.g.region_of[CheckScopes.s.edges[CheckScopes.s.i]], refs = [], todo = ArgValues(calls = EdgeCalls(e = this)) }) as Reads
 	};
 	DimOk switch {
-		Ok(_) -> InScope(s = { env = At.env, g = At.g, scope = At.g.opens[At.edges[At.i]], refs = [], todo = ArgValues(calls = EdgeCalls(e = E)) }) as Reads,
+		Ok(_) -> InScope(s = { env = CheckScopes.s.env, g = CheckScopes.s.g, scope = CheckScopes.s.g.opens[CheckScopes.s.edges[CheckScopes.s.i]], refs = [], todo = ArgValues(calls = EdgeCalls(e = E)) }) as Reads,
 		Err(e) -> id(Err(e))
 	};
 	Reads switch {
-		Ok(_) -> At(s = { env = At.env, p = At.p, g = At.g, edges = At.edges, i = At.i + 1 }),
+		Ok(_) -> CheckScopes(s = { env = CheckScopes.s.env, p = CheckScopes.s.p, g = CheckScopes.s.g, edges = CheckScopes.s.edges, i = CheckScopes.s.i + 1 }),
 		Err(e) -> id(Err(e))
 	};
 }
 
 // The reads in `todo` (expressions, depth first) are of nodes visible from
 // region `scope`.
-proc InScope(At): Res<int> {
-	func At(s: { env: Env, g: Graph, scope: int, refs: []Ref, todo: []Expr }): { env: Env, g: Graph, scope: int, refs: []Ref, todo: []Expr } = "../leaf.rs:same";
-	At -> RefsOf(s = { todo = this.todo, acc = [] });
-	RefsOf -> ScopeEach(s = { env = At.env, g = At.g, scope = At.scope, refs = this, i = 0 });
+proc InScope(s: { env: Env, g: Graph, scope: int, refs: []Ref, todo: []Expr }): Res<int> {
+	InScope -> RefsOf(s = { todo = this.s.todo, acc = [] });
+	RefsOf -> ScopeEach(s = { env = InScope.s.env, g = InScope.s.g, scope = InScope.s.scope, refs = this, i = 0 });
 }
 
-proc ScopeEach(At): Res<int> {
-	func At(s: { env: Env, g: Graph, scope: int, refs: []Ref, i: int }): { env: Env, g: Graph, scope: int, refs: []Ref, i: int } = "../leaf.rs:same";
+proc ScopeEach(s: { env: Env, g: Graph, scope: int, refs: []Ref, i: int }): Res<int> {
 	func NodeOf(r: Root): int = "sema_leaf.rs:root_node";
 	func LastName(n: NodeDecl): string = "sema_leaf.rs:last_name";
-	At switch {
-		(this.i == this.refs.len) -> id(Ok(0)),
+	ScopeEach switch {
+		(this.s.i == this.s.refs.len) -> id(Ok(0)),
 		// this and bindings are always in scope.
-		(NodeOf(r = this.refs[this.i].root) < 0) -> At(s = { env = this.env, g = this.g, scope = this.scope, refs = this.refs, i = this.i + 1 }),
-		(NodeOf(r = this.refs[this.i].root) in this.g.spawned) -> id(Err({ msg = QualName(n = this.env.nodes[NodeOf(r = this.refs[this.i].root)]) + " runs in " + QualName(n = this.env.nodes[this.g.spawned[NodeOf(r = this.refs[this.i].root)]]) + "'s spawn, so its output is only visible to the join, as this." + LastName(n = this.env.nodes[NodeOf(r = this.refs[this.i].root)]), span = this.refs[this.i].span })),
-		(!(NodeOf(r = this.refs[this.i].root) in this.g.region_of)) -> id(Err({ msg = QualName(n = this.env.nodes[NodeOf(r = this.refs[this.i].root)]) + " never runs in this proc", span = this.refs[this.i].span })),
-		(this.g.region_of[NodeOf(r = this.refs[this.i].root)] in Ancestors(g = this.g, r = this.scope)) -> At(s = { env = this.env, g = this.g, scope = this.scope, refs = this.refs, i = this.i + 1 }),
-		else -> id(Err({ msg = QualName(n = this.env.nodes[NodeOf(r = this.refs[this.i].root)]) + " runs inside a for each region, so its output is not visible here", span = this.refs[this.i].span }))
+		(NodeOf(r = this.s.refs[this.s.i].root) < 0) -> ScopeEach(s = { env = this.s.env, g = this.s.g, scope = this.s.scope, refs = this.s.refs, i = this.s.i + 1 }),
+		(NodeOf(r = this.s.refs[this.s.i].root) in this.s.g.spawned) -> id(Err({ msg = QualName(n = this.s.env.nodes[NodeOf(r = this.s.refs[this.s.i].root)]) + " runs in " + QualName(n = this.s.env.nodes[this.s.g.spawned[NodeOf(r = this.s.refs[this.s.i].root)]]) + "'s spawn, so its output is only visible to the join, as this." + LastName(n = this.s.env.nodes[NodeOf(r = this.s.refs[this.s.i].root)]), span = this.s.refs[this.s.i].span })),
+		(!(NodeOf(r = this.s.refs[this.s.i].root) in this.s.g.region_of)) -> id(Err({ msg = QualName(n = this.s.env.nodes[NodeOf(r = this.s.refs[this.s.i].root)]) + " never runs in this proc", span = this.s.refs[this.s.i].span })),
+		(this.s.g.region_of[NodeOf(r = this.s.refs[this.s.i].root)] in Ancestors(g = this.s.g, r = this.s.scope)) -> ScopeEach(s = { env = this.s.env, g = this.s.g, scope = this.s.scope, refs = this.s.refs, i = this.s.i + 1 }),
+		else -> id(Err({ msg = QualName(n = this.s.env.nodes[NodeOf(r = this.s.refs[this.s.i].root)]) + " runs inside a for each region, so its output is not visible here", span = this.s.refs[this.s.i].span }))
 	};
 }
 
 // The Refs in expressions, depth first.
-proc RefsOf(At): []Ref {
-	func At(s: { todo: []Expr, acc: []Ref }): { todo: []Expr, acc: []Ref } = "../leaf.rs:same";
+proc RefsOf(s: { todo: []Expr, acc: []Ref }): []Ref {
 	func Parts(e: Expr): []Expr = "sema_leaf.rs:expr_parts";
 	func RefIn(e: Expr): []Ref = "sema_leaf.rs:expr_ref";
 	func RestE(es: []Expr): []Expr = "sema_leaf.rs:rest_exprs";
-	At switch {
-		(this.todo.len == 0) -> id(this.acc),
-		else -> At(s = { todo = Parts(e = this.todo[0]) + RestE(es = this.todo), acc = this.acc + RefIn(e = this.todo[0]) })
+	RefsOf switch {
+		(this.s.todo.len == 0) -> id(this.s.acc),
+		else -> RefsOf(s = { todo = Parts(e = this.s.todo[0]) + RestE(es = this.s.todo), acc = this.s.acc + RefIn(e = this.s.todo[0]) })
 	};
 }
 
-proc Terminals(At): Res<Graph> {
-	func At(s: { env: Env, p: Proc, g: Graph, i: int }): { env: Env, p: Proc, g: Graph, i: int } = "../leaf.rs:same";
-	At switch {
-		(this.i == this.g.regions[0].nodes.len) -> id(Ok(this.g)),
-		(this.g.regions[0].nodes[this.i] in this.g.edges) -> At(s = { env = this.env, p = this.p, g = this.g, i = this.i + 1 }),
-		else -> Accepts(s = { a = ProcRet(n = this.env.nodes[this.env.pid]), b = NodeRet(nodes = this.env.nodes, n = this.g.regions[0].nodes[this.i]), defs = this.env.types, assumed = [] })
+proc Terminals(s: { env: Env, p: Proc, g: Graph, i: int }): Res<Graph> {
+	Terminals switch {
+		(this.s.i == this.s.g.regions[0].nodes.len) -> id(Ok(this.s.g)),
+		(this.s.g.regions[0].nodes[this.s.i] in this.s.g.edges) -> Terminals(s = { env = this.s.env, p = this.s.p, g = this.s.g, i = this.s.i + 1 }),
+		else -> Accepts(s = { a = ProcRet(n = this.s.env.nodes[this.s.env.pid]), b = NodeRet(nodes = this.s.env.nodes, n = this.s.g.regions[0].nodes[this.s.i]), defs = this.s.env.types, assumed = [] })
 	};
 	Accepts switch {
-		(this) -> At(s = { env = At.env, p = At.p, g = At.g, i = At.i + 1 }),
-		else -> ShowType(t = NodeRet(nodes = At.env.nodes, n = At.g.regions[0].nodes[At.i])) as Got
+		(this) -> Terminals(s = { env = Terminals.s.env, p = Terminals.s.p, g = Terminals.s.g, i = Terminals.s.i + 1 }),
+		else -> ShowType(t = NodeRet(nodes = Terminals.s.env.nodes, n = Terminals.s.g.regions[0].nodes[Terminals.s.i])) as Got
 	};
-	Got -> ShowType(t = ProcRet(n = At.env.nodes[At.env.pid])) as Want;
-	Want -> id(Err({ msg = QualName(n = At.env.nodes[At.g.regions[0].nodes[At.i]]) + " ends proc " + At.p.name.name + " but returns " + Got + ", expected " + this, span = At.p.name.span }));
+	Got -> ShowType(t = ProcRet(n = Terminals.s.env.nodes[Terminals.s.env.pid])) as Want;
+	Want -> id(Err({ msg = QualName(n = Terminals.s.env.nodes[Terminals.s.g.regions[0].nodes[Terminals.s.i]]) + " ends proc " + Terminals.s.p.name.name + " but returns " + Got + ", expected " + this, span = Terminals.s.p.name.span }));
 }
 
 // ---- Reads of nodes that may not have run ----
@@ -272,78 +315,72 @@ proc Terminals(At): Res<Graph> {
 // Dominators of each node within its region: the nodes on every path from
 // the region's entry to it, itself included. A for each steps from its
 // opener to its collect target, the region in between running in full.
-proc Dominators(At): map[int]map[int]bool {
-	func At(s: { g: Graph, r: int, dom: map[int]map[int]bool }): { g: Graph, r: int, dom: map[int]map[int]bool } = "../leaf.rs:same";
+proc Dominators(s: { g: Graph, r: int, dom: map[int]map[int]bool }): map[int]map[int]bool {
 	func Preds(g: Graph, r: int): map[int][]int = "sema_leaf.rs:preds";
 	func Start(g: Graph, r: int, dom: map[int]map[int]bool): map[int]map[int]bool = "sema_leaf.rs:dom_start";
-	At switch {
-		(this.r == this.g.regions.len) -> id(this.dom),
-		else -> DomRounds(s = { region = this.g.regions[this.r], preds = Preds(g = this.g, r = this.r), dom = Start(g = this.g, r = this.r, dom = this.dom), i = 0, changed = false })
+	Dominators switch {
+		(this.s.r == this.s.g.regions.len) -> id(this.s.dom),
+		else -> DomRounds(s = { region = this.s.g.regions[this.s.r], preds = Preds(g = this.s.g, r = this.s.r), dom = Start(g = this.s.g, r = this.s.r, dom = this.s.dom), i = 0, changed = false })
 	};
-	DomRounds -> At(s = { g = At.g, r = At.r + 1, dom = this });
+	DomRounds -> Dominators(s = { g = Dominators.s.g, r = Dominators.s.r + 1, dom = this });
 }
 
 // Until nothing changes: each node's dominators are the intersection of its
 // predecessors', and itself.
-proc DomRounds(At): map[int]map[int]bool {
-	func At(s: { region: Region, preds: map[int][]int, dom: map[int]map[int]bool, i: int, changed: bool }): { region: Region, preds: map[int][]int, dom: map[int]map[int]bool, i: int, changed: bool } = "../leaf.rs:same";
+proc DomRounds(s: { region: Region, preds: map[int][]int, dom: map[int]map[int]bool, i: int, changed: bool }): map[int]map[int]bool {
 	func Meet(preds: map[int][]int, dom: map[int]map[int]bool, n: int): map[int]bool = "sema_leaf.rs:meet";
 	func SameSet(a: map[int]bool, b: map[int]bool): bool = "sema_leaf.rs:same_set";
-	At switch {
-		(this.i == this.region.nodes.len && this.changed) -> At(s = { region = this.region, preds = this.preds, dom = this.dom, i = 0, changed = false }),
-		(this.i == this.region.nodes.len) -> id(this.dom),
-		(this.region.nodes[this.i] == this.region.entry) -> At(s = { region = this.region, preds = this.preds, dom = this.dom, i = this.i + 1, changed = this.changed }),
-		(SameSet(a = Meet(preds = this.preds, dom = this.dom, n = this.region.nodes[this.i]), b = this.dom[this.region.nodes[this.i]])) -> At(s = { region = this.region, preds = this.preds, dom = this.dom, i = this.i + 1, changed = this.changed }),
-		else -> At(s = { region = this.region, preds = this.preds, dom = this.dom + [this.region.nodes[this.i]: Meet(preds = this.preds, dom = this.dom, n = this.region.nodes[this.i])], i = this.i + 1, changed = true })
+	DomRounds switch {
+		(this.s.i == this.s.region.nodes.len && this.s.changed) -> DomRounds(s = { region = this.s.region, preds = this.s.preds, dom = this.s.dom, i = 0, changed = false }),
+		(this.s.i == this.s.region.nodes.len) -> id(this.s.dom),
+		(this.s.region.nodes[this.s.i] == this.s.region.entry) -> DomRounds(s = { region = this.s.region, preds = this.s.preds, dom = this.s.dom, i = this.s.i + 1, changed = this.s.changed }),
+		(SameSet(a = Meet(preds = this.s.preds, dom = this.s.dom, n = this.s.region.nodes[this.s.i]), b = this.s.dom[this.s.region.nodes[this.s.i]])) -> DomRounds(s = { region = this.s.region, preds = this.s.preds, dom = this.s.dom, i = this.s.i + 1, changed = this.s.changed }),
+		else -> DomRounds(s = { region = this.s.region, preds = this.s.preds, dom = this.s.dom + [this.s.region.nodes[this.s.i]: Meet(preds = this.s.preds, dom = this.s.dom, n = this.s.region.nodes[this.s.i])], i = this.s.i + 1, changed = true })
 	};
 }
 
 // Every node output an edge reads has run on every path to the edge: in
 // its region it dominates the edge's source, and a node of an enclosing
 // region dominates the for each that opened the region.
-proc CheckRuns(At): Res<Graph> {
-	func At(s: { env: Env, g: Graph, dom: map[int]map[int]bool, edges: []int, i: int }): { env: Env, g: Graph, dom: map[int]map[int]bool, edges: []int, i: int } = "../leaf.rs:same";
-	func E(e: SEdge): SEdge = "../leaf.rs:same";
-	At switch {
-		(this.i == this.edges.len) -> id(Ok(this.g)),
-		(!(this.edges[this.i] in this.g.region_of)) -> At(s = { env = this.env, g = this.g, dom = this.dom, edges = this.edges, i = this.i + 1 }),
-		else -> E(e = this.g.edges[this.edges[this.i]])
+proc CheckRuns(s: { env: Env, g: Graph, dom: map[int]map[int]bool, edges: []int, i: int }): Res<Graph> {
+	CheckRuns switch {
+		(this.s.i == this.s.edges.len) -> id(Ok(this.s.g)),
+		(!(this.s.edges[this.s.i] in this.s.g.region_of)) -> CheckRuns(s = { env = this.s.env, g = this.s.g, dom = this.s.dom, edges = this.s.edges, i = this.s.i + 1 }),
+		else -> id(this.s.g.edges[this.s.edges[this.s.i]]) as E
 	};
 	E switch {
 		// A spawn's branches and join are all at the spawner's step.
-		Call(_) | Spawn(_) -> Ran(s = { env = At.env, g = At.g, dom = At.dom, todo = ArgValues(calls = EdgeCalls(e = this)), r = At.g.region_of[At.edges[At.i]], at = At.edges[At.i], src = At.edges[At.i] }) as Checked,
-		Match(arms) -> Ran(s = { env = At.env, g = At.g, dom = At.dom, todo = ArmReads(arms = arms), r = At.g.region_of[At.edges[At.i]], at = At.edges[At.i], src = At.edges[At.i] }) as Checked,
+		Call(_) | Spawn(_) -> Ran(s = { env = CheckRuns.s.env, g = CheckRuns.s.g, dom = CheckRuns.s.dom, todo = ArgValues(calls = EdgeCalls(e = this)), r = CheckRuns.s.g.region_of[CheckRuns.s.edges[CheckRuns.s.i]], at = CheckRuns.s.edges[CheckRuns.s.i], src = CheckRuns.s.edges[CheckRuns.s.i] }) as Checked,
+		Match(arms) -> Ran(s = { env = CheckRuns.s.env, g = CheckRuns.s.g, dom = CheckRuns.s.dom, todo = ArmReads(arms = arms), r = CheckRuns.s.g.region_of[CheckRuns.s.edges[CheckRuns.s.i]], at = CheckRuns.s.edges[CheckRuns.s.i], src = CheckRuns.s.edges[CheckRuns.s.i] }) as Checked,
 		// The entry call's args are built before any node of the region runs.
-		ForEach(f) -> Ran(s = { env = At.env, g = At.g, dom = At.dom, todo = [f.dim] + ArgValues(calls = [f.call]), r = At.g.region_of[At.edges[At.i]], at = At.edges[At.i], src = At.edges[At.i] }) as Checked,
+		ForEach(f) -> Ran(s = { env = CheckRuns.s.env, g = CheckRuns.s.g, dom = CheckRuns.s.dom, todo = [f.dim] + ArgValues(calls = [f.call]), r = CheckRuns.s.g.region_of[CheckRuns.s.edges[CheckRuns.s.i]], at = CheckRuns.s.edges[CheckRuns.s.i], src = CheckRuns.s.edges[CheckRuns.s.i] }) as Checked,
 		// After the region, in the enclosing one, at its opener.
-		Collect(_) -> Ran(s = { env = At.env, g = At.g, dom = At.dom, todo = ArgValues(calls = EdgeCalls(e = this)), r = At.g.region_of[Opener(g = At.g, r = At.g.region_of[At.edges[At.i]])], at = Opener(g = At.g, r = At.g.region_of[At.edges[At.i]]), src = At.edges[At.i] }) as Checked
+		Collect(_) -> Ran(s = { env = CheckRuns.s.env, g = CheckRuns.s.g, dom = CheckRuns.s.dom, todo = ArgValues(calls = EdgeCalls(e = this)), r = CheckRuns.s.g.region_of[Opener(g = CheckRuns.s.g, r = CheckRuns.s.g.region_of[CheckRuns.s.edges[CheckRuns.s.i]])], at = Opener(g = CheckRuns.s.g, r = CheckRuns.s.g.region_of[CheckRuns.s.edges[CheckRuns.s.i]]), src = CheckRuns.s.edges[CheckRuns.s.i] }) as Checked
 	};
 	Checked switch {
-		Ok(_) -> At(s = { env = At.env, g = At.g, dom = At.dom, edges = At.edges, i = At.i + 1 }),
+		Ok(_) -> CheckRuns(s = { env = CheckRuns.s.env, g = CheckRuns.s.g, dom = CheckRuns.s.dom, edges = CheckRuns.s.edges, i = CheckRuns.s.i + 1 }),
 		Err(e) -> id(Err(e))
 	};
 }
 
-proc Ran(At): Res<int> {
-	func At(s: { env: Env, g: Graph, dom: map[int]map[int]bool, todo: []Expr, r: int, at: int, src: int }): { env: Env, g: Graph, dom: map[int]map[int]bool, todo: []Expr, r: int, at: int, src: int } = "../leaf.rs:same";
+proc Ran(s: { env: Env, g: Graph, dom: map[int]map[int]bool, todo: []Expr, r: int, at: int, src: int }): Res<int> {
 	func NodeOf(r: Root): int = "sema_leaf.rs:root_node";
 	// Where a path skips node n, reading it from `at` in region r; -1 if none.
 	func Skip(g: Graph, dom: map[int]map[int]bool, n: int, r: int, at: int): int = "sema_leaf.rs:skip";
-	At -> RefsOf(s = { todo = this.todo, acc = [] });
-	RefsOf -> RanEach(s = { at = At, refs = this, i = 0 });
+	Ran -> RefsOf(s = { todo = this.s.todo, acc = [] });
+	RefsOf -> RanEach(s = { at = Ran.s, refs = this, i = 0 });
 }
 
-proc RanEach(At): Res<int> {
-	func At(s: { at: { env: Env, g: Graph, dom: map[int]map[int]bool, todo: []Expr, r: int, at: int, src: int }, refs: []Ref, i: int }): { at: { env: Env, g: Graph, dom: map[int]map[int]bool, todo: []Expr, r: int, at: int, src: int }, refs: []Ref, i: int } = "../leaf.rs:same";
+proc RanEach(s: { at: { env: Env, g: Graph, dom: map[int]map[int]bool, todo: []Expr, r: int, at: int, src: int }, refs: []Ref, i: int }): Res<int> {
 	func NodeOf(r: Root): int = "sema_leaf.rs:root_node";
 	func Skip(g: Graph, dom: map[int]map[int]bool, n: int, r: int, at: int): int = "sema_leaf.rs:skip";
-	At switch {
-		(this.i == this.refs.len) -> id(Ok(0)),
+	RanEach switch {
+		(this.s.i == this.s.refs.len) -> id(Ok(0)),
 		// this and bindings are always set.
-		(NodeOf(r = this.refs[this.i].root) < 0 || Skip(g = this.at.g, dom = this.at.dom, n = NodeOf(r = this.refs[this.i].root), r = this.at.r, at = this.at.at) < 0) -> At(s = { at = this.at, refs = this.refs, i = this.i + 1 }),
+		(NodeOf(r = this.s.refs[this.s.i].root) < 0 || Skip(g = this.s.at.g, dom = this.s.at.dom, n = NodeOf(r = this.s.refs[this.s.i].root), r = this.s.at.r, at = this.s.at.at) < 0) -> RanEach(s = { at = this.s.at, refs = this.s.refs, i = this.s.i + 1 }),
 		else -> id(Err({
-			msg = QualName(n = this.at.env.nodes[NodeOf(r = this.refs[this.i].root)]) + " may not have run when " + QualName(n = this.at.env.nodes[this.at.src]) + "'s edge reads it: a path to " + QualName(n = this.at.env.nodes[Skip(g = this.at.g, dom = this.at.dom, n = NodeOf(r = this.refs[this.i].root), r = this.at.r, at = this.at.at)]) + " skips it",
-			span = this.refs[this.i].span
+			msg = QualName(n = this.s.at.env.nodes[NodeOf(r = this.s.refs[this.s.i].root)]) + " may not have run when " + QualName(n = this.s.at.env.nodes[this.s.at.src]) + "'s edge reads it: a path to " + QualName(n = this.s.at.env.nodes[Skip(g = this.s.at.g, dom = this.s.at.dom, n = NodeOf(r = this.s.refs[this.s.i].root), r = this.s.at.r, at = this.s.at.at)]) + " skips it",
+			span = this.s.refs[this.s.i].span
 		}))
 	};
 }
@@ -354,24 +391,22 @@ type Analysis = { prog: Program, errors: []Diag };
 
 // The whole of sema: declarations, then each proc's graph. Errors in one
 // graph don't stop the others.
-proc Analyze(At): Analysis {
-	func At(s: { srcs: []string, file: File }): { srcs: []string, file: File } = "../leaf.rs:same";
-	At -> Declare(file = this.file);
+proc Analyze(s: { srcs: []string, file: File }): Analysis {
+	Analyze -> Declare(file = this.s.file);
 	Declare switch {
 		(this.ty.errors.len > 0) -> id({ prog = { types = this.ty.types, nodes = this.nodes, globals = this.globals, top = this.top }, errors = this.ty.errors }),
-		else -> Graphs(s = { cx = this, srcs = At.srcs, i = 0, errors = [] })
+		else -> Graphs(s = { cx = this, srcs = Analyze.s.srcs, i = 0, errors = [] })
 	};
 }
 
-proc Graphs(At): Analysis {
-	func At(s: { cx: Cx, srcs: []string, i: int, errors: []Diag }): { cx: Cx, srcs: []string, i: int, errors: []Diag } = "../leaf.rs:same";
+proc Graphs(s: { cx: Cx, srcs: []string, i: int, errors: []Diag }): Analysis {
 	func SetGraph(cx: Cx, pid: int, g: Graph): Cx = "sema_leaf.rs:set_graph";
-	At switch {
-		(this.i == this.cx.procs.len) -> id({ prog = { types = this.cx.ty.types, nodes = this.cx.nodes, globals = this.cx.globals, top = this.cx.top }, errors = this.errors }),
-		else -> BuildGraph(s = { env = { types = this.cx.ty.types, nodes = this.cx.nodes, globals = this.cx.globals, ids = this.cx.ids, pid = this.cx.procs[this.i].id, srcs = this.srcs }, p = this.cx.procs[this.i].p })
+	Graphs switch {
+		(this.s.i == this.s.cx.procs.len) -> id({ prog = { types = this.s.cx.ty.types, nodes = this.s.cx.nodes, globals = this.s.cx.globals, top = this.s.cx.top }, errors = this.s.errors }),
+		else -> BuildGraph(s = { env = { types = this.s.cx.ty.types, nodes = this.s.cx.nodes, globals = this.s.cx.globals, ids = this.s.cx.ids, pid = this.s.cx.procs[this.s.i].id, srcs = this.s.srcs }, p = this.s.cx.procs[this.s.i].p })
 	};
 	BuildGraph switch {
-		Ok(g) -> At(s = { cx = SetGraph(cx = At.cx, pid = At.cx.procs[At.i].id, g = g), srcs = At.srcs, i = At.i + 1, errors = At.errors }),
-		Err(e) -> At(s = { cx = At.cx, srcs = At.srcs, i = At.i + 1, errors = At.errors + [e] })
+		Ok(b) -> Graphs(s = { cx = SetGraph(cx = { ..Graphs.s.cx, nodes = b.nodes }, pid = Graphs.s.cx.procs[Graphs.s.i].id, g = b.g), srcs = Graphs.s.srcs, i = Graphs.s.i + 1, errors = Graphs.s.errors }),
+		Err(e) -> Graphs(s = { cx = Graphs.s.cx, srcs = Graphs.s.srcs, i = Graphs.s.i + 1, errors = Graphs.s.errors + [e] })
 	};
 }

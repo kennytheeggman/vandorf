@@ -1,0 +1,4 @@
+proc P(a: int): int { func P(x: int): int; P -> id(1); }
+
+---
+error: duplicate name P in proc P @27..28

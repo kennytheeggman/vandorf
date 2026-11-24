@@ -1,0 +1,5 @@
+type E = enum { A(int), B(int) };
+proc P(e: E): int { P switch { { e = A(x) } -> id(x) as D, { e = B(_) } -> id("s") as D }; D -> id(this); }
+
+---
+error: id: expected int, found a string literal @112..115

@@ -1,1 +1,1 @@
-(file(proc Calc @5:9 A @10:11(named int @14:17 @14:17)(func A @25:26(field l @27:28(array(named int @32:35 @32:35) @30:35))(named int @38:41 @38:41))))
+(file(proc Calc @5:9(params(field l @10:11(array(named int @15:18 @15:18) @13:18)))(named int @21:24 @21:24)(func A @32:33(field l @34:35(array(named int @39:42 @39:42) @37:42))(named int @45:48 @45:48))(edge(path Calc @50:54 @50:54)(call(target text="l = this.l"(path A @58:59 @58:59)(arg l @60:61(ref(path this @64:68 l @69:70 @64:70) @64:70)))) @50:71)))

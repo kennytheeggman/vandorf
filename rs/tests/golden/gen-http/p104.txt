@@ -603,6 +603,21 @@ impl Json for types::RInt {
     }
 }
 
+impl Json for types::PArgs {
+    fn to_json(&self, out: &mut String) {
+        out.push('{');
+        out.push_str("\"r\":");
+        self.r.to_json(out);
+        out.push('}');
+    }
+    fn from_json(v: &Value) -> Result<Self, String> {
+        let fs = v.object("PArgs")?;
+        Ok(types::PArgs {
+            r: Json::from_json(field(fs, "r")?).map_err(|e| format!("r: {e}"))?,
+        })
+    }
+}
+
 /// Runs proc P with the request's parameters.
 fn call_p(params: &Value) -> Result<String, (u16, String)> {
     let r: types::RStringList = arg(params, "r")?;

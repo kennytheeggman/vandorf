@@ -211,7 +211,11 @@ html.dark #etip, html.dark .elabel{--hl-kw:#c4b5fd; --hl-str:#fbbf24; --hl-num:#
 .ehit{fill:none; stroke:transparent; stroke-width:14; pointer-events:stroke; cursor:pointer}
 .eg .elabel{cursor:pointer}
 .eg.hot .e{stroke-width:3}
-.node.node-func, .node.node-proc, .node.node-id{cursor:pointer}
+.node.node-func, .node.node-proc, .node.node-id, .node.node-sig{cursor:pointer}
+/* A proc's signature node: its diagram's header. */
+.node-sig > rect{fill:var(--proc-bg); stroke:var(--proc-bd); stroke-width:2}
+.node-sig > rect:hover{stroke-width:2.6}
+.node-sig text.sub.sig{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:10.5px}
 .node-id .ring{fill:var(--func-bg); stroke:var(--func-bd); stroke-width:1.6}
 .node-id .dot{fill:var(--func-bd); pointer-events:none}
 .node .node-id rect.pad, .node-id rect.pad{fill:transparent; stroke:none}
@@ -278,7 +282,7 @@ html.embed #fg{top:0}
       <datalist id="srcList"></datalist>
     </div>
     <div class="panel" id="panelText">
-      <textarea id="srcText" placeholder="interface Foo {&#10;  func Call(s: string): int;&#10;}&#10;&#10;proc Bar(Start): string {&#10;  func Start(): string;&#10;  ...&#10;}"></textarea>
+      <textarea id="srcText" placeholder="interface Foo {&#10;  func Call(s: string): int;&#10;}&#10;&#10;proc Bar(s: string): string {&#10;  Bar -&gt; ...&#10;}"></textarea>
     </div>
     <div class="row">
       <button class="btn" id="refresh" title="Refresh file list">&#8635;</button>
@@ -449,6 +453,7 @@ var BACK_DROP = 18;   // straight run below a back edge's tail before it turns
 var RAIL_GAP = 30;    // side rail: this far outside the rows it passes
 var RAIL_STEP = 14;   // spacing between neighbouring rails
 var FAN_OFF = 10;     // fan stroke spacing unit from the center line
+var HDR_OFF = 28;     // back edges into a panel's header: this far off its axis
 
 var ETYPE = { CALL: 0, MATCH: 1, EXPAND: 2, CONTINUE: 3, COLLECT: 4, SPAWN: 5, JOIN: 6, PASS: 7 };
 function isFan(t){ return t === ETYPE.EXPAND || t === ETYPE.CONTINUE || t === ETYPE.COLLECT; }
@@ -535,6 +540,14 @@ function resolveName(n, owner){
 // the layout is the same as for any func; edges run on to the circle.
 var ID_D = 24;
 function isId(n){ return !!n && n.type === 0 && n.label === 'id' && !n.sublabel; }
+// A proc's signature node (type 3), its entry at the top of its diagram:
+// drawn as a header with the proc's parameters, wide enough for them. A
+// proc expanded in a panel draws none, since the panel's header plays that
+// role: there it's an empty anchor at the top of the panel's grid, so edges
+// leave from the header's underside and back edges to it end there.
+var SIG_MAXW = 360;
+function isSig(n){ return !!n && n.type === 3; }
+function sigW(n){ return Math.max(NODE_W, Math.min(SIG_MAXW, measure(n.sublabel || '', 10.5, 600) + 48)); }
 // An edge's label on the diagram: its arm, for match edges. What it passes
 // shows in the tooltip and the details panel instead.
 // Tokens of a .sys expression for highlighting: [[text, class|null], ..].
@@ -586,12 +599,14 @@ function layoutGrid(name, prefix, depth){
     var list = [], tw = 0, mh = 0;
     (row.nodes || []).forEach(function(n, c){
       var k = rc(r, c), path = prefix + k, w = NODE_W, h = nodeH(n), lay = null;
-      var gk = n.type === 1 ? resolveProc(n, name) : null;
+      var gk = n.type === 1 ? resolveProc(n, name) : null, hidden = depth > 0 && isSig(n);
+      if (hidden){ w = 0; h = 0; }
+      else if (isSig(n)) w = sigW(n);
       if (gk && depth < MAXDEPTH && expanded[path]){
         lay = layoutGrid(gk, path + '/', depth + 1);
         w = lay.w; h = lay.h + PANEL_HD;
       }
-      var p = { x: 0, y: 0, w: w, h: h, row: r, col: c, grid: gk, lay: lay, path: path, key: k, pad: !lay && isId(n) ? (h - ID_D) / 2 : 0 };
+      var p = { x: 0, y: 0, w: w, h: h, row: r, col: c, grid: gk, lay: lay, path: path, key: k, pad: !lay && isId(n) ? (h - ID_D) / 2 : 0, hidden: hidden };
       if (lay) p.panel = gk;
       pos[k] = p; list.push(p); tw += w;
       if (h > mh) mh = h;
@@ -601,7 +616,9 @@ function layoutGrid(name, prefix, depth){
     list.forEach(function(p){
       p.x = x; p.cx = x + p.w / 2; x += p.w + GAP_H;
       var e0 = p.lay ? p.lay.pos['0,0'] : null;
-      if (p.lay) p.in = e0 ? { x: p.x + e0.cx, dy: PANEL_HD + e0.y } : null;
+      // Arrows into a panel land on its first node, or on its header if
+      // that's the proc's signature.
+      if (p.lay) p.in = e0 && !e0.hidden ? { x: p.x + e0.cx, dy: PANEL_HD + e0.y } : null;
     });
     byRow[r] = list; rowH[r] = mh; rowL[r] = -tw / 2; rowR[r] = tw / 2;
   });
@@ -735,6 +752,7 @@ function layoutGrid(name, prefix, depth){
   });
 
   // Back edges: inner (shorter) loops first so outer ones go around them.
+  var hdrBacks = {};
   backs.sort(function(a, b){ return (a.s.row - a.t.row) - (b.s.row - b.t.row) || a.s.row - b.s.row || a.i - b.i; });
   backs.forEach(function(it){
     var lo = it.t.row, hi = it.s.row, ox = it.s.cx, tx = inX(it.t);
@@ -743,6 +761,12 @@ function layoutGrid(name, prefix, depth){
     var xr = railX(1, lo, hi, lo - 0.5, hi + 0.5, lw), xl = railX(-1, lo, hi, lo - 0.5, hi + 0.5, lw);
     var cr = Math.abs(xr - ox) + Math.abs(xr - tx), cl = Math.abs(xl - ox) + Math.abs(xl - tx);
     var side = cl < cr - 0.5 ? -1 : 1, rx = side > 0 ? xr : xl;
+    // Into a panel's header: beside the edges leaving it, toward the rail,
+    // each further one a step out.
+    if (it.t.hidden){
+      hdrBacks[side] = (hdrBacks[side] || 0) + 1;
+      tx += side * (HDR_OFF + (hdrBacks[side] - 1) * RAIL_STEP);
+    }
     addRail(side, rx, lo - 0.5, hi + 0.5, lw, null);
     var plan = plans[it.i] = { kind: 'back', it: it, ox: ox, tx: tx, rail: rx, ltxt: ltxt, lw: lw };
     run(hi, ox, rx, 'b' + it.i + 'a', tailOff(it.s, it.e) - rowH[hi] + BACK_DROP, plan, 'A', [ox, rx], []);
@@ -911,9 +935,12 @@ function layoutGrid(name, prefix, depth){
 
   // 5. Routes.
   var routes = {};
-  function tyOf(t){ return t.in ? t.in.y : t.y + t.pad; }
+  // A panel's signature anchor is the header's underside, at the grid's
+  // top: its edges leave from there, and back edges to it end there,
+  // pointing up.
+  function tyOf(t){ return t.hidden ? 0 : t.in ? t.in.y : t.y + t.pad; }
   Object.keys(plans).forEach(function(i){
-    var P = plans[i], it = P.it, s = it.s, t = it.t, oy = s.y + tailOff(s, it.e), ty = tyOf(t), Rt;
+    var P = plans[i], it = P.it, s = it.s, t = it.t, oy = s.hidden ? 0 : s.y + tailOff(s, it.e), ty = tyOf(t), Rt;
     if (P.kind === 'back'){
       var yB = runY(P, 'A', s.row), yT = runY(P, 'B', t.row - 1);
       Rt = { back: true, pts: [[P.ox, oy], [P.ox, yB], [P.rail, yB], [P.rail, yT], [P.tx, yT], [P.tx, ty]],
@@ -939,7 +966,7 @@ function layoutGrid(name, prefix, depth){
   // proc's own outgoing arrow leaves the panel.
   var yM = H - EXIT_MERGE;
   var exitPts = exits.map(function(P){
-    var q = P.s, oy = q.y + q.h - q.pad, pts = [[P.ox, oy]], x = P.ox;
+    var q = P.s, oy = q.hidden ? 0 : q.y + q.h - q.pad, pts = [[P.ox, oy]], x = P.ox;
     if (P.vx !== undefined){
       var ya = runY(P, 'A', q.row);
       pts.push([P.ox, ya], [P.vx, ya]); x = P.vx;
@@ -1139,7 +1166,7 @@ function defs(){
   return s + '</defs>';
 }
 
-function nodeKind(n){ return !n ? null : n.type === 1 ? 'proc' : (n.type === 2 ? 'ellipsis' : 'func'); }
+function nodeKind(n){ return !n ? null : n.type === 1 || n.type === 3 ? 'proc' : (n.type === 2 ? 'ellipsis' : 'func'); }
 function nodeRef(n){ return { label: (n && n.label) || '', kind: nodeKind(n), sublabel: (n && n.sublabel) || null, iface: (n && n.interface) || null }; }
 function nodeAt(L, p){ return p && L.grid.rows[p[0]] ? (L.grid.rows[p[0]].nodes || [])[p[1]] || null : null; }
 
@@ -1149,6 +1176,11 @@ function nodeInfo(L, k, n){
   (L.grid.edges || []).forEach(function(e){
     if (!inE && e.target && rc(e.target[0], e.target[1]) === k) inE = e;
   });
+  // A signature node reports its proc, which it is the header of.
+  if (isSig(n)){
+    return { kind: 'proc', sig: true, label: n.label || '', sublabel: null, grid: L.name, owner: L.name, iface: null, iq: null,
+             valueType: null, call: null, edgeLabel: null };
+  }
   return {
     kind: n.type === 1 ? 'proc' : 'func', label: n.label || '', sublabel: n.sublabel || null,
     grid: n.type === 1 ? resolveProc(n, L.name) : null, owner: L.name, iface: n.interface || null, iq: ifaceName(n),
@@ -1189,6 +1221,8 @@ function diamondSVG(L, k, n, p){
 function nodeSVG(L, k, n){
   var p = L.pos[k];
   if (p.lay) return panelSVG(L, k, n);
+  if (p.hidden) return '';
+  if (isSig(n)) return sigSVG(L, k, n);
   var cls = n.type === 1 ? 'node-proc' : (n.type === 2 ? 'node-ell' : 'node-func');
   if (n.branch === 'detached') cls += ' detached';
   if (n.type === 1 && !p.grid) cls += ' nogrid';
@@ -1228,6 +1262,23 @@ function nodeSVG(L, k, n){
     s += badgeSVG(p.x + 9, p.y + p.h / 2 - 7.5, n);
     s += '<text class="lab" x="' + tx + '" y="' + (p.y + p.h / 2 + 4.5) + '" text-anchor="middle">' + esc(truncate(n.label, 12.5, tw, 1000)) + '</text>';
   }
+  s += diamondSVG(L, k, n, p);
+  return s + '</g>';
+}
+
+// A proc's signature node: a header-like pill with the proc's name and
+// parameters. Clicking it shows the proc's signature, like any node's.
+function sigSVG(L, k, n){
+  var p = L.pos[k], id = 'n:' + p.path;
+  INFO[id] = nodeInfo(L, k, n);
+  INFO[id].path = p.path;
+  INFO[id].canExpand = false;
+  var s = '<g class="node node-sig" data-sel="' + esc(id) + '">';
+  s += '<title>' + esc('signature of ' + (n.label || '') + (n.sublabel || '') + '\nits output is its parameters, by name: this.<param> on its edge, ' + (n.label || '') + '.<param> after') + '</title>';
+  s += '<rect x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '" rx="' + (p.h / 2) + '"></rect>';
+  var tw = p.w - 28;
+  s += '<text class="lab" x="' + p.cx + '" y="' + (p.y + 21) + '" text-anchor="middle">' + esc(truncate(n.label, 12.5, tw, 1000)) + '</text>';
+  if (n.sublabel) s += '<text class="sub sig" x="' + p.cx + '" y="' + (p.y + 38) + '" text-anchor="middle">' + hlSVG(truncate(n.sublabel, 10.5, tw, 1000)) + '</text>';
   s += diamondSVG(L, k, n, p);
   return s + '</g>';
 }

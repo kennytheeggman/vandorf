@@ -1,1 +1,1 @@
-
+#0 AArgs struct {  } (parameters of A)

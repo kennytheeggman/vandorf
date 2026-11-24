@@ -6,7 +6,7 @@ mod common;
 #[test]
 fn renders_snippets() {
     let cases: &[(&str, std::ops::Range<usize>, &[&str])] = &[
-        ("proc P(A): int { func A(: int; }", 24..25, &[]),
+        ("proc P(): int { func A(: int; }", 23..24, &[]),
         ("a\n\tfunc B(): int;\n", 8..9, &["expected: pub fn b()"]),
         ("a\n\tfunc B(): int;\n", 3..17, &["one", "two"]),
         ("type T = { a: int\n", 18..18, &[]),
@@ -18,7 +18,7 @@ fn renders_snippets() {
     ];
     for (i, (text, span, notes)) in cases.iter().enumerate() {
         let notes: Vec<String> = notes.iter().map(|n| n.to_string()).collect();
-        let mine = vcc::vcc::run_render_snippet(vcc::vcc::types::RenderSnippetAtS {
+        let mine = vcc::vcc::run_render_snippet(vcc::vcc::types::RenderSnippetS {
             level: "error".into(),
             msg: "msg".into(),
             path: "f.sys".into(),

@@ -93,22 +93,32 @@ fn fan_out<E: Send, R: Send>(xs: Vec<E>, f: impl Fn(E) -> Result<R, Error> + Syn
 
 #[derive(Debug, Clone, Default)]
 struct EnvB {
+    in_b_b: Option<InBB>,
+    out_b_b: Option<types::BArgs>,
     in_b_q: Option<InBQ>,
     out_b_q: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcB {
+    BB,
     BQ,
 }
 
 /// Runs proc B.
 pub fn run_b() -> Result<i64, Error> {
     let mut env = EnvB::default();
-    env.in_b_q = Some(InBQ {  });
-    let mut pc = PcB::BQ;
+    env.in_b_b = Some(InBB {  });
+    let mut pc = PcB::BB;
     loop {
         match pc {
+            PcB::BB => {
+                let input = take_slot(&mut env.in_b_b, "B.B")?;
+                let this = types::BArgs {  };
+                env.in_b_q = Some(InBQ {  });
+                pc = PcB::BQ;
+                continue;
+            }
             PcB::BQ => {
                 let input = take_slot(&mut env.in_b_q, "B.Q")?;
                 let this = unimplemented_b_q().map_err(|e| wrap("B.Q", e.into()))?;
@@ -117,6 +127,11 @@ pub fn run_b() -> Result<i64, Error> {
             _ => return Err(format!("B: invalid state {pc:?}").into()),
         }
     }
+}
+
+/// Input of B.B.
+#[derive(Debug, Clone)]
+struct InBB {
 }
 
 /// Input of B.Q.
@@ -294,6 +309,11 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
         }
         self
     }
+}
+
+/// The type of the parameters of B.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BArgs {
 }
 
 

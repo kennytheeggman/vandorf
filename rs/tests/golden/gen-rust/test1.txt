@@ -93,6 +93,8 @@ fn fan_out<E: Send, R: Send>(xs: Vec<E>, f: impl Fn(E) -> Result<R, Error> + Syn
 
 #[derive(Debug, Clone, Default)]
 struct EnvForEach {
+    in_for_each_for_each: Option<InForEachForEach>,
+    out_for_each_for_each: Option<types::ForEachArgs>,
     in_for_each_start: Option<InForEachStart>,
     out_for_each_start: Option<types::ForEachStartOut>,
     in_for_each_collect: Option<InForEachCollect>,
@@ -103,6 +105,7 @@ struct EnvForEach {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcForEach {
+    ForEachForEach,
     ForEachStart,
     ForEachCollect,
     ForEachProcess,
@@ -111,10 +114,17 @@ enum PcForEach {
 /// Runs proc ForEach.
 pub fn run_for_each(i: i64) -> Result<i64, Error> {
     let mut env = EnvForEach::default();
-    env.in_for_each_start = Some(InForEachStart { i: i });
-    let mut pc = PcForEach::ForEachStart;
+    env.in_for_each_for_each = Some(InForEachForEach { i: i });
+    let mut pc = PcForEach::ForEachForEach;
     loop {
         match pc {
+            PcForEach::ForEachForEach => {
+                let input = take_slot(&mut env.in_for_each_for_each, "ForEach.ForEach")?;
+                let this = types::ForEachArgs { i: input.i };
+                env.in_for_each_start = Some(InForEachStart { i: this.i });
+                pc = PcForEach::ForEachStart;
+                continue;
+            }
             PcForEach::ForEachStart => {
                 let input = take_slot(&mut env.in_for_each_start, "ForEach.Start")?;
                 let this = unimplemented_for_each_start(input.i).map_err(|e| wrap("ForEach.Start", e.into()))?;
@@ -157,11 +167,13 @@ fn run_for_each_region1(mut env: EnvForEach, elem: i64) -> Result<i64, Error> {
 
 #[derive(Debug, Clone, Default)]
 struct EnvBar {
+    in_bar_bar: Option<InBarBar>,
+    out_bar_bar: Option<types::BarArgs>,
     in_bar_start: Option<InBarStart>,
     out_bar_start: Option<types::Str>,
     in_bar_loop: Option<InBarLoop>,
     out_bar_loop: Option<i64>,
-    in_for_each: Option<InForEachStart>,
+    in_for_each: Option<InForEachForEach>,
     out_for_each: Option<i64>,
     in_bar_branch1: Option<InBarBranch1>,
     out_bar_branch1: Option<types::Str>,
@@ -177,6 +189,7 @@ struct EnvBar {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcBar {
+    BarBar,
     BarStart,
     BarLoop,
     ForEach,
@@ -190,10 +203,17 @@ enum PcBar {
 /// Runs proc Bar.
 pub fn run_bar(a: i64, b: types::Str) -> Result<types::Str, Error> {
     let mut env = EnvBar::default();
-    env.in_bar_start = Some(InBarStart { a: a, b: b });
-    let mut pc = PcBar::BarStart;
+    env.in_bar_bar = Some(InBarBar { a: a, b: b });
+    let mut pc = PcBar::BarBar;
     loop {
         match pc {
+            PcBar::BarBar => {
+                let input = take_slot(&mut env.in_bar_bar, "Bar.Bar")?;
+                let this = types::BarArgs { a: input.a, b: input.b };
+                env.in_bar_start = Some(InBarStart { a: this.a, b: this.b });
+                pc = PcBar::BarStart;
+                continue;
+            }
             PcBar::BarStart => {
                 let input = take_slot(&mut env.in_bar_start, "Bar.Start")?;
                 let this = unimplemented_bar_start(input.a, input.b).map_err(|e| wrap("Bar.Start", e.into()))?;
@@ -210,7 +230,7 @@ pub fn run_bar(a: i64, b: types::Str) -> Result<types::Str, Error> {
                     pc = PcBar::BarLoop;
                     continue;
                 }
-                env.in_for_each = Some(InForEachStart { i: this });
+                env.in_for_each = Some(InForEachForEach { i: this });
                 pc = PcBar::ForEach;
                 continue;
             }
@@ -270,6 +290,12 @@ struct InFooCall {
     s: types::Str,
 }
 
+/// Input of ForEach.ForEach.
+#[derive(Debug, Clone)]
+struct InForEachForEach {
+    i: i64,
+}
+
 /// Input of ForEach.Start.
 #[derive(Debug, Clone)]
 struct InForEachStart {
@@ -287,6 +313,13 @@ struct InForEachProcess {
 #[derive(Debug, Clone)]
 struct InForEachCollect {
     l: types::List<i64>,
+}
+
+/// Input of Bar.Bar.
+#[derive(Debug, Clone)]
+struct InBarBar {
+    a: i64,
+    b: types::Str,
 }
 
 /// Input of Bar.Start.
@@ -561,6 +594,12 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
     }
 }
 
+/// The type of the parameters of ForEach.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForEachArgs {
+    pub i: i64,
+}
+
 /// The type of the return of ForEach.Start.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForEachStartOut {
@@ -568,18 +607,19 @@ pub struct ForEachStartOut {
     pub s: Str,
 }
 
+/// The type of the parameters of Bar.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BarArgs {
+    pub a: i64,
+    pub b: Str,
+}
+
 /// The type of the parameter r of Bar.End.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BarEndR {
     I(Str),
     S,
-    B(BarEndRB),
-}
-
-/// The type of the parameter r of Bar.End.
-#[derive(Debug, Clone, PartialEq)]
-pub struct BarEndRB {
-    pub i: i64,
+    B(ForEachArgs),
 }
 
 

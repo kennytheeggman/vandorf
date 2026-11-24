@@ -1,3 +1,3 @@
-type A = int; type B = A<int>; proc P(X): int { func X(): int; }
+type A = int; type B = A<int>; proc P(): int { func X(): int; P -> X(); }
 ---
 error: A isn't generic, so it takes no type arguments @23..24

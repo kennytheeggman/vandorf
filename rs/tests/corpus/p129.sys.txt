@@ -1,1 +1,1 @@
-proc Calc(A): int { func A(l: []int): int; }
+proc Calc(l: []int): int { func A(l: []int): int; Calc -> A(l = this.l); }

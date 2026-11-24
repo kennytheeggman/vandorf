@@ -1,3 +1,3 @@
-proc P(A): int {{ {funcs} func T(i: int): enum {{ X(int), Y }}; 
-         A switch {{ (this > 0) -> B(i = this), else -> T(i = 0) }}; B -> T(i = this); 
+proc P(): int {{ {funcs} func T(i: int): enum {{ X(int), Y }}; 
+         P -> A(); A switch {{ (this > 0) -> B(i = this), else -> T(i = 0) }}; B -> T(i = this); 
          T switch {{ X(n) -> switch {{ (n > B) -> E(i = n), else -> E(i = 0) }}, Y() -> E(i = 0) }}; }}

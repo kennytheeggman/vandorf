@@ -1,2 +1,2 @@
-proc P(A): int {{ func A(): int; func B(i: int): []int; func C(i: int): []int; func Q(i: int, x: int): int; 
-         func R(i: int): int; func S(l: []int, x: int): int; {edges} }}
+proc P(): int {{ func A(): int; func B(i: int): []int; func C(i: int): []int; func Q(i: int, x: int): int; 
+         func R(i: int): int; func S(l: []int, x: int): int; P -> A(); {edges} }}

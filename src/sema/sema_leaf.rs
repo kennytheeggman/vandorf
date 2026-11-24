@@ -357,6 +357,61 @@ pub fn set_proc(mut cx: Cx, id: i64, entry: i64, locals: List<i64>) -> Result<Cx
     Ok(cx)
 }
 
+/// cx with proc `pid`'s signature node after it: a local of the proc with
+/// the proc's name (`P.P`), so `P` in the body names it.
+pub fn with_sig(
+    mut cx: Cx,
+    p: Proc,
+    qual: List<Str>,
+    pid: i64,
+    params: List<Member>,
+) -> Result<Cx, String> {
+    cx.nodes = push(
+        cx.nodes,
+        NodeDecl {
+            qual: push(qual, p.name.name.clone()),
+            span: p.name.span,
+            kind: NodeKind::Sig(NodeKindSig { pid, params }),
+        },
+    );
+    Ok(cx)
+}
+
+/// The proc a signature node belongs to; any other node is itself.
+pub fn sig_proc(n: NodeDecl, b: i64) -> Result<i64, String> {
+    Ok(match n.kind {
+        NodeKind::Sig(s) => s.pid,
+        _ => b,
+    })
+}
+
+/// A call target: the signature node of another proc (an enclosing one)
+/// calls that proc; in its own proc it's the back edge to the entry.
+pub fn call_target(nodes: List<NodeDecl>, pid: i64, n: i64) -> Result<i64, String> {
+    Ok(match &nodes[n as usize].kind {
+        NodeKind::Sig(s) if s.pid != pid => s.pid,
+        _ => n,
+    })
+}
+
+/// `id(..) as N` before its type is known.
+pub fn is_untyped_id(n: NodeDecl) -> Result<bool, String> {
+    Ok(matches!(&n.kind, NodeKind::Id(ps) if ps.is_empty()))
+}
+
+/// nodes with id node `n`'s value typed `t`.
+pub fn with_id_type(nodes: List<NodeDecl>, n: i64, t: Type) -> Result<List<NodeDecl>, String> {
+    Ok(updated(nodes, n, |d| {
+        d.kind = NodeKind::Id(
+            vec![Member {
+                name: "value".into(),
+                ty: t,
+            }]
+            .into(),
+        )
+    }))
+}
+
 pub fn set_alias(mut cx: Cx, lid: i64, of: i64) -> Result<Cx, String> {
     cx.nodes = updated(cx.nodes, lid, |n| n.kind = NodeKind::Alias(of));
     Ok(cx)
@@ -541,7 +596,11 @@ pub fn node_ret(nodes: List<NodeDecl>, n: i64) -> Result<Type, String> {
         NodeKind::Func(f) => Ok(f.ret.clone()),
         NodeKind::Proc(p) => Ok(p.ret.clone()),
         NodeKind::Alias(b) => node_ret(nodes.clone(), *b),
-        NodeKind::Id(ps) => Ok(ps[0].ty.clone()),
+        NodeKind::Id(ps) => match ps.first() {
+            Some(m) => Ok(m.ty.clone()),
+            None => err("node_ret: an id whose type isn't known"),
+        },
+        NodeKind::Sig(s) => Ok(Type::Struct(s.params.clone())),
     }
 }
 
@@ -551,6 +610,7 @@ pub fn node_params(nodes: List<NodeDecl>, n: i64) -> Result<List<Member>, String
         NodeKind::Proc(p) => node_params(nodes.clone(), p.entry),
         NodeKind::Alias(b) => node_params(nodes.clone(), *b),
         NodeKind::Id(ps) => Ok(ps.clone()),
+        NodeKind::Sig(s) => Ok(s.params.clone()),
     }
 }
 
@@ -1403,4 +1463,43 @@ pub fn extra_member(bfs: List<Member>, fs: List<Member>) -> Result<Str, String> 
 pub fn squash(src: Str, span: Span) -> Result<Str, String> {
     let text = src.get(span.at as usize..span.end as usize).unwrap_or("");
     Ok(text.split_whitespace().collect::<Vec<_>>().join(" ").into())
+}
+
+// ---- id(..) as N ----
+
+pub fn untyped(n: NodeDecl, span: Span) -> Result<Diag, String> {
+    let name = n.qual.last().cloned().unwrap_or_default();
+    Ok(diag(
+        format!(
+            "{name} is id(..) as {name}, whose type is that of the values passed to it, and none of them has a type yet; pass it a value whose type is known first"
+        ),
+        span,
+    ))
+}
+
+/// Whether proc `pid` has an `id(..) as N` with no type yet.
+pub fn has_untyped(nodes: List<NodeDecl>, pid: i64) -> Result<bool, String> {
+    let NodeKind::Proc(p) = &nodes[pid as usize].kind else {
+        return err("has_untyped: not a proc");
+    };
+    Ok(p.locals
+        .iter()
+        .any(|&l| is_untyped_id(nodes[l as usize].clone()).unwrap_or(false)))
+}
+
+pub fn types_ids(nodes: List<NodeDecl>, e: SEdge) -> Result<bool, String> {
+    Ok(calls_of(&e)
+        .iter()
+        .any(|c| is_untyped_id(nodes[c.target as usize].clone()).unwrap_or(false)))
+}
+
+/// nodes with each untyped id the edge calls typed by its first call's value.
+pub fn typed_ids(mut nodes: List<NodeDecl>, e: SEdge) -> Result<List<NodeDecl>, String> {
+    for c in calls_of(&e).iter() {
+        if is_untyped_id(nodes[c.target as usize].clone())? {
+            let t = c.args.first().ok_or("typed_ids: no value")?.param.clone();
+            nodes = with_id_type(nodes, c.target, t)?;
+        }
+    }
+    Ok(nodes)
 }

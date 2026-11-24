@@ -1,1 +1,1 @@
-proc A(S): int { func S(): int = "rs/src/impls.rs:s"; }
+proc A(): int { func S(): int = "rs/src/impls.rs:s"; A -> S(); }

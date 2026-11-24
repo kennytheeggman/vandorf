@@ -1,4 +1,4 @@
-type R<T> = { x: Q }; proc P(X): int { func X(): int; }
+type R<T> = { x: Q }; proc P(): int { func X(): int; P -> X(); }
 ---
 error: unknown type Q @17..18
 error: type parameter T is unused @7..8

@@ -1,0 +1,4 @@
+#0 E enum { A: int, B: int } (typedef E)
+#1 MergeArgs struct { e: #0 } (parameters of Merge)
+#2 SumArgs struct { xs: []int } (parameters of Sum)
+#3 SumLOut struct { i: int, acc: int } (return of Sum.L)

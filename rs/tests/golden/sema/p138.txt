@@ -1,0 +1,4 @@
+proc P(a: int): int { P -> id(M.v) as L; L -> id({ v = this }) as M; M -> id(this.v); }
+
+---
+error: id: M is id(..) as M, whose type is that of the values passed to it, and none of them has a type yet; pass it a value whose type is known first @30..31

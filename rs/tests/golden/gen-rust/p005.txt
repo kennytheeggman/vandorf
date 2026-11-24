@@ -93,22 +93,32 @@ fn fan_out<E: Send, R: Send>(xs: Vec<E>, f: impl Fn(E) -> Result<R, Error> + Syn
 
 #[derive(Debug, Clone, Default)]
 struct EnvOuter {
-    in_outer_inner: Option<InOuterInnerA>,
+    in_outer_outer: Option<InOuterOuter>,
+    out_outer_outer: Option<types::OuterArgs>,
+    in_outer_inner: Option<InOuterInnerInner>,
     out_outer_inner: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcOuter {
+    OuterOuter,
     OuterInner,
 }
 
 /// Runs proc Outer.
 pub fn run_outer() -> Result<i64, Error> {
     let mut env = EnvOuter::default();
-    env.in_outer_inner = Some(InOuterInnerA {  });
-    let mut pc = PcOuter::OuterInner;
+    env.in_outer_outer = Some(InOuterOuter {  });
+    let mut pc = PcOuter::OuterOuter;
     loop {
         match pc {
+            PcOuter::OuterOuter => {
+                let input = take_slot(&mut env.in_outer_outer, "Outer.Outer")?;
+                let this = types::OuterArgs {  };
+                env.in_outer_inner = Some(InOuterInnerInner {  });
+                pc = PcOuter::OuterInner;
+                continue;
+            }
             PcOuter::OuterInner => {
                 let input = take_slot(&mut env.in_outer_inner, "Outer.Inner")?;
                 let this = run_outer_inner().map_err(|e| wrap("Outer.Inner", e.into()))?;
@@ -123,22 +133,32 @@ pub fn run_outer() -> Result<i64, Error> {
 
 #[derive(Debug, Clone, Default)]
 struct EnvOuterInner {
+    in_outer_inner_inner: Option<InOuterInnerInner>,
+    out_outer_inner_inner: Option<types::OuterArgs>,
     in_outer_inner_a: Option<InOuterInnerA>,
     out_outer_inner_a: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcOuterInner {
+    OuterInnerInner,
     OuterInnerA,
 }
 
 /// Runs proc Outer.Inner.
 pub fn run_outer_inner() -> Result<i64, Error> {
     let mut env = EnvOuterInner::default();
-    env.in_outer_inner_a = Some(InOuterInnerA {  });
-    let mut pc = PcOuterInner::OuterInnerA;
+    env.in_outer_inner_inner = Some(InOuterInnerInner {  });
+    let mut pc = PcOuterInner::OuterInnerInner;
     loop {
         match pc {
+            PcOuterInner::OuterInnerInner => {
+                let input = take_slot(&mut env.in_outer_inner_inner, "Outer.Inner.Inner")?;
+                let this = types::OuterArgs {  };
+                env.in_outer_inner_a = Some(InOuterInnerA {  });
+                pc = PcOuterInner::OuterInnerA;
+                continue;
+            }
             PcOuterInner::OuterInnerA => {
                 let input = take_slot(&mut env.in_outer_inner_a, "Outer.Inner.A")?;
                 let this = unimplemented_outer_inner_a().map_err(|e| wrap("Outer.Inner.A", e.into()))?;
@@ -147,6 +167,16 @@ pub fn run_outer_inner() -> Result<i64, Error> {
             _ => return Err(format!("Outer.Inner: invalid state {pc:?}").into()),
         }
     }
+}
+
+/// Input of Outer.Outer.
+#[derive(Debug, Clone)]
+struct InOuterOuter {
+}
+
+/// Input of Outer.Inner.Inner.
+#[derive(Debug, Clone)]
+struct InOuterInnerInner {
 }
 
 /// Input of Outer.Inner.A.
@@ -324,6 +354,11 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
         }
         self
     }
+}
+
+/// The type of the parameters of Outer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OuterArgs {
 }
 
 

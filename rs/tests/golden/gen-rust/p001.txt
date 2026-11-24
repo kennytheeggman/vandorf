@@ -93,6 +93,8 @@ fn fan_out<E: Send, R: Send>(xs: Vec<E>, f: impl Fn(E) -> Result<R, Error> + Syn
 
 #[derive(Debug, Clone, Default)]
 struct EnvP {
+    in_p_p: Option<InPP>,
+    out_p_p: Option<types::PArgs>,
     in_p_a: Option<InPA>,
     out_p_a: Option<i64>,
     in_p_b: Option<InPB>,
@@ -105,6 +107,7 @@ struct EnvP {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PcP {
+    PP,
     PA,
     PB,
     PC,
@@ -114,10 +117,17 @@ enum PcP {
 /// Runs proc P.
 pub fn run_p(i: i64) -> Result<i64, Error> {
     let mut env = EnvP::default();
-    env.in_p_a = Some(InPA { i: i });
-    let mut pc = PcP::PA;
+    env.in_p_p = Some(InPP { i: i });
+    let mut pc = PcP::PP;
     loop {
         match pc {
+            PcP::PP => {
+                let input = take_slot(&mut env.in_p_p, "P.P")?;
+                let this = types::PArgs { i: input.i };
+                env.in_p_a = Some(InPA { i: this.i });
+                pc = PcP::PA;
+                continue;
+            }
             PcP::PA => {
                 let input = take_slot(&mut env.in_p_a, "P.A")?;
                 let this = unimplemented_p_a(input.i).map_err(|e| wrap("P.A", e.into()))?;
@@ -152,6 +162,12 @@ pub fn run_p(i: i64) -> Result<i64, Error> {
             _ => return Err(format!("P: invalid state {pc:?}").into()),
         }
     }
+}
+
+/// Input of P.P.
+#[derive(Debug, Clone)]
+struct InPP {
+    i: i64,
 }
 
 /// Input of P.A.
@@ -369,6 +385,12 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
         }
         self
     }
+}
+
+/// The type of the parameters of P.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PArgs {
+    pub i: i64,
 }
 
 

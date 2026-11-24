@@ -1,9 +1,10 @@
 
         type Pt = { x: int, y: int };
-        proc P(A): int {
+        proc P(): int {
             func A(): { y: int, x: int };
             func B(p: Pt): Pt;
             func C(p: { x: int, y: int }): int;
+            P -> A();
             A -> B(p = this);
             B -> C(p = this);
         }
