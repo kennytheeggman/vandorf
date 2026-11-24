@@ -73,7 +73,10 @@ To add a test program, add a `.sys.txt` to `rs/tests/corpus/` and bless.
 - **Errors say what was expected and what was found**, and point at the
   span they're about.
 - **Comments** say what a proc or type is for, at the top of the file and
-  above each declaration, in plain sentences.
+  above each declaration, in plain sentences. The one directly above a
+  declaration is its doc comment: a leaf's `///` doc must say the same,
+  word for word, or `vcc build` fails. A comment about a group of
+  declarations takes a blank line after it, so it's no one's doc.
 - **Go and Rust behave the same.** A language feature lands in both
   backends, with golden files for both.
 

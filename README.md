@@ -15,7 +15,8 @@ What it's for:
 - **Implementations stay ordinary code.** Funcs are plain Go and Rust
   functions with generated signatures and types; the compiler writes the
   state machines that call them, so your code stays small, pure and
-  testable.
+  testable. A func's declaration, with its doc comment, is the spec of its
+  implementation, and `vcc build` checks each one against it.
 - **One program, two backends.** The same `.sys` builds a Go package and a
   Rust module with the same types, behaviour, executables and HTTP
   servers.

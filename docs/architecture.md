@@ -48,12 +48,12 @@ source ─▶ lex ─▶ parse ─▶ sema ─┬─▶ doc ─▶ the visualize
 
 | Stage | Files | What it does |
 |---|---|---|
-| Lexing | `lex.sys`, `leaf.rs` | Tokens, with spans. A leaf, since vandorf strings have no character access. |
+| Lexing | `lex.sys`, `leaf.rs` | Tokens, with spans, each carrying the comment lines directly above it (a declaration's doc). A leaf, since vandorf strings have no character access. |
 | Parsing | `ast.sys`, `parse*.sys` | Recursive descent over the tokens, into the AST (`ast.sys`): what was written, with spans. |
 | Sema | `sema/` | Typedefs and their instances (`typedefs.sys`), declarations and name resolution (`decls.sys`), expressions and their types (`exprs.sys`), switches and exhaustiveness (`switch.sys`), and each proc's graph with its for each regions and the check that reads see nodes that ran (`graph.sys`). The result is a `Program` (`program.sys`). |
 | Layout | `doc/` | Each proc as a grid of rows, for the diagram. |
 | Codegen | `gen/` | The type table shared by both backends (`table.sys`): one name per struct or enum shape. Then Rust (`rust.sys`, `rust_procs.sys`, `rust_http.sys`) and Go (`go.sys`): types, a state machine per proc, servers and mains. |
-| Commands | `main.sys`, `cli/` | The command line, projects and manifests (`project.sys`), and `check`, `doc`, `build` and `test` (`build.sys`). |
+| Commands | `main.sys`, `cli/` | The command line, projects and manifests (`project.sys`), and `check`, `doc`, `build` and `test` (`build.sys`), with the check of each implementation's signature and doc against its declaration. |
 | IDE | `ide/` | The IDE's HTTP routes, each a raw route to its own proc: pages, the file tree, compiles (with a cache of checked programs), saves and terminals. |
 
 ### Parsing

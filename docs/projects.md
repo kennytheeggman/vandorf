@@ -114,8 +114,43 @@ them against its output directory.
   `E: Into<Box<dyn Error + Send + Sync>>`; void is `()`.
 
 `vcc build` warns when a referenced file or function is missing, naming
-where the func is declared and printing the expected signature. Until it
-exists, the func calls a generated stub that fails.
+where the func is declared and printing the expected signature, after the
+func's doc comment. Until it exists, the func calls a generated stub that
+fails.
+
+An implementation that exists is checked against its declaration, after
+generating each language and before its `post` commands compile it:
+
+- **Its signature**: the parameters' names and types, and the result, as
+  above. Types compare by the names codegen gives them, without module or
+  package paths, so a generic typedef's instance is its generated name
+  (`func Read(path: string): Res<string>` is
+  `pub fn read(path: Str) -> Result<ResString, String>`, `R<[]Tok>` is
+  `RTokList`), a struct equal to an instance is that instance (`R<int>` and
+  `{ x: int, pos: int }` are both `RInt`), and a typedef alias may be
+  written either way (`Ids` or `List<i64>`). A parameter may be `_x` (Rust)
+  or `_` (both) for any name, and Go's `a, b int` names two.
+- **Its doc comment**, `///` lines in Rust and `//` lines in Go above the
+  function (and above any attributes): the same text as the declaration's
+  [doc comment](language.md#doc-comments), apart from the markers. A doc on
+  one side only is a mismatch too.
+
+```
+error: Read is implemented by fn read in rs/src/impls.rs, whose signature doesn't match: it returns `Result<Str, _>`, expected `Result<ResString, _>`
+ --> sys/io.sys:8:6
+  |
+8 | func Read(path: string): Res<string> = "../go/app/impl.go:Read", "../rs/src/impls.rs:read";
+  |      ^^^^
+  = expected:
+    /// Reads the file at path.
+    pub fn read(path: crate::app::types::Str) -> Result<crate::app::types::ResString, E>
+  = found: fn read(path: Str) -> Result<Str, String>
+```
+
+Each mismatch is an error, and the build stops with all of a language's.
+So a func's declaration, its signature and its doc, is a complete spec of
+its implementation: whoever writes it can work from the stub alone, and
+vcc rejects one that drifts from it.
 
 ## Executables
 
