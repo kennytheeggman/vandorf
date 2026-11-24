@@ -16,7 +16,8 @@
             {
               "type": 0,
               "label": "A",
-              "sublabel": "../../leaves/lf.rs:a"
+              "sublabel": "../../leaves/lf.rs:a",
+              "sig": "(): int"
             }
           ]
         },
@@ -25,7 +26,8 @@
             {
               "type": 0,
               "label": "B",
-              "sublabel": "../../leaves/lf.rs:b"
+              "sublabel": "../../leaves/lf.rs:b",
+              "sig": "(n: int): int"
             }
           ]
         },
@@ -34,7 +36,8 @@
             {
               "type": 0,
               "label": "C",
-              "sublabel": "../impls.rs:c"
+              "sublabel": "../impls.rs:c",
+              "sig": "(n: int): int"
             }
           ]
         }

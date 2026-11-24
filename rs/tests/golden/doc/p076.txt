@@ -15,7 +15,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "S"
+              "label": "S",
+              "sig": "(): map[string]{ x: int }"
             }
           ]
         },
@@ -23,7 +24,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "T"
+              "label": "T",
+              "sig": "(k: string, x: int): int"
             }
           ]
         },
@@ -31,7 +33,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "C"
+              "label": "C",
+              "sig": "(l: []int): int"
             }
           ]
         }

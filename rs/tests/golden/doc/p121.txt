@@ -15,7 +15,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "B"
+              "label": "B",
+              "sig": "(name: string, ctx: Ctx): string"
             }
           ]
         }
@@ -52,7 +53,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "D"
+              "label": "D",
+              "sig": "(name: string): string"
             }
           ]
         }
@@ -89,7 +91,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "C"
+              "label": "C",
+              "sig": "(ctx: Ctx, req: Req): { status: int, headers: map[string]string, body: string }"
             }
           ]
         }
@@ -126,7 +129,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "S"
+              "label": "S",
+              "sig": "(): Ctx"
             }
           ]
         }
@@ -162,7 +166,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "F"
+              "label": "F",
+              "sig": "(n: int): Ctx"
             }
           ]
         }
@@ -199,7 +204,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "E"
+              "label": "E",
+              "sig": "(ctx: string): string"
             }
           ]
         }

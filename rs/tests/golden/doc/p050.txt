@@ -15,7 +15,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "A"
+              "label": "A",
+              "sig": "(): S"
             }
           ]
         },
@@ -23,7 +24,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "N"
+              "label": "N",
+              "sig": "(s: S): int"
             }
           ]
         },

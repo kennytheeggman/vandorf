@@ -15,7 +15,8 @@
           "nodes": [
             {
               "type": 1,
-              "label": "Outer.Inner"
+              "label": "Outer.Inner",
+              "sig": "(): int"
             }
           ]
         }
@@ -51,7 +52,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "A"
+              "label": "A",
+              "sig": "(): int"
             }
           ]
         }

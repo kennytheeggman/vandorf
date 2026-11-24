@@ -351,6 +351,22 @@ fn show_params(ps: &List<Member>) -> String {
     format!("({})", shown.join(", "))
 }
 
+/// A func's or proc's signature as written, `(a: int): string`; an
+/// instance's is what it instances'. Other nodes have none.
+fn sig_of(prog: &Program, n: i64) -> Option<String> {
+    match &prog.nodes[n as usize].kind {
+        NodeKind::Func(f) => Some(format!("{}: {}", show_params(&f.params), show_ty(&f.ret))),
+        NodeKind::Proc(p) => {
+            let NodeKind::Sig(s) = &prog.nodes[p.entry as usize].kind else {
+                return None;
+            };
+            Some(format!("{}: {}", show_params(&s.params), show_ty(&p.ret)))
+        }
+        NodeKind::Alias(b) => sig_of(prog, *b),
+        _ => None,
+    }
+}
+
 fn node_json(prog: &Program, pid: i64, n: i64) -> Json {
     let decl = &prog.nodes[n as usize];
     let mut iface = None;
@@ -404,6 +420,9 @@ fn node_json(prog: &Program, pid: i64, n: i64) -> Json {
     }
     if let Some(i) = iface {
         fs.push(field("interface", Json::Str(i.into())));
+    }
+    if let Some(sig) = sig_of(prog, n) {
+        fs.push(field("sig", Json::Str(sig.into())));
     }
     // Its declaration's doc comment: an instance's is what it instances'.
     let doc = match &decl.kind {

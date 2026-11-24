@@ -17,7 +17,8 @@
             {
               "type": 0,
               "label": "Start",
-              "sublabel": "../go/app/impl.go:Repeat · ../rs/src/impls.rs:repeat"
+              "sublabel": "../go/app/impl.go:Repeat · ../rs/src/impls.rs:repeat",
+              "sig": "(a: int, b: string): string"
             }
           ]
         },
@@ -26,7 +27,8 @@
             {
               "type": 0,
               "label": "Loop",
-              "sublabel": "../go/app/impl.go:Grow · ../rs/src/impls.rs:grow"
+              "sublabel": "../go/app/impl.go:Grow · ../rs/src/impls.rs:grow",
+              "sig": "(s: string): int"
             }
           ]
         },
@@ -35,6 +37,7 @@
             {
               "type": 1,
               "label": "ForEach",
+              "sig": "(i: int): int",
               "doc": "Lists 0..i-1, and i as a string, then squares each element in a for each\nregion and sums the squares."
             }
           ]
@@ -44,12 +47,14 @@
             {
               "type": 0,
               "label": "Branch1",
+              "sig": "(i: int): string",
               "doc": "No implementation: calls a generated stub that returns an error."
             },
             {
               "type": 0,
               "label": "Branch2Begin",
-              "sublabel": "../go/app/impl.go:Describe · ../rs/src/impls.rs:describe"
+              "sublabel": "../go/app/impl.go:Describe · ../rs/src/impls.rs:describe",
+              "sig": "(i: int): string"
             }
           ]
         },
@@ -60,6 +65,7 @@
               "label": "Foo.Call",
               "sublabel": "../go/effects/foo.go:Call · ../rs/src/effects.rs:call",
               "interface": "Foo",
+              "sig": "(s: string): int",
               "doc": "Counts the characters of s. Implemented outside the generated\npackage/module."
             }
           ]
@@ -69,7 +75,8 @@
             {
               "type": 0,
               "label": "Branch2End",
-              "sublabel": "../go/app/impl.go:Log · ../rs/src/impls.rs:log"
+              "sublabel": "../go/app/impl.go:Log · ../rs/src/impls.rs:log",
+              "sig": "(i: int): void"
             }
           ]
         },
@@ -78,7 +85,8 @@
             {
               "type": 0,
               "label": "End",
-              "sublabel": "../go/app/impl.go:Finish · ../rs/src/impls.rs:finish"
+              "sublabel": "../go/app/impl.go:Finish · ../rs/src/impls.rs:finish",
+              "sig": "(r: Outcome): string"
             }
           ]
         }
@@ -248,6 +256,7 @@
               "type": 0,
               "label": "Build",
               "sublabel": "../go/app/impl.go:Build · ../rs/src/impls.rs:build",
+              "sig": "(base: int): Expr",
               "doc": "Builds the expression `base + 2`, of two literals."
             }
           ]
@@ -257,7 +266,8 @@
             {
               "type": 0,
               "label": "Eval",
-              "sublabel": "../go/app/impl.go:Eval · ../rs/src/impls.rs:eval"
+              "sublabel": "../go/app/impl.go:Eval · ../rs/src/impls.rs:eval",
+              "sig": "(e: Expr, scale: int): int"
             }
           ]
         },
@@ -266,7 +276,8 @@
             {
               "type": 0,
               "label": "Twice",
-              "sublabel": "instance of Eval"
+              "sublabel": "instance of Eval",
+              "sig": "(e: Expr, scale: int): int"
             }
           ]
         },
@@ -275,7 +286,8 @@
             {
               "type": 0,
               "label": "Total",
-              "sublabel": "../go/app/impl.go:Total · ../rs/src/impls.rs:total"
+              "sublabel": "../go/app/impl.go:Total · ../rs/src/impls.rs:total",
+              "sig": "(xs: []int): int"
             }
           ]
         }
@@ -356,7 +368,8 @@
             {
               "type": 0,
               "label": "Look",
-              "sublabel": "../go/app/impl.go:Look · ../rs/src/impls.rs:look"
+              "sublabel": "../go/app/impl.go:Look · ../rs/src/impls.rs:look",
+              "sig": "(e: Expr): Expr"
             }
           ]
         },
@@ -378,6 +391,7 @@
               "type": 1,
               "label": "Inner",
               "sublabel": "instance of Classify",
+              "sig": "(e: Expr): string",
               "doc": "Classifies an expression by its shape: a small even literal, any other\nliteral, a negated literal, a sum of literals, or something else; under a\nNeg, it classifies what's negated, as \"minus ...\".\n\nPattern switches match structure: variants, struct fields (all of them,\n`_` for the ones that don't matter) and bindings. Conditions on values go\nin a switch nested under a pattern arm, which sees its bindings. The arms\ncover every Expr, so no else is needed. `id(value)` ends the proc with a\nvalue."
             },
             {
@@ -538,6 +552,7 @@
               "type": 0,
               "label": "Start",
               "sublabel": "../go/app/impl.go:Range · ../rs/src/impls.rs:range",
+              "sig": "(i: int): { l: []int, s: string }",
               "doc": "Lists 0..i-1, with i as a string."
             }
           ]
@@ -547,7 +562,8 @@
             {
               "type": 0,
               "label": "Process",
-              "sublabel": "../go/app/impl.go:Square · ../rs/src/impls.rs:square"
+              "sublabel": "../go/app/impl.go:Square · ../rs/src/impls.rs:square",
+              "sig": "(i: int, l: []int): int"
             }
           ]
         },
@@ -556,7 +572,8 @@
             {
               "type": 0,
               "label": "Collect",
-              "sublabel": "../go/app/impl.go:Sum · ../rs/src/impls.rs:sum"
+              "sublabel": "../go/app/impl.go:Sum · ../rs/src/impls.rs:sum",
+              "sig": "(l: []int): int"
             }
           ]
         }
@@ -623,7 +640,8 @@
             {
               "type": 0,
               "label": "Greet",
-              "sublabel": "../go/app/impl.go:Greet · ../rs/src/impls.rs:greet"
+              "sublabel": "../go/app/impl.go:Greet · ../rs/src/impls.rs:greet",
+              "sig": "(name: string, times: int): string"
             }
           ]
         }
@@ -663,6 +681,7 @@
               "type": 0,
               "label": "Start",
               "sublabel": "../go/app/impl.go:Args · ../rs/src/impls.rs:args",
+              "sig": "(a: int, b: string): { a: int, b: string }",
               "doc": "Passes Main's command-line arguments on to Bar, unchanged."
             }
           ]
@@ -672,6 +691,7 @@
             {
               "type": 1,
               "label": "Bar",
+              "sig": "(a: int, b: string): string",
               "doc": "Repeats b a times, then grows it until Loop gives 10 or more, and runs\nForEach on that: zero goes to a func with no implementation, anything else\nis described, passed to Foo.Call and logged."
             }
           ]
@@ -725,7 +745,8 @@
             {
               "type": 0,
               "label": "Shapes",
-              "sublabel": "../go/app/impl.go:Shapes · ../rs/src/impls.rs:shapes"
+              "sublabel": "../go/app/impl.go:Shapes · ../rs/src/impls.rs:shapes",
+              "sig": "(shapes: []Shape): []Shape"
             }
           ]
         },
@@ -734,7 +755,8 @@
             {
               "type": 0,
               "label": "Area",
-              "sublabel": "../go/app/impl.go:Area · ../rs/src/impls.rs:area"
+              "sublabel": "../go/app/impl.go:Area · ../rs/src/impls.rs:area",
+              "sig": "(s: Shape): Measured"
             }
           ]
         },
@@ -743,7 +765,8 @@
             {
               "type": 0,
               "label": "Step",
-              "sublabel": "../go/app/impl.go:Step · ../rs/src/impls.rs:step"
+              "sublabel": "../go/app/impl.go:Step · ../rs/src/impls.rs:step",
+              "sig": "(f: Fold): Fold"
             }
           ]
         },
@@ -864,6 +887,7 @@
               "type": 0,
               "label": "Declare",
               "sublabel": "../go/app/impl.go:Declare · ../rs/src/impls.rs:declare",
+              "sig": "(names: []string, query: string): { scope: Scope, query: string }",
               "doc": "Gives each name its index as a slot."
             }
           ]
@@ -873,7 +897,8 @@
             {
               "type": 0,
               "label": "Adjust",
-              "sublabel": "../go/app/impl.go:Adjust · ../rs/src/impls.rs:adjust"
+              "sublabel": "../go/app/impl.go:Adjust · ../rs/src/impls.rs:adjust",
+              "sig": "(scope: Scope, query: string): { scope: Scope, query: string }"
             }
           ]
         },
@@ -882,12 +907,14 @@
             {
               "type": 0,
               "label": "Found",
-              "sublabel": "../go/app/impl.go:Found · ../rs/src/impls.rs:found"
+              "sublabel": "../go/app/impl.go:Found · ../rs/src/impls.rs:found",
+              "sig": "(name: string, slot: int, kind: string, total: int): string"
             },
             {
               "type": 0,
               "label": "Missing",
-              "sublabel": "../go/app/impl.go:Missing · ../rs/src/impls.rs:missing"
+              "sublabel": "../go/app/impl.go:Missing · ../rs/src/impls.rs:missing",
+              "sig": "(name: string, known: []string): string"
             }
           ]
         }

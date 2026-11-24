@@ -15,7 +15,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "A"
+              "label": "A",
+              "sig": "(s: Shape, k: { n: int }): float"
             }
           ]
         }
@@ -52,7 +53,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "B"
+              "label": "B",
+              "sig": "(name: string): string"
             }
           ]
         }
@@ -89,7 +91,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "C"
+              "label": "C",
+              "sig": "(req: Req): { status: int, headers: map[string]string, body: string }"
             }
           ]
         }

@@ -162,12 +162,14 @@ html.dark .node.node-proc > rect:hover{filter:brightness(1.25)}
 .node text.lab{font-size:12.5px; font-weight:600; fill:var(--ink)}
 .node text.sub{font-size:10.5px; fill:var(--node-sub)}
 .node text.sub.ell{font-size:16px; font-weight:700; fill:var(--ell-bd)}
-/* A node's doc comment: its first line, or all of it when open. */
-.node .ndoc{cursor:pointer}
-.node .ndoc rect{fill:transparent; stroke:none}
-.node .ndoc text{font-size:10.5px; font-style:italic; fill:var(--node-sub)}
-.node .ndoc:hover text{fill:var(--ink)}
-.node .ndoc text.tog{font-style:normal; font-size:9px}
+/* A node's signature and doc comment: a line each, or all of it when open. */
+.node .nblk{cursor:pointer}
+.node .nblk rect{fill:transparent; stroke:none}
+.node .nblk text{font-size:10.5px; fill:var(--node-sub)}
+.node .ndoc text{font-style:italic}
+.node .nsig text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.node:has(.nblk[data-open]:hover) .nblk[data-open] text{fill:var(--ink)}
+.node .nblk text.tog{font-style:normal; font-family:inherit; font-size:9px}
 .hdiam{fill:var(--hdiam-bg); stroke:var(--match); stroke-width:1.4; stroke-linejoin:round; cursor:pointer}
 .hdiam:hover{stroke-width:2.2}
 .hdiam.sel{stroke-width:3; filter:drop-shadow(0 0 4px rgba(31,111,235,.6))}
@@ -219,9 +221,8 @@ html.dark #etip, html.dark .elabel{--hl-kw:#c4b5fd; --hl-str:#fbbf24; --hl-num:#
 .eg.hot .e{stroke-width:3}
 .node.node-func, .node.node-proc, .node.node-id, .node.node-sig{cursor:pointer}
 /* A proc's signature node: its diagram's header. */
-.node-sig > rect{fill:var(--proc-bg); stroke:var(--proc-bd); stroke-width:2}
+.node-sig > rect{fill:var(--node-bg); stroke:var(--ink); stroke-width:1.6}
 .node-sig > rect:hover{stroke-width:2.6}
-.node-sig text.sub.sig{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:10.5px}
 .node-id .ring{fill:var(--func-bg); stroke:var(--func-bd); stroke-width:1.6}
 .node-id .dot{fill:var(--func-bd); pointer-events:none}
 .node .node-id rect.pad, .node-id rect.pad{fill:transparent; stroke:none}
@@ -343,8 +344,8 @@ function storeSet(key, val){
 
 var measure = (function(){
   var c = document.createElement('canvas').getContext('2d');
-  return function(t, size, weight){
-    c.font = (weight || 400) + ' ' + size + 'px ' + FONT;
+  return function(t, size, weight, font){
+    c.font = (weight || 400) + ' ' + size + 'px ' + (font || FONT);
     return c.measureText(t || '').width;
   };
 })();
@@ -437,7 +438,7 @@ function compile(){
 }
 
 /* =====================================================================
-   LAYOUT (pure: no DOM; needs measure(), DOC, expanded and docOpen)
+   LAYOUT (pure: no DOM; needs measure(), DOC, expanded and blkOpen)
    ===================================================================== */
 /* LAYOUT-BEGIN */
 var DOC = null;
@@ -446,7 +447,7 @@ var DOC = null;
 // the grid shown in that panel.
 var expanded = {};
 var MAXDEPTH = 5;
-var GAP_H = 48, PAD_X = 46, PAD_Y = 44, NODE_W = 160, PANEL_HD = 30;
+var GAP_H = 48, PAD_X = 46, PAD_Y = 44, NODE_W = 200, PANEL_HD = 30;
 // A spawn's branches sit in dotted cells, side by side: half a gap of room
 // left and right, so neighbouring cells share a border, and this above and
 // below.
@@ -474,15 +475,15 @@ function getGrid(name){ return DOC && DOC.grids && hasOwn(DOC.grids, name) ? DOC
 function rc(r, c){ return r + ',' + c; }
 
 // Truncate a text to fit maxW px, appending an ellipsis when it overflows.
-function truncate(t, fs, maxW, weight){
+function truncate(t, fs, maxW, weight, font){
   if (!t) return '';
   weight = weight || 600;
-  if (measure(t, fs, weight) <= maxW) return t;
-  var e = '…', ew = measure(e, fs, weight), budget = maxW - ew;
+  if (measure(t, fs, weight, font) <= maxW) return t;
+  var e = '…', ew = measure(e, fs, weight, font), budget = maxW - ew;
   var lo = 0, hi = t.length;
   while (lo < hi){
     var mid = (lo + hi + 1) >> 1;
-    if (measure(t.slice(0, mid), fs, weight) <= budget) lo = mid; else hi = mid - 1;
+    if (measure(t.slice(0, mid), fs, weight, font) <= budget) lo = mid; else hi = mid - 1;
   }
   return t.slice(0, lo) + e;
 }
@@ -553,7 +554,7 @@ function isId(n){ return !!n && n.type === 0 && n.label === 'id' && !n.sublabel;
 // leave from the header's underside and back edges to it end there.
 var SIG_MAXW = 360;
 function isSig(n){ return !!n && n.type === 3; }
-function sigW(n){ return Math.max(NODE_W, Math.min(SIG_MAXW, measure(n.sublabel || '', 10.5, 600) + 48)); }
+function sigW(n){ return Math.max(NODE_W, Math.min(SIG_MAXW, measure(n.sublabel || '', 10.5, 400, MONO) + 48)); }
 // An edge's label on the diagram: its arm, for match edges. What it passes
 // shows in the tooltip and the details panel instead.
 // Tokens of a .sys expression for highlighting: [[text, class|null], ..].
@@ -592,63 +593,146 @@ function sigText(e, t){
   t = t || {};
   return e.call ? calleeName(e, t) + e.call.slice(e.call.indexOf('(')) : null;
 }
-// A node's height without its doc: room for its name, and its sublabel.
-function baseH(n){ return 44 + (n && n.sublabel ? 18 : 0); }
-function nodeH(n, path){ return baseH(n) + docH(n, path); }
-
-/* ---------- doc comments ----------
-   A node whose declaration has a doc shows its first line under its name;
-   a click on it opens the node to the whole doc, wrapped, and another
-   closes it. Open docs widen the node. */
-var DOC_FS = 10.5, DOC_LH = 14, DOC_OPEN_W = 280;
-var docOpen = {};     // node path -> its doc is open (this page only)
+/* ---------- signatures and doc comments ----------
+   A func's, proc's or instance's node shows its signature under its name
+   (a signature node, its proc's parameters), and under that the first line
+   of its doc. Each is cut to the node's width; when there's more to either,
+   a click on either opens both, wrapped, and another closes them. An open
+   node is wider. */
+var SIG_FS = 10.5, SIG_LH = 14, DOC_FS = 10.5, DOC_LH = 14, OPEN_W = 280;
+var MONO = 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
+var blkOpen = {};     // node path -> its signature and doc are open (this page only)
+// How much closer a doc sits under a signature than under a name.
+var DOC_PULL = 10;
+function monoW(t){ return measure(t, SIG_FS, 400, MONO); }
+function docW(t){ return measure(t, DOC_FS, 400); }
+function sigLine(n){ return !n || n.type === 2 ? '' : isSig(n) ? (n.sublabel || '') : (n.sig || ''); }
+// The line under a node's name: its signature; a node without one (`id`
+// for `id(..) as N`) shows its sublabel. A func's implementations show in
+// the details panel instead, an instance's base in its tooltip.
+function subLine(n){ return sigLine(n) || (n && n.type !== 2 && !n.sig ? (n.sublabel || '') : ''); }
 function docText(n){ return n && n.type !== 2 && n.doc ? n.doc : ''; }
-function docIsOpen(n, path){ return !!docText(n) && !!docOpen[path]; }
-// The doc as lines no wider than w: its own lines, each wrapped at spaces.
-function wrapDoc(doc, w){
+function sigIsOpen(n, path){ return !!sigLine(n) && !!blkOpen[path]; }
+function docIsOpen(n, path){ return !!docText(n) && !!blkOpen[path]; }
+// A doc as it reads: a line break inside a paragraph is a space; a blank
+// line ends a paragraph, and a line starting with - or * starts a list item.
+function reflowDoc(doc){
   var out = [];
-  doc.split('\n').forEach(function(par){
-    var words = par.split(' '), line = '';
+  doc.split('\n').forEach(function(raw){
+    var l = raw.trim();
+    if (!l){ if (out.length && out[out.length - 1] !== '') out.push(''); return; }
+    var last = out.length ? out[out.length - 1] : '';
+    if (last !== '' && !/^[-*]\s/.test(l)) out[out.length - 1] = last + ' ' + l;
+    else out.push(l);
+  });
+  while (out.length && out[out.length - 1] === '') out.pop();
+  return out;
+}
+// Lines of text no wider than w: each paragraph wrapped at its breaks (the
+// words of a doc, the parameters of a signature).
+function wrapLines(pars, w, width, split, join){
+  var out = [];
+  pars.forEach(function(par){
     if (!par){ out.push(''); return; }
-    words.forEach(function(word){
-      var next = line ? line + ' ' + word : word;
-      if (line && measure(next, DOC_FS, 400) > w){ out.push(line); line = word; }
+    var line = '';
+    split(par).forEach(function(word){
+      var next = line ? line + join + word : word;
+      if (line && width(next) > w){ out.push(line); line = word; }
       else line = next;
     });
     out.push(line);
   });
   return out;
 }
-function docW(n, w){ return w - 24; }
+function splitWords(s){ return s.split(' '); }
+// A signature's breaks: after each top-level comma, after its parameters.
+function splitSig(s){
+  var parts = [], depth = 0, cur = '';
+  for (var i = 0; i < s.length; i++){
+    var ch = s[i];
+    cur += ch;
+    if (ch === '(' || ch === '{' || ch === '[') depth++;
+    else if (ch === ')' || ch === '}' || ch === ']'){ depth--; if (depth === 0 && s[i + 1] === ':'){ cur += ':'; i++; parts.push(cur); cur = ''; } }
+    else if (ch === ',' && depth === 1){ parts.push(cur); cur = ''; }
+  }
+  if (cur) parts.push(cur);
+  return parts.map(function(p){ return p.trim(); }).filter(Boolean);
+}
+// Room for a block's text in a node w wide (12 px a side, and 12 for its
+// toggle).
+function blockW(w){ return w - 36; }
+function sigLinesOf(n, path, w){
+  var s = sigLine(n);
+  if (!s) return [];
+  if (sigIsOpen(n, path)) return wrapLines([s], blockW(w), monoW, splitSig, ' ');
+  return [truncate(s, SIG_FS, blockW(w), 400, MONO)];
+}
+function sigMore(n, w){ return !!sigLine(n) && monoW(sigLine(n)) > blockW(w); }
 function docLinesOf(n, path, w){
   var d = docText(n);
   if (!d) return [];
-  if (docIsOpen(n, path)) return wrapDoc(d, docW(n, w));
-  return [truncate(d.split('\n')[0], DOC_FS, docW(n, w) - 12, 400)];
+  var pars = reflowDoc(d);
+  if (docIsOpen(n, path)) return wrapLines(pars, blockW(w), docW, splitWords, ' ');
+  return [truncate(pars[0] || '', DOC_FS, blockW(w), 400)];
 }
 // Whether there's more to the doc than its first line shows.
 function docMore(n, w){
-  var d = docText(n), first = d.split('\n')[0];
-  return d.indexOf('\n') >= 0 || measure(first, DOC_FS, 400) > docW(n, w) - 12;
+  if (!docText(n)) return false;
+  var pars = reflowDoc(docText(n));
+  return pars.length > 1 || docW(pars[0] || '') > blockW(w);
 }
-function docH(n, path){
+// A node's width: a signature node's fits its parameters; an open signature
+// or doc widens it.
+function nodeW(n, path){
+  var w = isSig(n) ? sigW(n) : NODE_W;
+  if (sigIsOpen(n, path) || docIsOpen(n, path)) w = Math.max(w, OPEN_W);
+  return w;
+}
+// The heights of a node's parts, in a node w wide: its name, its signature
+// (or sublabel) and its doc.
+function nameH(){ return 44; }
+function subH(n, path, w){
+  if (sigLine(n)) return 4 + sigLinesOf(n, path, w).length * SIG_LH;
+  return subLine(n) ? 18 : 0;
+}
+function docH(n, path, w){
   if (!docText(n)) return 0;
-  var w = docIsOpen(n, path) ? Math.max(DOC_OPEN_W, isSig(n) ? sigW(n) : NODE_W) : (isSig(n) ? sigW(n) : NODE_W);
-  return 4 + docLinesOf(n, path, w).length * DOC_LH;
+  return 4 + docLinesOf(n, path, w).length * DOC_LH - (sigLine(n) ? DOC_PULL : 0);
 }
-// The doc's lines, under the node's name (top: where its base area ends).
+// Whether a click on the node's signature or doc opens (or closes) them.
+function blkMore(n, path, w){ return !!blkOpen[path] && (!!sigLine(n) || !!docText(n)) || sigMore(n, w) || docMore(n, w); }
+// The top of a node's doc, under its signature (or sublabel), sh high.
+function docTop(n, p, sh){ return p.y + nameH() + sh - 6 - (sigLine(n) ? DOC_PULL : 0); }
+function nodeH(n, path, w){
+  if (w === undefined) w = nodeW(n, path);
+  return nameH() + subH(n, path, w) + docH(n, path, w);
+}
+// A block of lines (a signature or a doc) at top, across the node; with more,
+// a click on it toggles the node's blocks, and tog draws their one toggle.
+// Collapsed and centered (a signature), its one line sits on the node's axis.
+function blockSVG(cls, p, top, lines, open, more, tog, full, lh, center){
+  var s = '<g class="nblk ' + cls + '"' + (more ? ' data-open="' + esc(p.path) + '"' : '') + '>' +
+          '<title>' + esc(open ? 'click: show only the first line' : more ? full + '\n\nclick: show it all' : full) + '</title>' +
+          '<rect x="' + (p.x + 4) + '" y="' + (top - 2) + '" width="' + (p.w - 8) + '" height="' + (lines.length * lh + 4) + '"></rect>';
+  var mid = center && !open;
+  lines.forEach(function(l, i){
+    s += '<text x="' + (mid ? p.cx : p.x + 12) + '" y="' + (top + 9 + i * lh) + '"' + (mid ? ' text-anchor="middle"' : '') + '>' +
+         (cls === 'nsig' ? hlSVG(l) : esc(l)) + '</text>';
+  });
+  if (more && tog) s += '<text class="tog" x="' + (p.x + p.w - 10) + '" y="' + (top + 9) + '" text-anchor="end">' + (open ? '▾' : '▸') + '</text>';
+  return s + '</g>';
+}
+function sigSVGBlock(n, p, top){
+  var lines = sigLinesOf(n, p.path, p.w);
+  if (!lines.length) return '';
+  var open = !!blkOpen[p.path], more = blkMore(n, p.path, p.w);
+  return blockSVG('nsig', p, top, lines, open, more, true, sigLine(n), SIG_LH, true);
+}
 function docSVG(n, p, top){
   var lines = docLinesOf(n, p.path, p.w);
   if (!lines.length) return '';
-  var open = docIsOpen(n, p.path), more = open || docMore(n, p.w);
-  var s = '<g class="ndoc"' + (more ? ' data-doc="' + esc(p.path) + '"' : '') + '>' +
-          '<title>' + esc(open ? 'click: show only the first line' : more ? n.doc + '\n\nclick: show it all' : n.doc) + '</title>' +
-          '<rect x="' + (p.x + 4) + '" y="' + (top - 2) + '" width="' + (p.w - 8) + '" height="' + (lines.length * DOC_LH + 4) + '"></rect>';
-  lines.forEach(function(l, i){
-    s += '<text x="' + (p.x + 12) + '" y="' + (top + 9 + i * DOC_LH) + '">' + esc(l) + '</text>';
-  });
-  if (more) s += '<text class="tog" x="' + (p.x + p.w - 12) + '" y="' + (top + 9) + '" text-anchor="end">' + (open ? '\u25be' : '\u25b8') + '</text>';
-  return s + '</g>';
+  var open = !!blkOpen[p.path], more = blkMore(n, p.path, p.w);
+  return blockSVG('ndoc', p, top, lines, open, more, !sigLine(n), n.doc, DOC_LH, false);
 }
 function diamondH(p){ return Math.min(p.w, 32) / 2; }
 
@@ -661,11 +745,9 @@ function layoutGrid(name, prefix, depth){
   rows.forEach(function(row, r){
     var list = [], tw = 0, mh = 0;
     (row.nodes || []).forEach(function(n, c){
-      var k = rc(r, c), path = prefix + k, w = NODE_W, h = nodeH(n, path), lay = null;
+      var k = rc(r, c), path = prefix + k, w = nodeW(n, path), h = nodeH(n, path, w), lay = null;
       var gk = n.type === 1 ? resolveProc(n, name) : null, hidden = depth > 0 && isSig(n);
       if (hidden){ w = 0; h = 0; }
-      else if (isSig(n)) w = sigW(n);
-      if (!hidden && docIsOpen(n, path)) w = Math.max(w, DOC_OPEN_W);
       if (gk && depth < MAXDEPTH && expanded[path]){
         lay = layoutGrid(gk, path + '/', depth + 1);
         w = lay.w; h = lay.h + PANEL_HD;
@@ -1310,30 +1392,33 @@ function nodeSVG(L, k, n){
   var s = '<g class="node ' + cls + '"' + attr + '>';
   s += '<rect x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '" rx="6"></rect>';
   var full = (n.type === 2 ? 'ellipsis' : (n.type === 1 ? 'procedure: ' : iq ? 'interface func: ' : 'function: ') + (n.label || ''));
+  if (n.sig) full += n.sig;
   if (n.sublabel) full += ' — ' + n.sublabel;
   if (docText(n)) full += '\n' + n.doc;
   if (n.branch) full += n.branch === 'detached' ? '\ndetached: runs on its own, nothing waits for it' : '\nspawned: runs alongside the others, the join waits for it';
   if (n.type === 1) full += p.grid ? '\nclick: expand · shift-click: select · ctrl/⌘-click: open' : '\n(no grid found)';
   s += '<title>' + esc(full) + '</title>';
-  // Badge at the left; the text is centered in the room right of it, above
-  // the doc.
-  var tx = p.cx + 10, tw = p.w - 44, bh = p.h - docH(n, p.path);
+  // Badge at the left; the name is centered in the room right of it, above
+  // the signature and the doc.
+  var tx = p.cx + 10, tw = p.w - 44, sh = subH(n, p.path, p.w);
   if (n.type === 2){
     s += '<text class="sub ell" x="' + p.cx + '" y="' + (p.y + p.h / 2 + 6) + '" text-anchor="middle">………</text>';
-  } else if (n.sublabel){
+  } else if (sh){
     s += badgeSVG(p.x + 9, p.y + 9, n);
     s += '<text class="lab" x="' + tx + '" y="' + (p.y + 21) + '" text-anchor="middle">' + esc(truncate(n.label, 12.5, tw, 1000)) + '</text>';
-    s += '<text class="sub" x="' + tx + '" y="' + (p.y + 38) + '" text-anchor="middle">' + esc(truncate(n.sublabel, 10.5, tw, 1000)) + '</text>';
+    if (sigLine(n)) s += sigSVGBlock(n, p, p.y + 29);
+    else s += '<text class="sub" x="' + tx + '" y="' + (p.y + 38) + '" text-anchor="middle">' + esc(truncate(subLine(n), 10.5, tw, 1000)) + '</text>';
   } else {
-    s += badgeSVG(p.x + 9, p.y + bh / 2 - 7.5, n);
-    s += '<text class="lab" x="' + tx + '" y="' + (p.y + bh / 2 + 4.5) + '" text-anchor="middle">' + esc(truncate(n.label, 12.5, tw, 1000)) + '</text>';
+    var nh = nameH();
+    s += badgeSVG(p.x + 9, p.y + nh / 2 - 7.5, n);
+    s += '<text class="lab" x="' + tx + '" y="' + (p.y + nh / 2 + 4.5) + '" text-anchor="middle">' + esc(truncate(n.label, 12.5, tw, 1000)) + '</text>';
   }
-  if (n.type !== 2) s += docSVG(n, p, p.y + bh - 6);
+  if (n.type !== 2) s += docSVG(n, p, docTop(n, p, sh));
   s += diamondSVG(L, k, n, p);
   return s + '</g>';
 }
 
-// A proc's signature node: a header-like pill with the proc's name and
+// A proc's signature node: a white box with the proc's name and
 // parameters. Clicking it shows the proc's signature, like any node's.
 function sigSVG(L, k, n){
   var p = L.pos[k], id = 'n:' + p.path;
@@ -1342,14 +1427,12 @@ function sigSVG(L, k, n){
   INFO[id].canExpand = false;
   var s = '<g class="node node-sig" data-sel="' + esc(id) + '">';
   s += '<title>' + esc('signature of ' + (n.label || '') + (n.sublabel || '') + (docText(n) ? '\n' + n.doc : '') + '\nits output is its parameters, by name: this.<param> on its edge, ' + (n.label || '') + '.<param> after') + '</title>';
-  // A pill; with a doc under it, a rounded box whose ends keep the pill's
-  // curve.
-  var bh = p.h - docH(n, p.path);
-  s += '<rect x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '" rx="' + (bh / 2) + '"></rect>';
+  var sh = subH(n, p.path, p.w);
+  s += '<rect x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '" rx="6"></rect>';
   var tw = p.w - 28;
   s += '<text class="lab" x="' + p.cx + '" y="' + (p.y + 21) + '" text-anchor="middle">' + esc(truncate(n.label, 12.5, tw, 1000)) + '</text>';
-  if (n.sublabel) s += '<text class="sub sig" x="' + p.cx + '" y="' + (p.y + 38) + '" text-anchor="middle">' + hlSVG(truncate(n.sublabel, 10.5, tw, 1000)) + '</text>';
-  s += docSVG(n, p, p.y + bh - 6);
+  s += sigSVGBlock(n, p, p.y + 29);
+  s += docSVG(n, p, docTop(n, p, sh));
   s += diamondSVG(L, k, n, p);
   return s + '</g>';
 }
@@ -1933,10 +2016,10 @@ main.addEventListener('click', function(ev){
     rerenderProc();
     return;
   }
-  // A node's doc opens and closes, without selecting the node.
-  var dp = closestAttr(ev.target, 'data-doc');
-  if (dp !== null){
-    if (docOpen[dp]) delete docOpen[dp]; else docOpen[dp] = true;
+  // A node's signature or doc opens and closes, without selecting the node.
+  var key = closestAttr(ev.target, 'data-open');
+  if (key !== null){
+    if (blkOpen[key]) delete blkOpen[key]; else blkOpen[key] = true;
     rerenderProc();
     return;
   }

@@ -16,7 +16,8 @@
             {
               "type": 0,
               "label": "A",
-              "sublabel": "a/b.go:DoA"
+              "sublabel": "a/b.go:DoA",
+              "sig": "(): int"
             }
           ]
         }

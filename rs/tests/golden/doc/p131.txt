@@ -15,7 +15,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "A"
+              "label": "A",
+              "sig": "(): int"
             }
           ]
         },
@@ -24,12 +25,14 @@
             {
               "type": 0,
               "label": "L",
+              "sig": "(s: string): void",
               "branch": "detached"
             },
             {
               "type": 0,
               "label": "L2",
               "sublabel": "instance of L",
+              "sig": "(s: string): void",
               "branch": "detached"
             }
           ]

@@ -17,6 +17,7 @@
             {
               "type": 0,
               "label": "Area",
+              "sig": "(s: Shape): Measured",
               "doc": "The area of one shape."
             }
           ]
@@ -25,7 +26,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "Sum"
+              "label": "Sum",
+              "sig": "(xs: []Measured): int"
             }
           ]
         },
@@ -35,6 +37,7 @@
               "type": 0,
               "label": "Log.Line",
               "interface": "Log",
+              "sig": "(s: string): bool",
               "doc": "Writes one line."
             }
           ]
@@ -45,6 +48,7 @@
               "type": 0,
               "label": "One",
               "sublabel": "instance of Area",
+              "sig": "(s: Shape): Measured",
               "doc": "The area of one shape."
             }
           ]
@@ -54,6 +58,7 @@
             {
               "type": 1,
               "label": "Measure.Count",
+              "sig": "(xs: []Measured): R<int>",
               "doc": "Counts the shapes it's given."
             }
           ]

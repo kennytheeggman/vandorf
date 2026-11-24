@@ -15,7 +15,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "A"
+              "label": "A",
+              "sig": "(): int"
             }
           ]
         },
@@ -24,7 +25,8 @@
             {
               "type": 0,
               "label": "B2",
-              "sublabel": "instance of B"
+              "sublabel": "instance of B",
+              "sig": "(i: int): int"
             }
           ]
         },
@@ -32,7 +34,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "B"
+              "label": "B",
+              "sig": "(i: int): int"
             }
           ]
         },
@@ -41,7 +44,8 @@
             {
               "type": 0,
               "label": "C2",
-              "sublabel": "instance of C"
+              "sublabel": "instance of C",
+              "sig": "(i: int): int"
             }
           ]
         }

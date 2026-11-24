@@ -15,7 +15,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "A"
+              "label": "A",
+              "sig": "(): enum { L, R }"
             }
           ]
         },
@@ -23,11 +24,13 @@
           "nodes": [
             {
               "type": 0,
-              "label": "B"
+              "label": "B",
+              "sig": "(): int"
             },
             {
               "type": 0,
-              "label": "C"
+              "label": "C",
+              "sig": "(): int"
             }
           ]
         },
@@ -35,7 +38,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "X"
+              "label": "X",
+              "sig": "(): int"
             }
           ]
         },
@@ -43,7 +47,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "D"
+              "label": "D",
+              "sig": "(): int"
             }
           ]
         },
@@ -51,7 +56,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "E"
+              "label": "E",
+              "sig": "(): int"
             }
           ]
         }

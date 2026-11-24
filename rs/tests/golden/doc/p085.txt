@@ -16,7 +16,8 @@
             {
               "type": 0,
               "label": "S",
-              "sublabel": "rs/src/impls.rs:s"
+              "sublabel": "rs/src/impls.rs:s",
+              "sig": "(): int"
             }
           ]
         }

@@ -15,7 +15,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "A"
+              "label": "A",
+              "sig": "(r: Toks, s: R<[]string>, m: map[string]R<int>): R<List<int>>"
             }
           ]
         }

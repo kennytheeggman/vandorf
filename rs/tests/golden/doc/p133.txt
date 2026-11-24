@@ -16,7 +16,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "Repeat"
+              "label": "Repeat",
+              "sig": "(s: string, n: int): string"
             }
           ]
         }
@@ -54,6 +55,7 @@
             {
               "type": 1,
               "label": "Greet",
+              "sig": "(name: string, times: int): string",
               "doc": "A proc declared with its signature: the body starts from the proc's own\nname, whose output is its parameters."
             }
           ]
