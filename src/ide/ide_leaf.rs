@@ -847,7 +847,11 @@ pub fn project_json(
         for it in o.items.iter().filter(|it| &*it.kind == "proc") {
             procs.insert(
                 it.name.to_string(),
-                obj(vec![("path", jstr(path)), ("line", Json::Num(it.line))]),
+                obj(vec![
+                    ("path", jstr(path)),
+                    ("line", Json::Num(it.line)),
+                    ("doc", Json::Str(it.doc.clone())),
+                ]),
             );
         }
     }

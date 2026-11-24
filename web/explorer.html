@@ -120,7 +120,7 @@ function render(){
       var entry = it.kind === 'proc' && it.entry, badge = inIface ? 'interface' : it.kind;
       h.push('<div class="row' + (kids.length && op ? ' open' : '') + (sel ? ' sel' : '') + (it.kind !== 'proc' ? ' minor' : '') + '"' + pad(d) +
         ' data-k="' + esc(key) + '" data-kind="' + it.kind + '" data-path="' + esc(file.path) + '" data-qual="' + esc(it.qual) + '" data-line="' + it.line + '"' +
-        (kids.length ? ' data-tw="1"' : '') + ' title="' + esc((inIface ? 'interface func' : it.kind) + ' ' + it.qual + ' — ' + file.path + ':' + (it.line + 1) + (entry ? '\nentry point: ' + entry.join(', ') : '')) + '">' +
+        (kids.length ? ' data-tw="1"' : '') + ' title="' + esc((inIface ? 'interface func' : it.kind) + ' ' + it.qual + ' — ' + file.path + ':' + (it.line + 1) + (entry ? '\nentry point: ' + entry.join(', ') : '') + (it.doc ? '\n\n' + it.doc : '')) + '">' +
         '<span class="tw">' + (kids.length ? '▶' : '') + '</span>' +
         '<span class="badge ' + badge + (entry ? ' entry' : '') + '">' + { proc: 'P', func: 'ƒ', type: 'T', interface: 'I' }[badge] + '</span>' +
         '<span class="nm">' + hl(it.name, q) + '</span></div>');
