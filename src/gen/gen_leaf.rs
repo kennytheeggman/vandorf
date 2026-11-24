@@ -40,6 +40,8 @@ pub fn reserved(types: List<TypeDef>) -> Result<Map<Str, bool>, String> {
         .collect())
 }
 
+/// A fresh name based on hint; typedef names are reserved for the typedef
+/// itself (typedef: the name of the typedef being registered, or "").
 pub fn unique(t: Table, hint: Str, typedef: Str) -> Result<Str, String> {
     let taken = |n: &str| {
         t.types.iter().any(|x| &*x.name == n)
@@ -82,6 +84,8 @@ fn key(ty: &Type, defs: &[TypeDef]) -> String {
     }
 }
 
+/// The canonical structural key: fields and variants sorted; non-recursive
+/// typedefs expanded, a recursive one `#id` (except at the top).
 pub fn shape_key(t: Type, defs: List<TypeDef>) -> Result<Str, String> {
     Ok(key(&t, &defs).into())
 }
@@ -109,6 +113,8 @@ pub fn get(t: Table, ty: Type) -> Result<TyRef, String> {
     go(&t, &ty)
 }
 
+/// Boxes every field i -> j where j leads back to i through fields that hold
+/// their type directly.
 pub fn find_boxed(t: Table) -> Result<Map<Str, bool>, String> {
     let edges: Vec<Vec<(Str, usize)>> = t
         .types
@@ -147,6 +153,7 @@ pub fn find_boxed(t: Table) -> Result<Map<Str, bool>, String> {
     Ok(out.into_iter().collect())
 }
 
+/// Gname: a node's name in generated code (`Bar.Start` -> `BarStart`).
 pub fn gname(n: NodeDecl) -> Result<Str, String> {
     Ok(n.qual.iter().map(|s| cap(s)).collect::<String>().into())
 }
@@ -159,6 +166,8 @@ pub fn func_params(n: NodeDecl) -> Result<List<Member>, String> {
     })
 }
 
+/// What a node's types are named after: the node, or for a signature
+/// node its proc (`PS` for P's param s, `PArgs` for its output).
 pub fn hint_base(nodes: List<NodeDecl>, n: i64) -> Result<Str, String> {
     match &nodes[n as usize].kind {
         NodeKind::Sig(s) => gname(nodes[s.pid as usize].clone()),
@@ -591,6 +600,8 @@ pub(crate) fn origin_doc(t: &Table, n: &NamedType) -> String {
         .map_or(String::new(), |d| typedef_doc(t, d))
 }
 
+/// A typedef's doc comment (or "/// A typedef."), or "/// The type of the
+/// <origin>."
 pub fn rust_doc(t: Table, n: NamedType) -> Result<List<Line>, String> {
     let doc = origin_doc(&t, &n);
     let lines = if !doc.is_empty() {
@@ -618,6 +629,7 @@ pub fn is_void_ref(r: TyRef) -> Result<bool, String> {
     Ok(matches!(&r, TyRef::Prim(p) if &**p == "void"))
 }
 
+/// A field's type, behind an Arc where it would make the type contain itself.
 pub fn rust_field_type(t: Table, i: i64, m: RefMember) -> Result<Str, String> {
     let s = rust_render(t.clone(), m.r, "".into())?;
     Ok(
@@ -1065,6 +1077,7 @@ pub fn moving(moved: Map<i64, bool>, taken: Map<i64, bool>) -> Result<Moves, Str
     })
 }
 
+/// Records a read; whether it moves (see Moves).
 pub fn move_read(mut m: Moves, owner: Str, node: i64, path: List<Str>) -> Result<MoveOut, String> {
     if !m.active {
         return Ok(MoveOut { m, moving: false });
@@ -1366,6 +1379,7 @@ pub fn spawn_join(e: SEdge) -> Result<Call, String> {
     }
 }
 
+/// Each spawn's joined type, by proc, spawners in node order.
 pub fn spawn_joins(prog: Program) -> Result<List<SpawnJoin>, String> {
     let mut out = vec![];
     for n in prog.nodes.iter() {
@@ -1386,6 +1400,7 @@ fn spawn_var(i: i64, name: &str) -> String {
     format!("a{i}_{}", rust_local(name.into()).unwrap())
 }
 
+/// `let a<i>_<arg> = <value>;` per argument, and the variables.
 pub fn spawn_arg_lines(
     i: i64,
     args: List<CallArg>,
@@ -1403,6 +1418,8 @@ pub fn spawn_arg_vars(i: i64, args: List<CallArg>) -> Result<Str, String> {
     Ok(vars.join(", ").into())
 }
 
+/// Detached branches on threads of their own; joined ones on scoped
+/// threads, then this: the joined outputs.
 pub fn spawn_threads(
     g: RGen,
     branches: List<SBranch>,
@@ -1671,6 +1688,8 @@ fn signature(g: &RGen, n: i64, name: &str, types_path: &str) -> Result<String, S
     ))
 }
 
+/// The rest of procs.rs around the procs' code: header and runtime, input
+/// structs, stubs and coercion helpers.
 pub fn procs_file(g: RGen, body: Str) -> Result<Str, String> {
     let nodes = &g.prog.nodes;
     let mut ls: Vec<Line> = vec![
@@ -2583,6 +2602,7 @@ pub fn http_args(g: RGen, pid: i64) -> Result<Str, String> {
         .into())
 }
 
+/// The directory, relative to the module, of a file under src/.
 pub fn main_dir(module_dir: Str, path: Str) -> Result<RustServerMainDirOut, String> {
     let up = vec![".."; module_dir.split('/').filter(|x| !x.is_empty()).count()];
     let p = path.trim_matches('/');
@@ -2707,8 +2727,7 @@ pub(super) fn show_shape(fs: &[(&str, &str)]) -> String {
     )
 }
 
-/// What a server's handler calls a route's proc through: its own calls
-/// (`call_<server>_<proc>`) if it has a setup.
+/// "" or `<server>_`: the prefix of a server's calls (its own if it has a setup).
 pub fn own_prefix(srv: ServerSpec) -> Result<Str, String> {
     Ok(if srv.setup.is_empty() {
         "".into()
@@ -2968,6 +2987,8 @@ pub fn rust_signature(
     Ok(format!("pub fn {name}({}) -> Result<{ret}, E>", params.join(", ")).into())
 }
 
+/// A file's name without .rs, and whether it can name a module of the
+/// output (an identifier other than types, procs and http).
 pub fn rs_stem(file: Str) -> Result<Str, String> {
     Ok(file
         .rsplit('/')
@@ -2988,6 +3009,7 @@ pub fn mountable_stem(file: Str) -> Result<bool, String> {
     Ok(valid && !["types", "procs", "http"].contains(&&*stem))
 }
 
+/// The .rs implementation's file (relative to the module).
 pub fn rs_impl_file(n: NodeDecl) -> Result<Str, String> {
     match rs_impl(n, "rs".into())? {
         MaybeImpl::Some(i) => Ok(i.file),
@@ -2995,6 +3017,7 @@ pub fn rs_impl_file(n: NodeDecl) -> Result<Str, String> {
     }
 }
 
+/// mod.rs's lines mounting files outside the crate's src/.
 pub fn mount_lines(mounts: Map<Str, Str>) -> Result<Str, String> {
     Ok(mounts
         .iter()

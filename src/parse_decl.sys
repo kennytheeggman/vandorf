@@ -147,8 +147,8 @@ proc PProc(toks: []Tok, pos: int): R<Proc> {
 	});
 }
 
-// A proc's body starts from its own name: fails at the first edge
-// otherwise.
+// A proc starts its body from its signature node, its own name: the first
+// edge must leave it.
 func StartsAtSig(name: Ident, edges: []Edge): []Edge = "leaf.rs:starts_at_sig";
 
 // ((func | proc | edge) ';')*, stopping at '}'.

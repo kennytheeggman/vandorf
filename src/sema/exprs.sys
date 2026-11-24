@@ -29,6 +29,7 @@ func LitKey(e: Expr): MaybeStr = "sema_leaf.rs:lit_key";
 func NodeRet(nodes: []NodeDecl, n: int): Type = "sema_leaf.rs:node_ret";
 func NodeParams(nodes: []NodeDecl, n: int): []Member = "sema_leaf.rs:node_params";
 func IsFunc(n: NodeDecl): bool = "sema_leaf.rs:is_func";
+// `id(..) as N` before its type is known.
 func IsUntypedId(n: NodeDecl): bool = "sema_leaf.rs:is_untyped_id";
 func Prefixed(d: Diag, prefix: string): Diag = "sema_leaf.rs:prefixed";
 
@@ -515,6 +516,8 @@ proc CallOf(s: { env: Env, sc: Scope, t: Target }): Res<Call> {
 	func IdValue(t: Target): OptValue = "sema_leaf.rs:id_value";
 	func AliasOf(t: Target): OptIdent = "sema_leaf.rs:alias_of";
 	func OwnLocal(nodes: []NodeDecl, pid: int, name: string): int = "sema_leaf.rs:own_local";
+	// A call target: the signature node of another proc (an enclosing one)
+	// calls that proc; in its own proc it's the back edge to the entry.
 	func CallTarget(nodes: []NodeDecl, pid: int, n: int): int = "sema_leaf.rs:call_target";
 	CallOf -> IdValue(t = this.s.t);
 	IdValue switch {

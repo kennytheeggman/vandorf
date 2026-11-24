@@ -4,6 +4,7 @@
 type Scope = map[string]{ slot: int, kind: string };
 
 proc Resolve(names: []string, query: string): string {
+	// Gives each name its index as a slot.
 	func Declare(names: []string, query: string): { scope: Scope, query: string } = "../go/app/impl.go:Declare", "../rs/src/impls.rs:declare";
 	func Adjust(scope: Scope, query: string): { scope: Scope, query: string } = "../go/app/impl.go:Adjust", "../rs/src/impls.rs:adjust";
 	func Found(name: string, slot: int, kind: string, total: int): string = "../go/app/impl.go:Found", "../rs/src/impls.rs:found";

@@ -33,21 +33,35 @@ type RGen = {
 type Emit = { g: RGen, s: string };
 type EmitLines = { g: RGen, lines: []Line };
 
+// A vandorf type as written in procs.rs.
 func RustType(t: Table, ty: Type): string = "gen_leaf.rs:rust_type";
+// Whether part (a field, or variant's payload) of ty is behind an Arc.
 func TyBoxed(t: Table, ty: Type, part: string): bool = "gen_leaf.rs:ty_boxed";
+// A Ref's field path: `.a.b`, whether the last field is boxed, and
+// whether an earlier one is (a value can't move out from behind an Arc).
 func RefPath(t: Table, r: Ref): RefPathOut = "gen_leaf.rs:ref_path";
 func FloatLit(f: float): string = "gen_leaf.rs:float_lit";
 func InType(nodes: []NodeDecl, n: int): string = "gen_leaf.rs:in_type";
 func BaseOf(nodes: []NodeDecl, n: int): int = "gen_leaf.rs:base_of";
+// The func's implementation in a `.rs` file, if any.
 func RsImpl(n: NodeDecl, ext: string): MaybeImpl = "gen_leaf.rs:rs_impl";
 func JoinPath(base: string, rel: string): MaybeStr = "gen_leaf.rs:join_path";
+// `impls.rs` -> `crate::impls`, `a/mod.rs` -> `crate::a`, `lib.rs` -> `crate`.
 func ModulePath(file: string): MaybeStr = "gen_leaf.rs:module_path";
+// A bool expression testing whether x (a `&T`) matches p; None if it
+// always does.
 func PatTest(t: Table, p: SPat, x: string): MaybeStr = "gen_leaf.rs:pat_test";
+// Expressions (of type `&T`) for p's bindings, given x matches p.
 func PatBinds(t: Table, p: SPat, x: string): []PatBind = "gen_leaf.rs:pat_binds";
+// The reads to move: each owner's reads that no later read of the same
+// owner overlaps (one path a prefix of the other); a node's only if its
+// slot is taken.
 func MovedReads(seen: []Seen, taken: map[int]bool): map[int]bool = "gen_leaf.rs:moved_reads";
+// A field or variant payload's type.
 func MemberOf(defs: []TypeDef, t: Type, name: string): Type = "gen_leaf.rs:member_of";
 func Unfolded(defs: []TypeDef, t: Type): Type = "gen_leaf.rs:unfolded";
 // Struct updates of the generator's state.
+
 func GFailed(g: RGen, msg: string): RGen = "gen_leaf.rs:g_failed";
 func GFatal(g: RGen, msg: string): RGen = "gen_leaf.rs:g_fatal";
 // Records a read; whether it moves (see Moves).
@@ -442,7 +456,7 @@ proc RBody(s: { g: RGen, pid: int, n: int, body: SBody }): EmitLines {
 // later, then its edge.
 proc RNode(s: { g: RGen, pid: int, n: int }): EmitLines {
 	func ArgList(nodes: []NodeDecl, n: int): string = "gen_leaf.rs:input_args";
-	// A signature node's output, built from its input.
+	// A signature node's output: its input's fields, as the struct of them.
 	func SigValue(g: RGen, n: int): string = "gen_leaf.rs:sig_value";
 	RNode -> id(this.s.g.prog.nodes[BaseOf(nodes = this.s.g.prog.nodes, n = this.s.n)].kind) as K;
 	K switch {
@@ -559,6 +573,7 @@ proc RustGenerate(s: { prog: Program, module_dir: MaybeStr, servers: []ServerSpe
 	func NameClash(prog: Program): MaybeStr = "gen_leaf.rs:name_clash";
 	func BadModuleDir(d: MaybeStr): MaybeStr = "gen_leaf.rs:bad_module_dir";
 	func Trimmed(d: MaybeStr): MaybeStr = "gen_leaf.rs:trim_dir";
+	// All procs, parents before children, in source order.
 	func Order(nodes: []NodeDecl, top: []int): []int = "gen_leaf.rs:all_procs_ordered";
 	RustGenerate -> BuildTable(prog = this.s.prog);
 	BuildTable switch {

@@ -14,7 +14,7 @@ type HttpResponse = { status: int, headers: map[string]string, body: string };
 type TermChunk = { ok: bool, data: string, next: int, closed: bool };
 
 interface Session {
-	// A random token for this run.
+	// A random token for this run, which writes and terminals must present.
 	func Token(n: int): string = "ide_io.rs:token";
 	// The source directory: the working directory, canonical.
 	func Base(n: int): string = "ide_io.rs:base";
@@ -24,7 +24,7 @@ interface Session {
 }
 
 interface Pages {
-	// An IDE page by name, or "".
+	// An IDE page by name ("" if there's none).
 	func Get(name: string): string = "ide_io.rs:page";
 }
 
@@ -37,10 +37,11 @@ interface Files {
 }
 
 interface Term {
-	// A shell on a pty in cwd; its id.
+	// The user's shell on a pty in cwd; its id.
 	func Spawn(cwd: string): Res<int> = "ide_io.rs:term_spawn";
 	func List(n: int): []int = "ide_io.rs:term_list";
-	// Output from offset `from`, waiting a while for some.
+	// Output from stream offset `from`, waiting up to 20 s for some. Only whole
+	// UTF-8 characters: `next` is where the next read starts.
 	func Read(id: int, from: int): TermChunk = "ide_io.rs:term_read";
 	func Input(id: int, data: string): Res<string> = "ide_io.rs:term_input";
 	func Resize(id: int, cols: int, rows: int): Res<string> = "ide_io.rs:term_resize";
@@ -63,13 +64,16 @@ interface Checks {
 	func Put(key: string, c: UnitCheck): bool = "ide_io.rs:check_put";
 }
 
-// Parses a file, a failure being a value.
+// Parses a file, its failure a value: the message and where it is.
 func TryParse(src: string, file: int): Res<File> = "ide_io.rs:try_parse";
 func Compact(j: Json): string = "../doc/doc_leaf.rs:compact";
+// A JSON text as a Json; numbers that aren't ints are an error.
 func ParseJson(text: string): Res<Json> = "../doc/doc_leaf.rs:parse_json";
+// A string field of a JSON object, if it is one.
 func JsonStr(j: Json, key: string): MaybeStr = "../doc/doc_leaf.rs:json_str";
 // The page served at a path ("" if none), and one carrying the token.
 func PageName(path: string): string = "ide_leaf.rs:page_name";
+// A page, carrying the session token for the requests that need it.
 func PageResponse(text: string, token: string): HttpResponse = "ide_leaf.rs:page_response";
 func CssResponse(text: string): HttpResponse = "ide_leaf.rs:css_response";
 // 200 and the JSON; 400 and {"ok": false, "error": msg}; 403.
@@ -78,7 +82,7 @@ func ApiErr(msg: string): HttpResponse = "ide_leaf.rs:api_err";
 func Forbidden(n: int): HttpResponse = "ide_leaf.rs:forbidden";
 // The session's token, and (on a loopback address) a loopback Host.
 func Authorized(headers: map[string]string, token: string, loopback: bool): bool = "ide_leaf.rs:authorized";
-func HasPrefix(s: string, prefix: string): bool = "../cli/cli_leaf.rs:starts_with";
+func HasPrefix(text: string, prefix: string): bool = "../cli/cli_leaf.rs:starts_with";
 
 // Whether a request may go on, or the response that turns it away.
 type Gate = enum { Open, Shut(HttpResponse) };
@@ -134,7 +138,7 @@ proc ResolvePath(s: { base: string, p: string }): Res<string> {
 	};
 	Files.Canon switch {
 		Ok(full) -> switch {
-			(full == ResolvePath.s.base || HasPrefix(s = full, prefix = ResolvePath.s.base + "/")) -> id(Ok(full)),
+			(full == ResolvePath.s.base || HasPrefix(text = full, prefix = ResolvePath.s.base + "/")) -> id(Ok(full)),
 			else -> id(Err({ msg = "path escapes source directory: " + ResolvePath.s.p, span = { at = 0, end = 0, file = 0 } }))
 		},
 		Err(e) -> id(Err({ msg = "cannot read " + ResolvePath.s.p + ": " + e.msg, span = e.span }))

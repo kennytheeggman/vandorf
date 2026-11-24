@@ -37,6 +37,7 @@ fn response(status: i64, hs: &[(&str, &str)], body: Str) -> HttpResponse {
 
 // ---- Responses ----
 
+/// The page served at a path ("" if none), and one carrying the token.
 pub fn page_name(path: Str) -> Result<Str, String> {
     Ok(s(match &*path {
         "/" => "ide",
@@ -62,6 +63,7 @@ pub fn page_response(text: Str, token: Str) -> Result<HttpResponse, String> {
     ))
 }
 
+/// 200 and the JSON; 400 and {"ok": false, "error": msg}; 403.
 pub fn api(j: Json) -> Result<HttpResponse, String> {
     Ok(response(
         200,
@@ -105,16 +107,16 @@ pub(super) fn is_loopback(host: &str) -> bool {
 }
 
 /// The session's token, and (on a loopback address) a loopback Host.
-pub fn authorized(hs: Map<Str, Str>, token: Str, loopback: bool) -> Result<bool, String> {
+pub fn authorized(headers: Map<Str, Str>, token: Str, loopback: bool) -> Result<bool, String> {
     let host_ok = !loopback
-        || hs.get(&s("host")).is_some_and(|h| {
+        || headers.get(&s("host")).is_some_and(|h| {
             let name = match h.rsplit_once(':') {
                 Some((n, p)) if p.chars().all(|c| c.is_ascii_digit()) => n,
                 _ => h,
             };
             is_loopback(name)
         });
-    Ok(host_ok && hs.get(&s("x-vandorf-token")) == Some(&token))
+    Ok(host_ok && headers.get(&s("x-vandorf-token")) == Some(&token))
 }
 
 pub fn chunk_response(c: TermChunk) -> Result<HttpResponse, String> {
@@ -184,8 +186,8 @@ pub fn non_empty(m: MaybeStr) -> Result<bool, String> {
 }
 
 /// q[k] as an int, or -1.
-pub fn query_int(s_: QueryIntS) -> Result<i64, String> {
-    Ok(s_.q.get(&s_.k).and_then(|v| v.parse().ok()).unwrap_or(-1))
+pub fn query_int(s: QueryIntS) -> Result<i64, String> {
+    Ok(s.q.get(&s.k).and_then(|v| v.parse().ok()).unwrap_or(-1))
 }
 
 /// Whether q has an id that's a terminal number (not negative).
@@ -195,8 +197,8 @@ pub fn has_id(q: Map<Str, Str>) -> Result<bool, String> {
         .is_some_and(|i| i >= 0))
 }
 
-pub fn byte_len(x: Str) -> Result<i64, String> {
-    Ok(x.len() as i64)
+pub fn byte_len(s: Str) -> Result<i64, String> {
+    Ok(s.len() as i64)
 }
 
 pub fn bad_path(p: Str) -> Result<bool, String> {
@@ -249,6 +251,7 @@ pub fn index_of_path(paths: List<Str>, root: Str, abs: Str) -> Result<i64, Strin
         .map_or(-1, |i| i as i64))
 }
 
+/// The editor's file as named in messages: its path, its "name", or <editor>.
 pub fn editor_name(j: Json) -> Result<Str, String> {
     let get = |k: &str| match super::doc_leaf::json_str(j.clone(), k.into()) {
         Ok(MaybeStr::Some(x)) if !(k == "path" && x.is_empty()) => Some(x),
@@ -267,8 +270,8 @@ pub fn is_dim(s: QueryIntS) -> Result<bool, String> {
         .is_some_and(|n| n > 0))
 }
 
-/// A unit's sources as a cache key: two hashes, so a collision is out of
-/// reach.
+/// What a unit is checked from, as a cache key: its sources (their names
+/// and the file asked about only change how the result is shown).
 pub fn check_key(srcs: List<Str>) -> Result<Str, String> {
     use std::hash::{Hash, Hasher};
     let hash = |seed: &str| {
@@ -548,6 +551,7 @@ fn rel(base: &str, p: &Path) -> Json {
     }
 }
 
+/// { file, line } of a node: its file relative to base (or null).
 pub fn loc_json(base: Str, unit: Unit, span: Span) -> Result<Json, String> {
     let (abs, f) = file_of(&unit, &span);
     let line = line_col_of(unit.srcs.get(f).map_or("", |x| &**x), span.at).0;
@@ -557,6 +561,7 @@ pub fn loc_json(base: Str, unit: Unit, span: Span) -> Result<Json, String> {
     ]))
 }
 
+/// A func's implementations: written, path (relative to base), function, lang.
 pub fn imps_json(base: Str, unit: Unit, span: Span, imps: List<ImplRef>) -> Result<Json, String> {
     let (abs, _) = file_of(&unit, &span);
     let dir = abs
@@ -817,6 +822,7 @@ fn opt_json(m: &MaybeStr) -> Json {
     some_str(m).map_or(Json::Null, |x| Json::Str(x.clone()))
 }
 
+/// The project's overview from its files' outlines.
 pub fn project_json(
     base: Str,
     p: Project,

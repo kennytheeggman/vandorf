@@ -12,10 +12,10 @@ func Ints(xs: []int): []Json = "ide_leaf.rs:ints";
 func OkJson(n: int): HttpResponse = "ide_leaf.rs:ok_json";
 // q[k] as an int, or -1.
 func QueryInt(s: { q: map[string]string, k: string }): int = "ide_leaf.rs:query_int";
-// Whether the request names a terminal: ?id= a number.
+// Whether q has an id that's a terminal number (not negative).
 func HasId(q: map[string]string): bool = "ide_leaf.rs:has_id";
-func IdIn(ids: []int, id: int): bool = "../sema/sema_leaf.rs:has_int";
-// q[k] is a terminal dimension: an integer in 1..=65535.
+func IdIn(seen: []int, x: int): bool = "../sema/sema_leaf.rs:has_int";
+// Whether q[k] is a terminal dimension: an integer in 1..=65535.
 func Dim(s: { q: map[string]string, k: string }): bool = "ide_leaf.rs:is_dim";
 
 // POST /api/term?cwd=..: a new terminal in cwd if it's a directory under the
@@ -95,7 +95,7 @@ proc TermResizeRoute(req: HttpRequest): HttpResponse {
 	};
 	// The terminal first, then its size (each a u16 above zero).
 	Term.List switch {
-		(!HasId(q = TermResizeRoute.req.query) || !IdIn(ids = this, id = QueryInt(s = { q = TermResizeRoute.req.query, k = "id" }))) -> id(ApiErr(msg = "no such terminal")),
+		(!HasId(q = TermResizeRoute.req.query) || !IdIn(seen = this, x = QueryInt(s = { q = TermResizeRoute.req.query, k = "id" }))) -> id(ApiErr(msg = "no such terminal")),
 		(Dim(s = { q = TermResizeRoute.req.query, k = "cols" }) && Dim(s = { q = TermResizeRoute.req.query, k = "rows" })) -> Term.Resize(id = QueryInt(s = { q = TermResizeRoute.req.query, k = "id" }), cols = QueryInt(s = { q = TermResizeRoute.req.query, k = "cols" }), rows = QueryInt(s = { q = TermResizeRoute.req.query, k = "rows" })),
 		else -> id(ApiErr(msg = "need cols and rows"))
 	};

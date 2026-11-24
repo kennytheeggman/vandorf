@@ -29,6 +29,7 @@ func IsPrim(name: string): bool = "sema_leaf.rs:is_prim";
 func Itoa(i: int): string = "sema_leaf.rs:itoa";
 func Cap(s: string): string = "sema_leaf.rs:cap";
 // Struct updates of the state.
+
 func WithError(cx: TyCx, msg: string, span: Span): TyCx = "sema_leaf.rs:with_error";
 func WithTypes(cx: TyCx, types: []TypeDef): TyCx = "sema_leaf.rs:with_types";
 // cx with a new typedef: name, ident, declared at span.
@@ -264,10 +265,10 @@ proc IdentAll(s: { ts: []Type, types: []TypeDef, i: int, acc: string }): string 
 }
 
 proc IdentOf(s: { t: Type, types: []TypeDef }): string {
-	func PrimIdent(p: string): string = "sema_leaf.rs:cap";
+	func PrimIdent(s: string): string = "sema_leaf.rs:cap";
 	IdentOf -> id(this.s.t) as T;
 	T switch {
-		Prim(p) -> id(PrimIdent(p = p)),
+		Prim(p) -> id(PrimIdent(s = p)),
 		Named(n) -> id(Cap(s = IdentOf.s.types[n.id].ident)),
 		Array(e) -> IdentOf(s = { t = e, types = IdentOf.s.types }) as Elem,
 		Map(m) -> IdentOf(s = { t = m.key, types = IdentOf.s.types }) as Key,
@@ -311,11 +312,11 @@ proc CheckGenerics(s: { cx: TyCx, decls: []TypeDecl, i: int }): TyCx {
 
 // Resolves each typedef that isn't generic, once.
 proc ResolveDecls(s: { cx: TyCx, decls: []TypeDecl, i: int, ok: []int }): TyCx {
-	func Done(ok: []int, x: int): bool = "sema_leaf.rs:has_int";
+	func Done(seen: []int, x: int): bool = "sema_leaf.rs:has_int";
 	ResolveDecls switch {
 		(this.s.i == this.s.decls.len) -> id(this.s.cx),
 		(this.s.decls[this.s.i].params.len > 0 || !(this.s.decls[this.s.i].name.name in this.s.cx.names)) -> ResolveDecls(s = { cx = this.s.cx, decls = this.s.decls, i = this.s.i + 1, ok = this.s.ok }),
-		(Done(ok = this.s.ok, x = this.s.cx.names[this.s.decls[this.s.i].name.name])) -> ResolveDecls(s = { cx = this.s.cx, decls = this.s.decls, i = this.s.i + 1, ok = this.s.ok }),
+		(Done(seen = this.s.ok, x = this.s.cx.names[this.s.decls[this.s.i].name.name])) -> ResolveDecls(s = { cx = this.s.cx, decls = this.s.decls, i = this.s.i + 1, ok = this.s.ok }),
 		else -> Ty(s = { cx = this.s.cx, t = this.s.decls[this.s.i].ty })
 	};
 	Ty switch {
@@ -435,6 +436,7 @@ proc NamedEdges(s: { types: []TypeDef, i: int, acc: [][]int }): [][]int {
 
 // Typedefs the types mention, depth first, in order.
 proc NamedIn(s: { ts: []Type, acc: []int }): []int {
+	// A type's direct parts, in order (what NamedIn looks inside).
 	func Parts(t: Type): []Type = "sema_leaf.rs:parts";
 	func NameOf(t: Type): []int = "sema_leaf.rs:name_of";
 	NamedIn switch {

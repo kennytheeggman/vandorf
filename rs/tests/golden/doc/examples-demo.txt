@@ -244,7 +244,8 @@
             {
               "type": 0,
               "label": "Build",
-              "sublabel": "../go/app/impl.go:Build · ../rs/src/impls.rs:build"
+              "sublabel": "../go/app/impl.go:Build · ../rs/src/impls.rs:build",
+              "doc": "Returns base + 2."
             }
           ]
         },
@@ -532,7 +533,8 @@
             {
               "type": 0,
               "label": "Start",
-              "sublabel": "../go/app/impl.go:Range · ../rs/src/impls.rs:range"
+              "sublabel": "../go/app/impl.go:Range · ../rs/src/impls.rs:range",
+              "doc": "Returns 0..i-1."
             }
           ]
         },
@@ -656,7 +658,8 @@
             {
               "type": 0,
               "label": "Start",
-              "sublabel": "../go/app/impl.go:Args · ../rs/src/impls.rs:args"
+              "sublabel": "../go/app/impl.go:Args · ../rs/src/impls.rs:args",
+              "doc": "Passes Main's command-line arguments on to Bar."
             }
           ]
         },
@@ -854,7 +857,8 @@
             {
               "type": 0,
               "label": "Declare",
-              "sublabel": "../go/app/impl.go:Declare · ../rs/src/impls.rs:declare"
+              "sublabel": "../go/app/impl.go:Declare · ../rs/src/impls.rs:declare",
+              "doc": "Gives each name its index as a slot."
             }
           ]
         },

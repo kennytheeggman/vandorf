@@ -30,9 +30,10 @@ func PushDown(l: Layout, set: map[int]bool): Layout = "doc_leaf.rs:push_down";
 func TrimRows(l: Layout): Layout = "doc_leaf.rs:trim_rows";
 // The calls a switch can end in, each with the arm heads on the way.
 func ArmPaths(arms: []SArm): []{ labels: []string, call: Call } = "doc_leaf.rs:arm_paths";
-// An arm's head as written, without the parentheses around a condition.
+// All procs, nested ones included.
 func Procs(nodes: []NodeDecl): []int = "doc_leaf.rs:all_procs";
 func GraphOf(n: NodeDecl): Graph = "doc_leaf.rs:graph_of";
+// Nodes in the last row with an edge out, in a region.
 func Frontier(l: Layout, g: Graph): []int = "doc_leaf.rs:frontier";
 
 // One grid per proc, nested ones included, keyed by qualified name.
@@ -108,6 +109,7 @@ proc Record(s: { prog: Program, pid: int, src: int, row: int, outs: []Out, i: in
 proc Downstream(s: { l: Layout, stack: []int, seen: map[int]bool }): map[int]bool {
 	func Last(xs: []int): int = "../sema/sema_leaf.rs:last_int";
 	func Pop(xs: []int): []int = "../sema/sema_leaf.rs:pop_int";
+	// Targets of n's recorded forward edges.
 	func Forward(l: Layout, n: int): []int = "doc_leaf.rs:forward";
 	Downstream switch {
 		(this.s.stack.len == 0) -> id(this.s.seen),
@@ -119,7 +121,9 @@ proc Downstream(s: { l: Layout, stack: []int, seen: map[int]bool }): map[int]boo
 proc EdgeTargets(s: { prog: Program, g: Graph, src: int }): []Out {
 	// A spawner's edges, one to each branch.
 	func SpawnOuts(branches: []SBranch, value: string): []Out = "doc_leaf.rs:spawn_outs";
-	// A branch leads on to its spawn's join.
+	// A branch's edge on to its spawn's join: a joined one's, or, when every
+	// branch is detached, the first one's (drawn from the strip); none for
+	// other detached ones.
 	func BranchOuts(g: Graph, src: int, value: string): []Out = "doc_leaf.rs:branch_outs";
 	func Joined(g: Graph, src: int): Type = "doc_leaf.rs:joined_type";
 	EdgeTargets switch {

@@ -60,7 +60,7 @@ pub fn walk(dir: Str) -> Result<List<Str>, String> {
         .collect())
 }
 
-/// Runs rustfmt over the files if it's installed.
+/// Formats Rust files, if rustfmt is installed.
 pub fn rustfmt(files: List<Str>) -> Result<bool, String> {
     let paths: Vec<&str> = files.iter().map(|f| &**f).collect();
     match std::process::Command::new("rustfmt")
@@ -75,7 +75,7 @@ pub fn rustfmt(files: List<Str>) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Runs gofmt -w over the files if it's installed.
+/// Formats Go files, if gofmt is installed.
 pub fn gofmt(files: List<Str>) -> Result<bool, String> {
     let paths: Vec<&str> = files.iter().map(|f| &**f).collect();
     match std::process::Command::new("gofmt")
@@ -90,6 +90,8 @@ pub fn gofmt(files: List<Str>) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Runs cmd with the platform's shell (sh -c, or cmd /C on Windows) in
+/// dir, on this process's terminal; Err with why if it fails.
 pub fn shell(cmd: Str, dir: Str) -> Result<super::types::ResString, String> {
     use super::types::{Diag, ResString, Span};
     let mut c = std::process::Command::new(if cfg!(windows) { "cmd" } else { "sh" });
@@ -115,11 +117,14 @@ pub fn shell(cmd: Str, dir: Str) -> Result<super::types::ResString, String> {
     })
 }
 
+/// A line on stderr.
 pub fn eprint(line: Str) -> Result<bool, String> {
     eprintln!("{line}");
     Ok(true)
 }
 
+/// A command's output, on stdout, and a closing note on stderr; each ends
+/// a proc that returns nothing.
 pub fn print_out(text: Str) -> Result<(), String> {
     println!("{text}");
     Ok(())
@@ -130,6 +135,7 @@ pub fn eprint_note(line: Str) -> Result<(), String> {
     Ok(())
 }
 
+/// Changes the working directory (for -C).
 pub fn chdir(path: Str) -> Result<super::types::ResString, String> {
     use super::types::{Diag, ResString, Span};
     Ok(match std::env::set_current_dir(&*path) {

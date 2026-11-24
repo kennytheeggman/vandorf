@@ -7,8 +7,9 @@ interface Fs {
 	func Write(path: string, text: string): bool = "io.rs:write";
 	func IsFile(path: string): bool = "io.rs:is_file";
 	func IsDir(path: string): bool = "io.rs:is_dir";
-	// The working directory, and changing it (for -C).
+	// The working directory, with / separators like the paths JoinP builds.
 	func Cwd(n: int): string = "io.rs:cwd";
+	// Changes the working directory (for -C).
 	func Chdir(path: string): Res<string> = "io.rs:chdir";
 	// The .sys files under dir, skipping hidden directories and build output.
 	func Walk(dir: string): []string = "io.rs:walk";

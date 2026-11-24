@@ -223,10 +223,10 @@ pub fn rebase_impls(prog: Program, dirs: List<Str>, out: Str) -> Result<Program,
 
 /// `name = "..."` in [lib], else in [package], of a Cargo.toml (with
 /// `-` as `_`); "" if the crate has no library.
-pub fn cargo_lib_name(toml_text: Str, has_lib_rs: bool) -> Result<Str, String> {
+pub fn cargo_lib_name(toml: Str, has_lib_rs: bool) -> Result<Str, String> {
     let mut section = "";
     let (mut lib, mut package) = (None, None);
-    for l in toml_text.lines().map(str::trim) {
+    for l in toml.lines().map(str::trim) {
         if l.starts_with('[') {
             section = l;
         } else if let Some(v) = l
@@ -242,7 +242,7 @@ pub fn cargo_lib_name(toml_text: Str, has_lib_rs: bool) -> Result<Str, String> {
             }
         }
     }
-    let has_lib = has_lib_rs || toml_text.lines().any(|l| l.trim() == "[lib]");
+    let has_lib = has_lib_rs || toml.lines().any(|l| l.trim() == "[lib]");
     Ok(if has_lib {
         lib.or(package).unwrap_or_default().into()
     } else {
@@ -318,11 +318,13 @@ pub fn dirs(root: Str, paths: List<Str>) -> Result<List<Str>, String> {
         .map(List::from)
 }
 
+/// The program with implementation paths relative to [rust]'s out.
 pub fn rebased(c: Checked) -> Result<Program, String> {
     let d = dirs(c.project.root.clone(), c.project.paths.clone())?;
     rebase_impls(c.prog.clone(), d, out_dir(c)?)
 }
 
+/// [rust]'s module_dir, or out relative to the crate's src/.
 pub fn module_dir(target: RustTarget, out: Str, croot: Str) -> Result<MaybeStr, String> {
     if let MaybeStr::Some(d) = target.module_dir {
         return Ok(MaybeStr::Some(d));
@@ -368,6 +370,8 @@ pub fn bin_path(b: Bin, name: Str) -> Result<Str, String> {
     })
 }
 
+/// Fails with the errors, without the first's `error: ` (the executable
+/// prints it).
 pub fn refuse(msg: Str) -> Result<bool, String> {
     Err(msg.to_string())
 }
@@ -425,6 +429,8 @@ pub fn server_path(d: ServerDecl, name: Str) -> Result<Str, String> {
     })
 }
 
+/// The directory of a file under the crate's src/, out being module_dir
+/// below src/.
 pub fn file_dir(out: Str, module_dir: MaybeStr, path: Str) -> Result<Str, String> {
     let up = match &module_dir {
         MaybeStr::Some(d) => d.split('/').filter(|x| !x.is_empty()).count(),
@@ -438,6 +444,7 @@ pub fn file_dir(out: Str, module_dir: MaybeStr, path: Str) -> Result<Str, String
     Ok(slash(full.parent().unwrap_or(&src)).into())
 }
 
+/// "POST /api/calc" as a method and a path, if it is one.
 pub fn split_route(route: Str, proc: Str) -> Result<List<Route>, String> {
     let Some((m, p)) = route.split_once(' ').map(|(m, p)| (m.trim(), p.trim())) else {
         return Ok(List::default());
@@ -580,7 +587,8 @@ fn check_table(t: &toml::Table, fields: Fields) -> Result<(), String> {
     }
 }
 
-/// Why text isn't a manifest the reference would load, or "".
+/// Why text isn't a manifest the reference would load (its fields and
+/// their types), or "".
 pub fn manifest_error(text: Str) -> Result<Str, String> {
     let t: toml::Table = match text.parse() {
         Ok(t) => t,
@@ -703,7 +711,8 @@ pub fn snippet(
     Ok(out.into())
 }
 
-/// Errors as snippets, a blank line apart (each once).
+/// Errors as snippets (message, path:line:col, the line underlined), a
+/// blank line apart (each once).
 pub fn render_errors(errors: List<Diag>, paths: List<Str>, srcs: List<Str>) -> Result<Str, String> {
     let mut out = vec![];
     let mut seen = std::collections::HashSet::new();
@@ -730,8 +739,8 @@ pub fn render_errors(errors: List<Diag>, paths: List<Str>, srcs: List<Str>) -> R
     Ok(out.join("\n\n").into())
 }
 
-/// Fails with msg; rendered diagnostics lose their first `error: `, which
-/// the executable prints anyway.
+/// Fails with msg (rendered diagnostics without their first `error: `,
+/// which the executable prints).
 pub fn fail_report(msg: Str) -> Result<(), String> {
     Err(msg.strip_prefix("error: ").unwrap_or(&msg).to_string())
 }
@@ -849,6 +858,7 @@ pub fn rebased_to(c: Checked, out: Str) -> Result<Program, String> {
     rebase_impls(c.prog.clone(), d, out)
 }
 
+/// [go]'s package, or the output directory's name.
 pub fn go_package(g: GoTarget, out: Str) -> Result<Str, String> {
     if let MaybeStr::Some(p) = g.package {
         return Ok(p);
@@ -885,6 +895,8 @@ pub fn go_import_base(g: GoTarget, root: Str, gomod: Str, out: Str) -> Result<Ma
     Ok(MaybeStr::Some(segs.join("/").into()))
 }
 
+/// Each bin's main package: [bin.*]'s go, by default <go.out>/../cmd/<name>,
+/// relative to go.out.
 pub fn go_main_specs(
     c: Checked,
     g: GoTarget,

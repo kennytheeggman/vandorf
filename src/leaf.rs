@@ -404,6 +404,7 @@ pub fn expected_target(toks: List<Tok>, pos: i64, what: Str) -> Result<RTarget, 
     matched(toks, pos, |_| false, &what).map(|_| unreachable!())
 }
 
+/// toks[pos] must be the symbol or word `text`.
 pub fn expect(toks: List<Tok>, pos: i64, text: Str, what: Str) -> Result<Cur, String> {
     matched(
         toks,
@@ -413,6 +414,8 @@ pub fn expect(toks: List<Tok>, pos: i64, text: Str, what: Str) -> Result<Cur, St
     )
 }
 
+/// toks[pos] must be the `>` closing type arguments or parameters; `>=`
+/// there is an error, since it lexes as the comparison operator.
 pub fn close_angle(toks: List<Tok>, pos: i64) -> Result<Cur, String> {
     let t = get(&toks, pos);
     if &*t.kind == "sym" && &*t.text == ">=" {
@@ -429,6 +432,7 @@ pub fn close_angle(toks: List<Tok>, pos: i64) -> Result<Cur, String> {
     )
 }
 
+/// toks[pos] must be an identifier other than a keyword.
 pub fn need_ident(toks: List<Tok>, pos: i64, what: Str) -> Result<Cur, String> {
     matched(
         toks,
@@ -438,10 +442,12 @@ pub fn need_ident(toks: List<Tok>, pos: i64, what: Str) -> Result<Cur, String> {
     )
 }
 
+/// toks[pos] must be an identifier; keywords allowed (field names).
 pub fn need_name(toks: List<Tok>, pos: i64, what: Str) -> Result<Cur, String> {
     matched(toks, pos, |t| &*t.kind == "ident", &what)
 }
 
+/// toks[pos] must be a string.
 pub fn need_str(toks: List<Tok>, pos: i64, what: Str) -> Result<Cur, String> {
     matched(toks, pos, |t| &*t.kind == "str", &what)
 }
@@ -454,6 +460,7 @@ pub fn is_word(t: Tok, s: Str) -> Result<bool, String> {
     Ok(&*t.kind == "ident" && t.text == s)
 }
 
+/// A closing bracket: where a list stops.
 pub fn is_close(t: Tok) -> Result<bool, String> {
     Ok(&*t.kind == "sym" && matches!(&*t.text, ")" | "}" | "]"))
 }
@@ -479,6 +486,7 @@ pub fn mk_ident(t: Tok) -> Result<Ident, String> {
     })
 }
 
+/// Where a path ends: its last segment, or its first if it has one.
 pub fn path_end(t: Tok, segs: List<Ident>) -> Result<i64, String> {
     Ok(segs.last().map_or(t.end, |s| s.span.end))
 }
@@ -495,6 +503,7 @@ pub fn float_of(t: Tok) -> Result<f64, String> {
         .map_err(|_| format!("{}:{}: number {} is out of range", t.at, t.end, t.text))
 }
 
+/// Splits a "file:function" string token, failing if it isn't one.
 pub fn impl_of(t: Tok) -> Result<ImplRef, String> {
     let bad = || {
         format!(
@@ -521,6 +530,7 @@ pub fn impl_of(t: Tok) -> Result<ImplRef, String> {
     })
 }
 
+/// Whether t is an operator of the given level.
 pub fn op_at(t: Tok, level: i64) -> Result<bool, String> {
     let ops: &[&str] = match level {
         0 => &["||"],
@@ -534,6 +544,7 @@ pub fn op_at(t: Tok, level: i64) -> Result<bool, String> {
         || (level == 2 && &*t.kind == "ident" && &*t.text == "in"))
 }
 
+/// `l op r`: a Binary, or an In for `in`.
 pub fn combine(op: Tok, l: Value, r: Value) -> Result<Value, String> {
     let span = Span {
         at: l.span.at,
@@ -558,6 +569,7 @@ pub fn combine(op: Tok, l: Value, r: Value) -> Result<Value, String> {
     })
 }
 
+/// `op e` for ! and -; `-` and a number literal make a negative literal.
 pub fn prefix(op: Tok, e: Value) -> Result<Value, String> {
     let span = Span {
         at: op.at,
@@ -578,6 +590,7 @@ pub fn prefix(op: Tok, e: Value) -> Result<Value, String> {
     })
 }
 
+/// One pattern, or an Or of several.
 pub fn or_of(pats: List<Pat>) -> Result<Pat, String> {
     if pats.len() == 1 {
         return Ok(pats[0].clone());
@@ -593,6 +606,7 @@ pub fn or_of(pats: List<Pat>) -> Result<Pat, String> {
     })
 }
 
+/// The span of toks[from..to]; empty, at toks[from], if there are none.
 pub fn inner_span(toks: List<Tok>, from: i64, to: i64) -> Result<Span, String> {
     let first = get(&toks, from);
     if to <= from {

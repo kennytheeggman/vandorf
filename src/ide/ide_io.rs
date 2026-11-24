@@ -160,8 +160,8 @@ fn checks() -> &'static (Mutex<CheckStore>, Condvar) {
     CHECKS.get_or_init(|| (Mutex::new(CheckStore::default()), Condvar::new()))
 }
 
-/// The check of key, kept or once made by another request; None when this
-/// request is to make it (or has waited too long for another's).
+/// The check of key: kept, or once another request making it has put it
+/// (waiting for that). None: this request is to make it and Put it.
 pub fn check_claim(key: Str) -> Result<MaybeCheck, String> {
     let (store, ready) = checks();
     let mut cs = store.lock().unwrap();
@@ -184,6 +184,8 @@ pub fn check_claim(key: Str) -> Result<MaybeCheck, String> {
     }
 }
 
+/// Keeps a check, dropping the least recently used past eight, and wakes
+/// the requests waiting for it.
 pub fn check_put(key: Str, c: UnitCheck) -> Result<bool, String> {
     let (store, ready) = checks();
     let mut cs = store.lock().unwrap();
@@ -425,7 +427,8 @@ pub fn term_kill(id: i64) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Whether the server listens on a loopback address.
+/// Whether the server listens on a loopback address: terminals are
+/// offered only then.
 pub fn loopback(_n: i64) -> Result<bool, String> {
     let addr = super::http::addr();
     let host = addr.rsplit_once(':').map_or(addr, |(h, _)| h);

@@ -66,6 +66,7 @@ func SpawnReach(g: Graph, nodes: []NodeDecl, span: Span): Res<Graph> = "sema_lea
 
 // env, with the proc's `id(..) as N` typed if it has any.
 proc TypedEnv(s: { env: Env, p: Proc }): Env {
+	// Whether proc `pid` has an `id(..) as N` with no type yet.
 	func HasUntyped(nodes: []NodeDecl, pid: int): bool = "sema_leaf.rs:has_untyped";
 	TypedEnv switch {
 		(HasUntyped(nodes = this.s.env.nodes, pid = this.s.env.pid)) -> IdTypes(s = { env = this.s.env, p = this.s.p, i = 0, typed = false }),
@@ -80,9 +81,9 @@ proc TypedEnv(s: { env: Env, p: Proc }): Env {
 // Edges that can't be checked yet are checked again by GraphEdges, which
 // reports their errors.
 proc IdTypes(s: { env: Env, p: Proc, i: int, typed: bool }): Env {
-	// Whether the edge passes a value to an id that has no type yet; and
-	// nodes with those ids typed by the first value each is passed.
+	// Whether the edge passes a value to an id that has no type yet.
 	func TypesIds(nodes: []NodeDecl, e: SEdge): bool = "sema_leaf.rs:types_ids";
+	// nodes with each untyped id the edge calls typed by its first call's value.
 	func TypedIds(nodes: []NodeDecl, e: SEdge): []NodeDecl = "sema_leaf.rs:typed_ids";
 	IdTypes switch {
 		(this.s.i == this.s.p.edges.len && this.s.typed) -> IdTypes(s = { ..this.s, i = 0, typed = false }),
@@ -171,7 +172,7 @@ proc SpawnEdge(s: { env: Env, ret: Type, branches: []Branch, join: Target, i: in
 	func HasTarget(out: []SBranch, n: int): bool = "sema_leaf.rs:has_branch_target";
 	func HasMember(ms: []Member, name: string): bool = "sema_leaf.rs:has_member";
 	func Name(n: NodeDecl): string = "sema_leaf.rs:last_name";
-	// The first this.X argument of the join naming a detached branch X.
+	// The first `this.X` argument of the join naming a detached branch X.
 	func Detached(join: Target, out: []SBranch, nodes: []NodeDecl): OptIdent = "sema_leaf.rs:detached_ref";
 	SpawnEdge switch {
 		(this.s.i == this.s.branches.len) -> Detached(join = this.s.join, out = this.s.out, nodes = this.s.env.nodes),
@@ -373,6 +374,7 @@ proc Ran(s: { env: Env, g: Graph, dom: map[int]map[int]bool, todo: []Expr, r: in
 
 proc RanEach(s: { at: { env: Env, g: Graph, dom: map[int]map[int]bool, todo: []Expr, r: int, at: int, src: int }, refs: []Ref, i: int }): Res<int> {
 	func NodeOf(r: Root): int = "sema_leaf.rs:root_node";
+	// Where a path skips node n, reading it from `at` in region r; -1 if none.
 	func Skip(g: Graph, dom: map[int]map[int]bool, n: int, r: int, at: int): int = "sema_leaf.rs:skip";
 	RanEach switch {
 		(this.s.i == this.s.refs.len) -> id(Ok(0)),

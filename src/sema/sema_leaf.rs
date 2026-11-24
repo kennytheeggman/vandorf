@@ -3,7 +3,7 @@
 
 use crate::vcc::types::*;
 
-/// `", "` between list items: nothing before the first.
+/// ", " before every list item but the first.
 pub fn sep(i: i64) -> Result<Str, String> {
     Ok(if i == 0 { "".into() } else { ", ".into() })
 }
@@ -32,6 +32,7 @@ pub fn member(ms: List<Member>, name: Str) -> Result<MaybeType, String> {
         .map_or(MaybeType::None, |m| MaybeType::Some(m.ty.clone())))
 }
 
+/// The pair to assume while comparing two typedef names' structures.
 pub fn new_pair(o: OptPair) -> Result<List<Pair>, String> {
     Ok(match o {
         OptPair::Some(p) => vec![p].into(),
@@ -120,6 +121,7 @@ pub fn type_docs(types: List<TypeDef>, decls: List<TypeDecl>) -> Result<List<Typ
         .collect())
 }
 
+/// cx with a new typedef: name, ident, declared at span.
 pub fn new_def(cx: TyCx, name: Str, ident: Str, span: Span) -> Result<TyCx, String> {
     let id = cx.types.len() as i64;
     let mut cx = push_def(cx, name.clone(), ident, span);
@@ -140,6 +142,7 @@ pub fn set_ty(types: List<TypeDef>, id: i64, t: Type) -> Result<List<TypeDef>, S
     Ok(v.into())
 }
 
+/// errors[from..] with " (in key)" appended.
 pub fn in_instance(errors: List<Diag>, from: i64, key: Str) -> Result<List<Diag>, String> {
     Ok(errors
         .into_iter()
@@ -153,6 +156,7 @@ pub fn in_instance(errors: List<Diag>, from: i64, key: Str) -> Result<List<Diag>
         .collect())
 }
 
+/// The innermost bound type parameter `name`, if any.
 pub fn bound(bound: List<Map<Str, Type>>, name: Str) -> Result<MaybeType, String> {
     Ok(bound
         .last()
@@ -344,6 +348,7 @@ pub fn with_node(mut cx: Cx, n: NodeDecl) -> Result<Cx, String> {
     Ok(cx)
 }
 
+/// Where a span starts, as a key: "file:at".
 pub fn span_key(s: Span) -> Result<Str, String> {
     Ok(format!("{}:{}", s.file, s.at).into())
 }
@@ -363,6 +368,7 @@ pub fn with_proc(mut cx: Cx, p: PendingProc) -> Result<Cx, String> {
     Ok(cx)
 }
 
+/// cx with proc `id`'s entry and locals set.
 pub fn set_proc(mut cx: Cx, id: i64, entry: i64, locals: List<i64>) -> Result<Cx, String> {
     cx.nodes = updated(cx.nodes, id, |n| {
         if let NodeKind::Proc(p) = &mut n.kind {
@@ -541,6 +547,7 @@ pub fn is_prim_named(t: Type, p: Str) -> Result<bool, String> {
     Ok(matches!(&t, Type::Prim(q) if *q == p))
 }
 
+/// The primitive behind a type, or "" if it isn't one.
 pub fn prim_name(t: Type) -> Result<Str, String> {
     Ok(match t {
         Type::Prim(p) => p,
@@ -564,6 +571,7 @@ pub fn is_struct(t: Type) -> Result<bool, String> {
     Ok(matches!(t, Type::Struct(_)))
 }
 
+/// The fields of a struct or variants of an enum (none otherwise).
 pub fn members_of(t: Type) -> Result<List<Member>, String> {
     Ok(match t {
         Type::Struct(ms) | Type::Enum(ms) => ms,
@@ -585,6 +593,7 @@ pub fn key_of(t: Type) -> Result<Type, String> {
     }
 }
 
+/// The value type of a map, or element type of an array.
 pub fn indexed_value(t: Type) -> Result<Type, String> {
     match t {
         Type::Map(m) => Ok((*m.value).clone()),
@@ -593,6 +602,7 @@ pub fn indexed_value(t: Type) -> Result<Type, String> {
     }
 }
 
+/// A map literal key as written in messages: 3, "a".
 pub fn lit_key(e: Expr) -> Result<MaybeStr, String> {
     Ok(match e {
         Expr::Int(i) => MaybeStr::Some(i.to_string().into()),
@@ -608,6 +618,7 @@ pub fn some_strs(m: MaybeStr) -> Result<List<Str>, String> {
     })
 }
 
+/// A node's return and parameters (an alias's are those of what it instances).
 pub fn node_ret(nodes: List<NodeDecl>, n: i64) -> Result<Type, String> {
     match &nodes[n as usize].kind {
         NodeKind::Func(f) => Ok(f.ret.clone()),
@@ -792,6 +803,8 @@ pub fn allowed(op: Str) -> Result<Str, String> {
     Ok(allowed_prims(&op).join(", ").into())
 }
 
+/// Whether the operator applies to the two primitives, an int literal next
+/// to a float becoming a float.
 pub fn operands(s: OperandsS) -> Result<OperandsOut, String> {
     let (mut l, mut r, mut lp, mut rp) = (s.l, s.r, s.lp, s.rp);
     // An int literal next to a float is a float.
@@ -830,6 +843,7 @@ pub fn head_index(arms: List<Arm>, kind: Str) -> Result<i64, String> {
         .map_or(-1, |i| i as i64))
 }
 
+/// The source text of a span, trimmed: an arm's head as written.
 pub fn slice(src: Str, span: Span) -> Result<Str, String> {
     Ok(src
         .get(span.at as usize..span.end as usize)
@@ -873,6 +887,7 @@ pub fn variant_tag(k: PatKind) -> Result<Ident, String> {
     }
 }
 
+/// How to match a variant: `()` for one without payload, `(_)` otherwise.
 pub fn variant_fix(t: Type) -> Result<Str, String> {
     Ok(if is_void(t)? {
         "()".into()
@@ -924,6 +939,8 @@ fn expand_rows(rows: &[List<P>]) -> Vec<List<P>> {
     out
 }
 
+/// Rows matching constructor c with `arity` arguments, the first column
+/// replaced by its arguments.
 pub fn specialize(rows: List<List<P>>, c: Str, arity: i64) -> Result<List<List<P>>, String> {
     Ok(expand_rows(&rows)
         .into_iter()
@@ -935,6 +952,7 @@ pub fn specialize(rows: List<List<P>>, c: Str, arity: i64) -> Result<List<List<P
         .collect())
 }
 
+/// Rows whose first column is a wildcard, without it.
 pub fn default_rows(rows: List<List<P>>) -> Result<List<List<P>>, String> {
     Ok(expand_rows(&rows)
         .into_iter()
@@ -943,6 +961,7 @@ pub fn default_rows(rows: List<List<P>>) -> Result<List<List<P>>, String> {
         .collect())
 }
 
+/// The constructors the first column names.
 pub fn used(rows: List<List<P>>) -> Result<List<Str>, String> {
     Ok(expand_rows(&rows)
         .iter()
@@ -953,6 +972,8 @@ pub fn used(rows: List<List<P>>) -> Result<List<Str>, String> {
         .collect())
 }
 
+/// The constructors of an unfolded type and their argument types; none for
+/// types patterns can't take apart.
 pub fn ctors(t: Type) -> Result<List<Ctor>, String> {
     Ok(match t {
         Type::Enum(vs) => vs
@@ -1034,6 +1055,7 @@ fn graph_of(mut g: Graph, f: impl FnOnce(&mut Graph)) -> Graph {
     g
 }
 
+/// g with a new region (its id is the old regions.len).
 pub fn new_region(g: Graph, parent: i64, entry: i64, elem: Type) -> Result<Graph, String> {
     Ok(graph_of(g, |g| {
         g.regions = push(
@@ -1049,6 +1071,7 @@ pub fn new_region(g: Graph, parent: i64, entry: i64, elem: Type) -> Result<Graph
     }))
 }
 
+/// g with node n in region r.
 pub fn in_region(g: Graph, n: i64, r: i64) -> Result<Graph, String> {
     Ok(graph_of(g, |g| {
         g.region_of = g.region_of.clone().merge(&Map::from_iter([(n, r)]));
@@ -1104,6 +1127,7 @@ fn calls_of(e: &SEdge) -> Vec<Call> {
     }
 }
 
+/// The calls an edge makes (a switch's, depth first).
 pub fn edge_calls(e: SEdge) -> Result<List<Call>, String> {
     Ok(calls_of(&e).into())
 }
@@ -1121,12 +1145,14 @@ pub fn arg_values(calls: List<Call>) -> Result<List<Expr>, String> {
         .collect())
 }
 
+/// The conditions of arms and the switches nested in them, arm by arm.
 pub fn arm_conds(arms: List<SArm>) -> Result<List<Expr>, String> {
     let mut out = vec![];
     arms.iter().for_each(|a| conds(a, &mut out));
     Ok(out.into())
 }
 
+/// Each arm's conditions, then the arguments of its calls, arm by arm.
 pub fn arm_reads(arms: List<SArm>) -> Result<List<Expr>, String> {
     let mut out = vec![];
     for a in arms.iter() {
@@ -1333,8 +1359,8 @@ pub fn detached_ref(
     Ok(OptIdent::None)
 }
 
-/// Records each spawn's branches: each runs in one branch only, with no
-/// edge of its own. Spawners in node order.
+/// g with each spawn's branches recorded; each runs in one branch only, with
+/// no edge of its own.
 pub fn with_spawned(g: Graph, nodes: List<NodeDecl>) -> Result<ResGraph, String> {
     let mut spawned: std::collections::BTreeMap<i64, i64> = Default::default();
     for (&src, e) in g.edges.iter() {
@@ -1435,6 +1461,7 @@ pub fn same_set(a: Map<i64, bool>, b: Map<i64, bool>) -> Result<bool, String> {
     Ok(a.keys().eq(b.keys()))
 }
 
+/// Where a path skips node n, reading it from `at` in region r; -1 if none.
 pub fn skip(
     g: Graph,
     dom: Map<i64, Map<i64, bool>>,
@@ -1470,6 +1497,7 @@ pub fn pack_placed(l: Layout, _target: i64, back: bool) -> Result<RecordPlacedOu
     Ok(RecordPlacedOut { l, back })
 }
 
+/// The first of bfs not among fs, or "".
 pub fn extra_member(bfs: List<Member>, fs: List<Member>) -> Result<Str, String> {
     Ok(bfs
         .iter()
@@ -1477,6 +1505,7 @@ pub fn extra_member(bfs: List<Member>, fs: List<Member>) -> Result<Str, String> 
         .map_or("".into(), |b| b.name.clone()))
 }
 
+/// The source text of a span on one line: whitespace runs become a space.
 pub fn squash(src: Str, span: Span) -> Result<Str, String> {
     let text = src.get(span.at as usize..span.end as usize).unwrap_or("");
     Ok(text.split_whitespace().collect::<Vec<_>>().join(" ").into())
@@ -1484,6 +1513,8 @@ pub fn squash(src: Str, span: Span) -> Result<Str, String> {
 
 // ---- id(..) as N ----
 
+/// The error for using `id(..) as N` before any value passed to it has a
+/// type.
 pub fn untyped(n: NodeDecl, span: Span) -> Result<Diag, String> {
     let name = n.qual.last().cloned().unwrap_or_default();
     Ok(diag(
@@ -1504,6 +1535,7 @@ pub fn has_untyped(nodes: List<NodeDecl>, pid: i64) -> Result<bool, String> {
         .any(|&l| is_untyped_id(nodes[l as usize].clone()).unwrap_or(false)))
 }
 
+/// Whether the edge passes a value to an id that has no type yet.
 pub fn types_ids(nodes: List<NodeDecl>, e: SEdge) -> Result<bool, String> {
     Ok(calls_of(&e)
         .iter()

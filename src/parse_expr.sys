@@ -103,6 +103,7 @@ proc PAtom(toks: []Tok, pos: int): R<Value> {
 		(this.tok.kind == "ident") -> PPath(toks = this.toks, pos = this.pos),
 		else -> NotAtom(toks = this.toks, pos = this.pos, what = "an expression")
 	};
+	// Fails at toks[pos]: what was expected there instead.
 	func NotAtom(toks: []Tok, pos: int, what: string): R<Value> = "leaf.rs:expected_value";
 	StructArgs -> Expect(toks = At.toks, pos = this.pos, text = "}", what = ", or }") as StructClose;
 	// `{ ..base }` or `{ ..base, f = v, .. }`

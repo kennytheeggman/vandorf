@@ -4,7 +4,8 @@
 type Checked = { project: Project, prog: Program };
 type OutFile = { path: string, text: string, kind: string };
 
-// Errors as snippets (message, path:line:col, the line underlined).
+// Errors as snippets (message, path:line:col, the line underlined), a
+// blank line apart (each once).
 func RenderErrors(errors: []Diag, paths: []string, srcs: []string): string = "cli_leaf.rs:render_errors";
 
 // The project around the working directory, parsed and checked.
@@ -67,15 +68,18 @@ proc Build(s: { c: Checked, only: string }): string {
 	RustBuild -> id("built " + Build.s.c.project.manifest.name);
 }
 
+// The program with implementation paths relative to out.
 func RebasedTo(c: Checked, out: string): Program = "cli_leaf.rs:rebased_to";
 // [go]'s package, or the output directory's name.
 func GoPackage(g: GoTarget, out: string): string = "cli_leaf.rs:go_package";
-// [go]'s module, or the import path of out in the go.mod at root (text).
+// [go]'s module, else go.mod's module path (root: go.mod's directory, ""
+// if none) followed by out's directories below root.
 func GoImportBase(g: GoTarget, root: string, gomod: string, out: string): MaybeStr = "cli_leaf.rs:go_import_base";
 // Each bin's main package: [bin.*]'s go, by default <go.out>/../cmd/<name>,
 // relative to go.out.
 func GoMainSpecs(c: Checked, g: GoTarget, names: []string): []GoMainSpec = "cli_leaf.rs:go_main_specs";
 func GoOutFiles(out: string, files: []GoFile): []OutFile = "cli_leaf.rs:go_out_files";
+// For each func implemented in Go: as impl_checks, for `func`.
 func GoImplChecks(prog: Program, t: Table, g: GoTarget, out: string, import_base: MaybeStr, root: string, paths: []string, srcs: []string): []ImplCheck = "cli_leaf.rs:go_impl_checks";
 
 // Go for the project: [go]'s packages, the bins' mains, and the servers
@@ -115,6 +119,8 @@ func UnwrapOr(m: MaybeStr, d: string): string = "cli_leaf.rs:unwrap_or";
 // The Go servers: each a main package, by default <go.out>/../cmd/<name>,
 // relative to go.out, with its routes and its static files' contents.
 proc GoServerSpecs(s: { c: Checked, g: GoTarget, names: []string, i: int, acc: []GoServerSpec }): Res<[]GoServerSpec> {
+	// A server's main package: [http.*]'s go, by default
+	// <go.out>/../cmd/<name>, relative to go.out.
 	func GoServerPath(c: Checked, g: GoTarget, name: string): string = "cli_leaf.rs:go_server_path";
 	func SetupName(d: ServerDecl): string = "cli_leaf.rs:setup_name";
 	GoServerSpecs switch {
@@ -219,9 +225,13 @@ proc Commands(s: { what: string, cmds: []string, dir: string, i: int }): string 
 
 // keyword: what defines the function (fn, func).
 type ImplCheck = { path: string, function: string, keyword: string, missing: string, undefined: string };
+// For each func implemented in Rust: its file (absolute), function, and
+// the warning to print if the file is missing or doesn't define it.
 func ImplChecks(prog: Program, t: Table, module_dir: MaybeStr, out: string, root: string, paths: []string, srcs: []string): []ImplCheck = "cli_leaf.rs:impl_checks";
 
 proc ImplWarnings(s: { checks: []ImplCheck, i: int }): bool {
+	// Whether src defines `fn function` (or a generic `fn function<` /
+	// `func Function[T any](`); keyword is fn or func.
 	func Defines(src: string, function: string, keyword: string): bool = "cli_leaf.rs:defines_fn";
 	ImplWarnings switch {
 		(this.s.i == this.s.checks.len) -> id(true),
@@ -260,6 +270,8 @@ proc CrateName(dir: string): string {
 }
 
 proc Mains(s: { prog: Program, bins: map[string]Bin, names: []string, module_dir: MaybeStr, krate: string, out: string, i: int, acc: []OutFile }): []OutFile {
+	// An executable running proc `entry` (src/codegen/rust.rs: main_artifact):
+	// its directory relative to the output module, file name and text.
 	func RustMain(prog: Program, t: Table, name: string, entry: string, path: string, module_dir: MaybeStr, krate: string): { dir: string, file: string, text: string, err: MaybeStr } = "../gen/gen_leaf.rs:rust_main";
 	func BinPath(b: Bin, name: string): string = "cli_leaf.rs:bin_path";
 	func FailFiles(msg: string): []OutFile = "cli_leaf.rs:fail_files";
@@ -348,6 +360,7 @@ func UnwrapRoutes(r: Res<[]Route>): []Route = "cli_leaf.rs:unwrap_routes";
 
 proc Routes(s: { name: string, routes: map[string]string, keys: []string, other: map[string]string, j: int, acc: []Route }): Res<[]Route> {
 	// other: the server's other routes, which these mustn't repeat.
+
 	// "POST /api/calc" as a method and a path, if it is one.
 	func Split(route: string, proc: string): []Route = "cli_leaf.rs:split_route";
 	func DebugQ(s: string): string = "cli_leaf.rs:debug_quote";
@@ -371,7 +384,8 @@ proc Statics(s: { name: string, root: string, dir: string, statics: map[string]s
 	};
 }
 
-// A diagnostic as a snippet (for the parity tests).
+// One diagnostic: the message, `path:line:col`, and the line with the span
+// underlined; notes follow as `= note` lines.
 func Snippet(level: string, msg: string, path: string, text: string, at: int, end: int, notes: []string): string = "cli_leaf.rs:snippet";
 proc RenderSnippet(s: { level: string, msg: string, path: string, text: string, at: int, end: int, notes: []string }): string {
 	RenderSnippet -> id(Snippet(level = this.s.level, msg = this.s.msg, path = this.s.path, text = this.s.text, at = this.s.at, end = this.s.end, notes = this.s.notes));

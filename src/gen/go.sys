@@ -56,8 +56,10 @@ type GoCallee = { s: string, stub: int, path: string, alias: string, err: MaybeS
 func GoSetupOf(package: string, import_base: MaybeStr, types_dir: string): GoSetup = "go_leaf.rs:go_setup";
 func GoHeader(pkg: string, imports: []GoImport): string = "go_leaf.rs:go_header";
 func GoRender(t: Table, r: TyRef, qual: string): string = "go_leaf.rs:go_render";
+// A vandorf type as written in the code package.
 func GoType(g: GGen, ty: Type): string = "go_leaf.rs:go_type";
 func GoDoc(t: Table, n: NamedType): []Line = "go_leaf.rs:go_doc";
+// The doc comment of the typedef alias `name`.
 func GoAliasDoc(t: Table, name: string): []Line = "go_leaf.rs:go_alias_doc";
 func GoTagDoc(ms: []RefMember): string = "go_leaf.rs:go_tag_doc";
 // A field's type, a pointer where it would make the type contain itself.
@@ -360,7 +362,8 @@ proc GTransition(s: { g: GGen, pid: int, c: Call }): GGen {
 	GInput -> id(GW(g = this.g, ls = ["env.in" + Gname(n = GTransition.s.g.prog.nodes[GTransition.s.c.target]) + " = " + this.s] + GoLastReads(g = GTransition.s.g, pid = GTransition.s.pid, c = GTransition.s.c) + ["pc = " + GoPc(nodes = GTransition.s.g.prog.nodes, pid = GTransition.s.pid, n = GTransition.s.c.target), "continue"]));
 }
 
-// zeroOut(&env.out<N>) for each node the call reads for the last time.
+// `zeroOut(&env.out<N>)` for each node the transition's call reads for the
+// last time, in node order.
 func GoLastReads(g: GGen, pid: int, c: Call): []string = "go_leaf.rs:go_last_reads";
 
 type GSwitchIn = { g: GGen, pid: int, n: int, arms: []SArm, top: bool, i: int, always: bool };
@@ -531,6 +534,7 @@ func GoFileText(pkg: string, body: string, imports: []GoImport, setup: GoSetup):
 
 // A file per top-level proc.
 proc GFiles(s: { g: GGen, package: string, setup: GoSetup, procs: []int, i: int, acc: []GoFile }): { g: GGen, files: []GoFile } {
+	// All procs, parents before children, in source order.
 	func Order(nodes: []NodeDecl, top: []int): []int = "gen_leaf.rs:all_procs_ordered";
 	GFiles switch {
 		(this.s.i == this.s.procs.len || IsSomeS(m = this.s.g.fatal)) -> id({ g = this.s.g, files = this.s.acc }),
@@ -546,15 +550,16 @@ func GoRestFiles(g: GGen, package: string, setup: GoSetup): []GoFile = "go_leaf.
 // The mains, each a package main in its directory; or the first error.
 func GoMainFiles(prog: Program, t: Table, package: string, import_base: MaybeStr, mains: []GoMainSpec): GoOut = "go_leaf.rs:go_main_files";
 
-// The Go for a program: files sorted by directory and name, or the first
-// error, in the reference's order: the types' import path, names, an error
-// that stopped the generator, one from an expression, then the mains.
 // http_vandorf.go, if there are servers: the runtime, JSON for every type,
 // and a handler per server (src/codegen/go_http.rs).
 func GoHttpFiles(prog: Program, t: Table, package: string, setup: GoSetup, servers: []GoServerSpec): GoOut = "go_leaf.rs:go_http_files";
-// Each server's package main.
+// Each server's package main: its static files, then HTTPRun (or
+// HTTPRunSetup) with its handler.
 func GoServerMains(package: string, import_base: MaybeStr, servers: []GoServerSpec): GoOut = "go_leaf.rs:go_server_mains";
 
+// The Go for a program: files sorted by directory and name, or the first
+// error, in the reference's order: the types' import path, names, an error
+// that stopped the generator, one from an expression, then the mains.
 proc GoGenerate(s: GoGenIn): GoOut {
 	func Sorted(files: []GoFile): []GoFile = "go_leaf.rs:go_sort_files";
 	GoGenerate -> id(GoSetupOf(package = this.s.package, import_base = this.s.import_base, types_dir = this.s.types_dir)) as Setup;

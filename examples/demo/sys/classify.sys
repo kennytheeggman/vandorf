@@ -5,6 +5,7 @@
 // with a value.
 proc Classify(e: Expr): string {
 	func Look(e: Expr): Expr = "../go/app/impl.go:Look", "../rs/src/impls.rs:look";
+	// Whether |i| < 100.
 	func Small(i: int): bool = "../go/app/impl.go:Small", "../rs/src/impls.rs:small";
 
 	Classify -> Look(e = this.e);

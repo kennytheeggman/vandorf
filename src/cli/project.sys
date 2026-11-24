@@ -15,15 +15,20 @@ type Bin = { entry: string, go: MaybeStr, rust: MaybeStr };
 // root: the manifest's directory. paths: relative to root, sorted.
 type Project = { root: string, manifest: Manifest, paths: []string, srcs: []string };
 
+// vandorf.toml, as src/project.rs reads it.
 func ParseManifest(text: string): Res<Manifest> = "cli_leaf.rs:parse_manifest";
+// a/b, `.` and `..` resolved lexically (b may be absolute).
 func JoinP(a: string, b: string): string = "cli_leaf.rs:join";
 func Parent(p: string): string = "cli_leaf.rs:parent";
-// Implementation paths made relative to out (dirs: each file's directory).
+// Each implementation path made relative to `out` instead of the .sys
+// file naming it (dirs[file id] is that file's directory).
 func RebaseImpls(prog: Program, dirs: []string, out: string): Program = "cli_leaf.rs:rebase_impls";
-// target relative to the directory from; both absolute.
+// target relative to the directory from; both absolute and normalized.
 func Relative(target: string, from: string): string = "cli_leaf.rs:relative";
 func SortDedup(xs: []string): []string = "cli_leaf.rs:sort_dedup";
 func StartsWith(text: string, prefix: string): bool = "cli_leaf.rs:starts_with";
+// `name = "..."` in [lib], else in [package], of a Cargo.toml (with
+// `-` as `_`); "" if the crate has no library.
 func CargoLibName(toml: string, has_lib_rs: bool): string = "cli_leaf.rs:cargo_lib_name";
 
 // The nearest directory at or above dir that has `marker`, or "".

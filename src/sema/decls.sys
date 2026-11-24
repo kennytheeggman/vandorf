@@ -110,7 +110,8 @@ type ProcIn = { cx: Cx, p: Proc, qual: []string, parent: int };
 
 proc DeclareProc(s: ProcIn): Declared {
 	func EmptyGraph(n: int): Graph = "sema_leaf.rs:empty_graph";
-	// The proc's own node, then its signature node `P.P`, its entry.
+	// cx with proc `pid`'s signature node after it: a local of the proc with
+	// the proc's name (`P.P`), so `P` in the body names it.
 	func WithSig(cx: Cx, p: Proc, qual: []string, pid: int, params: []Member): Cx = "sema_leaf.rs:with_sig";
 	DeclareProc -> Ty(s = { cx = this.s.cx.ty, t = this.s.p.ret }) as Ret;
 	Ret switch {
@@ -166,6 +167,7 @@ proc Targets(s: { edges: []Edge, i: int, acc: []Target }): []Target {
 	ArmTargets -> Targets(s = { edges = Targets.s.edges, i = Targets.s.i + 1, acc = this });
 }
 
+// A spawn's targets as written: the branches', then the join's.
 func SpawnTargets(branches: []Branch, join: Target): []Target = "sema_leaf.rs:spawn_targets";
 
 // The targets of arms, depth first: `stack` holds the arm lists still to
@@ -245,6 +247,7 @@ proc DeclareAliases(s: { cx: Cx, ts: []Target, i: int, p: Proc, qual: []string, 
 
 // Points each alias at the node it instances, once every node is declared.
 proc ResolveAliases(s: { cx: Cx, i: int }): Cx {
+	// The proc a signature node belongs to; any other node is itself.
 	func SigProc(n: NodeDecl, b: int): int = "sema_leaf.rs:sig_proc";
 	ResolveAliases switch {
 		(this.s.i == this.s.cx.aliases.len) -> id(this.s.cx),
@@ -270,6 +273,8 @@ type ResolvedNode = enum { Ok(int), Err(Diag) };
 // through the enclosing procs' locals, innermost first, then globals;
 // `Iface.Func` names an interface func.
 proc Resolve(s: Lookup): Resolved {
+	// The local called `name` of proc `pid` or an enclosing proc, innermost
+	// first; -1 if none.
 	func Local(nodes: []NodeDecl, pid: int, name: string): int = "sema_leaf.rs:find_local";
 	func Segs(ids: []Ident, from: int): []Ident = "sema_leaf.rs:segs_from";
 	Resolve -> Local(nodes = this.s.nodes, pid = this.s.pid, name = this.s.path.segs[0].name);

@@ -10,9 +10,13 @@
 // of a declaration's keyword (`func`, `proc`, `type`, `interface`).
 type Tok = { kind: string, text: string, at: int, end: int, file: int, doc: string };
 
+// Splits `src` into tokens, ending with an "eof" token. `//` starts a
+// comment; the comment lines directly above a token that starts its line
+// are its doc.
 func Lex(src: string, file: int): []Tok = "leaf.rs:lex";
 
 // Pure helpers the parser calls in expressions.
+
 func MkIdent(t: Tok): Ident = "leaf.rs:mk_ident";
 func SpanOf(t: Tok): Span = "leaf.rs:span_of";
 func IntOf(t: Tok): int = "leaf.rs:int_of";

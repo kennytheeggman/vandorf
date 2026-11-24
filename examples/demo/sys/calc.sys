@@ -3,6 +3,7 @@
 type Expr = enum { Lit(int), Neg(Expr), Add({ l: Expr, r: Expr }) };
 
 proc Calc(base: int): int {
+	// Returns base + 2.
 	func Build(base: int): Expr = "../go/app/impl.go:Build", "../rs/src/impls.rs:build";
 	func Eval(e: Expr, scale: int): int = "../go/app/impl.go:Eval", "../rs/src/impls.rs:eval";
 	func Total(xs: []int): int = "../go/app/impl.go:Total", "../rs/src/impls.rs:total";

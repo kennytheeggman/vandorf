@@ -6,6 +6,7 @@ interface Foo {
 }
 
 proc ForEach(i: int): int {
+	// Returns 0..i-1.
 	func Start(i: int): { l: []int, s: string } = "../go/app/impl.go:Range", "../rs/src/impls.rs:range";
 	func Process(i: int, l: []int): int = "../go/app/impl.go:Square", "../rs/src/impls.rs:square";
 	func Collect(l: []int): int = "../go/app/impl.go:Sum", "../rs/src/impls.rs:sum";

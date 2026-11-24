@@ -21,7 +21,7 @@ type Pair = { x: int, y: int };
 type OptPair = enum { None, Some(Pair) };
 
 func IsVoid(t: Type): bool = "sema_leaf.rs:is_void";
-// The member called `name`.
+// The member named `name`, if any.
 func Member(ms: []Member, name: string): MaybeType = "sema_leaf.rs:member";
 // ", " before every list item but the first.
 func Sep(i: int): string = "sema_leaf.rs:sep";
@@ -78,6 +78,7 @@ proc ShowMembers(s: { ms: []Member, variants: bool, i: int, acc: string }): stri
 type AcceptsIn = { a: Type, b: Type, defs: []TypeDef, assumed: []Pair };
 
 proc Accepts(s: AcceptsIn): bool {
+	// Both typedef ids, if both types are typedef names.
 	func Names(a: Type, b: Type): OptPair = "sema_leaf.rs:named_pair";
 	func HasPair(ps: []Pair, p: Pair): bool = "sema_leaf.rs:has_pair";
 	Accepts -> Names(a = this.s.a, b = this.s.b);

@@ -9,7 +9,7 @@ import (
 	"example.com/demo/app/types"
 )
 
-// Range returns 0..i-1.
+// Returns 0..i-1.
 func Range(ctx context.Context, i int) (types.ForEachStartOut, error) {
 	l := make([]int, i)
 	for j := range l {
@@ -54,12 +54,12 @@ func Finish(ctx context.Context, r types.Outcome) (string, error) {
 	return "end:" + r.Tag, nil
 }
 
-// Args passes Main's command-line arguments on to Bar.
+// Passes Main's command-line arguments on to Bar.
 func Args(ctx context.Context, a int, b string) (types.BarArgs, error) {
 	return types.BarArgs{A: a, B: b}, nil
 }
 
-// Build returns base + 2.
+// Returns base + 2.
 func Build(ctx context.Context, base int) (types.Expr, error) {
 	lit := func(i int) *types.Expr { return &types.Expr{Tag: "Lit", Lit: i} }
 	return types.Expr{Tag: "Add", Add: &types.ExprAdd{L: lit(base), R: lit(2)}}, nil
@@ -87,10 +87,10 @@ func Total(ctx context.Context, xs []int) (int, error) {
 
 func Look(ctx context.Context, e types.Expr) (types.Expr, error) { return e, nil }
 
-// Small reports whether |i| < 100.
+// Whether |i| < 100.
 func Small(ctx context.Context, i int) (bool, error) { return i > -100 && i < 100, nil }
 
-// Declare gives each name its index as a slot.
+// Gives each name its index as a slot.
 func Declare(ctx context.Context, names []string, query string) (types.ResolveDeclareOut, error) {
 	scope := types.Scope{}
 	for i, n := range names {

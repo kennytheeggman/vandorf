@@ -66,6 +66,7 @@ fn write(j: &Json, indent: usize, out: &mut String) {
     }
 }
 
+/// serde_json's pretty format.
 pub fn pretty(j: Json) -> Result<Str, String> {
     let mut out = String::new();
     write(&j, 0, &mut out);
@@ -94,6 +95,7 @@ fn rows_vec(l: &Layout) -> Vec<Vec<i64>> {
     l.rows.iter().map(|r| r.to_vec()).collect()
 }
 
+/// l with n placed at the end of row r.
 pub fn place(mut l: Layout, n: i64, r: i64) -> Result<Layout, String> {
     let mut rows = rows_vec(&l);
     let c = rows[r as usize].len() as i64;
@@ -103,6 +105,7 @@ pub fn place(mut l: Layout, n: i64, r: i64) -> Result<Layout, String> {
     Ok(l)
 }
 
+/// l without `set` and their recorded edges.
 pub fn push_down(mut l: Layout, set: Map<i64, bool>) -> Result<Layout, String> {
     let rows: Vec<Vec<i64>> = rows_vec(&l)
         .into_iter()
@@ -212,6 +215,7 @@ fn leaves(a: &SArm, path: &mut Vec<Str>, out: &mut Vec<(Vec<Str>, Call)>) {
     path.pop();
 }
 
+/// The calls a switch can end in, each with the arm heads on the way.
 pub fn arm_paths(arms: List<SArm>) -> Result<List<ArmPathsOutItem>, String> {
     let mut out = vec![];
     for a in arms.iter() {
@@ -291,6 +295,8 @@ fn display(prog: &Program, pid: i64, n: i64) -> String {
     }
 }
 
+/// Funcs local to the proc by bare name; others (interface funcs, top-level
+/// funcs) by qualified name.
 pub fn display_label(prog: Program, pid: i64, n: i64) -> Result<Str, String> {
     Ok(display(&prog, pid, n).into())
 }

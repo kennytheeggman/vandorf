@@ -10,6 +10,7 @@ type MaybeProject = enum { None, Some(Project) };
 // The files compiled: names as shown, texts, the root names are relative to,
 // and which is the editor's; previews: whether to generate code.
 type Unit = { names: []string, srcs: []string, root: string, here: int, project: MaybeProject, previews: bool };
+// Whether the request wants generated code: unless it says `previews: false`.
 func WantsPreviews(j: Json): bool = "ide_leaf.rs:wants_previews";
 
 func NonBlank(m: MaybeStr): bool = "ide_leaf.rs:non_blank";
@@ -41,7 +42,7 @@ proc CompileRoute(req: HttpRequest): HttpResponse {
 		Err(e) -> id(ApiErr(msg = e.msg))
 	};
 	FindUp switch {
-		(this != "" && (this == Session.Base || HasPrefix(s = this, prefix = Session.Base + "/"))) -> LoadProject(path = JoinP(a = this, b = "vandorf.toml")),
+		(this != "" && (this == Session.Base || HasPrefix(text = this, prefix = Session.Base + "/"))) -> LoadProject(path = JoinP(a = this, b = "vandorf.toml")),
 		else -> CompileUnit(s = { base = Session.Base, unit = { names = [EditorName(j = UnwrapJ(r = ParseJson))], srcs = [Text], root = Session.Base, here = 0, project = None(), previews = WantsPreviews(j = UnwrapJ(r = ParseJson)) } }) as Alone
 	};
 	LoadProject switch {
@@ -60,6 +61,7 @@ func UnwrapR2(r: Res<string>): string = "ide_leaf.rs:unwrap_res_string";
 // What a unit is checked from, as a cache key: its sources (their names
 // and the file asked about only change how the result is shown).
 func CheckKey(srcs: []string): string = "ide_leaf.rs:check_key";
+// The program of a check that failed to parse: none.
 func NoProgram(n: int): Program = "ide_leaf.rs:no_program";
 
 proc CompileUnit(s: { base: string, unit: Unit }): HttpResponse {
@@ -276,6 +278,8 @@ func UnwrapOut(r: Res<[]OutFile>): []OutFile = "ide_leaf.rs:unwrap_out";
 
 // The bins' files: dir (relative to the module) as path, file name as kind.
 proc PreviewMains(s: { prog: Program, bins: map[string]Bin, names: []string, module_dir: MaybeStr, krate: string, i: int, acc: []OutFile }): Res<[]OutFile> {
+	// An executable running proc `entry` (src/codegen/rust.rs: main_artifact):
+	// its directory relative to the output module, file name and text.
 	func RustMain(prog: Program, t: Table, name: string, entry: string, path: string, module_dir: MaybeStr, krate: string): { dir: string, file: string, text: string, err: MaybeStr } = "../gen/gen_leaf.rs:rust_main";
 	func BinPath(b: Bin, name: string): string = "../cli/cli_leaf.rs:bin_path";
 	PreviewMains switch {

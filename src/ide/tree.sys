@@ -23,7 +23,7 @@ proc TreeFiles(s: { base: string, paths: []string, i: int, acc: []Json, projects
 		else -> FindUp(s = { dir = Parent(p = JoinP(a = this.s.base, b = this.s.paths[this.s.i])), marker = "vandorf.toml" })
 	};
 	FindUp switch {
-		(this == "" || !(this == TreeFiles.s.base || HasPrefix(s = this, prefix = TreeFiles.s.base + "/"))) -> Contents(s = { at = TreeFiles.s, project = Null() }) as Outlined,
+		(this == "" || !(this == TreeFiles.s.base || HasPrefix(text = this, prefix = TreeFiles.s.base + "/"))) -> Contents(s = { at = TreeFiles.s, project = Null() }) as Outlined,
 		(JoinP(a = this, b = "vandorf.toml") in TreeFiles.s.projects) -> Contents(s = { at = TreeFiles.s, project = TreeFiles.s.projects[JoinP(a = this, b = "vandorf.toml")] }) as Outlined,
 		else -> ProjectInfo(s = { base = TreeFiles.s.base, dir = this })
 	};
@@ -44,11 +44,14 @@ proc Contents(s: { at: { base: string, paths: []string, i: int, acc: []Json, pro
 	Outline -> id({ at = Contents.s.at, file = Obj([{ key = "path", value = Str(Contents.s.at.paths[Contents.s.at.i]) }, { key = "project", value = Contents.s.project }, { key = "items", value = WithEntries(items = ItemsJson(items = this), project = Contents.s.project) }, { key = "error", value = Null() }]) });
 }
 
+// Top-level proc items with an "entry" when something runs them.
 func WithEntries(items: Json, project: Json): Json = "ide_leaf.rs:with_entries";
 
 // { name, dir, entries } of the project whose manifest is in dir: entries
 // by proc, what runs it ("bin demo", "POST /api/calc", "GET / (raw)").
 proc ProjectInfo(s: { base: string, dir: string }): Json {
+	// { name, dir, entries } for the explorer; "?" and no entries if the
+	// manifest doesn't load.
 	func Info(text: Res<string>, dir: string): Json = "ide_leaf.rs:project_info";
 	ProjectInfo -> Files.Read(path = JoinP(a = this.s.dir, b = "vandorf.toml"));
 	Files.Read -> id(Info(text = this, dir = Relative(target = ProjectInfo.s.dir, from = ProjectInfo.s.base)));
