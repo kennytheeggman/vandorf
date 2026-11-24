@@ -201,6 +201,9 @@ pub fn check_put(key: Str, c: UnitCheck) -> Result<bool, String> {
 const SCROLLBACK: usize = 1 << 20;
 
 struct Term {
+    cwd: Mutex<String>,
+    #[cfg(target_os = "linux")]
+    pid: Option<u32>,
     /// The pty's master, for resizing; None once the shell has exited.
     master: Mutex<Option<Box<dyn MasterPty + Send>>>,
     writer: Mutex<Box<dyn Write + Send>>,
@@ -280,6 +283,9 @@ fn spawn(cwd: &str) -> Result<Arc<Term>, String> {
         .take_writer()
         .map_err(|e| format!("cannot write the pty: {e}"))?;
     let t = Arc::new(Term {
+        cwd: Mutex::new(cwd.into()),
+        #[cfg(target_os = "linux")]
+        pid: child.process_id(),
         master: Mutex::new(Some(pty.master)),
         writer: Mutex::new(writer),
         killer: Mutex::new(child.clone_killer()),
@@ -353,6 +359,7 @@ pub fn term_read(id: i64, from: i64) -> Result<TermChunk, String> {
             data: s(""),
             next: 0,
             closed: false,
+            cwd: s(""),
         });
     };
     let mut o = t.out.lock().unwrap();
@@ -383,7 +390,31 @@ pub fn term_read(id: i64, from: i64) -> Result<TermChunk, String> {
         data: text.into(),
         next: (from + used as u64) as i64,
         closed: o.closed,
+        cwd: t.cwd(o.closed).into(),
     })
+}
+
+impl Term {
+    fn cwd(&self, closed: bool) -> String {
+        let mut cwd = self.cwd.lock().unwrap();
+        if !closed && let Some(path) = self.live_cwd() {
+            *cwd = path;
+        }
+        cwd.clone()
+    }
+
+    fn live_cwd(&self) -> Option<String> {
+        #[cfg(target_os = "linux")]
+        {
+            let pid = self.pid?;
+            let path = std::fs::read_link(format!("/proc/{pid}/cwd")).ok()?;
+            Some(path.to_string_lossy().into_owned())
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            None
+        }
+    }
 }
 
 pub fn term_input(id: i64, data: Str) -> Result<ResString, String> {
@@ -417,11 +448,18 @@ pub fn term_resize(id: i64, cols: i64, rows: i64) -> Result<ResString, String> {
     })
 }
 
-pub fn term_kill(id: i64) -> Result<bool, String> {
-    let Some(t) = terms().lock().unwrap().0.remove(&id) else {
+pub fn term_kill(id: i64, keep: bool) -> Result<bool, String> {
+    let term = if keep {
+        get(id)
+    } else {
+        terms().lock().unwrap().0.remove(&id)
+    };
+    let Some(t) = term else {
         return Ok(false);
     };
-    let _ = t.killer.lock().unwrap().kill();
+    if !t.out.lock().unwrap().closed {
+        let _ = t.killer.lock().unwrap().kill();
+    }
     Ok(true)
 }
 

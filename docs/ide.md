@@ -30,6 +30,18 @@ ide --addr 127.0.0.1:9000
   buttons that run vcc on the active file's project. Terminals are offered
   only when the IDE listens on a loopback address.
 
+Drag terminal tabs to reorder them, or double-click a tab to rename it.
+Right-click a tab for **Rename**, **Close**, **Close Others**, **Kill**, and
+**Split**. Split opens a second shell side by side. Kill keeps the pane and
+its output visible after the process exits. Close removes the pane and ends
+its shell if it is still running. Reloading the page restores the tabs,
+names, splits, and selected pane while the IDE server stays running.
+
+Terminal titles use the working directory unless you give a tab a name.
+On Linux the IDE reads the shell's working directory directly. On other
+platforms it uses the launch directory and updates it when the shell
+reports a directory via OSC 7.
+
 Settings (the gear in the status bar) pick the theme, where the terminal and
 details panels sit, and the compiler the buttons run: `vcc` from the `PATH`,
 or a path to one.
@@ -38,6 +50,9 @@ or a path to one.
 |---|---|
 | Ctrl/⌘ + S | Save the file |
 | Ctrl + \` | Show or hide the terminal |
+| Ctrl + Shift + \` | New terminal |
+| Ctrl + Shift + ← / → | Previous / next terminal tab |
+| Ctrl + Shift + Backspace | Close the selected terminal |
 | Click a proc | Expand it in place (in a diagram); open its diagram (in the explorer) |
 | Shift + click | Select a proc in a diagram without expanding it |
 | Ctrl/⌘ + click | Open a proc in a new tab |

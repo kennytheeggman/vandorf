@@ -5,7 +5,7 @@
 //   GET  /api/term/read?id=&from=         output from an offset (X-Next, X-Closed)
 //   POST /api/term/input?id=              the body, typed
 //   POST /api/term/resize?id=&cols=&rows=
-//   POST /api/term/kill?id=
+//   POST /api/term/kill?id=&keep=1        stop, optionally keeping output
 
 func Chunk(c: TermChunk): HttpResponse = "ide_leaf.rs:chunk_response";
 func Ints(xs: []int): []Json = "ide_leaf.rs:ints";
@@ -112,7 +112,7 @@ proc TermKillRoute(req: HttpRequest): HttpResponse {
 		Shut(r) -> id(r),
 		else -> switch {
 			(!HasId(q = TermKillRoute.req.query)) -> id(ApiErr(msg = "no such terminal")),
-			else -> Term.Kill(id = QueryInt(s = { q = TermKillRoute.req.query, k = "id" }))
+			else -> Term.Kill(id = QueryInt(s = { q = TermKillRoute.req.query, k = "id" }), keep = "keep" in TermKillRoute.req.query && TermKillRoute.req.query["keep"] == "1")
 		}
 	};
 	Term.Kill switch {

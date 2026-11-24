@@ -119,12 +119,15 @@ pub fn authorized(hs: Map<Str, Str>, token: Str, loopback: bool) -> Result<bool,
 
 pub fn chunk_response(c: TermChunk) -> Result<HttpResponse, String> {
     let next = c.next.to_string();
+    // Keep arbitrary path characters, including newlines, out of HTTP headers.
+    let cwd: String = c.cwd.bytes().map(|byte| format!("%{byte:02X}")).collect();
     Ok(response(
         200,
         &[
             ("Content-Type", "application/octet-stream"),
             ("X-Next", &next),
             ("X-Closed", if c.closed { "1" } else { "0" }),
+            ("X-Term-Cwd", &cwd),
         ],
         c.data,
     ))
