@@ -7,7 +7,8 @@
             {
               "type": 3,
               "label": "Count",
-              "sublabel": "(n: int, acc: int)"
+              "sublabel": "(n: int, acc: int)",
+              "doc": "A bare self-edge is a loop back to the signature node; an aliased one is\na recursive call."
             }
           ]
         },

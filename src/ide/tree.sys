@@ -3,7 +3,8 @@
 // with what's inside them).
 
 // line: 0-based, of the name.
-type Item = { kind: string, name: string, qual: string, line: int, children: []Item };
+// doc: the declaration's doc comment.
+type Item = { kind: string, name: string, qual: string, line: int, doc: string, children: []Item };
 
 func LineCol(src: string, offset: int): { line: int, ch: int } = "ide_leaf.rs:line_col";
 func ItemsJson(items: []Item): Json = "ide_leaf.rs:items_json";
@@ -68,8 +69,10 @@ proc NodeItems(s: { src: string, ns: []Node, prefix: string, i: int, acc: []Item
 		else -> id(this.s.ns[this.s.i]) as N
 	};
 	N switch {
-		Func(f) -> NodeItems(s = { ..NodeItems.s, i = NodeItems.s.i + 1, acc = NodeItems.s.acc + [{ kind = "func", name = f.name.name, qual = Qualify(prefix = NodeItems.s.prefix, name = f.name.name), line = LineCol(src = NodeItems.s.src, offset = f.name.span.at).line, children = [] }] }),
+		Func(f) -> NodeItems(s = { ..NodeItems.s, i = NodeItems.s.i + 1, acc = NodeItems.s.acc + [{ kind = "func", name = f.name.name, qual = Qualify(prefix = NodeItems.s.prefix, name = f.name.name), line = LineCol(src = NodeItems.s.src, offset = f.name.span.at).line, doc = f.doc, children = [] }] }),
 		Proc(p) -> NodeItems(s = { src = NodeItems.s.src, ns = p.nodes, prefix = Qualify(prefix = NodeItems.s.prefix, name = p.name.name), i = 0, acc = [] }) as Kids
 	};
-	Kids -> NodeItems(s = { ..NodeItems.s, i = NodeItems.s.i + 1, acc = NodeItems.s.acc + [{ kind = "proc", name = NodeName(n = N).name, qual = Qualify(prefix = NodeItems.s.prefix, name = NodeName(n = N).name), line = LineCol(src = NodeItems.s.src, offset = NodeName(n = N).span.at).line, children = this }] });
+	Kids -> NodeItems(s = { ..NodeItems.s, i = NodeItems.s.i + 1, acc = NodeItems.s.acc + [{ kind = "proc", name = NodeName(n = N).name, qual = Qualify(prefix = NodeItems.s.prefix, name = NodeName(n = N).name), line = LineCol(src = NodeItems.s.src, offset = NodeName(n = N).span.at).line, doc = NodeDoc(n = N), children = this }] });
 }
+
+func NodeDoc(n: Node): string = "ide_leaf.rs:node_doc";

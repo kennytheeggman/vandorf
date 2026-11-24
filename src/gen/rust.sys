@@ -23,14 +23,16 @@ proc TypeLines(s: { t: Table, i: int, acc: []Line }): []Line {
 		else -> id(this.s.t.types[this.s.i].shape) as S
 	};
 	S switch {
-		Struct(fs) -> MemberLines(s = { t = TypeLines.s.t, i = TypeLines.s.i, ms = fs, variants = false, j = 0, acc = TypeLines.s.acc + [Doc(n = TypeLines.s.t.types[TypeLines.s.i]), L("#[derive(Debug, Clone, PartialEq)]"), L("pub struct " + TypeLines.s.t.types[TypeLines.s.i].name + " {")] }) as Ms,
-		Enum(vs) -> MemberLines(s = { t = TypeLines.s.t, i = TypeLines.s.i, ms = vs, variants = true, j = 0, acc = TypeLines.s.acc + [Doc(n = TypeLines.s.t.types[TypeLines.s.i]), L("#[derive(Debug, Clone, PartialEq)]"), L("pub enum " + TypeLines.s.t.types[TypeLines.s.i].name + " {")] }) as Ms
+		Struct(fs) -> MemberLines(s = { t = TypeLines.s.t, i = TypeLines.s.i, ms = fs, variants = false, j = 0, acc = TypeLines.s.acc + Doc(t = TypeLines.s.t, n = TypeLines.s.t.types[TypeLines.s.i]) + [L("#[derive(Debug, Clone, PartialEq)]"), L("pub struct " + TypeLines.s.t.types[TypeLines.s.i].name + " {")] }) as Ms,
+		Enum(vs) -> MemberLines(s = { t = TypeLines.s.t, i = TypeLines.s.i, ms = vs, variants = true, j = 0, acc = TypeLines.s.acc + Doc(t = TypeLines.s.t, n = TypeLines.s.t.types[TypeLines.s.i]) + [L("#[derive(Debug, Clone, PartialEq)]"), L("pub enum " + TypeLines.s.t.types[TypeLines.s.i].name + " {")] }) as Ms
 	};
 	Ms -> TypeLines(s = { t = TypeLines.s.t, i = TypeLines.s.i + 1, acc = this + [L("}"), L("")] });
 }
 
-// "/// A typedef." or "/// The type of the <origin>."
-func Doc(n: NamedType): Line = "gen_leaf.rs:rust_doc";
+// A typedef's doc comment (or "/// A typedef."), or "/// The type of the
+// <origin>."
+func Doc(t: Table, n: NamedType): []Line = "gen_leaf.rs:rust_doc";
+func AliasDoc(t: Table, name: string): []Line = "gen_leaf.rs:rust_alias_doc";
 
 proc MemberLines(s: { t: Table, i: int, ms: []RefMember, variants: bool, j: int, acc: []Line }): []Line {
 	func IsVoidRef(r: TyRef): bool = "gen_leaf.rs:is_void_ref";
@@ -48,6 +50,6 @@ func FieldType(t: Table, i: int, m: RefMember): string = "gen_leaf.rs:rust_field
 proc AliasLines(s: { t: Table, i: int, acc: []Line }): []Line {
 	AliasLines switch {
 		(this.s.i == this.s.t.aliases.len) -> id(this.s.acc),
-		else -> AliasLines(s = { t = this.s.t, i = this.s.i + 1, acc = this.s.acc + [L("/// A typedef."), L("pub type " + this.s.t.aliases[this.s.i].name + " = " + RustRender(t = this.s.t, r = this.s.t.aliases[this.s.i].r, qual = "") + ";"), L("")] })
+		else -> AliasLines(s = { t = this.s.t, i = this.s.i + 1, acc = this.s.acc + AliasDoc(t = this.s.t, name = this.s.t.aliases[this.s.i].name) + [L("pub type " + this.s.t.aliases[this.s.i].name + " = " + RustRender(t = this.s.t, r = this.s.t.aliases[this.s.i].r, qual = "") + ";"), L("")] })
 	};
 }

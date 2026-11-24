@@ -7,7 +7,8 @@
             {
               "type": 3,
               "label": "Greet",
-              "sublabel": "(name: string, times: int)"
+              "sublabel": "(name: string, times: int)",
+              "doc": "A proc declared with its signature: the body starts from the proc's own\nname, whose output is its parameters."
             }
           ]
         },
@@ -52,7 +53,8 @@
           "nodes": [
             {
               "type": 1,
-              "label": "Greet"
+              "label": "Greet",
+              "doc": "A proc declared with its signature: the body starts from the proc's own\nname, whose output is its parameters."
             }
           ]
         }

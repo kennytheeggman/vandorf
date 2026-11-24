@@ -13,7 +13,8 @@ type Type = enum {
 };
 // A struct field or an enum variant (void for no payload).
 type Member = { name: string, ty: Type };
-type TypeDef = { name: string, ident: string, ty: Type, recursive: bool };
+// doc: the typedef's doc comment (an instance's is its generic's).
+type TypeDef = { name: string, ident: string, ty: Type, recursive: bool, doc: string };
 type MaybeType = enum { None, Some(Type) };
 
 type Pair = { x: int, y: int };

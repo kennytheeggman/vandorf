@@ -97,11 +97,27 @@ fn push_def(mut cx: TyCx, name: Str, ident: Str, span: Span) -> TyCx {
             ident,
             ty: Type::Prim("void".into()),
             recursive: false,
+            doc: "".into(),
         }]
         .into(),
     );
     cx.spans = cx.spans.concat(&vec![span].into());
     cx
+}
+
+/// Each typedef with the doc of its declaration (an instance, its generic's).
+pub fn type_docs(types: List<TypeDef>, decls: List<TypeDecl>) -> Result<List<TypeDef>, String> {
+    Ok(types
+        .iter()
+        .map(|t| {
+            let base = t.name.split('<').next().unwrap_or("");
+            let doc = decls
+                .iter()
+                .find(|d| &*d.name.name == base)
+                .map_or_else(|| "".into(), |d| d.doc.clone());
+            TypeDef { doc, ..t.clone() }
+        })
+        .collect())
 }
 
 pub fn new_def(cx: TyCx, name: Str, ident: Str, span: Span) -> Result<TyCx, String> {
@@ -372,6 +388,7 @@ pub fn with_sig(
             qual: push(qual, p.name.name.clone()),
             span: p.name.span,
             kind: NodeKind::Sig(NodeKindSig { pid, params }),
+            doc: p.doc,
         },
     );
     Ok(cx)

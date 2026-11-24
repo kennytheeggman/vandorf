@@ -41,25 +41,50 @@ fn tok(kind: &str, text: &str, at: usize, end: usize, file: i64) -> Tok {
         at: at as i64,
         end: end as i64,
         file,
+        doc: "".into(),
     }
 }
 
 /// Splits `src` into tokens, ending with an "eof" token. `//` starts a
-/// comment.
+/// comment; the comment lines directly above a token that starts its line
+/// are its doc.
 pub fn lex(src: Str, file: i64) -> Result<List<Tok>, String> {
     let b = src.as_bytes();
-    let mut toks = vec![];
+    let mut toks: Vec<Tok> = vec![];
     let mut i = 0;
+    // The comment lines since the last blank line or code, and whether the
+    // current line has had a token, or anything at all.
+    let (mut doc, mut coded, mut blank) = (Vec::<String>::new(), false, true);
     while i < b.len() {
         let c = b[i];
         let start = i;
         if c.is_ascii_whitespace() {
+            if c == b'\n' {
+                if blank {
+                    doc.clear();
+                }
+                (coded, blank) = (false, true);
+            }
             i += 1;
+            continue;
         } else if src[i..].starts_with("//") {
             while i < b.len() && b[i] != b'\n' {
                 i += 1;
             }
-        } else if c.is_ascii_alphabetic() || c == b'_' {
+            if !coded {
+                let text = &src[start + 2..i];
+                doc.push(
+                    text.strip_prefix(' ')
+                        .unwrap_or(text)
+                        .trim_end()
+                        .to_string(),
+                );
+            }
+            blank = false;
+            continue;
+        }
+        let n = toks.len();
+        if c.is_ascii_alphabetic() || c == b'_' {
             while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
                 i += 1;
             }
@@ -134,6 +159,14 @@ pub fn lex(src: Str, file: i64) -> Result<List<Tok>, String> {
                 "{i}:{}: expected a name, number, string or symbol, found '{ch}'",
                 i + ch.len_utf8()
             ));
+        }
+        // A token starting its line takes the comment lines above it.
+        if toks.len() > n {
+            if !coded {
+                toks[n].doc = doc.join("\n").into();
+            }
+            doc.clear();
+            (coded, blank) = (true, false);
         }
     }
     toks.push(tok("eof", "", b.len(), b.len(), file));

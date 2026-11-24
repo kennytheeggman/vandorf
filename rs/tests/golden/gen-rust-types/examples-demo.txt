@@ -151,7 +151,8 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
     }
 }
 
-/// A typedef.
+/// Procs the demo's HTTP server ([http.api] in vandorf.toml) runs: requests
+/// and results cross as JSON, decoded into these types.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Shape {
     Dot,
@@ -159,7 +160,8 @@ pub enum Shape {
     Rect(ShapeRect),
 }
 
-/// The type of the typedef Shape.
+/// Procs the demo's HTTP server ([http.api] in vandorf.toml) runs: requests
+/// and results cross as JSON, decoded into these types.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShapeRect {
     pub w: f64,
@@ -189,7 +191,8 @@ pub struct Fold {
     pub i: i64,
 }
 
-/// A typedef.
+/// Typedefs, aliases and literals. Expr is recursive: Neg and Add hold
+/// Exprs, so the generated types box them (Box<Expr> in Rust, *Expr in Go).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Lit(i64),
@@ -197,14 +200,15 @@ pub enum Expr {
     Add(std::sync::Arc<ExprAdd>),
 }
 
-/// The type of the typedef Expr.
+/// Typedefs, aliases and literals. Expr is recursive: Neg and Add hold
+/// Exprs, so the generated types box them (Box<Expr> in Rust, *Expr in Go).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExprAdd {
     pub l: std::sync::Arc<Expr>,
     pub r: std::sync::Arc<Expr>,
 }
 
-/// A typedef.
+/// How a Bar run ended; a typedef gives the generated type its name.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
     I(Str),
@@ -212,13 +216,15 @@ pub enum Outcome {
     B(OutcomeB),
 }
 
-/// The type of the typedef Outcome.
+/// How a Bar run ended; a typedef gives the generated type its name.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OutcomeB {
     pub i: i64,
 }
 
-/// The type of the typedef Scope.
+/// Maps: a scope of declared names, as a sema pass would keep one. Maps are
+/// values: `+` and `-` make new ones. A missing key fails the proc, so
+/// lookups are guarded with `in`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScopeValue {
     pub slot: i64,
@@ -278,6 +284,8 @@ pub struct ResolveDeclareOut {
     pub query: Str,
 }
 
-/// A typedef.
+/// Maps: a scope of declared names, as a sema pass would keep one. Maps are
+/// values: `+` and `-` make new ones. A missing key fails the proc, so
+/// lookups are guarded with `in`.
 pub type Scope = Map<Str, ScopeValue>;
 

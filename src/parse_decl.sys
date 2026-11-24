@@ -2,6 +2,9 @@
 
 // file := (typedef | interface | func ';' | proc ';'?)* eof
 //
+// Each declaration's doc is its keyword's (Tok.doc): At.prev in the proc
+// parsing it, which starts after the keyword.
+//
 // A loop: each item is appended to acc and control goes back to At.
 proc PItems(toks: []Tok, pos: int, acc: File): R<File> {
 	func At(toks: []Tok, pos: int, acc: File): AtAcc<File> = "leaf.rs:at_file";
@@ -34,7 +37,7 @@ proc PTypeDecl(toks: []Tok, pos: int): R<TypeDecl> {
 	PParams -> Expect(toks = At.toks, pos = this.pos, text = "=", what = "= after the type's name") as Eq;
 	Eq -> PType(toks = this.toks, pos = this.pos);
 	PType -> Expect(toks = At.toks, pos = this.pos, text = ";", what = "; after the type") as Semi;
-	Semi -> id({ x = { name = MkIdent(t = NeedIdent.tok), params = PParams.x, ty = PType.x }, pos = this.pos });
+	Semi -> id({ x = { name = MkIdent(t = NeedIdent.tok), params = PParams.x, ty = PType.x, doc = At.prev.doc }, pos = this.pos });
 }
 
 // params := ('<' IDENT (',' IDENT)* '>')?
@@ -63,7 +66,7 @@ proc PInterface(toks: []Tok, pos: int): R<Interface> {
 	NeedIdent -> Expect(toks = this.toks, pos = this.pos, text = "{", what = "{ after the interface's name") as Open;
 	Open -> PFuncs(toks = this.toks, pos = this.pos);
 	PFuncs -> Expect(toks = At.toks, pos = this.pos, text = "}", what = "func or }") as Close;
-	Close -> id({ x = { name = MkIdent(t = NeedIdent.tok), funcs = PFuncs.x }, pos = this.pos });
+	Close -> id({ x = { name = MkIdent(t = NeedIdent.tok), funcs = PFuncs.x, doc = At.prev.doc }, pos = this.pos });
 }
 
 // (func ';')*, stopping at anything else.
@@ -95,8 +98,8 @@ proc PFunc(toks: []Tok, pos: int): R<Func> {
 		else -> PImpls(toks = this.toks, pos = this.pos) as VoidImpls
 	};
 	PType -> PImpls(toks = At.toks, pos = this.pos) as RetImpls;
-	VoidImpls -> id({ x = { name = MkIdent(t = NeedIdent.tok), params = PFieldList.x, ret = None(), imps = this.x }, pos = this.pos });
-	RetImpls -> id({ x = { name = MkIdent(t = NeedIdent.tok), params = PFieldList.x, ret = Some(PType.x), imps = this.x }, pos = this.pos });
+	VoidImpls -> id({ x = { name = MkIdent(t = NeedIdent.tok), params = PFieldList.x, ret = None(), imps = this.x, doc = At.prev.doc }, pos = this.pos });
+	RetImpls -> id({ x = { name = MkIdent(t = NeedIdent.tok), params = PFieldList.x, ret = Some(PType.x), imps = this.x, doc = At.prev.doc }, pos = this.pos });
 }
 
 // ('=' STRING (',' STRING)*)?
@@ -139,7 +142,7 @@ proc PProc(toks: []Tok, pos: int): R<Proc> {
 	BodyOpen -> PBody(toks = this.toks, pos = this.pos);
 	PBody -> Expect(toks = At.toks, pos = this.pos, text = "}", what = "a func, proc, edge or }") as BodyClose;
 	BodyClose -> id({
-		x = { name = MkIdent(t = Name.tok), params = PFieldList.x, ret = PType.x, nodes = PBody.x.nodes, edges = StartsAtSig(name = MkIdent(t = Name.tok), edges = PBody.x.edges) },
+		x = { name = MkIdent(t = Name.tok), params = PFieldList.x, ret = PType.x, nodes = PBody.x.nodes, edges = StartsAtSig(name = MkIdent(t = Name.tok), edges = PBody.x.edges), doc = At.prev.doc },
 		pos = this.pos
 	});
 }

@@ -57,7 +57,8 @@ func GoSetupOf(package: string, import_base: MaybeStr, types_dir: string): GoSet
 func GoHeader(pkg: string, imports: []GoImport): string = "go_leaf.rs:go_header";
 func GoRender(t: Table, r: TyRef, qual: string): string = "go_leaf.rs:go_render";
 func GoType(g: GGen, ty: Type): string = "go_leaf.rs:go_type";
-func GoDoc(n: NamedType): Line = "go_leaf.rs:go_doc";
+func GoDoc(t: Table, n: NamedType): []Line = "go_leaf.rs:go_doc";
+func GoAliasDoc(t: Table, name: string): []Line = "go_leaf.rs:go_alias_doc";
 func GoTagDoc(ms: []RefMember): string = "go_leaf.rs:go_tag_doc";
 // A field's type, a pointer where it would make the type contain itself.
 func GoFieldType(t: Table, i: int, m: RefMember): string = "go_leaf.rs:go_field_type";
@@ -91,8 +92,8 @@ proc GoTypeLines(s: { t: Table, i: int, acc: []Line }): []Line {
 		else -> id(this.s.t.types[this.s.i].shape) as S
 	};
 	S switch {
-		Struct(fs) -> GoMemberLines(s = { t = GoTypeLines.s.t, i = GoTypeLines.s.i, ms = fs, j = 0, acc = GoTypeLines.s.acc + [GoDoc(n = GoTypeLines.s.t.types[GoTypeLines.s.i]), L("type " + GoTypeLines.s.t.types[GoTypeLines.s.i].name + " struct {")] }) as Ms,
-		Enum(vs) -> GoMemberLines(s = { t = GoTypeLines.s.t, i = GoTypeLines.s.i, ms = vs, j = 0, acc = GoTypeLines.s.acc + [GoDoc(n = GoTypeLines.s.t.types[GoTypeLines.s.i]), L(GoTagDoc(ms = vs)), L("type " + GoTypeLines.s.t.types[GoTypeLines.s.i].name + " struct {"), L("Tag string")] }) as Ms
+		Struct(fs) -> GoMemberLines(s = { t = GoTypeLines.s.t, i = GoTypeLines.s.i, ms = fs, j = 0, acc = GoTypeLines.s.acc + GoDoc(t = GoTypeLines.s.t, n = GoTypeLines.s.t.types[GoTypeLines.s.i]) + [L("type " + GoTypeLines.s.t.types[GoTypeLines.s.i].name + " struct {")] }) as Ms,
+		Enum(vs) -> GoMemberLines(s = { t = GoTypeLines.s.t, i = GoTypeLines.s.i, ms = vs, j = 0, acc = GoTypeLines.s.acc + GoDoc(t = GoTypeLines.s.t, n = GoTypeLines.s.t.types[GoTypeLines.s.i]) + [L(GoTagDoc(ms = vs)), L("type " + GoTypeLines.s.t.types[GoTypeLines.s.i].name + " struct {"), L("Tag string")] }) as Ms
 	};
 	Ms -> GoTypeLines(s = { t = GoTypeLines.s.t, i = GoTypeLines.s.i + 1, acc = this + [L("}"), L("")] });
 }
@@ -107,7 +108,7 @@ proc GoMemberLines(s: { t: Table, i: int, ms: []RefMember, j: int, acc: []Line }
 proc GoAliasLines(s: { t: Table, i: int, acc: []Line }): []Line {
 	GoAliasLines switch {
 		(this.s.i == this.s.t.aliases.len) -> id(this.s.acc),
-		else -> GoAliasLines(s = { t = this.s.t, i = this.s.i + 1, acc = this.s.acc + [L("// " + this.s.t.aliases[this.s.i].name + " is a typedef."), L("type " + this.s.t.aliases[this.s.i].name + " = " + GoRender(t = this.s.t, r = this.s.t.aliases[this.s.i].r, qual = "")), L("")] })
+		else -> GoAliasLines(s = { t = this.s.t, i = this.s.i + 1, acc = this.s.acc + GoAliasDoc(t = this.s.t, name = this.s.t.aliases[this.s.i].name) + [L("type " + this.s.t.aliases[this.s.i].name + " = " + GoRender(t = this.s.t, r = this.s.t.aliases[this.s.i].r, qual = "")), L("")] })
 	};
 }
 

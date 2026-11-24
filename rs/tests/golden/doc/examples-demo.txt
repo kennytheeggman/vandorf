@@ -41,7 +41,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "Branch1"
+              "label": "Branch1",
+              "doc": "No implementation: calls a generated stub that returns an error."
             },
             {
               "type": 0,
@@ -56,7 +57,8 @@
               "type": 0,
               "label": "Foo.Call",
               "sublabel": "../go/effects/foo.go:Call · ../rs/src/effects.rs:call",
-              "interface": "Foo"
+              "interface": "Foo",
+              "doc": "Implemented outside the generated package/module."
             }
           ]
         },
@@ -340,7 +342,8 @@
             {
               "type": 3,
               "label": "Classify",
-              "sublabel": "(e: Expr)"
+              "sublabel": "(e: Expr)",
+              "doc": "Pattern switches match structure: variants, struct fields (all of them,\n`_` for the ones that don't matter) and bindings. Conditions on values go\nin a switch nested under a pattern arm, which sees its bindings. The\narms cover every Expr, so no else is needed. `id(value)` ends the proc\nwith a value."
             }
           ]
         },
@@ -370,7 +373,8 @@
             {
               "type": 1,
               "label": "Inner",
-              "sublabel": "instance of Classify"
+              "sublabel": "instance of Classify",
+              "doc": "Pattern switches match structure: variants, struct fields (all of them,\n`_` for the ones that don't matter) and bindings. Conditions on values go\nin a switch nested under a pattern arm, which sees its bindings. The\narms cover every Expr, so no else is needed. `id(value)` ends the proc\nwith a value."
             },
             {
               "type": 0,
@@ -603,7 +607,8 @@
             {
               "type": 3,
               "label": "Hello",
-              "sublabel": "(name: string, times: int)"
+              "sublabel": "(name: string, times: int)",
+              "doc": "A greeting, for GET with a query string."
             }
           ]
         },
@@ -641,7 +646,8 @@
             {
               "type": 3,
               "label": "Main",
-              "sublabel": "(a: int, b: string)"
+              "sublabel": "(a: int, b: string)",
+              "doc": "The `demo` bin's entry (vandorf.toml): `demo <a: int> <b: string>`."
             }
           ]
         },
@@ -701,7 +707,8 @@
             {
               "type": 3,
               "label": "Measure",
-              "sublabel": "(shapes: []Shape)"
+              "sublabel": "(shapes: []Shape)",
+              "doc": "The area of each shape, summed, and how many there are of each kind."
             }
           ]
         },

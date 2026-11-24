@@ -3,8 +3,12 @@
 
 // kind: "ident", "int", "float", "str", "sym" or "eof". `text` is the
 // token as written, except for "str", where it's the decoded value. `at`
-// and `end` are byte offsets into the source.
-type Tok = { kind: string, text: string, at: int, end: int, file: int };
+// and `end` are byte offsets into the source. `doc`: the comment lines
+// directly above the token, if it's the first on its line: each without its
+// `//` and one space after it, joined by newlines. A blank line, or code,
+// between them and the token leaves it empty. The parser keeps it as the doc
+// of a declaration's keyword (`func`, `proc`, `type`, `interface`).
+type Tok = { kind: string, text: string, at: int, end: int, file: int, doc: string };
 
 func Lex(src: string, file: int): []Tok = "leaf.rs:lex";
 

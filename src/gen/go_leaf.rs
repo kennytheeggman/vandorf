@@ -286,15 +286,27 @@ pub fn go_type(g: GGen, ty: Type) -> Result<Str, String> {
     Ok(gtype(&g.table, &g.tq, &ty).into())
 }
 
-pub fn go_doc(n: NamedType) -> Result<Line, String> {
-    Ok(Line::L(
-        if *n.origin == *format!("typedef {}", n.name) {
-            format!("// {} is a typedef.", n.name)
-        } else {
-            format!("// {} is the type of the {}.", n.name, n.origin)
-        }
-        .into(),
-    ))
+pub fn go_doc(t: Table, n: NamedType) -> Result<List<Line>, String> {
+    let doc = super::gen_leaf::origin_doc(&t, &n);
+    let lines = if !doc.is_empty() {
+        super::gen_leaf::comment_lines("//", &doc)
+    } else if *n.origin == *format!("typedef {}", n.name) {
+        vec![format!("// {} is a typedef.", n.name)]
+    } else {
+        vec![format!("// {} is the type of the {}.", n.name, n.origin)]
+    };
+    Ok(lines.into_iter().map(|l| Line::L(l.into())).collect())
+}
+
+/// The doc comment of the typedef alias `name`.
+pub fn go_alias_doc(t: Table, name: Str) -> Result<List<Line>, String> {
+    let doc = super::gen_leaf::typedef_doc(&t, &name);
+    let lines = if doc.is_empty() {
+        vec![format!("// {name} is a typedef.")]
+    } else {
+        super::gen_leaf::comment_lines("//", &doc)
+    };
+    Ok(lines.into_iter().map(|l| Line::L(l.into())).collect())
 }
 
 pub fn go_tag_doc(ms: List<RefMember>) -> Result<Str, String> {
@@ -643,6 +655,13 @@ pub fn go_prelude(g: GGen, pid: i64) -> Result<List<Str>, String> {
         .map(|m| format!(", {} {}", go_param(&m.name), gtype(&g.table, &g.tq, &m.ty)))
         .collect();
     out.push(format!("// Run{name} runs proc {}.", qn(nodes, pid)));
+    if !nodes[pid as usize].doc.is_empty() {
+        out.push("//".into());
+        out.extend(super::gen_leaf::comment_lines(
+            "//",
+            &nodes[pid as usize].doc,
+        ));
+    }
     out.push(format!(
         "func Run{name}(ctx context.Context{sig}) ({ret}, error) {{"
     ));

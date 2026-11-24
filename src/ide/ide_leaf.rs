@@ -456,12 +456,20 @@ pub fn qualify(prefix: Str, name: Str) -> Result<Str, String> {
     })
 }
 
-fn item(kind: &str, name: &Ident, prefix: &str, src: &str, children: List<Item>) -> Item {
+fn item(
+    kind: &str,
+    name: &Ident,
+    prefix: &str,
+    src: &str,
+    doc: &Str,
+    children: List<Item>,
+) -> Item {
     Item {
         kind: kind.into(),
         name: name.name.clone(),
         qual: qualify(prefix.into(), name.name.clone()).unwrap(),
         line: line_col_of(src, name.span.at).0,
+        doc: doc.clone(),
         children,
     }
 }
@@ -469,7 +477,7 @@ fn item(kind: &str, name: &Ident, prefix: &str, src: &str, children: List<Item>)
 pub fn type_items(src: Str, ts: List<TypeDecl>) -> Result<List<Item>, String> {
     Ok(ts
         .iter()
-        .map(|t| item("type", &t.name, "", &src, List::default()))
+        .map(|t| item("type", &t.name, "", &src, &t.doc, List::default()))
         .collect())
 }
 
@@ -482,13 +490,21 @@ pub fn iface_items(src: Str, is: List<Interface>) -> Result<List<Item>, String> 
                 &i.name,
                 "",
                 &src,
+                &i.doc,
                 i.funcs
                     .iter()
-                    .map(|f| item("func", &f.name, &i.name.name, &src, List::default()))
+                    .map(|f| item("func", &f.name, &i.name.name, &src, &f.doc, List::default()))
                     .collect(),
             )
         })
         .collect())
+}
+
+pub fn node_doc(n: Node) -> Result<Str, String> {
+    Ok(match n {
+        Node::Func(f) => f.doc,
+        Node::Proc(p) => p.doc,
+    })
 }
 
 pub fn by_line(items: List<Item>) -> Result<List<Item>, String> {
@@ -503,6 +519,7 @@ fn item_json(i: &Item) -> Json {
         ("name", Json::Str(i.name.clone())),
         ("qual", Json::Str(i.qual.clone())),
         ("line", Json::Num(i.line)),
+        ("doc", Json::Str(i.doc.clone())),
         (
             "children",
             Json::Arr(i.children.iter().map(item_json).collect()),

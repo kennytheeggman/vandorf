@@ -1,0 +1,174 @@
+{
+  "grids": {
+    "Measure": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Measure",
+              "sublabel": "(shapes: []Shape)",
+              "doc": "The area of each shape, summed, and how many there are.\n\nA doc with an indented line, which rustdoc would take for code:\n\n    Measure(shapes = [Square(2)]) == 4"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Area",
+              "doc": "The area of one shape."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Sum"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Log.Line",
+              "interface": "Log",
+              "doc": "Writes one line."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "One",
+              "sublabel": "instance of Area",
+              "doc": "The area of one shape."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 1,
+              "label": "Measure.Count",
+              "doc": "Counts the shapes it's given."
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 2,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "Shape",
+          "call": "Area(s: Shape)",
+          "args": "s = this"
+        },
+        {
+          "type": 4,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "[]Measured",
+          "call": "Sum(xs: []Measured)",
+          "args": "xs = this"
+        },
+        {
+          "type": 0,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            3,
+            0
+          ],
+          "valueType": "int",
+          "call": "Log.Line(s: string)",
+          "args": "s = \"summed\""
+        },
+        {
+          "type": 0,
+          "source": [
+            3,
+            0
+          ],
+          "target": [
+            4,
+            0
+          ],
+          "valueType": "bool",
+          "call": "One(s: Shape)",
+          "args": "s = Square(1)"
+        },
+        {
+          "type": 0,
+          "source": [
+            4,
+            0
+          ],
+          "target": [
+            5,
+            0
+          ],
+          "valueType": "Measured",
+          "call": "Count(xs: []Measured)",
+          "args": "xs = [this]"
+        }
+      ]
+    },
+    "Measure.Count": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Count",
+              "sublabel": "(xs: []Measured)",
+              "doc": "Counts the shapes it's given."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "id"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ xs: []Measured }",
+          "call": "id1(value: R<int>)",
+          "args": "{ x = this.xs.len, pos = 0 }"
+        }
+      ]
+    }
+  }
+}

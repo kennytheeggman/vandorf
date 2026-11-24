@@ -394,6 +394,14 @@ fn node_json(prog: &Program, pid: i64, n: i64) -> Json {
     if let Some(i) = iface {
         fs.push(field("interface", Json::Str(i.into())));
     }
+    // Its declaration's doc comment: an instance's is what it instances'.
+    let doc = match &decl.kind {
+        NodeKind::Alias(b) => prog.nodes[*b as usize].doc.clone(),
+        _ => decl.doc.clone(),
+    };
+    if !doc.is_empty() {
+        fs.push(field("doc", Json::Str(doc)));
+    }
     // Spawn branches are marked joined or detached.
     if let NodeKind::Proc(p) = &prog.nodes[pid as usize].kind
         && let Some(&sp) = p.graph.spawned.get(&n)

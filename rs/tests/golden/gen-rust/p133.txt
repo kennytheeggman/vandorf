@@ -106,6 +106,9 @@ enum PcGreet {
 }
 
 /// Runs proc Greet.
+///
+/// A proc declared with its signature: the body starts from the proc's own
+/// name, whose output is its parameters.
 pub fn run_greet(name: types::Str, times: i64) -> Result<types::Str, Error> {
     let mut env = EnvGreet::default();
     env.in_greet_greet = Some(InGreetGreet { name: name, times: times });

@@ -101,7 +101,7 @@ proc DeclareFunc(s: { cx: Cx, f: Func, qual: []string }): Declared {
 
 proc FinishFunc(s: { cx: Cx, params: MaybeMembers, ret: MaybeType, f: Func, qual: []string }): Declared {
 	FinishFunc switch {
-		{ s = { cx = _, params = Some(ps), ret = Some(r), f = _, qual = _ } } -> id({ cx = { ..FinishFunc.s.cx, nodes = FinishFunc.s.cx.nodes + [{ qual = FinishFunc.s.qual + [FinishFunc.s.f.name.name], span = FinishFunc.s.f.name.span, kind = Func({ params = ps, ret = r, imps = FinishFunc.s.f.imps }) }] }, id = FinishFunc.s.cx.nodes.len }),
+		{ s = { cx = _, params = Some(ps), ret = Some(r), f = _, qual = _ } } -> id({ cx = { ..FinishFunc.s.cx, nodes = FinishFunc.s.cx.nodes + [{ qual = FinishFunc.s.qual + [FinishFunc.s.f.name.name], span = FinishFunc.s.f.name.span, kind = Func({ params = ps, ret = r, imps = FinishFunc.s.f.imps }), doc = FinishFunc.s.f.doc }] }, id = FinishFunc.s.cx.nodes.len }),
 		else -> id({ cx = FinishFunc.s.cx, id = -1 })
 	};
 }
@@ -119,7 +119,7 @@ proc DeclareProc(s: ProcIn): Declared {
 	};
 	Params switch {
 		{ cx = _, ms = Some(ms) } -> DeclareLocals(s = {
-			cx = WithSig(cx = WithNode(cx = { ..DeclareProc.s.cx, ty = Params.cx }, n = { qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], span = DeclareProc.s.p.name.span, kind = Proc({ parent = DeclareProc.s.parent, entry = -1, ret = UnwrapT(t = Ret.t), locals = [], graph = EmptyGraph(n = 0) }) }), p = DeclareProc.s.p, qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], pid = DeclareProc.s.cx.nodes.len, params = ms),
+			cx = WithSig(cx = WithNode(cx = { ..DeclareProc.s.cx, ty = Params.cx }, n = { qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], span = DeclareProc.s.p.name.span, kind = Proc({ parent = DeclareProc.s.parent, entry = -1, ret = UnwrapT(t = Ret.t), locals = [], graph = EmptyGraph(n = 0) }), doc = DeclareProc.s.p.doc }), p = DeclareProc.s.p, qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], pid = DeclareProc.s.cx.nodes.len, params = ms),
 			p = DeclareProc.s.p, qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], id = DeclareProc.s.cx.nodes.len, i = 0, names = [DeclareProc.s.p.name.name: DeclareProc.s.cx.nodes.len + 1], locals = [DeclareProc.s.cx.nodes.len + 1]
 		}),
 		else -> id({ cx = { ..DeclareProc.s.cx, ty = Params.cx }, id = -1 })
@@ -206,13 +206,13 @@ proc DeclareIds(s: { cx: Cx, ts: []Target, i: int, n: int, qual: []string, pid: 
 			(a.name in DeclareIds.s.names) -> DeclareIds(s = { ..DeclareIds.s, cx = { ..DeclareIds.s.cx, ty = { ..DeclareIds.s.cx.ty, errors = DeclareIds.s.cx.ty.errors + [{ msg = "id(..) as " + a.name + " clashes with a node of that name in proc " + DeclareIds.s.qual[DeclareIds.s.qual.len - 1], span = a.span }] } }, i = DeclareIds.s.i + 1 }),
 			else -> DeclareIds(s = {
 				..DeclareIds.s,
-				cx = WithId(cx = { ..DeclareIds.s.cx, nodes = DeclareIds.s.cx.nodes + [{ qual = DeclareIds.s.qual + [a.name], span = a.span, kind = Id([]) }] }, at = SpanKey(s = DeclareIds.s.ts[DeclareIds.s.i].node.span), id = DeclareIds.s.cx.nodes.len),
+				cx = WithId(cx = { ..DeclareIds.s.cx, nodes = DeclareIds.s.cx.nodes + [{ qual = DeclareIds.s.qual + [a.name], span = a.span, kind = Id([]), doc = "" }] }, at = SpanKey(s = DeclareIds.s.ts[DeclareIds.s.i].node.span), id = DeclareIds.s.cx.nodes.len),
 				i = DeclareIds.s.i + 1, names = DeclareIds.s.names + [a.name: DeclareIds.s.cx.nodes.len], named = DeclareIds.s.named + [a.name: true], locals = DeclareIds.s.locals + [DeclareIds.s.cx.nodes.len]
 			})
 		},
 		else -> DeclareIds(s = {
 			..DeclareIds.s,
-			cx = WithId(cx = { ..DeclareIds.s.cx, nodes = DeclareIds.s.cx.nodes + [{ qual = DeclareIds.s.qual + ["id" + Itoa(i = DeclareIds.s.n + 1)], span = DeclareIds.s.ts[DeclareIds.s.i].node.span, kind = Id([{ name = "value", ty = ProcRet(n = DeclareIds.s.cx.nodes[DeclareIds.s.pid]) }]) }] }, at = SpanKey(s = DeclareIds.s.ts[DeclareIds.s.i].node.span), id = DeclareIds.s.cx.nodes.len),
+			cx = WithId(cx = { ..DeclareIds.s.cx, nodes = DeclareIds.s.cx.nodes + [{ qual = DeclareIds.s.qual + ["id" + Itoa(i = DeclareIds.s.n + 1)], span = DeclareIds.s.ts[DeclareIds.s.i].node.span, kind = Id([{ name = "value", ty = ProcRet(n = DeclareIds.s.cx.nodes[DeclareIds.s.pid]) }]), doc = "" }] }, at = SpanKey(s = DeclareIds.s.ts[DeclareIds.s.i].node.span), id = DeclareIds.s.cx.nodes.len),
 			i = DeclareIds.s.i + 1, n = DeclareIds.s.n + 1, locals = DeclareIds.s.locals + [DeclareIds.s.cx.nodes.len]
 		})
 	};
@@ -234,7 +234,7 @@ proc DeclareAliases(s: { cx: Cx, ts: []Target, i: int, p: Proc, qual: []string, 
 			(a.name in DeclareAliases.s.aliased) -> DeclareAliases(s = { cx = { ..DeclareAliases.s.cx, ty = { ..DeclareAliases.s.cx.ty, errors = DeclareAliases.s.cx.ty.errors + [{ msg = a.name + " is already an alias of " + DeclareAliases.s.aliased[a.name], span = a.span }] } }, ts = DeclareAliases.s.ts, i = DeclareAliases.s.i + 1, p = DeclareAliases.s.p, qual = DeclareAliases.s.qual, pid = DeclareAliases.s.pid, names = DeclareAliases.s.names, aliased = DeclareAliases.s.aliased, locals = DeclareAliases.s.locals }),
 			(a.name in DeclareAliases.s.names) -> DeclareAliases(s = { cx = { ..DeclareAliases.s.cx, ty = { ..DeclareAliases.s.cx.ty, errors = DeclareAliases.s.cx.ty.errors + [{ msg = "alias " + a.name + " clashes with a node of that name in proc " + DeclareAliases.s.p.name.name, span = a.span }] } }, ts = DeclareAliases.s.ts, i = DeclareAliases.s.i + 1, p = DeclareAliases.s.p, qual = DeclareAliases.s.qual, pid = DeclareAliases.s.pid, names = DeclareAliases.s.names, aliased = DeclareAliases.s.aliased, locals = DeclareAliases.s.locals }),
 			else -> DeclareAliases(s = {
-				cx = WithAlias(cx = { ..DeclareAliases.s.cx, nodes = DeclareAliases.s.cx.nodes + [{ qual = DeclareAliases.s.qual + [a.name], span = a.span, kind = Alias(-1) }] }, a = { lid = DeclareAliases.s.cx.nodes.len, pid = DeclareAliases.s.pid, t = DeclareAliases.s.ts[DeclareAliases.s.i] }),
+				cx = WithAlias(cx = { ..DeclareAliases.s.cx, nodes = DeclareAliases.s.cx.nodes + [{ qual = DeclareAliases.s.qual + [a.name], span = a.span, kind = Alias(-1), doc = "" }] }, a = { lid = DeclareAliases.s.cx.nodes.len, pid = DeclareAliases.s.pid, t = DeclareAliases.s.ts[DeclareAliases.s.i] }),
 				ts = DeclareAliases.s.ts, i = DeclareAliases.s.i + 1, p = DeclareAliases.s.p, qual = DeclareAliases.s.qual, pid = DeclareAliases.s.pid,
 				names = DeclareAliases.s.names + [a.name: DeclareAliases.s.cx.nodes.len], aliased = DeclareAliases.s.aliased + [a.name: ShowPath(p = DeclareAliases.s.ts[DeclareAliases.s.i].node)], locals = DeclareAliases.s.locals + [DeclareAliases.s.cx.nodes.len]
 			})
@@ -313,4 +313,8 @@ proc Declare(file: File): Cx {
 		else -> ResolveAliases(s = { cx = this, i = 0 })
 	};
 	Insts -> ResolveAliases(s = { cx = { ..DeclareFile, ty = this }, i = 0 });
+	ResolveAliases -> id({ ..this, ty = { ..this.ty, types = TypeDocs(types = this.ty.types, decls = Declare.file.types) } });
 }
+
+// Each typedef with the doc of its declaration (an instance, its generic's).
+func TypeDocs(types: []TypeDef, decls: []TypeDecl): []TypeDef = "sema_leaf.rs:type_docs";

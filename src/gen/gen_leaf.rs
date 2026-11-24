@@ -546,12 +546,72 @@ pub fn rust_render(t: Table, r: TyRef, qual: Str) -> Result<Str, String> {
     Ok(go(&t, &r, &qual).into())
 }
 
-pub fn rust_doc(n: NamedType) -> Result<Line, String> {
-    Ok(Line::L(if *n.origin == *format!("typedef {}", n.name) {
-        "/// A typedef.".into()
+/// The doc comment of the typedef named `name` (TypeDef.name, `R<int>` for
+/// an instance), or of the one whose generated name is `name`; "" if none.
+pub(crate) fn typedef_doc(t: &Table, name: &str) -> String {
+    t.defs
+        .iter()
+        .find(|d| &*d.name == name)
+        .or_else(|| t.defs.iter().find(|d| cap(&d.ident) == name))
+        .map_or(String::new(), |d| d.doc.to_string())
+}
+
+/// A doc comment as `prefix` lines (`///`, `//`), blank lines bare.
+pub(crate) fn comment_lines(prefix: &str, doc: &str) -> Vec<String> {
+    doc.split('\n')
+        .map(|l| {
+            if l.is_empty() {
+                prefix.to_string()
+            } else {
+                format!("{prefix} {l}")
+            }
+        })
+        .collect()
+}
+
+/// A doc comment for Rust. rustdoc reads indented lines and fences as code,
+/// which `cargo test` compiles as doctests, so a doc with any is fenced as
+/// text, with a fence longer than any run of backticks in it.
+pub(crate) fn rust_doc_lines(doc: &str) -> Vec<String> {
+    let code = doc.split('\n').any(|l| {
+        l.starts_with('\t') || l.starts_with("    ") || l.contains("```") || l.contains("~~~")
+    });
+    if !code {
+        return comment_lines("///", doc);
+    }
+    let run = doc.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+    let fence = "`".repeat(run.max(2) + 1);
+    comment_lines("///", &format!("{fence}text\n{doc}\n{fence}"))
+}
+
+/// The doc comment of the typedef a type is named after, if it's one's.
+pub(crate) fn origin_doc(t: &Table, n: &NamedType) -> String {
+    n.origin
+        .strip_prefix("typedef ")
+        .map_or(String::new(), |d| typedef_doc(t, d))
+}
+
+pub fn rust_doc(t: Table, n: NamedType) -> Result<List<Line>, String> {
+    let doc = origin_doc(&t, &n);
+    let lines = if !doc.is_empty() {
+        rust_doc_lines(&doc)
+    } else if *n.origin == *format!("typedef {}", n.name) {
+        vec!["/// A typedef.".to_string()]
     } else {
-        format!("/// The type of the {}.", n.origin).into()
-    }))
+        vec![format!("/// The type of the {}.", n.origin)]
+    };
+    Ok(lines.into_iter().map(|l| Line::L(l.into())).collect())
+}
+
+/// The doc comment of the typedef alias `name`.
+pub fn rust_alias_doc(t: Table, name: Str) -> Result<List<Line>, String> {
+    let doc = typedef_doc(&t, &name);
+    let lines = if doc.is_empty() {
+        vec!["/// A typedef.".to_string()]
+    } else {
+        rust_doc_lines(&doc)
+    };
+    Ok(lines.into_iter().map(|l| Line::L(l.into())).collect())
 }
 
 pub fn is_void_ref(r: TyRef) -> Result<bool, String> {
@@ -1477,6 +1537,10 @@ pub fn proc_prelude(g: RGen, pid: i64) -> Result<List<Line>, String> {
         })
         .collect::<Result<_, String>>()?;
     out.push(format!("/// Runs proc {}.", qn(nodes, pid)));
+    if !nodes[pid as usize].doc.is_empty() {
+        out.push("///".into());
+        out.extend(rust_doc_lines(&nodes[pid as usize].doc));
+    }
     out.push(format!(
         "pub fn run_{}({}) -> Result<{}, Error> {{",
         snake(name.clone().into())?,

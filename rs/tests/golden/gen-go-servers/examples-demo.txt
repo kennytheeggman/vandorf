@@ -308,6 +308,12 @@ const (
 )
 
 // RunClassify runs proc Classify.
+//
+// Pattern switches match structure: variants, struct fields (all of them,
+// `_` for the ones that don't matter) and bindings. Conditions on values go
+// in a switch nested under a pattern arm, which sees its bindings. The
+// arms cover every Expr, so no else is needed. `id(value)` ends the proc
+// with a value.
 func RunClassify(ctx context.Context, e types.Expr) (string, error) {
 	var zero string
 	env := &envClassify{}
@@ -556,6 +562,8 @@ const (
 )
 
 // RunHello runs proc Hello.
+//
+// A greeting, for GET with a query string.
 func RunHello(ctx context.Context, name string, times int) (string, error) {
 	var zero string
 	env := &envHello{}
@@ -2321,6 +2329,8 @@ const (
 )
 
 // RunMain runs proc Main.
+//
+// The `demo` bin's entry (vandorf.toml): `demo <a: int> <b: string>`.
 func RunMain(ctx context.Context, a int, b string) (string, error) {
 	var zero string
 	env := &envMain{}
@@ -2397,6 +2407,8 @@ const (
 )
 
 // RunMeasure runs proc Measure.
+//
+// The area of each shape, summed, and how many there are of each kind.
 func RunMeasure(ctx context.Context, shapes []types.Shape) (types.Report, error) {
 	var zero types.Report
 	env := &envMeasure{}
@@ -2924,7 +2936,8 @@ func main() {
 
 package types
 
-// Shape is a typedef.
+// Procs the demo's HTTP server ([http.api] in vandorf.toml) runs: requests
+// and results cross as JSON, decoded into these types.
 // Tag is one of "Dot", "Circle", "Rect"; the field it names holds the payload.
 type Shape struct {
 	Tag string
@@ -2933,7 +2946,8 @@ type Shape struct {
 	Rect ShapeRect
 }
 
-// ShapeRect is the type of the typedef Shape.
+// Procs the demo's HTTP server ([http.api] in vandorf.toml) runs: requests
+// and results cross as JSON, decoded into these types.
 type ShapeRect struct {
 	W float64
 	H float64
@@ -2959,7 +2973,8 @@ type Fold struct {
 	I int
 }
 
-// Expr is a typedef.
+// Typedefs, aliases and literals. Expr is recursive: Neg and Add hold
+// Exprs, so the generated types box them (Box<Expr> in Rust, *Expr in Go).
 // Tag is one of "Lit", "Neg", "Add"; the field it names holds the payload.
 type Expr struct {
 	Tag string
@@ -2968,13 +2983,14 @@ type Expr struct {
 	Add *ExprAdd
 }
 
-// ExprAdd is the type of the typedef Expr.
+// Typedefs, aliases and literals. Expr is recursive: Neg and Add hold
+// Exprs, so the generated types box them (Box<Expr> in Rust, *Expr in Go).
 type ExprAdd struct {
 	L *Expr
 	R *Expr
 }
 
-// Outcome is a typedef.
+// How a Bar run ended; a typedef gives the generated type its name.
 // Tag is one of "I", "S", "B"; the field it names holds the payload.
 type Outcome struct {
 	Tag string
@@ -2983,12 +2999,14 @@ type Outcome struct {
 	B OutcomeB
 }
 
-// OutcomeB is the type of the typedef Outcome.
+// How a Bar run ended; a typedef gives the generated type its name.
 type OutcomeB struct {
 	I int
 }
 
-// ScopeValue is the type of the typedef Scope.
+// Maps: a scope of declared names, as a sema pass would keep one. Maps are
+// values: `+` and `-` make new ones. A missing key fails the proc, so
+// lookups are guarded with `in`.
 type ScopeValue struct {
 	Slot int
 	Kind string
@@ -3039,7 +3057,9 @@ type ResolveDeclareOut struct {
 	Query string
 }
 
-// Scope is a typedef.
+// Maps: a scope of declared names, as a sema pass would keep one. Maps are
+// values: `+` and `-` make new ones. A missing key fails the proc, so
+// lookups are guarded with `in`.
 type Scope = map[string]ScopeValue
 
 

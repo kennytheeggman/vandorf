@@ -134,9 +134,9 @@ proc Diagnostics(s: { unit: Unit, errors: []Diag }): HttpResponse {
 
 // ---- Symbols, for the viewer's preview drawer ----
 
-// Typedefs, funcs and procs, with where they're declared (paths relative to
-// the source directory, 0-based lines) and, for funcs, their implementation
-// files resolved the same way.
+// Typedefs, funcs and procs, with their doc comments, where they're declared
+// (paths relative to the source directory, 0-based lines) and, for funcs,
+// their implementation files resolved the same way.
 proc Symbols(s: { base: string, unit: Unit, prog: Program }): Json {
 	Symbols -> TypeSymbols(s = { types = this.s.prog.types, i = 0, acc = [] });
 	TypeSymbols -> NodeSymbols(s = { base = Symbols.s.base, unit = Symbols.s.unit, prog = Symbols.s.prog, i = 0, acc = [] });
@@ -148,7 +148,7 @@ proc TypeSymbols(s: { types: []TypeDef, i: int, acc: []JsonField }): []JsonField
 		(this.s.i == this.s.types.len) -> id(this.s.acc),
 		else -> ShowType(t = this.s.types[this.s.i].ty)
 	};
-	ShowType -> TypeSymbols(s = { ..TypeSymbols.s, i = TypeSymbols.s.i + 1, acc = TypeSymbols.s.acc + [{ key = TypeSymbols.s.types[TypeSymbols.s.i].name, value = Obj([{ key = "def", value = Str(this) }, { key = "recursive", value = Bool(TypeSymbols.s.types[TypeSymbols.s.i].recursive) }]) }] });
+	ShowType -> TypeSymbols(s = { ..TypeSymbols.s, i = TypeSymbols.s.i + 1, acc = TypeSymbols.s.acc + [{ key = TypeSymbols.s.types[TypeSymbols.s.i].name, value = Obj([{ key = "def", value = Str(this) }, { key = "recursive", value = Bool(TypeSymbols.s.types[TypeSymbols.s.i].recursive) }, { key = "doc", value = Str(TypeSymbols.s.types[TypeSymbols.s.i].doc) }]) }] });
 }
 
 proc NodeSymbols(s: { base: string, unit: Unit, prog: Program, i: int, acc: []JsonField }): []JsonField {
@@ -168,6 +168,7 @@ proc NodeSymbols(s: { base: string, unit: Unit, prog: Program, i: int, acc: []Js
 	FP -> ShowType(t = NodeRet(nodes = NodeSymbols.s.prog.nodes, n = NodeSymbols.s.i)) as FR;
 	FR -> NodeSymbols(s = { ..NodeSymbols.s, i = NodeSymbols.s.i + 1, acc = NodeSymbols.s.acc + [{ key = QualName(n = NodeSymbols.s.prog.nodes[NodeSymbols.s.i]), value = Obj([
 		{ key = "kind", value = Str("func") },
+		{ key = "doc", value = Str(NodeSymbols.s.prog.nodes[NodeSymbols.s.i].doc) },
 		{ key = "params", value = Str(FP) },
 		{ key = "ret", value = Str(this) },
 		{ key = "imps", value = Imps(base = NodeSymbols.s.base, unit = NodeSymbols.s.unit, span = NodeSymbols.s.prog.nodes[NodeSymbols.s.i].span, imps = FuncImps(n = NodeSymbols.s.prog.nodes[NodeSymbols.s.i])) },
@@ -176,6 +177,7 @@ proc NodeSymbols(s: { base: string, unit: Unit, prog: Program, i: int, acc: []Js
 	PP -> ShowType(t = NodeRet(nodes = NodeSymbols.s.prog.nodes, n = NodeSymbols.s.i)) as PR;
 	PR -> NodeSymbols(s = { ..NodeSymbols.s, i = NodeSymbols.s.i + 1, acc = NodeSymbols.s.acc + [{ key = QualName(n = NodeSymbols.s.prog.nodes[NodeSymbols.s.i]), value = Obj([
 		{ key = "kind", value = Str("proc") },
+		{ key = "doc", value = Str(NodeSymbols.s.prog.nodes[NodeSymbols.s.i].doc) },
 		{ key = "params", value = Str(PP) },
 		{ key = "ret", value = Str(this) },
 		{ key = "entry", value = Str(EntryName(prog = NodeSymbols.s.prog, pid = NodeSymbols.s.i)) },

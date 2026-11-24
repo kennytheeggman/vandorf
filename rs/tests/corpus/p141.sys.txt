@@ -1,0 +1,34 @@
+// Not a doc: the blank line below separates it from the typedef.
+
+// The area of a shape and its kind.
+type Measured = { kind: string, area: int };
+// A result, and where parsing stopped.
+type R<T> = { x: T, pos: int };
+// A list of ids.
+type Ids = []int;
+type Shape = enum { Square(int), Circle(int) };
+
+interface Log {
+	// Writes one line.
+	func Line(s: string): bool;
+}
+
+// The area of each shape, summed, and how many there are.
+//
+// A doc with an indented line, which rustdoc would take for code:
+//
+//     Measure(shapes = [Square(2)]) == 4
+proc Measure(shapes: []Shape): R<int> {
+	// The area of one shape.
+	func Area(s: Shape): Measured;
+	func Sum(xs: []Measured): int;
+	// Counts the shapes it's given.
+	proc Count(xs: []Measured): R<int> {
+		Count -> id({ x = this.xs.len, pos = 0 });
+	};
+	Measure for each (this.shapes) -> Area(s = this);
+	Area collect each (Area) -> Sum(xs = this);
+	Sum -> Log.Line(s = "summed");
+	Log.Line -> Area(s = Square(1)) as One;
+	One -> Count(xs = [this]);
+}
