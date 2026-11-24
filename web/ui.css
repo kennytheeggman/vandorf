@@ -1,8 +1,8 @@
 /* Shared design tokens and controls for every IDE panel. One radius, one
    control height: change them here. */
 :root{
-  --r:6px;            /* buttons, inputs, cards, nodes */
-  --r-sm:3px;         /* badges */
+  --r:0;            /* buttons, inputs, cards, nodes */
+  --r-sm:0;         /* badges */
   --h:24px;           /* buttons, inputs, selects, segmented controls */
   --bar-h:32px;       /* panel toolbars and the tab strip */
   --font:13px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -40,7 +40,7 @@ body{ background:var(--bg); color:var(--ink); font:var(--font) }
 
 /* Controls: every button, input and select is --h tall with --r corners. */
 button, .btn, select, input[type=text], input[type=search], input:not([type]){
-  font:inherit; color:var(--ink); height:var(--h); border-radius:var(--r); border:1px solid transparent;
+  font:inherit; color:var(--ink); height:var(--h); border-radius:0; border:1px solid transparent;
   background:none; padding:0 8px; display:inline-flex; align-items:center; justify-content:center; gap:5px;
   white-space:nowrap; outline:none; flex:none
 }
@@ -60,7 +60,7 @@ select{ padding:0 6px }
 input[type=text], input[type=search], input:not([type]){ display:block; padding:0 8px }
 
 /* Segmented control: buttons joined, one on. */
-.seg{ display:inline-flex; height:var(--h); border:1px solid var(--line); border-radius:var(--r); overflow:hidden; flex:none }
+.seg{ display:inline-flex; height:var(--h); border:1px solid var(--line); border-radius:0; overflow:hidden; flex:none }
 .seg button{ height:calc(var(--h) - 2px); border:0; border-radius:0; padding:0 10px }
 .seg button.on{ background:var(--accent); color:var(--accent-ink) }
 
@@ -71,7 +71,7 @@ input[type=text], input[type=search], input:not([type]){ display:block; padding:
 .bar .ttl{ font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--mut); padding:0 6px }
 
 /* Kind badges: the same chip in the explorer, the tabs, the panel and the diagram. */
-.badge{ display:inline-block; flex:none; width:16px; height:15px; border-radius:var(--r-sm); text-align:center;
+.badge{ display:inline-block; flex:none; width:16px; height:15px; border-radius:0; text-align:center;
   font:700 9px/15px var(--mono); color:#fff; background:var(--b-file); vertical-align:middle }
 .badge.proc{ background:var(--b-proc) } .badge.func{ background:var(--b-func) } .badge.type{ background:var(--b-type) }
 .badge.interface{ background:var(--b-iface) } .badge.edge{ background:var(--b-edge) } .badge.switch{ background:var(--b-switch) }
@@ -79,7 +79,7 @@ input[type=text], input[type=search], input:not([type]){ display:block; padding:
 /* A proc a bin or route runs: the proc badge in the entry color. */
 .badge.proc.entry{ background:var(--b-entry) }
 .badge.project{ background:var(--b-project); position:relative }
-.badge.project::before{ content:""; position:absolute; left:4px; top:4px; width:8px; height:7px; border:1.5px solid #fff; border-radius:1px; box-sizing:border-box }
+.badge.project::before{ content:""; position:absolute; left:4px; top:4px; width:8px; height:7px; border:1.5px solid #fff; border-radius:0; box-sizing:border-box }
 .badge.project::after{ content:""; position:absolute; left:4px; top:6px; width:8px; height:1.5px; background:#fff }
 
-kbd{ font:11px var(--mono); border:1px solid var(--line); border-radius:var(--r-sm); padding:0 4px }
+kbd{ font:11px var(--mono); border:1px solid var(--line); border-radius:0; padding:0 4px }
