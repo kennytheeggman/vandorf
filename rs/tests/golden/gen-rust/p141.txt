@@ -268,15 +268,23 @@ struct InMeasureCountId1 {
     value: types::RInt,
 }
 
-/// Stands in for Log.Line, which names no .rs implementation. Write
-/// `pub fn name(s: types::Str) -> Result<bool, E>`
+/// Stands in for Log.Line, which names no .rs implementation. Write,
+/// with its doc comment,
+/// ```text
+/// /// Writes one line.
+/// pub fn name(s: types::Str) -> Result<bool, E>
+/// ```
 /// and add `= "file.rs:name"` to its declaration.
 fn unimplemented_log_line(_: types::Str) -> Result<bool, Error> {
     Err("Log.Line is not implemented".into())
 }
 
-/// Stands in for Measure.Area, which names no .rs implementation. Write
-/// `pub fn name(s: types::Shape) -> Result<types::Measured, E>`
+/// Stands in for Measure.Area, which names no .rs implementation. Write,
+/// with its doc comment,
+/// ```text
+/// /// The area of one shape.
+/// pub fn name(s: types::Shape) -> Result<types::Measured, E>
+/// ```
 /// and add `= "file.rs:name"` to its declaration.
 fn unimplemented_measure_area(_: types::Shape) -> Result<types::Measured, Error> {
     Err("Measure.Area is not implemented".into())

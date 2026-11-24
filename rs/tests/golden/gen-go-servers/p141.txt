@@ -1330,6 +1330,7 @@ import (
 )
 
 // unimplementedLogLine stands in for Log.Line, which names no .go implementation. Write
+//	// Writes one line.
 //	func Name(ctx context.Context, s string) (bool, error)
 // and add `= "file.go:Name"` to its declaration.
 func unimplementedLogLine(ctx context.Context, _ string) (bool, error) {
@@ -1338,6 +1339,7 @@ func unimplementedLogLine(ctx context.Context, _ string) (bool, error) {
 }
 
 // unimplementedMeasureArea stands in for Measure.Area, which names no .go implementation. Write
+//	// The area of one shape.
 //	func Name(ctx context.Context, s types.Shape) (types.Measured, error)
 // and add `= "file.go:Name"` to its declaration.
 func unimplementedMeasureArea(ctx context.Context, _ types.Shape) (types.Measured, error) {

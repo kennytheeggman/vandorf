@@ -2872,6 +2872,7 @@ import (
 )
 
 // unimplementedBarBranch1 stands in for Bar.Branch1, which names no .go implementation. Write
+//	// No implementation: calls a generated stub that returns an error.
 //	func Name(ctx context.Context, i int) (string, error)
 // and add `= "file.go:Name"` to its declaration.
 func unimplementedBarBranch1(ctx context.Context, _ int) (string, error) {

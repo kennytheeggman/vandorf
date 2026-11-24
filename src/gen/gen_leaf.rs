@@ -1723,10 +1723,35 @@ pub fn procs_file(g: RGen, body: Str) -> Result<Str, String> {
     }
     for &n in g.stubs.keys() {
         let qual = qn(nodes, n);
-        ls.push(l(format!(
-            "/// Stands in for {qual}, which names no .rs implementation. Write"
-        )));
-        ls.push(l(format!("/// `{}`", signature(&g, n, "name", "types")?)));
+        let doc = &nodes[n as usize].doc;
+        if doc.is_empty() {
+            ls.push(l(format!(
+                "/// Stands in for {qual}, which names no .rs implementation. Write"
+            )));
+            ls.push(l(format!("/// `{}`", signature(&g, n, "name", "types")?)));
+        } else {
+            // The doc comes too, fenced so rustdoc doesn't take it for a test.
+            ls.push(l(format!(
+                "/// Stands in for {qual}, which names no .rs implementation. Write,"
+            )));
+            ls.push(l("/// with its doc comment,".into()));
+            let body: Vec<String> = comment_lines("///", doc)
+                .into_iter()
+                .chain([signature(&g, n, "name", "types")?.to_string()])
+                .collect();
+            let run = body
+                .iter()
+                .flat_map(|b| b.split(|c| c != '`'))
+                .map(str::len)
+                .max()
+                .unwrap_or(0);
+            let fence = "`".repeat(run.max(2) + 1);
+            ls.push(l(format!("/// {fence}text").into()));
+            for b in body {
+                ls.push(l(format!("/// {b}").into()));
+            }
+            ls.push(l(format!("/// {fence}").into()));
+        }
         ls.push(l(
             "/// and add `= \"file.rs:name\"` to its declaration.".into()
         ));
@@ -2968,9 +2993,11 @@ pub fn rust_signature(
     let params: Vec<String> = params_of(&prog.nodes, n)
         .iter()
         .map(|m| {
+            // As an implementation names them: generated code's renames
+            // (`dim_`) are its own.
             Ok(format!(
                 "{}: {}",
-                rust_local(m.name.clone())?,
+                rust_ident_of(&m.name),
                 rust_render(
                     t.clone(),
                     get(t.clone(), m.ty.clone())?,

@@ -1009,8 +1009,12 @@ struct InResolveMissing {
     known: types::List<types::Str>,
 }
 
-/// Stands in for Bar.Branch1, which names no .rs implementation. Write
-/// `pub fn name(i: i64) -> Result<types::Str, E>`
+/// Stands in for Bar.Branch1, which names no .rs implementation. Write,
+/// with its doc comment,
+/// ```text
+/// /// No implementation: calls a generated stub that returns an error.
+/// pub fn name(i: i64) -> Result<types::Str, E>
+/// ```
 /// and add `= "file.rs:name"` to its declaration.
 fn unimplemented_bar_branch1(_: i64) -> Result<types::Str, Error> {
     Err("Bar.Branch1 is not implemented".into())

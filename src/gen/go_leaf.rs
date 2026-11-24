@@ -985,6 +985,11 @@ pub fn go_rest_files(g: GGen, package: Str, setup: GoSetup) -> Result<List<GoFil
             w.push(format!(
                 "// {stub} stands in for {qual}, which names no .go implementation. Write"
             ));
+            for d in super::gen_leaf::comment_lines("//", &nodes[n as usize].doc) {
+                if !nodes[n as usize].doc.is_empty() {
+                    w.push(format!("//\t{d}"));
+                }
+            }
             w.push(format!(
                 "//\t{}",
                 signature(&g.prog, &g.table, &g.tq, n, "Name", true)
