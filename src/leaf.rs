@@ -41,25 +41,52 @@ fn tok(kind: &str, text: &str, at: usize, end: usize, file: i64) -> Tok {
         at: at as i64,
         end: end as i64,
         file,
+        doc: "".into(),
     }
 }
 
-/// Splits `src` into tokens, ending with an "eof" token. `//` starts a
-/// comment.
+/// Scans `src` into tokens: names, numbers, decoded strings and symbols (the
+/// longest first), ending with an "eof" token, each with its byte span and
+/// file. Skips whitespace and `//` comments, but gives a token that starts
+/// its line the comment lines directly above it as its doc. Fails at a
+/// character no token starts with, or at a string left open.
 pub fn lex(src: Str, file: i64) -> Result<List<Tok>, String> {
     let b = src.as_bytes();
-    let mut toks = vec![];
+    let mut toks: Vec<Tok> = vec![];
     let mut i = 0;
+    // The comment lines since the last blank line or code, and whether the
+    // current line has had a token, or anything at all.
+    let (mut doc, mut coded, mut blank) = (Vec::<String>::new(), false, true);
     while i < b.len() {
         let c = b[i];
         let start = i;
         if c.is_ascii_whitespace() {
+            if c == b'\n' {
+                if blank {
+                    doc.clear();
+                }
+                (coded, blank) = (false, true);
+            }
             i += 1;
+            continue;
         } else if src[i..].starts_with("//") {
             while i < b.len() && b[i] != b'\n' {
                 i += 1;
             }
-        } else if c.is_ascii_alphabetic() || c == b'_' {
+            if !coded {
+                let text = &src[start + 2..i];
+                doc.push(
+                    text.strip_prefix(' ')
+                        .unwrap_or(text)
+                        .trim_end()
+                        .to_string(),
+                );
+            }
+            blank = false;
+            continue;
+        }
+        let n = toks.len();
+        if c.is_ascii_alphabetic() || c == b'_' {
             while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
                 i += 1;
             }
@@ -134,6 +161,14 @@ pub fn lex(src: Str, file: i64) -> Result<List<Tok>, String> {
                 "{i}:{}: expected a name, number, string or symbol, found '{ch}'",
                 i + ch.len_utf8()
             ));
+        }
+        // A token starting its line takes the comment lines above it.
+        if toks.len() > n {
+            if !coded {
+                toks[n].doc = doc.join("\n").into();
+            }
+            doc.clear();
+            (coded, blank) = (true, false);
         }
     }
     toks.push(tok("eof", "", b.len(), b.len(), file));
@@ -362,15 +397,18 @@ fn matched(
     })
 }
 
-/// Fails at toks[pos]: what was expected there instead.
+/// Fails at toks[pos], saying what was expected there instead.
 pub fn expected_value(toks: List<Tok>, pos: i64, what: Str) -> Result<RValue, String> {
     matched(toks, pos, |_| false, &what).map(|_| unreachable!())
 }
 
+/// Fails at toks[pos], saying what was expected there instead.
 pub fn expected_target(toks: List<Tok>, pos: i64, what: Str) -> Result<RTarget, String> {
     matched(toks, pos, |_| false, &what).map(|_| unreachable!())
 }
 
+/// Matches the symbol or word `text` at toks[pos] and moves past it; fails
+/// with "expected <what>, found <token>" otherwise.
 pub fn expect(toks: List<Tok>, pos: i64, text: Str, what: Str) -> Result<Cur, String> {
     matched(
         toks,
@@ -380,6 +418,8 @@ pub fn expect(toks: List<Tok>, pos: i64, text: Str, what: Str) -> Result<Cur, St
     )
 }
 
+/// Matches the `>` closing type arguments or parameters; fails on `>=` (which
+/// lexes as the comparison) with a hint to write `> =`.
 pub fn close_angle(toks: List<Tok>, pos: i64) -> Result<Cur, String> {
     let t = get(&toks, pos);
     if &*t.kind == "sym" && &*t.text == ">=" {
@@ -396,6 +436,8 @@ pub fn close_angle(toks: List<Tok>, pos: i64) -> Result<Cur, String> {
     )
 }
 
+/// Matches an identifier that isn't a keyword at toks[pos] and moves past it;
+/// fails, saying what was wanted, otherwise.
 pub fn need_ident(toks: List<Tok>, pos: i64, what: Str) -> Result<Cur, String> {
     matched(
         toks,
@@ -405,10 +447,14 @@ pub fn need_ident(toks: List<Tok>, pos: i64, what: Str) -> Result<Cur, String> {
     )
 }
 
+/// Matches any identifier at toks[pos], keywords included (field and
+/// parameter names may be keywords), and moves past it.
 pub fn need_name(toks: List<Tok>, pos: i64, what: Str) -> Result<Cur, String> {
     matched(toks, pos, |t| &*t.kind == "ident", &what)
 }
 
+/// Matches a string at toks[pos] and moves past it; fails, saying what was
+/// wanted, otherwise.
 pub fn need_str(toks: List<Tok>, pos: i64, what: Str) -> Result<Cur, String> {
     matched(toks, pos, |t| &*t.kind == "str", &what)
 }
@@ -421,6 +467,8 @@ pub fn is_word(t: Tok, s: Str) -> Result<bool, String> {
     Ok(&*t.kind == "ident" && t.text == s)
 }
 
+/// Whether t closes a bracket (`)`, `]` or `}`): where a list stops, leaving
+/// it for its caller to expect.
 pub fn is_close(t: Tok) -> Result<bool, String> {
     Ok(&*t.kind == "sym" && matches!(&*t.text, ")" | "}" | "]"))
 }
@@ -446,6 +494,8 @@ pub fn mk_ident(t: Tok) -> Result<Ident, String> {
     })
 }
 
+/// Where a path's span ends: the end of its last segment, or of its first if
+/// it has no others.
 pub fn path_end(t: Tok, segs: List<Ident>) -> Result<i64, String> {
     Ok(segs.last().map_or(t.end, |s| s.span.end))
 }
@@ -462,6 +512,9 @@ pub fn float_of(t: Tok) -> Result<f64, String> {
         .map_err(|_| format!("{}:{}: number {} is out of range", t.at, t.end, t.text))
 }
 
+/// Splits a "file:function" string token at its last `:` into the
+/// implementation it names, with the token's span; fails unless both sides
+/// are there and the function is an identifier.
 pub fn impl_of(t: Tok) -> Result<ImplRef, String> {
     let bad = || {
         format!(
@@ -488,6 +541,8 @@ pub fn impl_of(t: Tok) -> Result<ImplRef, String> {
     })
 }
 
+/// Whether t is an operator of precedence `level`: `||` at 0, `&&` at 1,
+/// comparisons and `in` at 2, `+ -` at 3, `* / %` at 4.
 pub fn op_at(t: Tok, level: i64) -> Result<bool, String> {
     let ops: &[&str] = match level {
         0 => &["||"],
@@ -501,6 +556,8 @@ pub fn op_at(t: Tok, level: i64) -> Result<bool, String> {
         || (level == 2 && &*t.kind == "ident" && &*t.text == "in"))
 }
 
+/// Builds `l op r` from its operands, spanning both: a Binary, or an In when
+/// the operator is `in`.
 pub fn combine(op: Tok, l: Value, r: Value) -> Result<Value, String> {
     let span = Span {
         at: l.span.at,
@@ -525,6 +582,8 @@ pub fn combine(op: Tok, l: Value, r: Value) -> Result<Value, String> {
     })
 }
 
+/// Builds `op e` for a prefix `!` or `-`, spanning both; `-` before a number
+/// literal folds into a negative literal instead.
 pub fn prefix(op: Tok, e: Value) -> Result<Value, String> {
     let span = Span {
         at: op.at,
@@ -545,6 +604,8 @@ pub fn prefix(op: Tok, e: Value) -> Result<Value, String> {
     })
 }
 
+/// Makes one pattern of alternatives: the pattern itself if there's one, else
+/// an Or of them all, spanning from the first to the last.
 pub fn or_of(pats: List<Pat>) -> Result<Pat, String> {
     if pats.len() == 1 {
         return Ok(pats[0].clone());
@@ -560,6 +621,8 @@ pub fn or_of(pats: List<Pat>) -> Result<Pat, String> {
     })
 }
 
+/// The span covering toks[from..to], a call's arguments as written; empty, at
+/// toks[from], if there are none.
 pub fn inner_span(toks: List<Tok>, from: i64, to: i64) -> Result<Span, String> {
     let first = get(&toks, from);
     if to <= from {
@@ -577,8 +640,9 @@ pub fn inner_span(toks: List<Tok>, from: i64, to: i64) -> Result<Span, String> {
     })
 }
 
-/// A proc starts its body from its signature node, its own name: the first
-/// edge must leave it.
+/// Checks that a proc's first edge leaves its signature node, the proc's own
+/// name, and passes the edges on; fails at that edge, saying what to write,
+/// otherwise.
 pub fn starts_at_sig(name: Ident, edges: List<Edge>) -> Result<List<Edge>, String> {
     if let Some(e) = edges.first() {
         let src = &e.source;

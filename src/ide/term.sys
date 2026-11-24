@@ -10,16 +10,17 @@
 func Chunk(c: TermChunk): HttpResponse = "ide_leaf.rs:chunk_response";
 func Ints(xs: []int): []Json = "ide_leaf.rs:ints";
 func OkJson(n: int): HttpResponse = "ide_leaf.rs:ok_json";
-// q[k] as an int, or -1.
+// Reads q[k] as an int, or -1 if it isn't one.
 func QueryInt(s: { q: map[string]string, k: string }): int = "ide_leaf.rs:query_int";
-// Whether the request names a terminal: ?id= a number.
+// Whether the query names a terminal: an id that's a number, not negative.
 func HasId(q: map[string]string): bool = "ide_leaf.rs:has_id";
-func IdIn(ids: []int, id: int): bool = "../sema/sema_leaf.rs:has_int";
-// q[k] is a terminal dimension: an integer in 1..=65535.
+func IdIn(seen: []int, x: int): bool = "../sema/sema_leaf.rs:has_int";
+// Whether q[k] is a terminal dimension: an integer in 1..=65535.
 func Dim(s: { q: map[string]string, k: string }): bool = "ide_leaf.rs:is_dim";
 
-// POST /api/term?cwd=..: a new terminal in cwd if it's a directory under the
-// source directory, else in the source directory.
+// Serves POST /api/term?cwd=..: starts a terminal in cwd if it's a directory
+// under the source directory, else in the source directory, and gives its
+// id.
 proc TermNewRoute(req: HttpRequest): HttpResponse {
 	TermNewRoute -> TermGate(req = this.req);
 	TermGate switch {
@@ -44,7 +45,7 @@ proc TermNewRoute(req: HttpRequest): HttpResponse {
 	};
 }
 
-// GET /api/term/list
+// Serves GET /api/term/list: the ids of the running terminals.
 proc TermListRoute(req: HttpRequest): HttpResponse {
 	TermListRoute -> TermGate(req = this.req);
 	TermGate switch {
@@ -54,7 +55,8 @@ proc TermListRoute(req: HttpRequest): HttpResponse {
 	Term.List -> id(Api(j = Obj([{ key = "ok", value = Bool(true) }, { key = "ids", value = Arr(Ints(xs = this)) }])));
 }
 
-// GET /api/term/read?id=&from=
+// Serves GET /api/term/read?id=&from=: the terminal's output from `from`,
+// waiting a while for some.
 proc TermReadRoute(req: HttpRequest): HttpResponse {
 	TermReadRoute -> TermGate(req = this.req);
 	TermGate switch {
@@ -70,7 +72,7 @@ proc TermReadRoute(req: HttpRequest): HttpResponse {
 	};
 }
 
-// POST /api/term/input?id=: the body, typed.
+// Serves POST /api/term/input?id=: types the body into the terminal.
 proc TermInputRoute(req: HttpRequest): HttpResponse {
 	TermInputRoute -> TermGate(req = this.req);
 	TermGate switch {
@@ -86,7 +88,8 @@ proc TermInputRoute(req: HttpRequest): HttpResponse {
 	};
 }
 
-// POST /api/term/resize?id=&cols=&rows=
+// Serves POST /api/term/resize?id=&cols=&rows=: resizes the terminal, if the
+// size is valid.
 proc TermResizeRoute(req: HttpRequest): HttpResponse {
 	TermResizeRoute -> TermGate(req = this.req);
 	TermGate switch {
@@ -95,7 +98,7 @@ proc TermResizeRoute(req: HttpRequest): HttpResponse {
 	};
 	// The terminal first, then its size (each a u16 above zero).
 	Term.List switch {
-		(!HasId(q = TermResizeRoute.req.query) || !IdIn(ids = this, id = QueryInt(s = { q = TermResizeRoute.req.query, k = "id" }))) -> id(ApiErr(msg = "no such terminal")),
+		(!HasId(q = TermResizeRoute.req.query) || !IdIn(seen = this, x = QueryInt(s = { q = TermResizeRoute.req.query, k = "id" }))) -> id(ApiErr(msg = "no such terminal")),
 		(Dim(s = { q = TermResizeRoute.req.query, k = "cols" }) && Dim(s = { q = TermResizeRoute.req.query, k = "rows" })) -> Term.Resize(id = QueryInt(s = { q = TermResizeRoute.req.query, k = "id" }), cols = QueryInt(s = { q = TermResizeRoute.req.query, k = "cols" }), rows = QueryInt(s = { q = TermResizeRoute.req.query, k = "rows" })),
 		else -> id(ApiErr(msg = "need cols and rows"))
 	};
@@ -105,7 +108,7 @@ proc TermResizeRoute(req: HttpRequest): HttpResponse {
 	};
 }
 
-// POST /api/term/kill?id=
+// Serves POST /api/term/kill?id=: ends the terminal.
 proc TermKillRoute(req: HttpRequest): HttpResponse {
 	TermKillRoute -> TermGate(req = this.req);
 	TermGate switch {

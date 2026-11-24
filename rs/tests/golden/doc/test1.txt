@@ -15,7 +15,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "Start"
+              "label": "Start",
+              "sig": "(a: int, b: string): string"
             }
           ]
         },
@@ -23,7 +24,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "Loop"
+              "label": "Loop",
+              "sig": "(s: string): int"
             }
           ]
         },
@@ -31,7 +33,8 @@
           "nodes": [
             {
               "type": 1,
-              "label": "ForEach"
+              "label": "ForEach",
+              "sig": "(i: int): int"
             }
           ]
         },
@@ -39,11 +42,13 @@
           "nodes": [
             {
               "type": 0,
-              "label": "Branch1"
+              "label": "Branch1",
+              "sig": "(i: int): string"
             },
             {
               "type": 0,
-              "label": "Branch2Begin"
+              "label": "Branch2Begin",
+              "sig": "(i: int): string"
             }
           ]
         },
@@ -52,7 +57,8 @@
             {
               "type": 0,
               "label": "Foo.Call",
-              "interface": "Foo"
+              "interface": "Foo",
+              "sig": "(s: string): int"
             }
           ]
         },
@@ -60,7 +66,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "Branch2End"
+              "label": "Branch2End",
+              "sig": "(i: int): void"
             }
           ]
         },
@@ -68,7 +75,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "End"
+              "label": "End",
+              "sig": "(r: enum { I(string), S, B({ i: int }) }): string"
             }
           ]
         }
@@ -235,7 +243,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "Start"
+              "label": "Start",
+              "sig": "(i: int): { l: []int, s: string }"
             }
           ]
         },
@@ -243,7 +252,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "Process"
+              "label": "Process",
+              "sig": "(i: int, l: []int): int"
             }
           ]
         },
@@ -251,7 +261,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "Collect"
+              "label": "Collect",
+              "sig": "(l: []int): int"
             }
           ]
         }

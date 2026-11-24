@@ -13,7 +13,9 @@ fn opt(v: Option<&toml::Value>) -> MaybeStr {
         .map_or(MaybeStr::None, |x| MaybeStr::Some(s(x)))
 }
 
-/// vandorf.toml, as src/project.rs reads it.
+/// Reads vandorf.toml as src/project.rs does: the project's name and sources,
+/// its [go] and [rust] targets, its bins and its servers, with defaults
+/// filled in; an error naming what's wrong otherwise.
 pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
     let fail = |e: String| {
         Ok(ResManifest::Err(Diag {
@@ -153,7 +155,8 @@ fn slash(p: &Path) -> String {
     p.to_string_lossy().replace('\\', "/")
 }
 
-/// a/b, `.` and `..` resolved lexically (b may be absolute).
+/// Joins a and b into one path, resolving `.` and `..` lexically; b may be
+/// absolute, and then wins.
 pub fn join(a: Str, b: Str) -> Result<Str, String> {
     Ok(slash(&normalize(&Path::new(&*a).join(&*b))).into())
 }
@@ -162,7 +165,8 @@ pub fn parent(p: Str) -> Result<Str, String> {
     Ok(Path::new(&*p).parent().map_or(s(""), |d| slash(d).into()))
 }
 
-/// target relative to the directory from; both absolute and normalized.
+/// Makes target relative to the directory from, with `..` where it's outside
+/// it; both absolute and normalized.
 pub fn relative(target: Str, from: Str) -> Result<Str, String> {
     let (t, f): (Vec<_>, Vec<_>) = (
         Path::new(&*target).components().collect(),
@@ -190,8 +194,9 @@ pub fn starts_with(text: Str, prefix: Str) -> Result<bool, String> {
     Ok(text.starts_with(&*prefix))
 }
 
-/// Each implementation path made relative to `out` instead of the .sys
-/// file naming it (dirs[file id] is that file's directory).
+/// Rebases each func's implementation paths from the .sys file naming them
+/// onto `out`, the output directory (dirs[file id] is that file's directory),
+/// so generated code can reach them.
 pub fn rebase_impls(prog: Program, dirs: List<Str>, out: Str) -> Result<Program, String> {
     let mut prog = prog;
     let nodes: Vec<NodeDecl> = prog
@@ -221,12 +226,12 @@ pub fn rebase_impls(prog: Program, dirs: List<Str>, out: Str) -> Result<Program,
     Ok(prog)
 }
 
-/// `name = "..."` in [lib], else in [package], of a Cargo.toml (with
-/// `-` as `_`); "" if the crate has no library.
-pub fn cargo_lib_name(toml_text: Str, has_lib_rs: bool) -> Result<Str, String> {
+/// Finds the library crate's name in a Cargo.toml: `name = "..."` in [lib],
+/// else in [package], with `-` as `_`; "" if the crate has no library.
+pub fn cargo_lib_name(toml: Str, has_lib_rs: bool) -> Result<Str, String> {
     let mut section = "";
     let (mut lib, mut package) = (None, None);
-    for l in toml_text.lines().map(str::trim) {
+    for l in toml.lines().map(str::trim) {
         if l.starts_with('[') {
             section = l;
         } else if let Some(v) = l
@@ -242,7 +247,7 @@ pub fn cargo_lib_name(toml_text: Str, has_lib_rs: bool) -> Result<Str, String> {
             }
         }
     }
-    let has_lib = has_lib_rs || toml_text.lines().any(|l| l.trim() == "[lib]");
+    let has_lib = has_lib_rs || toml.lines().any(|l| l.trim() == "[lib]");
     Ok(if has_lib {
         lib.or(package).unwrap_or_default().into()
     } else {
@@ -318,11 +323,15 @@ pub fn dirs(root: Str, paths: List<Str>) -> Result<List<Str>, String> {
         .map(List::from)
 }
 
+/// Rebases the program's implementation paths onto [rust]'s out, from the
+/// .sys files naming them.
 pub fn rebased(c: Checked) -> Result<Program, String> {
     let d = dirs(c.project.root.clone(), c.project.paths.clone())?;
     rebase_impls(c.prog.clone(), d, out_dir(c)?)
 }
 
+/// Works out where the Rust output sits in its crate: [rust]'s module_dir, or
+/// else out relative to the crate's src/.
 pub fn module_dir(target: RustTarget, out: Str, croot: Str) -> Result<MaybeStr, String> {
     if let MaybeStr::Some(d) = target.module_dir {
         return Ok(MaybeStr::Some(d));
@@ -366,6 +375,12 @@ pub fn bin_path(b: Bin, name: Str) -> Result<Str, String> {
         MaybeStr::Some(p) => p,
         MaybeStr::None => format!("bin/{name}.rs").into(),
     })
+}
+
+/// Fails with the errors, without the first's `error: ` (the executable
+/// prints it).
+pub fn refuse_report(msg: Str) -> Result<bool, String> {
+    Err(msg.strip_prefix("error: ").unwrap_or(&msg).to_string())
 }
 
 pub fn refuse(msg: Str) -> Result<bool, String> {
@@ -425,6 +440,8 @@ pub fn server_path(d: ServerDecl, name: Str) -> Result<Str, String> {
     })
 }
 
+/// Finds the directory of a file under the crate's src/ (path, relative to
+/// src/): src/ is found by going up from out once per segment of module_dir.
 pub fn file_dir(out: Str, module_dir: MaybeStr, path: Str) -> Result<Str, String> {
     let up = match &module_dir {
         MaybeStr::Some(d) => d.split('/').filter(|x| !x.is_empty()).count(),
@@ -438,6 +455,8 @@ pub fn file_dir(out: Str, module_dir: MaybeStr, path: Str) -> Result<Str, String
     Ok(slash(full.parent().unwrap_or(&src)).into())
 }
 
+/// Splits "POST /api/calc" into a route's method and path, with the proc it
+/// runs; none if it isn't a method and a path.
 pub fn split_route(route: Str, proc: Str) -> Result<List<Route>, String> {
     let Some((m, p)) = route.split_once(' ').map(|(m, p)| (m.trim(), p.trim())) else {
         return Ok(List::default());
@@ -580,7 +599,8 @@ fn check_table(t: &toml::Table, fields: Fields) -> Result<(), String> {
     }
 }
 
-/// Why text isn't a manifest the reference would load, or "".
+/// Checks that text is a manifest the reference would load, its fields and
+/// their types: why not, or "".
 pub fn manifest_error(text: Str) -> Result<Str, String> {
     let t: toml::Table = match text.parse() {
         Ok(t) => t,
@@ -614,12 +634,14 @@ The IDE is the ide executable built alongside vcc: ide [--addr 127.0.0.1:8080],
 on the working directory. It offers terminals only when listening on a
 loopback address.";
 
-/// vcc's usage, printed by --help.
+/// Builds vcc's usage text, the commands and options, which --help prints and
+/// a bad command line points at.
 pub fn usage(_n: i64) -> Result<Str, String> {
     Ok(USAGE.into())
 }
 
-/// The first argument after the command that is a flag, or "".
+/// Finds the first argument after the command that starts with `-`, a flag
+/// vcc doesn't know; "" if there's none.
 pub fn first_flag(args: List<Str>) -> Result<Str, String> {
     Ok(args
         .iter()
@@ -629,7 +651,9 @@ pub fn first_flag(args: List<Str>) -> Result<Str, String> {
         .unwrap_or_default())
 }
 
-/// Takes the `-C <dir>`s out of argv (anywhere, in order).
+/// Takes the `-C <dir>`s out of argv, wherever they are, keeping them in
+/// order and the rest of the command as it was; a `-C` with nothing after it
+/// is an error, returned rather than failed.
 pub fn split_c(argv: List<Str>) -> Result<CliOpts, String> {
     let (mut dirs, mut rest, mut err) = (vec![], vec![], String::new());
     let mut it = argv.iter();
@@ -660,8 +684,8 @@ fn floor(text: &str, mut i: usize) -> usize {
     i
 }
 
-/// One diagnostic: the message, `path:line:col`, and the line with the span
-/// underlined; notes follow as `= note` lines.
+/// Renders one diagnostic: the level and message, `path:line:col`, and the
+/// line with the span underlined, then the notes as `= note` lines.
 pub fn snippet(
     level: Str,
     msg: Str,
@@ -703,7 +727,9 @@ pub fn snippet(
     Ok(out.into())
 }
 
-/// Errors as snippets, a blank line apart (each once).
+/// Renders errors as snippets, each its message, path:line:col and the line
+/// with the span underlined, a blank line apart; an error repeated at the
+/// same span shows once.
 pub fn render_errors(errors: List<Diag>, paths: List<Str>, srcs: List<Str>) -> Result<Str, String> {
     let mut out = vec![];
     let mut seen = std::collections::HashSet::new();
@@ -730,20 +756,21 @@ pub fn render_errors(errors: List<Diag>, paths: List<Str>, srcs: List<Str>) -> R
     Ok(out.join("\n\n").into())
 }
 
-/// Fails with msg; rendered diagnostics lose their first `error: `, which
-/// the executable prints anyway.
+/// Fails the command with msg, dropping a rendered diagnostic's first `error:
+/// `, which the executable prints itself.
 pub fn fail_report(msg: Str) -> Result<(), String> {
     Err(msg.strip_prefix("error: ").unwrap_or(&msg).to_string())
 }
 
-/// A command's result, which isn't printed: build and test say nothing when
-/// they succeed.
+/// Swallows a command's result: build and test print nothing when they
+/// succeed.
 pub fn quiet(_s: Str) -> Result<(), String> {
     Ok(())
 }
 
-/// For each func implemented in Rust: its file (absolute), function, and
-/// the warning to print if the file is missing or doesn't define it.
+/// Lists a check for each func implemented in Rust: its file (absolute), its
+/// function, the warnings to print if the file is missing or doesn't define
+/// it, and its declaration's signature and doc.
 pub fn impl_checks(
     prog: Program,
     t: Table,
@@ -779,6 +806,7 @@ pub fn impl_checks(
             types_path.as_str().into(),
         )?;
         let f = n.span.file as usize;
+        let expected = expected_note("fn", &n.doc, &sig);
         let warn = |msg: String| -> Result<Str, String> {
             snippet(
                 "warning".into(),
@@ -787,13 +815,21 @@ pub fn impl_checks(
                 srcs.get(f).cloned().unwrap_or_default(),
                 n.span.at,
                 n.span.end,
-                vec![Str::from(format!("expected: {sig}").as_str())].into(),
+                vec![expected.as_str().into()].into(),
             )
         };
         checks.push(ImplCheck {
             path: slash(&path).into(),
             function: i.function.clone(),
             keyword: "fn".into(),
+            qual: qual.clone(),
+            shown: shown.clone(),
+            sig: sig.clone(),
+            doc: n.doc.clone(),
+            decl_path: paths.get(f).cloned().unwrap_or_else(|| "?".into()),
+            decl_text: srcs.get(f).cloned().unwrap_or_default(),
+            at: n.span.at,
+            end: n.span.end,
             missing: warn(format!(
                 "{qual} is implemented in {shown}, which does not exist"
             ))?,
@@ -806,8 +842,447 @@ pub fn impl_checks(
     Ok(checks.into())
 }
 
-/// Whether src defines `fn function` (or a generic `fn function<` /
-/// `func Function[T any](`); keyword is fn or func.
+// ---- Implementations against their declarations ----
+
+/// The note under a warning or error about an implementation: the
+/// signature it must have, after the doc comment it must carry (keyword:
+/// fn or func).
+fn expected_note(keyword: &str, doc: &str, sig: &str) -> String {
+    if doc.is_empty() {
+        return format!("expected: {sig}");
+    }
+    let marker = if keyword == "fn" { "///" } else { "//" };
+    let lines: Vec<String> = super::gen_leaf::comment_lines(marker, doc)
+        .into_iter()
+        .chain([sig.to_string()])
+        .map(|l| format!("    {l}"))
+        .collect();
+    format!("expected:\n{}", lines.join("\n"))
+}
+
+/// A signature as the check compares them: each parameter's name and type,
+/// and the result's types, with whitespace and package or module paths
+/// dropped (`types::List<types::Tok>` is `List<Tok>`).
+struct Sig {
+    params: Vec<(String, String)>,
+    ret: Vec<String>,
+}
+
+/// Splits s at its commas outside brackets.
+fn split_top(s: &str) -> Vec<String> {
+    let (mut out, mut cur, mut depth) = (vec![], String::new(), 0i32);
+    let mut prev = ' ';
+    for c in s.chars() {
+        match c {
+            '(' | '[' | '{' | '<' => depth += 1,
+            ')' | ']' | '}' => depth -= 1,
+            // Not the arrow of `->` (or Go's `<-`).
+            '>' if prev != '-' => depth -= 1,
+            ',' if depth == 0 => {
+                out.push(std::mem::take(&mut cur));
+                prev = c;
+                continue;
+            }
+            _ => {}
+        }
+        cur.push(c);
+        prev = c;
+    }
+    if !cur.trim().is_empty() {
+        out.push(cur);
+    }
+    out.into_iter().map(|p| p.trim().to_string()).collect()
+}
+
+/// The text after `open` up to its matching close, and the rest after it.
+fn balanced(s: &str, open: char, close: char) -> Option<(&str, &str)> {
+    let s = s.strip_prefix(open)?;
+    let mut depth = 1;
+    for (i, c) in s.char_indices() {
+        if c == open {
+            depth += 1;
+        } else if c == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some((&s[..i], &s[i + 1..]));
+            }
+        }
+    }
+    None
+}
+
+/// A type with whitespace, `r#` and paths dropped, and each typedef alias
+/// (`aliases`: name to what it stands for) written out.
+fn norm_ty(t: &str, aliases: &std::collections::HashMap<String, String>) -> String {
+    let mut out = String::new();
+    let mut word = String::new();
+    let flush = |word: &mut String, out: &mut String, next: Option<char>| {
+        let w = std::mem::take(word);
+        match next {
+            // A path segment: `types::`, `types.`.
+            Some(':') | Some('.') => {}
+            _ => out.push_str(aliases.get(&w).map_or(&w, |a| a)),
+        }
+    };
+    let cs: Vec<char> = t.chars().collect();
+    let mut i = 0;
+    while i < cs.len() {
+        let c = cs[i];
+        if c.is_alphanumeric() || c == '_' || c == '#' {
+            word.push(c);
+        } else if c.is_whitespace() {
+            // Dropped, but it ends a word.
+            if !word.is_empty() {
+                let next = cs[i..].iter().find(|c| !c.is_whitespace()).copied();
+                flush(&mut word, &mut out, next);
+            }
+        } else {
+            if !word.is_empty() {
+                flush(&mut word, &mut out, Some(c));
+            }
+            if c == ':' && cs.get(i + 1) == Some(&':') {
+                i += 2;
+                continue;
+            }
+            // Go's `...T`; any other `.` ends a package name.
+            if c == '.' && cs.get(i + 1) == Some(&'.') && cs.get(i + 2) == Some(&'.') {
+                out.push_str("...");
+                i += 3;
+                continue;
+            }
+            if c != '.' {
+                out.push(c);
+            }
+        }
+        i += 1;
+    }
+    if !word.is_empty() {
+        flush(&mut word, &mut out, None);
+    }
+    out.replace("r#", "")
+}
+
+/// Where `fn name` (keyword `fn`) or `func Name` (`func`) is defined in src:
+/// the byte offset of the line it's on, and the text from the name on.
+fn find_def<'a>(src: &'a str, keyword: &str, name: &str) -> Option<(usize, &'a str)> {
+    let pat = format!("{keyword} {name}");
+    let mut from = 0;
+    while let Some(i) = src[from..].find(&pat) {
+        let at = from + i;
+        let rest = &src[at + pat.len()..];
+        let before = src[..at].chars().last();
+        let line = src[..at].rfind('\n').map_or(0, |n| n + 1);
+        let lead = src[line..at].trim();
+        // At the start of a declaration: `fn` after `pub`, `pub(crate)` or
+        // nothing; `func` at the start of its line.
+        let starts = match keyword {
+            "fn" => {
+                lead.is_empty() || lead == "pub" || lead.starts_with("pub(") || lead == "pub const"
+            }
+            _ => lead.is_empty(),
+        };
+        if starts && before.is_none_or(|c| c.is_whitespace()) && rest.starts_with(['(', '<', '[']) {
+            return Some((line, rest));
+        }
+        from = at + pat.len();
+    }
+    None
+}
+
+/// The doc comment above the line at `line`: its `marker` lines (`///` or
+/// `//`), without the marker and one space, above any attributes.
+fn doc_above(src: &str, line: usize, marker: &str) -> String {
+    let mut lines: Vec<String> = vec![];
+    for l in src[..line].lines().rev() {
+        let t = l.trim();
+        if marker == "///" && t.starts_with("#[") {
+            continue;
+        }
+        let Some(rest) = t.strip_prefix(marker) else {
+            break;
+        };
+        if marker == "///" && rest.starts_with('/') {
+            break;
+        }
+        // Go's directives (//go:generate, //line) are no one's doc.
+        if marker == "//"
+            && (rest.starts_with("go:") || rest.starts_with("line ") || rest.starts_with('/'))
+        {
+            break;
+        }
+        lines.push(
+            rest.strip_prefix(' ')
+                .unwrap_or(rest)
+                .trim_end()
+                .to_string(),
+        );
+    }
+    lines.reverse();
+    lines.join("\n")
+}
+
+/// A Rust signature, from `(params) -> Result<T, E>` (after the name).
+fn rust_sig(rest: &str, aliases: &std::collections::HashMap<String, String>) -> Option<Sig> {
+    let mut rest = rest;
+    if rest.starts_with('<') {
+        rest = balanced(rest, '<', '>')?.1.trim_start();
+    }
+    let (ps, after) = balanced(rest, '(', ')')?;
+    let mut params = vec![];
+    for p in split_top(ps) {
+        let (name, ty) = p.split_once(':')?;
+        let name = name.trim().trim_start_matches("mut ").trim();
+        params.push((
+            name.trim_start_matches("r#").to_string(),
+            norm_ty(ty, aliases),
+        ));
+    }
+    let after = after.trim_start();
+    let ret = match after.strip_prefix("->") {
+        Some(r) => {
+            let end = r.find(['{', ';']).unwrap_or(r.len());
+            let r = r[..end].split(" where").next().unwrap_or("").trim();
+            norm_ty(r, aliases)
+        }
+        None => "()".to_string(),
+    };
+    // Result<T, E>: T is what's compared.
+    let ret = match ret
+        .strip_prefix("Result<")
+        .and_then(|r| r.strip_suffix('>'))
+    {
+        Some(inner) => split_top(inner).first().cloned().unwrap_or_default(),
+        None => format!("!{ret}"),
+    };
+    Some(Sig {
+        params,
+        ret: vec![ret],
+    })
+}
+
+/// A Go signature, from `(ctx context.Context, params) (T, error)`.
+fn go_sig(rest: &str, aliases: &std::collections::HashMap<String, String>) -> Option<Sig> {
+    let mut rest = rest;
+    if rest.starts_with('[') {
+        rest = balanced(rest, '[', ']')?.1;
+    }
+    let (ps, after) = balanced(rest, '(', ')')?;
+    // `a, b int` names two parameters of one type.
+    let parts = split_top(ps);
+    let named = parts.iter().any(|p| p.contains(' '));
+    let mut params: Vec<(String, String)> = vec![];
+    let mut pending = 0;
+    for p in parts {
+        match p.split_once(' ') {
+            Some((name, ty)) if named => {
+                let ty = norm_ty(ty, aliases);
+                for q in params.iter_mut().rev().take(pending) {
+                    q.1 = ty.clone();
+                }
+                pending = 0;
+                params.push((name.to_string(), ty));
+            }
+            _ if named => {
+                params.push((p.to_string(), String::new()));
+                pending += 1;
+            }
+            _ => params.push(("_".to_string(), norm_ty(&p, aliases))),
+        }
+    }
+    let after = after.trim_start();
+    let end = after.find('{').unwrap_or(after.len());
+    let r = after[..end].trim();
+    let r = r
+        .strip_prefix('(')
+        .and_then(|r| r.strip_suffix(')'))
+        .unwrap_or(r);
+    let ret = split_top(r)
+        .iter()
+        .map(|x| {
+            let x = x.trim();
+            // A named result: `n int`.
+            let ty = x.rsplit_once(' ').map_or(x, |(_, t)| t);
+            norm_ty(ty, aliases)
+        })
+        .collect();
+    Some(Sig { params, ret })
+}
+
+/// An implementation's signature as written, on one line: from its name
+/// to its body.
+fn written_sig(rest: &str) -> String {
+    let end = rest.find('{').unwrap_or(rest.len());
+    rest[..end]
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace("( ", "(")
+        .replace(", )", ")")
+        .replace(",)", ")")
+}
+
+/// How an implementation's signature differs from the expected one, if it
+/// does. A parameter `_x` (Rust) or `_` (both) may stand for any name.
+fn sig_diff(keyword: &str, want: &Sig, got: &Sig) -> Option<String> {
+    let rust = keyword == "fn";
+    let show = |n: &str, t: &str| {
+        if rust {
+            format!("`{n}: {t}`")
+        } else {
+            format!("`{n} {t}`")
+        }
+    };
+    // Go's context comes first.
+    if !rust && got.params.first().map(|p| &p.1) != want.params.first().map(|p| &p.1) {
+        return Some(match got.params.first() {
+            Some(g) => format!(
+                "its first parameter is {}, expected `ctx context.Context`",
+                show(&g.0, &g.1)
+            ),
+            None => "it takes no parameters, expected `ctx context.Context` first".to_string(),
+        });
+    }
+    if want.params.len() != got.params.len() {
+        let count = |n: usize| format!("{n} parameter{}", if n == 1 { "" } else { "s" });
+        // Go's context isn't the declaration's.
+        let skip = usize::from(!rust);
+        return Some(format!(
+            "it takes {}, expected {}",
+            count(got.params.len().saturating_sub(skip)),
+            count(want.params.len().saturating_sub(skip))
+        ));
+    }
+    for (i, (w, g)) in want.params.iter().zip(&got.params).enumerate() {
+        let ctx = !rust && i == 0;
+        let name_ok =
+            ctx || g.0 == w.0 || g.0 == "_" || (rust && g.0.strip_prefix('_') == Some(&w.0));
+        if !name_ok || g.1 != w.1 {
+            let what = if ctx {
+                "its first parameter".to_string()
+            } else {
+                format!("parameter {}", if rust { i + 1 } else { i })
+            };
+            return Some(format!(
+                "{what} is {}, expected {}",
+                show(&g.0, &g.1),
+                show(&w.0, &w.1)
+            ));
+        }
+    }
+    if want.ret != got.ret {
+        let r = |s: &Sig| {
+            if rust {
+                match s.ret[0].strip_prefix('!') {
+                    Some(t) => t.to_string(),
+                    None => format!("Result<{}, _>", s.ret[0]),
+                }
+            } else if s.ret.len() == 1 {
+                s.ret[0].clone()
+            } else {
+                format!("({})", s.ret.join(", "))
+            }
+        };
+        return Some(format!("it returns `{}`, expected `{}`", r(got), r(want)));
+    }
+    None
+}
+
+/// Compares an implementation src defines with its declaration: an error for
+/// a signature that doesn't match, and one for a doc comment that doesn't.
+pub fn impl_mismatches(src: Str, c: ImplCheck, t: Table) -> Result<List<Str>, String> {
+    let rust = &*c.keyword == "fn";
+    let aliases: std::collections::HashMap<String, String> = t
+        .aliases
+        .iter()
+        .map(|a| {
+            let shown = if rust {
+                super::gen_leaf::rust_render(t.clone(), a.r.clone(), "".into())
+            } else {
+                super::go_leaf::go_render(t.clone(), a.r.clone(), "".into())
+            };
+            Ok((a.name.to_string(), norm_ty(&shown?, &Default::default())))
+        })
+        .collect::<Result<_, String>>()?;
+    let Some((line, rest)) = find_def(&src, &c.keyword, &c.function) else {
+        return Ok(List::default());
+    };
+    let parse = |s: &str| {
+        if rust {
+            rust_sig(s, &aliases)
+        } else {
+            go_sig(s, &aliases)
+        }
+    };
+    let impl_name = format!("{} {} in {}", c.keyword, c.function, c.shown);
+    let error = |msg: String, notes: Vec<String>| -> Result<Str, String> {
+        let s = snippet(
+            "error".into(),
+            msg.into(),
+            c.decl_path.clone(),
+            c.decl_text.clone(),
+            c.at,
+            c.end,
+            notes.iter().map(|n| Str::from(n.as_str())).collect(),
+        )?;
+        Ok(s)
+    };
+    let mut out = vec![];
+    let want_rest = c
+        .sig
+        .split_once(&format!("{} {}", c.keyword, c.function))
+        .map_or("", |(_, r)| r);
+    let (want, got) = (parse(want_rest), parse(rest));
+    let diff = match (&want, &got) {
+        (Some(w), Some(g)) => sig_diff(&c.keyword, w, g),
+        (_, None) => Some("its signature can't be read".to_string()),
+        (None, _) => None,
+    };
+    if let Some(d) = diff {
+        let notes = vec![
+            expected_note(&c.keyword, &c.doc, &c.sig),
+            format!("found: {} {}{}", c.keyword, c.function, written_sig(rest)),
+        ];
+        out.push(error(
+            format!(
+                "{} is implemented by {impl_name}, whose signature doesn't match: {d}",
+                c.qual
+            ),
+            notes,
+        )?);
+    }
+    let doc = doc_above(&src, line, if rust { "///" } else { "//" });
+    if doc != *c.doc {
+        let marker = if rust { "///" } else { "//" };
+        let msg = match (c.doc.is_empty(), doc.is_empty()) {
+            (false, true) => format!("{} has a doc comment, but {impl_name} has none", c.qual),
+            (true, false) => format!("{impl_name} has a doc comment, but {} has none", c.qual),
+            _ => format!("the doc comments of {} and {impl_name} differ", c.qual),
+        };
+        let mut notes = vec![];
+        if !c.doc.is_empty() {
+            notes.push(format!(
+                "the declaration's:\n{}",
+                super::gen_leaf::comment_lines("    //", &c.doc).join("\n")
+            ));
+        }
+        if !doc.is_empty() {
+            notes.push(format!(
+                "{} {}'s:\n{}",
+                c.keyword,
+                c.function,
+                super::gen_leaf::comment_lines(&format!("    {marker}"), &doc).join("\n")
+            ));
+        }
+        notes.push(format!(
+            "they must match apart from the comment markers: write the same doc above both, or above neither"
+        ));
+        out.push(error(msg, notes)?);
+    }
+    Ok(out.into_iter().collect())
+}
+
+/// Whether src defines `fn function` (or a generic `fn function<` / `func
+/// Function[T any](`); keyword is fn or func.
 pub fn defines_fn(src: Str, function: Str, keyword: Str) -> Result<bool, String> {
     Ok(["(", "<", "["]
         .iter()
@@ -843,12 +1318,15 @@ pub fn go_out_dir(root: Str, g: GoTarget) -> Result<Str, String> {
     join(root, g.out)
 }
 
-/// The program with implementation paths relative to out.
+/// Rebases the program's implementation paths onto out, the Go output
+/// directory, from the .sys files naming them.
 pub fn rebased_to(c: Checked, out: Str) -> Result<Program, String> {
     let d = dirs(c.project.root.clone(), c.project.paths.clone())?;
     rebase_impls(c.prog.clone(), d, out)
 }
 
+/// Names the Go package: [go]'s package, or else the output directory's name,
+/// made an identifier.
 pub fn go_package(g: GoTarget, out: Str) -> Result<Str, String> {
     if let MaybeStr::Some(p) = g.package {
         return Ok(p);
@@ -868,8 +1346,9 @@ pub fn go_package(g: GoTarget, out: Str) -> Result<Str, String> {
     .into())
 }
 
-/// [go]'s module, else go.mod's module path (root: go.mod's directory, ""
-/// if none) followed by out's directories below root.
+/// Works out the Go import path of out: [go]'s module if it's set, else
+/// go.mod's module path (root: go.mod's directory, "" if none) followed by
+/// out's directories below root.
 pub fn go_import_base(g: GoTarget, root: Str, gomod: Str, out: Str) -> Result<MaybeStr, String> {
     if let MaybeStr::Some(m) = g.module {
         return Ok(MaybeStr::Some(m));
@@ -885,6 +1364,8 @@ pub fn go_import_base(g: GoTarget, root: Str, gomod: Str, out: Str) -> Result<Ma
     Ok(MaybeStr::Some(segs.join("/").into()))
 }
 
+/// Lays out each bin's Go main package: [bin.*]'s go, by default
+/// <go.out>/../cmd/<name>, relative to go.out, with the proc it runs.
 pub fn go_main_specs(
     c: Checked,
     g: GoTarget,
@@ -910,7 +1391,7 @@ pub fn go_main_specs(
         .map(List::from)
 }
 
-/// A server's main package: [http.*]'s go, by default
+/// Places a server's Go main package: [http.*]'s go, by default
 /// <go.out>/../cmd/<name>, relative to go.out.
 pub fn go_server_path(c: Checked, g: GoTarget, name: Str) -> Result<Str, String> {
     let root = c.project.root.clone();
@@ -940,7 +1421,9 @@ pub fn go_out_files(out: Str, files: List<GoFile>) -> Result<List<OutFile>, Stri
         .map(List::from)
 }
 
-/// For each func implemented in Go: as impl_checks, for `func`.
+/// Lists a check for each func implemented in Go, as impl_checks does for
+/// Rust: its file, its function (defined by `func`), and its declaration's
+/// signature and doc.
 #[allow(clippy::too_many_arguments)]
 pub fn go_impl_checks(
     prog: Program,
@@ -973,6 +1456,7 @@ pub fn go_impl_checks(
             i.function.clone(),
         )?;
         let f = n.span.file as usize;
+        let expected = expected_note("func", &n.doc, &sig);
         let warn = |msg: String| -> Result<Str, String> {
             snippet(
                 "warning".into(),
@@ -981,13 +1465,21 @@ pub fn go_impl_checks(
                 srcs.get(f).cloned().unwrap_or_default(),
                 n.span.at,
                 n.span.end,
-                vec![Str::from(format!("expected: {sig}").as_str())].into(),
+                vec![expected.as_str().into()].into(),
             )
         };
         checks.push(ImplCheck {
             path: slash(&path).into(),
             function: i.function.clone(),
             keyword: "func".into(),
+            qual: qual.clone(),
+            shown: shown.clone(),
+            sig: sig.clone(),
+            doc: n.doc.clone(),
+            decl_path: paths.get(f).cloned().unwrap_or_else(|| "?".into()),
+            decl_text: srcs.get(f).cloned().unwrap_or_default(),
+            at: n.span.at,
+            end: n.span.end,
             missing: warn(format!(
                 "{qual} is implemented in {shown}, which does not exist"
             ))?,

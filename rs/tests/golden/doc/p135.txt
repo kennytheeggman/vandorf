@@ -24,7 +24,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "G"
+              "label": "G",
+              "sig": "(x: int): int"
             }
           ]
         }

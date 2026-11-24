@@ -1,4 +1,9 @@
-// vcc: the vandorf compiler, in vandorf (src/main.rs in the reference).
+// Runs vcc's command line: takes out the `-C <dir>`s and changes into each,
+// then runs the command on the project around the working directory. `check`
+// prints how many files and procs it has, `doc` prints its visualizer
+// document, `build` generates its Go and Rust (and builds them), `test`
+// builds it and runs its tests. A mistake in the command line fails with a
+// message pointing at --help.
 //
 //   vcc check          checks the project around the working directory
 //   vcc doc            prints its visualizer document
@@ -7,11 +12,13 @@
 //   vcc test           builds it all, then runs each language's test commands
 //   vcc --help         prints the usage
 //
-// -C <dir>, anywhere and any number of times, runs the command as if
-// started in <dir>. Mistakes in the command line fail, pointing at --help.
-// What a command prints is said explicitly (Console.Out and Console.Note),
-// so it goes where the reference sends it.
+// -C <dir>, anywhere and any number of times, runs the command as if started
+// in <dir>. What a command prints is said explicitly (Console.Out and
+// Console.Note), so it goes where the reference sends it.
 proc Vcc(argv: []string): void {
+	// Takes the `-C <dir>`s out of argv, wherever they are, keeping them in
+	// order and the rest of the command as it was; a `-C` with nothing after it
+	// is an error, returned rather than failed.
 	func Opts(argv: []string): CliOpts = "cli/cli_leaf.rs:split_c";
 	Vcc -> Opts(argv = this.argv);
 	Opts switch {
@@ -22,9 +29,13 @@ proc Vcc(argv: []string): void {
 		Ok(_) -> id(Opts.rest) as Cmd,
 		Err(e) -> Usage(msg = e.msg)
 	};
-	// The command, without its -Cs.
+	// Builds vcc's usage text, the commands and options, which --help prints and
+	// a bad command line points at.
 	func Help(n: int): string = "cli/cli_leaf.rs:usage";
+	// Finds the first argument after the command that starts with `-`, a flag
+	// vcc doesn't know; "" if there's none.
 	func FirstFlag(args: []string): string = "cli/cli_leaf.rs:first_flag";
+	// The command, without its -Cs.
 	Cmd switch {
 		(this.len == 0) -> Usage(msg = Help(n = 0)) as NoCommand,
 		(this[0] == "-h" || this[0] == "--help" || this[0] == "help") -> Console.Out(text = Help(n = 0)),
@@ -49,6 +60,8 @@ proc Vcc(argv: []string): void {
 		Ok(c) -> Test(s = c),
 		Err(e) -> Usage(msg = e.msg)
 	};
+	// Swallows a command's result: build and test print nothing when they
+	// succeed.
 	func Quiet(s: string): void = "cli/cli_leaf.rs:quiet";
 	Test -> Quiet(s = this) as Tested;
 	Build -> Quiet(s = this) as Built;
@@ -63,7 +76,8 @@ proc Vcc(argv: []string): void {
 
 type CliOpts = { dirs: []string, rest: []string, err: string };
 
-// Changes into each dir in turn (each relative to the last).
+// Changes into each directory in turn, each relative to the last, stopping
+// at the first that can't be entered and returning its error.
 proc ChangeDirs(s: { dirs: []string, i: int }): Res<string> {
 	ChangeDirs switch {
 		(this.s.i == this.s.dirs.len) -> id(Ok("")),
@@ -75,6 +89,6 @@ proc ChangeDirs(s: { dirs: []string, i: int }): Res<string> {
 	};
 }
 
-// Fails with msg (rendered diagnostics without their first `error: `,
-// which the executable prints).
+// Fails the command with msg, dropping a rendered diagnostic's first `error:
+// `, which the executable prints itself.
 func Usage(msg: string): void = "cli/cli_leaf.rs:fail_report";

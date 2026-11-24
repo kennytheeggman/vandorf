@@ -61,11 +61,13 @@ fn v_file(o: &mut Out, f: &v::File) {
             v_ident(o, p);
         }
         v_ty(o, &t.ty);
+        doc(o, &t.doc);
         o.close();
     }
     for i in &f.interfaces {
         o.open("interface");
         v_ident(o, &i.name);
+        doc(o, &i.doc);
         for f in &i.funcs {
             v_func(o, f);
         }
@@ -75,6 +77,15 @@ fn v_file(o: &mut Out, f: &v::File) {
         v_node(o, n);
     }
     o.close();
+}
+
+/// A declaration's doc comment, if it has one, as `(doc "..")`.
+fn doc(o: &mut Out, d: &str) {
+    if !d.is_empty() {
+        o.open("doc");
+        o.atom(format!("{d:?}"));
+        o.close();
+    }
 }
 
 fn v_ident(o: &mut Out, i: &v::Ident) {
@@ -115,6 +126,7 @@ fn v_func(o: &mut Out, f: &v::Func) {
         sp(o, &i.span);
         o.close();
     }
+    doc(o, &f.doc);
     o.close();
 }
 
@@ -127,6 +139,7 @@ fn v_proc(o: &mut Out, p: &v::Proc) {
     }
     o.close();
     v_ty(o, &p.ret);
+    doc(o, &p.doc);
     for n in &p.nodes {
         v_node(o, n);
     }
@@ -497,6 +510,32 @@ fn parses_tricky_syntax() {
             A for each (this) -> B(i = this);
             B collect each (B) -> Inner();
         };"#,
+        // Doc comments: the comment lines directly above a declaration.
+        r#"// Not a doc: a blank line follows.
+
+// A typedef's doc,
+// on two lines.
+type T = int;
+//No space after the slashes.
+//
+//   Indented, after an empty line.
+interface Fs {
+	// An interface func's.
+	func Read(path: string): string;
+	func Write(path: string): bool; // trailing: nobody's doc
+	func IsFile(path: string): bool;
+}
+// The area of each shape, summed.
+proc Measure(n: int): int {
+	// A local func's.
+	func Area(n: int): int;
+	// A nested proc's.
+	proc Inner(): int { Inner -> Area(n = 1); };
+	// An edge's comment is no one's doc.
+	Measure -> Area(n = this.n);
+};
+func F(); // trailing
+func G();"#,
     ].iter().enumerate() {
         common::check("parse-tricky", &format!("c{i}"), &ast(src));
     }

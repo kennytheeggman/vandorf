@@ -1,10 +1,14 @@
 // Edges, targets, switch arms and patterns.
 
-// edge := path ( '->' target
-//              | 'switch' '{' arm,* '}'
-//              | 'collect' 'each' '(' IDENT ')' '->' target
-//              | 'for' 'each' '(' expr ')' '->' target
-//              | '->' 'spawn' '{' branch,* '}' 'join' target )
+// Parses an edge: its source node, then what follows it. A call (`->`), a
+// switch, a collect each, a for each, or a spawn and its join, spanning from
+// the source to the end of the edge.
+//
+//   edge := path ( '->' target
+//                | 'switch' '{' arm,* '}'
+//                | 'collect' 'each' '(' IDENT ')' '->' target
+//                | 'for' 'each' '(' expr ')' '->' target
+//                | '->' 'spawn' '{' branch,* '}' 'join' target )
 proc PEdge(toks: []Tok, pos: int): R<Edge> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PEdge -> At(toks = this.toks, pos = this.pos);
@@ -53,8 +57,10 @@ proc PEdge(toks: []Tok, pos: int): R<Edge> {
 	});
 }
 
-// branch (',' branch)* ','?, at least one, stopping at a closing bracket;
-// branch := 'detach'? target
+// Parses a spawn's branches after its `{`, at least one, separated by
+// commas, each a call marked `detach` or not, until the closing brace.
+//
+//   branch := 'detach'? target
 proc PBranches(toks: []Tok, pos: int): R<[]Branch> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []Branch): AtAcc<[]Branch> = "leaf.rs:at_branches";
@@ -74,7 +80,12 @@ proc PBranches(toks: []Tok, pos: int): R<[]Branch> {
 	};
 }
 
-// target := 'id' '(' expr ')' ('as' IDENT)? | path '(' (arg (',' arg)*)? ')' ('as' IDENT)?
+// Parses what an edge calls: `id(value)`, or a node with its named
+// arguments, either with an optional alias. Keeps the span of what's inside
+// the parentheses, for the call's text in the diagram.
+//
+//   target := 'id' '(' expr ')' ('as' IDENT)?
+//           | path '(' (arg (',' arg)*)? ')' ('as' IDENT)?
 proc PTarget(toks: []Tok, pos: int): R<Target> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PTarget -> At(toks = this.toks, pos = this.pos);
@@ -83,6 +94,7 @@ proc PTarget(toks: []Tok, pos: int): R<Target> {
 		(this.tok.kind == "ident") -> PPath(toks = this.toks, pos = this.pos),
 		else -> NotTarget(toks = this.toks, pos = this.pos, what = "a call: a name, or id(value)")
 	};
+	// Fails at toks[pos], saying what was expected there instead.
 	func NotTarget(toks: []Tok, pos: int, what: string): R<Target> = "leaf.rs:expected_target";
 	IdOpen -> PExpr(toks = this.toks, pos = this.pos) as IdValue;
 	IdValue -> Expect(toks = At.toks, pos = this.pos, text = ")", what = ") after id's value") as IdClose;
@@ -98,10 +110,11 @@ proc PTarget(toks: []Tok, pos: int): R<Target> {
 	CallAlias -> id({ x = { node = PPath.x, args = PArgList.x, alias = this.x, id = None(), inner = Inner(toks = At.toks, from = Open.pos, to = PArgList.pos) }, pos = this.pos });
 }
 
-// The span of toks[from..to]; empty, at toks[from], if there are none.
+// The span covering toks[from..to], a call's arguments as written; empty, at
+// toks[from], if there are none.
 func Inner(toks: []Tok, from: int, to: int): Span = "leaf.rs:inner_span";
 
-// ('as' IDENT)?
+// Parses an `as Name` alias after a call, if there is one.
 proc PAlias(toks: []Tok, pos: int): R<OptIdent> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PAlias -> At(toks = this.toks, pos = this.pos);
@@ -112,7 +125,8 @@ proc PAlias(toks: []Tok, pos: int): R<OptIdent> {
 	NeedIdent -> id({ x = Some(MkIdent(t = this.tok)), pos = this.pos });
 }
 
-// (NAME '=' expr),* ','?, stopping at a closing bracket.
+// Parses a call's `name = value` arguments, separated by commas, a trailing
+// comma allowed, until its closing parenthesis.
 proc PArgList(toks: []Tok, pos: int): R<[]Arg> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []Arg): AtAcc<[]Arg> = "leaf.rs:at_args";
@@ -131,7 +145,8 @@ proc PArgList(toks: []Tok, pos: int): R<[]Arg> {
 	};
 }
 
-// arm (',' arm)* ','?, stopping at a closing bracket.
+// Parses a switch's arms, separated by commas, a trailing comma allowed,
+// until its closing brace.
 proc PArms(toks: []Tok, pos: int): R<[]Arm> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []Arm): AtAcc<[]Arm> = "leaf.rs:at_arms";
@@ -148,7 +163,11 @@ proc PArms(toks: []Tok, pos: int): R<[]Arm> {
 	};
 }
 
-// arm := ('else' | '(' expr ')' ... | pattern) '->' (target | 'switch' '{' arm,* '}')
+// Parses one switch arm: its head (`else`, a condition in parentheses, or a
+// pattern), its `->`, and its body. The arm's span covers its head, for the
+// diagram's labels.
+//
+//   arm := ('else' | '(' expr ')' | pattern) '->' (target | 'switch' '{' arm,* '}')
 proc PArm(toks: []Tok, pos: int): R<Arm> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PArm -> At(toks = this.toks, pos = this.pos);
@@ -167,7 +186,7 @@ proc PArm(toks: []Tok, pos: int): R<Arm> {
 	PatBody -> id({ x = { head = Pat(PPat.x), span = PPat.x.span, body = this.x }, pos = this.pos });
 }
 
-// target | 'switch' '{' arm,* '}'
+// Parses an arm's body: a call, or a nested switch with its own arms.
 proc PArmBody(toks: []Tok, pos: int): R<Body> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PArmBody -> At(toks = this.toks, pos = this.pos);
@@ -181,7 +200,9 @@ proc PArmBody(toks: []Tok, pos: int): R<Body> {
 	PTarget -> id({ x = Call(this.x), pos = this.pos });
 }
 
-// pat := alt ('|' alt)*
+// Parses a pattern, alternatives separated by `|` making an Or.
+//
+//   pat := alt ('|' alt)*
 proc PPat(toks: []Tok, pos: int): R<Pat> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PPat -> At(toks = this.toks, pos = this.pos);
@@ -189,9 +210,11 @@ proc PPat(toks: []Tok, pos: int): R<Pat> {
 	PAlts -> id({ x = OrOf(pats = this.x), pos = this.pos });
 }
 
-// One pattern, or an Or of several.
+// Makes one pattern of alternatives: the pattern itself if there's one, else
+// an Or of them all, spanning from the first to the last.
 func OrOf(pats: []Pat): Pat = "leaf.rs:or_of";
 
+// Parses a pattern's `|`-separated alternatives, at least one.
 proc PAlts(toks: []Tok, pos: int): R<[]Pat> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []Pat): AtAcc<[]Pat> = "leaf.rs:at_pats";
@@ -205,7 +228,10 @@ proc PAlts(toks: []Tok, pos: int): R<[]Pat> {
 	};
 }
 
-// alt := '_' | IDENT | IDENT '(' pat? ')' | '{' (NAME '=' pat),* '}'
+// Parses one alternative of a pattern: `_`, a binding, a variant with or
+// without a payload's pattern, or a struct pattern.
+//
+//   alt := '_' | IDENT | IDENT '(' pat? ')' | '{' (NAME '=' pat),* '}'
 proc PAlt(toks: []Tok, pos: int): R<Pat> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PAlt -> At(toks = this.toks, pos = this.pos);
@@ -235,7 +261,8 @@ proc PAlt(toks: []Tok, pos: int): R<Pat> {
 	});
 }
 
-// (NAME '=' pat),* ','?, stopping at a closing bracket.
+// Parses a struct pattern's `field = pattern` pairs, separated by commas,
+// until its closing brace.
 proc PPatFields(toks: []Tok, pos: int): R<[]PatField> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []PatField): AtAcc<[]PatField> = "leaf.rs:at_pat_fields";

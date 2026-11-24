@@ -5,18 +5,22 @@
 type GraphIn = { env: Env, p: Proc, g: Graph };
 
 func NoGraph(n: int): Graph = "sema_leaf.rs:empty_graph";
-// g with a new region (its id is the old regions.len).
+// Adds a region to g, a child of `parent` entered at `entry`, its elements
+// of type elem; its id is the old regions.len.
 func NewRegion(g: Graph, parent: int, entry: int, elem: Type): Graph = "sema_leaf.rs:new_region";
-// g with node n in region r.
+// Puts node n in region r, recording both ways.
 func InRegion(g: Graph, n: int, r: int): Graph = "sema_leaf.rs:in_region";
 func WithSink(g: Graph, r: int, n: int): Graph = "sema_leaf.rs:with_sink";
 func WithOpen(g: Graph, n: int, r: int): Graph = "sema_leaf.rs:with_open";
-// The calls an edge makes (a switch's, depth first).
+// Lists the calls an edge makes: its call, a switch's (depth first), a
+// spawn's branches and its join.
 func EdgeCalls(e: SEdge): []Call = "sema_leaf.rs:edge_calls";
 func ArgValues(calls: []Call): []Expr = "sema_leaf.rs:arg_values";
-// The conditions of arms and the switches nested in them, arm by arm.
+// Lists the conditions of a switch's arms and of the switches nested in
+// them, arm by arm.
 func ArmConds(arms: []SArm): []Expr = "sema_leaf.rs:arm_conds";
-// Each arm's conditions, then the arguments of its calls, arm by arm.
+// Lists what a switch's arms read, arm by arm: each one's conditions, then
+// the arguments of its calls.
 func ArmReads(arms: []SArm): []Expr = "sema_leaf.rs:arm_reads";
 func EdgeNodes(g: Graph): []int = "sema_leaf.rs:edge_nodes";
 func Ancestors(g: Graph, r: int): map[int]bool = "sema_leaf.rs:ancestors";
@@ -25,7 +29,11 @@ func Opener(g: Graph, r: int): int = "sema_leaf.rs:opener";
 // A proc's graph, and the program's nodes with its `id(..) as N` typed.
 type Built = { g: Graph, nodes: []NodeDecl };
 
-// The graph of proc env.pid, declared as p.
+// Builds and checks the graph of proc env.pid, declared as p. It types the
+// proc's `id(..) as N` nodes, checks each edge, and records the spawns. Then
+// it splits the nodes into regions, the body and each for each's, and checks
+// that every read is in scope and of a node that has run, and that every
+// node ending the proc returns its type.
 proc BuildGraph(s: { env: Env, p: Proc }): Res<Built> {
 	func Entry(nodes: []NodeDecl, pid: int): int = "sema_leaf.rs:proc_entry";
 	BuildGraph -> TypedEnv(s = this.s);
@@ -58,14 +66,17 @@ proc BuildGraph(s: { env: Env, p: Proc }): Res<Built> {
 }
 
 func UnwrapG(r: Res<Graph>): Graph = "sema_leaf.rs:unwrap_g";
-// g with each spawn's branches recorded; each runs in one branch only, with
-// no edge of its own.
+// Records each spawn's branches in g, with the node whose spawn runs each; a
+// branch runs in one spawn only, and has no edge of its own.
 func WithSpawned(g: Graph, nodes: []NodeDecl): Res<Graph> = "sema_leaf.rs:with_spawned";
-// Fails if a branch is also reached as a step of the proc.
+// Fails if a spawn's branch is also reached as a step of the proc, outside
+// its spawn.
 func SpawnReach(g: Graph, nodes: []NodeDecl, span: Span): Res<Graph> = "sema_leaf.rs:spawn_reach";
 
-// env, with the proc's `id(..) as N` typed if it has any.
+// Types the proc's `id(..) as N` nodes, if it has any whose type isn't known
+// yet.
 proc TypedEnv(s: { env: Env, p: Proc }): Env {
+	// Whether proc `pid` has an `id(..) as N` whose type isn't known yet.
 	func HasUntyped(nodes: []NodeDecl, pid: int): bool = "sema_leaf.rs:has_untyped";
 	TypedEnv switch {
 		(HasUntyped(nodes = this.s.env.nodes, pid = this.s.env.pid)) -> IdTypes(s = { env = this.s.env, p = this.s.p, i = 0, typed = false }),
@@ -80,9 +91,9 @@ proc TypedEnv(s: { env: Env, p: Proc }): Env {
 // Edges that can't be checked yet are checked again by GraphEdges, which
 // reports their errors.
 proc IdTypes(s: { env: Env, p: Proc, i: int, typed: bool }): Env {
-	// Whether the edge passes a value to an id that has no type yet; and
-	// nodes with those ids typed by the first value each is passed.
+	// Whether the edge passes a value to an id whose type isn't known yet.
 	func TypesIds(nodes: []NodeDecl, e: SEdge): bool = "sema_leaf.rs:types_ids";
+	// Types each untyped id the edge calls by the value it passes it first.
 	func TypedIds(nodes: []NodeDecl, e: SEdge): []NodeDecl = "sema_leaf.rs:typed_ids";
 	IdTypes switch {
 		(this.s.i == this.s.p.edges.len && this.s.typed) -> IdTypes(s = { ..this.s, i = 0, typed = false }),
@@ -98,6 +109,8 @@ proc IdTypes(s: { env: Env, p: Proc, i: int, typed: bool }): Env {
 	};
 }
 
+// Checks each of the proc's edges in turn and adds it to the graph, failing
+// at the first error.
 proc GraphEdges(s: { env: Env, p: Proc, g: Graph, i: int }): Res<Graph> {
 	GraphEdges switch {
 		(this.s.i == this.s.p.edges.len) -> id(Ok(this.s.g)),
@@ -112,7 +125,10 @@ proc GraphEdges(s: { env: Env, p: Proc, g: Graph, i: int }): Res<Graph> {
 
 type SrcEdge = { src: int, e: SEdge };
 
-// Edge p.edges[i], typed, and its source.
+// Checks edge p.edges[i] from its source node, whose output is `this`: a
+// call, a switch, a collect (`this` an array of the collected node's
+// outputs), a for each over an array (`this` its element), or a spawn. Its
+// source must be typed.
 proc EdgeOf(s: { env: Env, p: Proc, i: int }): Res<SrcEdge> {
 	EdgeOf -> ResolveNode(s = { nodes = this.s.env.nodes, globals = this.s.env.globals, pid = this.s.env.pid, path = this.s.p.edges[this.s.i].source });
 	ResolveNode switch {
@@ -163,15 +179,17 @@ proc EdgeOf(s: { env: Env, p: Proc, i: int }): Res<SrcEdge> {
 func ForEachTarget(k: EdgeKind): Target = "sema_leaf.rs:for_each_target";
 func ForEachDim(k: EdgeKind): Value = "sema_leaf.rs:for_each_dim";
 
-// `-> spawn { .. } join J(..)`: each branch is called with the spawner's
-// output as this; the join with the joined branches' outputs, by node name
-// (void ones left out).
+// Checks `-> spawn { .. } join J(..)`: each branch is called with the
+// spawner's output as this, and runs once; the join gets the joined
+// branches' outputs, by node name (void ones and detached ones left out),
+// and mustn't read a detached one.
 proc SpawnEdge(s: { env: Env, ret: Type, branches: []Branch, join: Target, i: int, out: []SBranch, fields: []Member }): Res<SEdge> {
 	func HasId(t: Target): bool = "sema_leaf.rs:has_id";
 	func HasTarget(out: []SBranch, n: int): bool = "sema_leaf.rs:has_branch_target";
 	func HasMember(ms: []Member, name: string): bool = "sema_leaf.rs:has_member";
 	func Name(n: NodeDecl): string = "sema_leaf.rs:last_name";
-	// The first this.X argument of the join naming a detached branch X.
+	// Finds the first `this.X` argument of the join that names a detached branch
+	// X: what the join can't read.
 	func Detached(join: Target, out: []SBranch, nodes: []NodeDecl): OptIdent = "sema_leaf.rs:detached_ref";
 	SpawnEdge switch {
 		(this.s.i == this.s.branches.len) -> Detached(join = this.s.join, out = this.s.out, nodes = this.s.env.nodes),
@@ -197,7 +215,8 @@ proc SpawnEdge(s: { env: Env, ret: Type, branches: []Branch, join: Target, i: in
 	};
 }
 
-// One source's edge, then the rest of GraphEdges.
+// Adds one source's edge to the graph, failing if the source already has
+// one, then goes on with the rest of GraphEdges.
 proc AddEdge(s: { at: { env: Env, p: Proc, g: Graph, i: int }, src: int, e: SEdge }): Res<Graph> {
 	AddEdge switch {
 		(this.s.src in this.s.at.g.edges) -> id(Err({ msg = ShowPath(p = this.s.at.p.edges[this.s.at.i].source) + " already has an outgoing edge", span = this.s.at.p.edges[this.s.at.i].source.span })),
@@ -205,8 +224,10 @@ proc AddEdge(s: { at: { env: Env, p: Proc, g: Graph, i: int }, src: int, e: SEdg
 	};
 }
 
-// Assigns every node reachable from region r's entry to r, opening a child
-// region at each for each and resuming after its collect.
+// Assigns every node reachable from region r's entry to r, following each
+// edge. At a for each it fills the region it opens first, which must end at
+// a collect, then carries on in r after the collect. Fails on a node in two
+// regions, a path that ends inside a for each, or a collect outside of one.
 proc Fill(s: { env: Env, p: Proc, g: Graph, r: int, work: []int, i: int }): Res<Graph> {
 	func Leaves(arms: []SArm): []int = "sema_leaf.rs:leaf_targets";
 	Fill switch {
@@ -240,8 +261,9 @@ proc Fill(s: { env: Env, p: Proc, g: Graph, r: int, work: []int, i: int }): Res<
 func ForEachCall(e: SEdge): Call = "sema_leaf.rs:for_each_call";
 func CollectTarget(g: Graph, sink: int): int = "sema_leaf.rs:collect_target";
 
-// Every read is of a node in its own region or an enclosing one, and every
-// node that ends the proc returns the proc's type.
+// Checks every edge's reads: each is of a node in its own region or an
+// enclosing one (not inside a for each, nor a spawn's branch). Then checks
+// every node that ends the proc returns the proc's type.
 proc CheckScopes(s: { env: Env, p: Proc, g: Graph, edges: []int, i: int }): Res<Graph> {
 	CheckScopes switch {
 		(this.s.i == this.s.edges.len) -> Terminals(s = { env = this.s.env, p = this.s.p, g = this.s.g, i = 0 }),
@@ -264,13 +286,16 @@ proc CheckScopes(s: { env: Env, p: Proc, g: Graph, edges: []int, i: int }): Res<
 	};
 }
 
-// The reads in `todo` (expressions, depth first) are of nodes visible from
-// region `scope`.
+// Checks that the reads in `todo` (expressions, depth first) are of nodes
+// visible from region `scope`.
 proc InScope(s: { env: Env, g: Graph, scope: int, refs: []Ref, todo: []Expr }): Res<int> {
 	InScope -> RefsOf(s = { todo = this.s.todo, acc = [] });
 	RefsOf -> ScopeEach(s = { env = InScope.s.env, g = InScope.s.g, scope = InScope.s.scope, refs = this, i = 0 });
 }
 
+// Checks each read in turn: this and bindings are always visible; a node
+// must have run somewhere, not be a spawn's branch, and be in the region or
+// one enclosing it.
 proc ScopeEach(s: { env: Env, g: Graph, scope: int, refs: []Ref, i: int }): Res<int> {
 	func NodeOf(r: Root): int = "sema_leaf.rs:root_node";
 	func LastName(n: NodeDecl): string = "sema_leaf.rs:last_name";
@@ -285,7 +310,7 @@ proc ScopeEach(s: { env: Env, g: Graph, scope: int, refs: []Ref, i: int }): Res<
 	};
 }
 
-// The Refs in expressions, depth first.
+// Collects the Refs in expressions, depth first.
 proc RefsOf(s: { todo: []Expr, acc: []Ref }): []Ref {
 	func Parts(e: Expr): []Expr = "sema_leaf.rs:expr_parts";
 	func RefIn(e: Expr): []Ref = "sema_leaf.rs:expr_ref";
@@ -296,6 +321,8 @@ proc RefsOf(s: { todo: []Expr, acc: []Ref }): []Ref {
 	};
 }
 
+// Checks every node of the proc's body that has no edge out, which ends the
+// proc, returns a type the proc's accepts.
 proc Terminals(s: { env: Env, p: Proc, g: Graph, i: int }): Res<Graph> {
 	Terminals switch {
 		(this.s.i == this.s.g.regions[0].nodes.len) -> id(Ok(this.s.g)),
@@ -312,9 +339,9 @@ proc Terminals(s: { env: Env, p: Proc, g: Graph, i: int }): Res<Graph> {
 
 // ---- Reads of nodes that may not have run ----
 
-// Dominators of each node within its region: the nodes on every path from
-// the region's entry to it, itself included. A for each steps from its
-// opener to its collect target, the region in between running in full.
+// Finds the dominators of each node within its region: the nodes on every
+// path from the region's entry to it, itself included. A for each steps from
+// its opener to its collect target, the region in between running in full.
 proc Dominators(s: { g: Graph, r: int, dom: map[int]map[int]bool }): map[int]map[int]bool {
 	func Preds(g: Graph, r: int): map[int][]int = "sema_leaf.rs:preds";
 	func Start(g: Graph, r: int, dom: map[int]map[int]bool): map[int]map[int]bool = "sema_leaf.rs:dom_start";
@@ -325,8 +352,8 @@ proc Dominators(s: { g: Graph, r: int, dom: map[int]map[int]bool }): map[int]map
 	DomRounds -> Dominators(s = { g = Dominators.s.g, r = Dominators.s.r + 1, dom = this });
 }
 
-// Until nothing changes: each node's dominators are the intersection of its
-// predecessors', and itself.
+// Repeats over a region's nodes until nothing changes: each node's
+// dominators become the intersection of its predecessors', and itself.
 proc DomRounds(s: { region: Region, preds: map[int][]int, dom: map[int]map[int]bool, i: int, changed: bool }): map[int]map[int]bool {
 	func Meet(preds: map[int][]int, dom: map[int]map[int]bool, n: int): map[int]bool = "sema_leaf.rs:meet";
 	func SameSet(a: map[int]bool, b: map[int]bool): bool = "sema_leaf.rs:same_set";
@@ -339,9 +366,9 @@ proc DomRounds(s: { region: Region, preds: map[int][]int, dom: map[int]map[int]b
 	};
 }
 
-// Every node output an edge reads has run on every path to the edge: in
-// its region it dominates the edge's source, and a node of an enclosing
-// region dominates the for each that opened the region.
+// Checks that every node output an edge reads has run on every path to the
+// edge: in its region it dominates the edge's source, and a node of an
+// enclosing region dominates the for each that opened the region.
 proc CheckRuns(s: { env: Env, g: Graph, dom: map[int]map[int]bool, edges: []int, i: int }): Res<Graph> {
 	CheckRuns switch {
 		(this.s.i == this.s.edges.len) -> id(Ok(this.s.g)),
@@ -363,16 +390,23 @@ proc CheckRuns(s: { env: Env, g: Graph, dom: map[int]map[int]bool, edges: []int,
 	};
 }
 
+// Checks that each node the expressions read has run when `src`'s edge does,
+// from `at` in region r.
 proc Ran(s: { env: Env, g: Graph, dom: map[int]map[int]bool, todo: []Expr, r: int, at: int, src: int }): Res<int> {
 	func NodeOf(r: Root): int = "sema_leaf.rs:root_node";
-	// Where a path skips node n, reading it from `at` in region r; -1 if none.
+	// Finds where a path can skip node n on its way to `at` in region r, through
+	// the regions enclosing it; -1 if every path runs n.
 	func Skip(g: Graph, dom: map[int]map[int]bool, n: int, r: int, at: int): int = "sema_leaf.rs:skip";
 	Ran -> RefsOf(s = { todo = this.s.todo, acc = [] });
 	RefsOf -> RanEach(s = { at = Ran.s, refs = this, i = 0 });
 }
 
+// Checks each read in turn, failing at the first node that may not have run,
+// naming the edge that reads it.
 proc RanEach(s: { at: { env: Env, g: Graph, dom: map[int]map[int]bool, todo: []Expr, r: int, at: int, src: int }, refs: []Ref, i: int }): Res<int> {
 	func NodeOf(r: Root): int = "sema_leaf.rs:root_node";
+	// Finds where a path can skip node n on its way to `at` in region r, through
+	// the regions enclosing it; -1 if every path runs n.
 	func Skip(g: Graph, dom: map[int]map[int]bool, n: int, r: int, at: int): int = "sema_leaf.rs:skip";
 	RanEach switch {
 		(this.s.i == this.s.refs.len) -> id(Ok(0)),
@@ -389,8 +423,9 @@ proc RanEach(s: { at: { env: Env, g: Graph, dom: map[int]map[int]bool, todo: []E
 
 type Analysis = { prog: Program, errors: []Diag };
 
-// The whole of sema: declarations, then each proc's graph. Errors in one
-// graph don't stop the others.
+// Runs the whole of sema: declarations, then each proc's graph. Errors in
+// one graph don't stop the others, but errors in the declarations stop it
+// before the graphs, which need them.
 proc Analyze(s: { srcs: []string, file: File }): Analysis {
 	Analyze -> Declare(file = this.s.file);
 	Declare switch {
@@ -399,6 +434,8 @@ proc Analyze(s: { srcs: []string, file: File }): Analysis {
 	};
 }
 
+// Builds each proc's graph in turn, keeping the ones that build and
+// gathering every proc's errors.
 proc Graphs(s: { cx: Cx, srcs: []string, i: int, errors: []Diag }): Analysis {
 	func SetGraph(cx: Cx, pid: int, g: Graph): Cx = "sema_leaf.rs:set_graph";
 	Graphs switch {

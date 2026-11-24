@@ -2,7 +2,8 @@
 
 A vandorf program is a set of `.sys` files sharing one namespace: types,
 interfaces, funcs and procs declared in one file can be used from any other,
-in any order. Comments run from `//` to the end of the line.
+in any order. Comments run from `//` to the end of the line; the ones
+directly above a declaration are its [doc comment](#doc-comments).
 
 ```
 type Expr = enum { Lit(int), Neg(Expr), Add({ l: Expr, r: Expr }) };
@@ -328,6 +329,30 @@ Adjust switch {
   backends. A `for each` takes any array expression.
 - Implementations must not change a map they're given (Go maps are
   references).
+
+## Doc comments
+
+The comment lines directly above a declaration are its description:
+
+```
+// The area of each shape, summed, and how many there are of each kind.
+proc Measure(shapes: []Shape): Report {
+	// The area of one shape.
+	func Area(s: Shape): Measured = "../go/app/impl.go:Area", "../rs/src/impls.rs:area";
+	..
+}
+```
+
+- Typedefs, interfaces, interface funcs and funcs and procs, top-level or
+  nested, take one. An edge's comment is no one's.
+- Every `//` line directly above the declaration counts, each without its
+  `//` and one space after it. A blank line, or code, ends it: a comment
+  with a blank line after it, or at the end of a code line, isn't a doc.
+- The diagram shows a node's doc under its name, and the details panel
+  shows it in full; generated code carries it as a doc comment on the
+  proc's `run_<proc>` / `Run<Proc>` and on types named after a typedef.
+- A func's implementations carry the same doc, apart from the comment
+  markers: `vcc build` checks it (see [Implementations](projects.md#implementations)).
 
 ## Keywords
 

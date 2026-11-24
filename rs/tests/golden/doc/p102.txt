@@ -16,7 +16,8 @@
             {
               "type": 0,
               "label": "A",
-              "sublabel": "a.go:A · ../impls/a.rs:a"
+              "sublabel": "a.go:A · ../impls/a.rs:a",
+              "sig": "(): { n: int }"
             }
           ]
         },
@@ -25,7 +26,8 @@
             {
               "type": 0,
               "label": "B",
-              "sublabel": "../other/b.go:B"
+              "sublabel": "../other/b.go:B",
+              "sig": "(i: int): int"
             }
           ]
         }

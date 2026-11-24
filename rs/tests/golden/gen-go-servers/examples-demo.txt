@@ -46,6 +46,10 @@ const (
 )
 
 // RunBar runs proc Bar.
+//
+// Repeats b a times, then grows it until Loop gives 10 or more, and runs
+// ForEach on that: zero goes to a func with no implementation, anything else
+// is described, passed to Foo.Call and logged.
 func RunBar(ctx context.Context, a int, b string) (string, error) {
 	var zero string
 	env := &envBar{}
@@ -197,6 +201,9 @@ const (
 )
 
 // RunCalc runs proc Calc.
+//
+// Builds `base + 2` as an expression, evaluates `-(base + 2) + 10` and then
+// `base + 2` at double scale, and totals the two with 100.
 func RunCalc(ctx context.Context, base int) (int, error) {
 	var zero int
 	env := &envCalc{}
@@ -308,6 +315,16 @@ const (
 )
 
 // RunClassify runs proc Classify.
+//
+// Classifies an expression by its shape: a small even literal, any other
+// literal, a negated literal, a sum of literals, or something else; under a
+// Neg, it classifies what's negated, as "minus ...".
+//
+// Pattern switches match structure: variants, struct fields (all of them,
+// `_` for the ones that don't matter) and bindings. Conditions on values go
+// in a switch nested under a pattern arm, which sees its bindings. The arms
+// cover every Expr, so no else is needed. `id(value)` ends the proc with a
+// value.
 func RunClassify(ctx context.Context, e types.Expr) (string, error) {
 	var zero string
 	env := &envClassify{}
@@ -452,6 +469,9 @@ const (
 )
 
 // RunForEach runs proc ForEach.
+//
+// Lists 0..i-1, and i as a string, then squares each element in a for each
+// region and sums the squares.
 func RunForEach(ctx context.Context, i int) (int, error) {
 	var zero int
 	env := &envForEach{}
@@ -556,6 +576,8 @@ const (
 )
 
 // RunHello runs proc Hello.
+//
+// Greets name, times times, for GET with a query string.
 func RunHello(ctx context.Context, name string, times int) (string, error) {
 	var zero string
 	env := &envHello{}
@@ -2321,6 +2343,9 @@ const (
 )
 
 // RunMain runs proc Main.
+//
+// Runs Bar on the `demo` bin's command-line arguments (vandorf.toml): `demo
+// <a: int> <b: string>`.
 func RunMain(ctx context.Context, a int, b string) (string, error) {
 	var zero string
 	env := &envMain{}
@@ -2397,6 +2422,10 @@ const (
 )
 
 // RunMeasure runs proc Measure.
+//
+// Measures each shape's area in a for each region, then folds the areas into
+// a report: how many shapes there are, their total area, and how many of
+// each kind.
 func RunMeasure(ctx context.Context, shapes []types.Shape) (types.Report, error) {
 	var zero types.Report
 	env := &envMeasure{}
@@ -2559,6 +2588,10 @@ const (
 )
 
 // RunResolve runs proc Resolve.
+//
+// Looks query up in a scope of the names: declares each at its index, adds a
+// builtin `len` and drops `tmp`, then says where query is declared, or which
+// names are known.
 func RunResolve(ctx context.Context, names []string, query string) (string, error) {
 	var zero string
 	env := &envResolve{}
@@ -2860,6 +2893,7 @@ import (
 )
 
 // unimplementedBarBranch1 stands in for Bar.Branch1, which names no .go implementation. Write
+//	// No implementation: calls a generated stub that returns an error.
 //	func Name(ctx context.Context, i int) (string, error)
 // and add `= "file.go:Name"` to its declaration.
 func unimplementedBarBranch1(ctx context.Context, _ int) (string, error) {
@@ -2924,7 +2958,8 @@ func main() {
 
 package types
 
-// Shape is a typedef.
+// Procs the demo's HTTP server ([http.api] in vandorf.toml) runs: requests
+// and results cross as JSON, decoded into these types.
 // Tag is one of "Dot", "Circle", "Rect"; the field it names holds the payload.
 type Shape struct {
 	Tag string
@@ -2933,7 +2968,8 @@ type Shape struct {
 	Rect ShapeRect
 }
 
-// ShapeRect is the type of the typedef Shape.
+// Procs the demo's HTTP server ([http.api] in vandorf.toml) runs: requests
+// and results cross as JSON, decoded into these types.
 type ShapeRect struct {
 	W float64
 	H float64
@@ -2959,7 +2995,8 @@ type Fold struct {
 	I int
 }
 
-// Expr is a typedef.
+// Typedefs, aliases and literals. Expr is recursive: Neg and Add hold
+// Exprs, so the generated types box them (Box<Expr> in Rust, *Expr in Go).
 // Tag is one of "Lit", "Neg", "Add"; the field it names holds the payload.
 type Expr struct {
 	Tag string
@@ -2968,13 +3005,14 @@ type Expr struct {
 	Add *ExprAdd
 }
 
-// ExprAdd is the type of the typedef Expr.
+// Typedefs, aliases and literals. Expr is recursive: Neg and Add hold
+// Exprs, so the generated types box them (Box<Expr> in Rust, *Expr in Go).
 type ExprAdd struct {
 	L *Expr
 	R *Expr
 }
 
-// Outcome is a typedef.
+// How a Bar run ended; a typedef gives the generated type its name.
 // Tag is one of "I", "S", "B"; the field it names holds the payload.
 type Outcome struct {
 	Tag string
@@ -2983,12 +3021,14 @@ type Outcome struct {
 	B OutcomeB
 }
 
-// OutcomeB is the type of the typedef Outcome.
+// How a Bar run ended; a typedef gives the generated type its name.
 type OutcomeB struct {
 	I int
 }
 
-// ScopeValue is the type of the typedef Scope.
+// Maps: a scope of declared names, as a sema pass would keep one. Maps are
+// values: `+` and `-` make new ones. A missing key fails the proc, so
+// lookups are guarded with `in`.
 type ScopeValue struct {
 	Slot int
 	Kind string
@@ -3039,7 +3079,9 @@ type ResolveDeclareOut struct {
 	Query string
 }
 
-// Scope is a typedef.
+// Maps: a scope of declared names, as a sema pass would keep one. Maps are
+// values: `+` and `-` make new ones. A missing key fails the proc, so
+// lookups are guarded with `in`.
 type Scope = map[string]ScopeValue
 
 

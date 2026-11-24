@@ -1,10 +1,15 @@
+// Classifies an expression by its shape: a small even literal, any other
+// literal, a negated literal, a sum of literals, or something else; under a
+// Neg, it classifies what's negated, as "minus ...".
+//
 // Pattern switches match structure: variants, struct fields (all of them,
 // `_` for the ones that don't matter) and bindings. Conditions on values go
-// in a switch nested under a pattern arm, which sees its bindings. The
-// arms cover every Expr, so no else is needed. `id(value)` ends the proc
-// with a value.
+// in a switch nested under a pattern arm, which sees its bindings. The arms
+// cover every Expr, so no else is needed. `id(value)` ends the proc with a
+// value.
 proc Classify(e: Expr): string {
 	func Look(e: Expr): Expr = "../go/app/impl.go:Look", "../rs/src/impls.rs:look";
+	// Checks whether |i| < 100.
 	func Small(i: int): bool = "../go/app/impl.go:Small", "../rs/src/impls.rs:small";
 
 	Classify -> Look(e = this.e);

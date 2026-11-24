@@ -59,6 +59,10 @@ commit identically (the fixed point).
 | 5 | vcc | `03f49e2` | `ae049bc` | Drops the `proc P(Entry)` form. |
 | 6 | vcc | `ae049bc` | `1a3020a` | The visualizer's signature node; the doc's signature node is type 3. |
 | 7 | vcc | `1a3020a` | `ee29567` | Docs. |
+| 8 | vcc | `9df0c57` | `09bcd3a` | Doc comments: parsed, and carried to the doc, the IDE and codegen. No change in syntax: the comments directly above declarations become their docs. |
+| 9 | vcc | `09bcd3a` | `850a185` | The visualizer's doc lines. |
+| 10 | vcc | `850a185` | `c049816` | Leaves' docs and parameter names match their declarations (comments and renames). |
+| 11 | vcc | `c049816` | `4d62edd` | `vcc build` checks implementations' signatures and docs. The vcc that comes out checks its own leaves as it rebuilds itself, so this needs step 10's sources. |
 
 Some steps can be skipped:
 
@@ -66,13 +70,15 @@ Some steps can be skipped:
   sources are still in the old form.
 - vcc from `9873da7` builds `ce82afb` directly.
 - vcc from `ce82afb` builds every later commit, up to `ee29567`.
+- vcc from `9df0c57` builds `4d62edd` directly.
 
 So the shortest route from the reference is two builds:
 
 | Compiler | From commit | Builds commit |
 |---|---|---|
 | reference | `caf0938` | `ce82afb` |
-| vcc | `ce82afb` | `ee29567` (or any commit after `ce82afb`) |
+| vcc | `ce82afb` | `ee29567` (or any commit after `ce82afb`, up to `9df0c57`) |
+| vcc | `9df0c57` | `4d62edd` (or any commit after `9df0c57`) |
 
 Nothing before `ce82afb` builds `03f49e2` or later. vcc from `9873da7`
 can't parse the new form (`expected ) after the entry, found ':'`). vcc

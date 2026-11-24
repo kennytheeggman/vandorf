@@ -1,0 +1,6 @@
+#0 Measured struct { kind: string, area: int } (typedef Measured)
+#1 Shape enum { Square: int, Circle: int } (typedef Shape)
+#2 RInt struct { x: int, pos: int } (typedef R<int>)
+#3 MeasureArgs struct { shapes: []#1 } (parameters of Measure)
+#4 MeasureCountArgs struct { xs: []#0 } (parameters of Measure.Count)
+alias Ids = []int

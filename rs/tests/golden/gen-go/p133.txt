@@ -23,6 +23,9 @@ const (
 )
 
 // RunGreet runs proc Greet.
+//
+// A proc declared with its signature: the body starts from the proc's own
+// name, whose output is its parameters.
 func RunGreet(ctx context.Context, name string, times int) (string, error) {
 	var zero string
 	env := &envGreet{}
@@ -408,6 +411,9 @@ const (
 )
 
 // RunGreet runs proc Greet.
+//
+// A proc declared with its signature: the body starts from the proc's own
+// name, whose output is its parameters.
 func RunGreet(ctx context.Context, name string, times int) (string, error) {
 	var zero string
 	env := &envGreet{}
@@ -795,6 +801,9 @@ const (
 )
 
 // RunGreet runs proc Greet.
+//
+// A proc declared with its signature: the body starts from the proc's own
+// name, whose output is its parameters.
 func RunGreet(ctx context.Context, name string, times int) (string, error) {
 	var zero string
 	env := &envGreet{}
@@ -1218,6 +1227,9 @@ const (
 )
 
 // RunGreet runs proc Greet.
+//
+// A proc declared with its signature: the body starts from the proc's own
+// name, whose output is its parameters.
 func RunGreet(ctx context.Context, name string, times int) (string, error) {
 	var zero string
 	env := &envGreet{}

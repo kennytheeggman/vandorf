@@ -13,20 +13,24 @@ type Type = enum {
 };
 // A struct field or an enum variant (void for no payload).
 type Member = { name: string, ty: Type };
-type TypeDef = { name: string, ident: string, ty: Type, recursive: bool };
+// doc: the typedef's doc comment (an instance's is its generic's).
+type TypeDef = { name: string, ident: string, ty: Type, recursive: bool, doc: string };
 type MaybeType = enum { None, Some(Type) };
 
 type Pair = { x: int, y: int };
 type OptPair = enum { None, Some(Pair) };
 
 func IsVoid(t: Type): bool = "sema_leaf.rs:is_void";
-// The member called `name`.
+// Looks up the member named `name` among a struct's fields or an enum's
+// variants: its type, if there is one.
 func Member(ms: []Member, name: string): MaybeType = "sema_leaf.rs:member";
-// ", " before every list item but the first.
+// Separates list items: ", " before every item but the first (i is the
+// item's index).
 func Sep(i: int): string = "sema_leaf.rs:sep";
 
-// The structure behind any typedef names. Sema rejects name cycles that
-// never reach a structure, so this ends.
+// Follows typedef names to the structure behind them, through as many names
+// as it takes. Sema rejects name cycles that never reach a structure, so
+// this ends.
 proc Unfold(s: { t: Type, defs: []TypeDef }): Type {
 	Unfold -> id(this.s.t) as T;
 	T switch {
@@ -35,8 +39,8 @@ proc Unfold(s: { t: Type, defs: []TypeDef }): Type {
 	};
 }
 
-// A type as written: `[]int`, `map[string]R<int>`, `{ x: int, y: E }`,
-// `enum { A, B(int) }`.
+// Writes a type as the source would: `[]int`, `map[string]R<int>`, `{ x:
+// int, y: E }`, `enum { A, B(int) }`, typedefs by name.
 proc ShowType(t: Type): string {
 	ShowType switch {
 		{ t = Prim(p) } -> id(p),
@@ -51,13 +55,15 @@ proc ShowType(t: Type): string {
 	Variants -> id("enum { " + this + " }");
 }
 
+// Writes a map type as the source would: `map[K]V`.
 proc ShowMap(s: { key: Type, value: Type }): string {
 	ShowMap -> ShowType(t = this.s.key) as Key;
 	Key -> ShowType(t = ShowMap.s.value) as Val;
 	Val -> id("map[" + Key + "]" + this);
 }
 
-// `n: t` for fields; `n` or `n(t)` for variants. Joined with ", ".
+// Writes a struct's fields as `n: t`, or an enum's variants as `n` or
+// `n(t)`, joined with ", ".
 proc ShowMembers(s: { ms: []Member, variants: bool, i: int, acc: string }): string {
 	ShowMembers switch {
 		(this.s.i == this.s.ms.len) -> id(this.s.acc),
@@ -76,7 +82,13 @@ proc ShowMembers(s: { ms: []Member, variants: bool, i: int, acc: string }): stri
 // one again means the comparison came full circle with no mismatch.
 type AcceptsIn = { a: Type, b: Type, defs: []TypeDef, assumed: []Pair };
 
+// Decides whether a value of type b may go where type a is expected: the
+// same primitives, arrays and maps of accepted types, structs with the same
+// fields, or an enum with at least b's variants. Typedef names are unfolded
+// to their structures, a pair of names already being compared is assumed to
+// match, so recursive types end.
 proc Accepts(s: AcceptsIn): bool {
+	// Pairs two types' typedef ids, if both are typedef names.
 	func Names(a: Type, b: Type): OptPair = "sema_leaf.rs:named_pair";
 	func HasPair(ps: []Pair, p: Pair): bool = "sema_leaf.rs:has_pair";
 	Accepts -> Names(a = this.s.a, b = this.s.b);
@@ -91,10 +103,14 @@ proc Accepts(s: AcceptsIn): bool {
 	UB -> AcceptsShapes(s = { a = UA, b = this, defs = Accepts.s.defs, assumed = Accepts.s.assumed + NewPair(o = Names) });
 }
 
-// The pair to assume while comparing two typedef names' structures.
+// Makes the pair to assume while comparing two typedef names' structures:
+// the names' pair, or none if they weren't both names.
 func NewPair(o: OptPair): []Pair = "sema_leaf.rs:new_pair";
 
-// Accepts, on unfolded types.
+// Decides Accepts for two unfolded types, by their shapes: primitives must
+// be the same, arrays' elements and maps' keys and values accepted, structs
+// must have the same fields, and an enum must have every variant of the one
+// it accepts.
 proc AcceptsShapes(s: AcceptsIn): bool {
 	AcceptsShapes -> id({ a = this.s.a, b = this.s.b }) as Both;
 	Both switch {
@@ -110,6 +126,7 @@ proc AcceptsShapes(s: AcceptsIn): bool {
 	};
 }
 
+// Decides Accepts for two map types: their keys, then their values.
 proc AcceptsMap(s: { a: { key: Type, value: Type }, b: { key: Type, value: Type }, defs: []TypeDef, assumed: []Pair }): bool {
 	AcceptsMap -> Accepts(s = { a = this.s.a.key, b = this.s.b.key, defs = this.s.defs, assumed = this.s.assumed }) as Keys;
 	Keys switch {
@@ -118,8 +135,8 @@ proc AcceptsMap(s: { a: { key: Type, value: Type }, b: { key: Type, value: Type 
 	};
 }
 
-// Whether every member of `each` has a member of the same name in `other`
-// whose type is accepted: Accepts(each's, other's), or with `flip`,
+// Checks that every member of `each` has a member of the same name in
+// `other` whose type is accepted: Accepts(each's, other's), or with `flip`,
 // Accepts(other's, each's).
 proc AllAccepted(s: { each: []Member, other: []Member, flip: bool, defs: []TypeDef, assumed: []Pair, i: int }): bool {
 	AllAccepted switch {

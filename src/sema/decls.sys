@@ -23,11 +23,12 @@ type Declared = { cx: Cx, id: int };
 
 func WithNode(cx: Cx, n: NodeDecl): Cx = "sema_leaf.rs:with_node";
 func WithId(cx: Cx, at: string, id: int): Cx = "sema_leaf.rs:with_id";
-// Where a span starts, as a key: "file:at".
+// Turns where a span starts into a map key, "file:at", for finding the node
+// an id(..) target became.
 func SpanKey(s: Span): string = "sema_leaf.rs:span_key";
 func WithAlias(cx: Cx, a: PendingAlias): Cx = "sema_leaf.rs:with_alias";
 func WithProc(cx: Cx, p: PendingProc): Cx = "sema_leaf.rs:with_proc";
-// cx with proc `id`'s entry and locals set.
+// Records proc `id`'s entry (its signature node) and its locals in cx.
 func SetProc(cx: Cx, id: int, entry: int, locals: []int): Cx = "sema_leaf.rs:set_proc";
 func SetAlias(cx: Cx, lid: int, of: int): Cx = "sema_leaf.rs:set_alias";
 func ShowPath(p: Path): string = "sema_leaf.rs:show_path";
@@ -35,11 +36,14 @@ func QualName(n: NodeDecl): string = "sema_leaf.rs:qual_name";
 func ProcRet(n: NodeDecl): Type = "sema_leaf.rs:proc_ret";
 func IsAlias(n: NodeDecl): bool = "sema_leaf.rs:is_alias";
 
+// Declares a file's interfaces, then its top-level funcs and procs.
 proc DeclareFile(s: { cx: Cx, file: File }): Cx {
 	DeclareFile -> DeclareIfaces(s = { cx = this.s.cx, ifaces = this.s.file.interfaces, i = 0 });
 	DeclareIfaces -> DeclareTops(s = { cx = this, nodes = DeclareFile.s.file.nodes, i = 0 });
 }
 
+// Adds a top-level name to the globals, or reports it as a duplicate if it's
+// taken.
 proc DeclareGlobal(s: { cx: Cx, name: Ident, g: Global }): Cx {
 	DeclareGlobal switch {
 		(this.s.name.name in this.s.cx.globals) -> id({ ..this.s.cx, ty = { ..this.s.cx.ty, errors = this.s.cx.ty.errors + [{ msg = "duplicate name " + this.s.name.name, span = this.s.name.span }] } }),
@@ -47,6 +51,7 @@ proc DeclareGlobal(s: { cx: Cx, name: Ident, g: Global }): Cx {
 	};
 }
 
+// Declares each interface: its funcs, then the interface itself as a global.
 proc DeclareIfaces(s: { cx: Cx, ifaces: []Interface, i: int }): Cx {
 	DeclareIfaces switch {
 		(this.s.i == this.s.ifaces.len) -> id(this.s.cx),
@@ -55,6 +60,9 @@ proc DeclareIfaces(s: { cx: Cx, ifaces: []Interface, i: int }): Cx {
 	IfaceFuncs -> DeclareIfaces(s = { cx = this, ifaces = DeclareIfaces.s.ifaces, i = DeclareIfaces.s.i + 1 });
 }
 
+// Declares an interface's funcs in turn, as nodes qualified by the
+// interface's name, reporting duplicates; then the interface as a global
+// mapping each func's name to its node.
 proc IfaceFuncs(s: { cx: Cx, iface: Interface, i: int, funcs: map[string]int }): Cx {
 	IfaceFuncs switch {
 		(this.s.i == this.s.iface.funcs.len) -> DeclareGlobal(s = { cx = this.s.cx, name = this.s.iface.name, g = Interface(this.s.funcs) }),
@@ -67,6 +75,8 @@ proc IfaceFuncs(s: { cx: Cx, iface: Interface, i: int, funcs: map[string]int }):
 	};
 }
 
+// Declares each top-level func and proc in turn, as a node and a global;
+// procs are also listed as top-level.
 proc DeclareTops(s: { cx: Cx, nodes: []Node, i: int }): Cx {
 	DeclareTops switch {
 		(this.s.i == this.s.nodes.len) -> id(this.s.cx),
@@ -89,6 +99,9 @@ proc DeclareTops(s: { cx: Cx, nodes: []Node, i: int }): Cx {
 
 func NodeName(n: Node): Ident = "sema_leaf.rs:node_name";
 
+// Declares a func: resolves its parameters and its result type (void if
+// none), then adds it as a node. A signature that doesn't resolve leaves the
+// func undeclared (id -1), its errors reported.
 proc DeclareFunc(s: { cx: Cx, f: Func, qual: []string }): Declared {
 	DeclareFunc -> Fields(s = { cx = this.s.cx.ty, fs = this.s.f.params, i = 0, ok = true, acc = [] }) as Params;
 	Params -> id(DeclareFunc.s.f.ret) as Ret;
@@ -99,18 +112,25 @@ proc DeclareFunc(s: { cx: Cx, f: Func, qual: []string }): Declared {
 	RetTy -> FinishFunc(s = { cx = { ..DeclareFunc.s.cx, ty = this.cx }, params = Params.ms, ret = this.t, f = DeclareFunc.s.f, qual = DeclareFunc.s.qual });
 }
 
+// Adds a func's node, if its parameters and result resolved; id -1
+// otherwise.
 proc FinishFunc(s: { cx: Cx, params: MaybeMembers, ret: MaybeType, f: Func, qual: []string }): Declared {
 	FinishFunc switch {
-		{ s = { cx = _, params = Some(ps), ret = Some(r), f = _, qual = _ } } -> id({ cx = { ..FinishFunc.s.cx, nodes = FinishFunc.s.cx.nodes + [{ qual = FinishFunc.s.qual + [FinishFunc.s.f.name.name], span = FinishFunc.s.f.name.span, kind = Func({ params = ps, ret = r, imps = FinishFunc.s.f.imps }) }] }, id = FinishFunc.s.cx.nodes.len }),
+		{ s = { cx = _, params = Some(ps), ret = Some(r), f = _, qual = _ } } -> id({ cx = { ..FinishFunc.s.cx, nodes = FinishFunc.s.cx.nodes + [{ qual = FinishFunc.s.qual + [FinishFunc.s.f.name.name], span = FinishFunc.s.f.name.span, kind = Func({ params = ps, ret = r, imps = FinishFunc.s.f.imps }), doc = FinishFunc.s.f.doc }] }, id = FinishFunc.s.cx.nodes.len }),
 		else -> id({ cx = FinishFunc.s.cx, id = -1 })
 	};
 }
 
 type ProcIn = { cx: Cx, p: Proc, qual: []string, parent: int };
 
+// Declares a proc: resolves its result type and parameters, adds its node
+// and its signature node, then its local funcs and procs, its id(..) nodes
+// and its aliases. Its graph is built later, once every node is declared, so
+// it's queued in cx.
 proc DeclareProc(s: ProcIn): Declared {
 	func EmptyGraph(n: int): Graph = "sema_leaf.rs:empty_graph";
-	// The proc's own node, then its signature node `P.P`, its entry.
+	// Adds proc `pid`'s signature node after it: a local of the proc with the
+	// proc's name (`P.P`), so `P` in the body names it.
 	func WithSig(cx: Cx, p: Proc, qual: []string, pid: int, params: []Member): Cx = "sema_leaf.rs:with_sig";
 	DeclareProc -> Ty(s = { cx = this.s.cx.ty, t = this.s.p.ret }) as Ret;
 	Ret switch {
@@ -119,7 +139,7 @@ proc DeclareProc(s: ProcIn): Declared {
 	};
 	Params switch {
 		{ cx = _, ms = Some(ms) } -> DeclareLocals(s = {
-			cx = WithSig(cx = WithNode(cx = { ..DeclareProc.s.cx, ty = Params.cx }, n = { qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], span = DeclareProc.s.p.name.span, kind = Proc({ parent = DeclareProc.s.parent, entry = -1, ret = UnwrapT(t = Ret.t), locals = [], graph = EmptyGraph(n = 0) }) }), p = DeclareProc.s.p, qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], pid = DeclareProc.s.cx.nodes.len, params = ms),
+			cx = WithSig(cx = WithNode(cx = { ..DeclareProc.s.cx, ty = Params.cx }, n = { qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], span = DeclareProc.s.p.name.span, kind = Proc({ parent = DeclareProc.s.parent, entry = -1, ret = UnwrapT(t = Ret.t), locals = [], graph = EmptyGraph(n = 0) }), doc = DeclareProc.s.p.doc }), p = DeclareProc.s.p, qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], pid = DeclareProc.s.cx.nodes.len, params = ms),
 			p = DeclareProc.s.p, qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], id = DeclareProc.s.cx.nodes.len, i = 0, names = [DeclareProc.s.p.name.name: DeclareProc.s.cx.nodes.len + 1], locals = [DeclareProc.s.cx.nodes.len + 1]
 		}),
 		else -> id({ cx = { ..DeclareProc.s.cx, ty = Params.cx }, id = -1 })
@@ -132,6 +152,8 @@ proc DeclareProc(s: ProcIn): Declared {
 
 type Locals = { cx: Cx, names: map[string]int, locals: []int };
 
+// Declares a proc's local funcs and nested procs in turn, each a local of
+// the proc, reporting names declared twice.
 proc DeclareLocals(s: { cx: Cx, p: Proc, qual: []string, id: int, i: int, names: map[string]int, locals: []int }): Locals {
 	DeclareLocals switch {
 		(this.s.i == this.s.p.nodes.len) -> id({ cx = this.s.cx, names = this.s.names, locals = this.s.locals }),
@@ -150,7 +172,8 @@ proc DeclareLocals(s: { cx: Cx, p: Proc, qual: []string, id: int, i: int, names:
 	};
 }
 
-// The targets of the edges, in order (each switch's, depth first).
+// Lists the edges' call targets, in order, each switch's depth first and
+// each spawn's branches before its join.
 proc Targets(s: { edges: []Edge, i: int, acc: []Target }): []Target {
 	Targets switch {
 		(this.s.i == this.s.edges.len) -> id(this.s.acc),
@@ -166,10 +189,11 @@ proc Targets(s: { edges: []Edge, i: int, acc: []Target }): []Target {
 	ArmTargets -> Targets(s = { edges = Targets.s.edges, i = Targets.s.i + 1, acc = this });
 }
 
+// Lists a spawn's targets as written: the branches', then the join's.
 func SpawnTargets(branches: []Branch, join: Target): []Target = "sema_leaf.rs:spawn_targets";
 
-// The targets of arms, depth first: `stack` holds the arm lists still to
-// visit, innermost last.
+// Lists the targets of switch arms, depth first: `stack` holds the arm lists
+// still to visit, innermost last.
 proc ArmTargets(s: { stack: [][]Arm, acc: []Target }): []Target {
 	func Top(stack: [][]Arm): []Arm = "sema_leaf.rs:top_arms";
 	func Popped(stack: [][]Arm): [][]Arm = "sema_leaf.rs:pop_arms";
@@ -189,9 +213,10 @@ func RestArms(arms: []Arm): []Arm = "sema_leaf.rs:rest_arms";
 
 type IdsOut = { cx: Cx, names: map[string]int, locals: []int };
 
-// Each id(..) target is a node of its own: P.id1, P.id2, ... `id(..) as N`
-// is node N, the same one for every target named N; its type is found
-// with the graph's.
+// Declares a node for each id(..) target: P.id1, P.id2, ... for bare ones,
+// and node N for `id(..) as N`, the same one for every target named N. An
+// `as N` clashing with another node is reported. The type of N is found
+// later, with the graph's.
 proc DeclareIds(s: { cx: Cx, ts: []Target, i: int, n: int, qual: []string, pid: int, names: map[string]int, named: map[string]bool, locals: []int }): IdsOut {
 	func IsId(t: Target): bool = "sema_leaf.rs:is_id";
 	func AliasOf(t: Target): OptIdent = "sema_leaf.rs:alias_of";
@@ -206,20 +231,21 @@ proc DeclareIds(s: { cx: Cx, ts: []Target, i: int, n: int, qual: []string, pid: 
 			(a.name in DeclareIds.s.names) -> DeclareIds(s = { ..DeclareIds.s, cx = { ..DeclareIds.s.cx, ty = { ..DeclareIds.s.cx.ty, errors = DeclareIds.s.cx.ty.errors + [{ msg = "id(..) as " + a.name + " clashes with a node of that name in proc " + DeclareIds.s.qual[DeclareIds.s.qual.len - 1], span = a.span }] } }, i = DeclareIds.s.i + 1 }),
 			else -> DeclareIds(s = {
 				..DeclareIds.s,
-				cx = WithId(cx = { ..DeclareIds.s.cx, nodes = DeclareIds.s.cx.nodes + [{ qual = DeclareIds.s.qual + [a.name], span = a.span, kind = Id([]) }] }, at = SpanKey(s = DeclareIds.s.ts[DeclareIds.s.i].node.span), id = DeclareIds.s.cx.nodes.len),
+				cx = WithId(cx = { ..DeclareIds.s.cx, nodes = DeclareIds.s.cx.nodes + [{ qual = DeclareIds.s.qual + [a.name], span = a.span, kind = Id([]), doc = "" }] }, at = SpanKey(s = DeclareIds.s.ts[DeclareIds.s.i].node.span), id = DeclareIds.s.cx.nodes.len),
 				i = DeclareIds.s.i + 1, names = DeclareIds.s.names + [a.name: DeclareIds.s.cx.nodes.len], named = DeclareIds.s.named + [a.name: true], locals = DeclareIds.s.locals + [DeclareIds.s.cx.nodes.len]
 			})
 		},
 		else -> DeclareIds(s = {
 			..DeclareIds.s,
-			cx = WithId(cx = { ..DeclareIds.s.cx, nodes = DeclareIds.s.cx.nodes + [{ qual = DeclareIds.s.qual + ["id" + Itoa(i = DeclareIds.s.n + 1)], span = DeclareIds.s.ts[DeclareIds.s.i].node.span, kind = Id([{ name = "value", ty = ProcRet(n = DeclareIds.s.cx.nodes[DeclareIds.s.pid]) }]) }] }, at = SpanKey(s = DeclareIds.s.ts[DeclareIds.s.i].node.span), id = DeclareIds.s.cx.nodes.len),
+			cx = WithId(cx = { ..DeclareIds.s.cx, nodes = DeclareIds.s.cx.nodes + [{ qual = DeclareIds.s.qual + ["id" + Itoa(i = DeclareIds.s.n + 1)], span = DeclareIds.s.ts[DeclareIds.s.i].node.span, kind = Id([{ name = "value", ty = ProcRet(n = DeclareIds.s.cx.nodes[DeclareIds.s.pid]) }]), doc = "" }] }, at = SpanKey(s = DeclareIds.s.ts[DeclareIds.s.i].node.span), id = DeclareIds.s.cx.nodes.len),
 			i = DeclareIds.s.i + 1, n = DeclareIds.s.n + 1, locals = DeclareIds.s.locals + [DeclareIds.s.cx.nodes.len]
 		})
 	};
 }
 
-// `-> B(..) as B2`: B2 is a node of its own the first time; later targets
-// `as B2` must instance the same node.
+// Declares a node for each aliased call (`-> B(..) as B2`): B2 the first
+// time, a local of the proc; later targets `as B2` must instance the same
+// node. Clashes with other names are reported.
 proc DeclareAliases(s: { cx: Cx, ts: []Target, i: int, p: Proc, qual: []string, pid: int, names: map[string]int, aliased: map[string]string, locals: []int }): Locals {
 	func IsId(t: Target): bool = "sema_leaf.rs:is_id";
 	func AliasOf(t: Target): OptIdent = "sema_leaf.rs:alias_of";
@@ -234,7 +260,7 @@ proc DeclareAliases(s: { cx: Cx, ts: []Target, i: int, p: Proc, qual: []string, 
 			(a.name in DeclareAliases.s.aliased) -> DeclareAliases(s = { cx = { ..DeclareAliases.s.cx, ty = { ..DeclareAliases.s.cx.ty, errors = DeclareAliases.s.cx.ty.errors + [{ msg = a.name + " is already an alias of " + DeclareAliases.s.aliased[a.name], span = a.span }] } }, ts = DeclareAliases.s.ts, i = DeclareAliases.s.i + 1, p = DeclareAliases.s.p, qual = DeclareAliases.s.qual, pid = DeclareAliases.s.pid, names = DeclareAliases.s.names, aliased = DeclareAliases.s.aliased, locals = DeclareAliases.s.locals }),
 			(a.name in DeclareAliases.s.names) -> DeclareAliases(s = { cx = { ..DeclareAliases.s.cx, ty = { ..DeclareAliases.s.cx.ty, errors = DeclareAliases.s.cx.ty.errors + [{ msg = "alias " + a.name + " clashes with a node of that name in proc " + DeclareAliases.s.p.name.name, span = a.span }] } }, ts = DeclareAliases.s.ts, i = DeclareAliases.s.i + 1, p = DeclareAliases.s.p, qual = DeclareAliases.s.qual, pid = DeclareAliases.s.pid, names = DeclareAliases.s.names, aliased = DeclareAliases.s.aliased, locals = DeclareAliases.s.locals }),
 			else -> DeclareAliases(s = {
-				cx = WithAlias(cx = { ..DeclareAliases.s.cx, nodes = DeclareAliases.s.cx.nodes + [{ qual = DeclareAliases.s.qual + [a.name], span = a.span, kind = Alias(-1) }] }, a = { lid = DeclareAliases.s.cx.nodes.len, pid = DeclareAliases.s.pid, t = DeclareAliases.s.ts[DeclareAliases.s.i] }),
+				cx = WithAlias(cx = { ..DeclareAliases.s.cx, nodes = DeclareAliases.s.cx.nodes + [{ qual = DeclareAliases.s.qual + [a.name], span = a.span, kind = Alias(-1), doc = "" }] }, a = { lid = DeclareAliases.s.cx.nodes.len, pid = DeclareAliases.s.pid, t = DeclareAliases.s.ts[DeclareAliases.s.i] }),
 				ts = DeclareAliases.s.ts, i = DeclareAliases.s.i + 1, p = DeclareAliases.s.p, qual = DeclareAliases.s.qual, pid = DeclareAliases.s.pid,
 				names = DeclareAliases.s.names + [a.name: DeclareAliases.s.cx.nodes.len], aliased = DeclareAliases.s.aliased + [a.name: ShowPath(p = DeclareAliases.s.ts[DeclareAliases.s.i].node)], locals = DeclareAliases.s.locals + [DeclareAliases.s.cx.nodes.len]
 			})
@@ -243,8 +269,11 @@ proc DeclareAliases(s: { cx: Cx, ts: []Target, i: int, p: Proc, qual: []string, 
 	};
 }
 
-// Points each alias at the node it instances, once every node is declared.
+// Points each alias at the node it instances, once every node is declared,
+// reporting one that names another alias. `-> P(..) as X` inside P instances
+// P itself, not its signature node.
 proc ResolveAliases(s: { cx: Cx, i: int }): Cx {
+	// Finds the proc a signature node belongs to; any other node is itself.
 	func SigProc(n: NodeDecl, b: int): int = "sema_leaf.rs:sig_proc";
 	ResolveAliases switch {
 		(this.s.i == this.s.cx.aliases.len) -> id(this.s.cx),
@@ -266,10 +295,12 @@ type Lookup = { nodes: []NodeDecl, globals: map[string]Global, pid: int, path: P
 type Resolved = enum { Ok({ n: int, rest: []Ident }), Err(Diag) };
 type ResolvedNode = enum { Ok(int), Err(Diag) };
 
-// The node a path starts at, and the rest (field selections). Lookup goes
-// through the enclosing procs' locals, innermost first, then globals;
-// `Iface.Func` names an interface func.
+// Resolves the node a path starts at, and the rest of it (field selections).
+// Lookup goes through the enclosing procs' locals, innermost first, then
+// globals; `Iface.Func` names an interface func. Unknown names are errors.
 proc Resolve(s: Lookup): Resolved {
+	// Finds the local called `name` of proc `pid` or an enclosing proc,
+	// innermost first; -1 if none.
 	func Local(nodes: []NodeDecl, pid: int, name: string): int = "sema_leaf.rs:find_local";
 	func Segs(ids: []Ident, from: int): []Ident = "sema_leaf.rs:segs_from";
 	Resolve -> Local(nodes = this.s.nodes, pid = this.s.pid, name = this.s.path.segs[0].name);
@@ -288,7 +319,7 @@ proc Resolve(s: Lookup): Resolved {
 	};
 }
 
-// A path that names a node, with no field selections.
+// Resolves a path that must name a node, with no field selections after it.
 proc ResolveNode(s: Lookup): ResolvedNode {
 	ResolveNode -> Resolve(s = this.s);
 	Resolve switch {
@@ -300,8 +331,9 @@ proc ResolveNode(s: Lookup): ResolvedNode {
 	};
 }
 
-// Declares a program's typedefs, then its nodes, then points aliases at
-// what they instance (graphs come later).
+// Declares a program: its typedefs, then (if they have no errors) its
+// interfaces, funcs and procs, the instances their signatures made, and
+// finally points aliases at what they instance. Graphs come later.
 proc Declare(file: File): Cx {
 	Declare -> TypesOf(decls = this.file.types);
 	TypesOf switch {
@@ -313,4 +345,9 @@ proc Declare(file: File): Cx {
 		else -> ResolveAliases(s = { cx = this, i = 0 })
 	};
 	Insts -> ResolveAliases(s = { cx = { ..DeclareFile, ty = this }, i = 0 });
+	ResolveAliases -> id({ ..this, ty = { ..this.ty, types = TypeDocs(types = this.ty.types, decls = Declare.file.types) } });
 }
+
+// Gives each typedef the doc of its declaration (an instance, its
+// generic's).
+func TypeDocs(types: []TypeDef, decls: []TypeDecl): []TypeDef = "sema_leaf.rs:type_docs";

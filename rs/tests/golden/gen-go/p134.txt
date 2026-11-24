@@ -23,6 +23,9 @@ const (
 )
 
 // RunCount runs proc Count.
+//
+// A bare self-edge is a loop back to the signature node; an aliased one is
+// a recursive call.
 func RunCount(ctx context.Context, n int, acc int) (int, error) {
 	var zero int
 	env := &envCount{}
@@ -466,6 +469,9 @@ const (
 )
 
 // RunCount runs proc Count.
+//
+// A bare self-edge is a loop back to the signature node; an aliased one is
+// a recursive call.
 func RunCount(ctx context.Context, n int, acc int) (int, error) {
 	var zero int
 	env := &envCount{}
@@ -911,6 +917,9 @@ const (
 )
 
 // RunCount runs proc Count.
+//
+// A bare self-edge is a loop back to the signature node; an aliased one is
+// a recursive call.
 func RunCount(ctx context.Context, n int, acc int) (int, error) {
 	var zero int
 	env := &envCount{}
@@ -1396,6 +1405,9 @@ const (
 )
 
 // RunCount runs proc Count.
+//
+// A bare self-edge is a loop back to the signature node; an aliased one is
+// a recursive call.
 func RunCount(ctx context.Context, n int, acc int) (int, error) {
 	var zero int
 	env := &envCount{}

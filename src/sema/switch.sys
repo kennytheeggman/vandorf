@@ -4,12 +4,16 @@
 type PatOut = { p: SPat, binds: []Member };
 
 func HeadIndex(arms: []Arm, kind: string): int = "sema_leaf.rs:head_index";
-// The source text of a span, trimmed: an arm's head as written.
+// Cuts the source text of a span, trimmed: an arm's head as written, for the
+// diagram's labels.
 func Slice(src: string, span: Span): string = "sema_leaf.rs:slice";
 
-// The arms of a switch on `src`, whose output is sc.this. Arms are all
-// patterns or all conditions, `else` coming last; a pattern arm may lead to
-// a nested switch of conditions, which sees its bindings.
+// Checks the arms of a switch on `src`, whose output is sc.this. Arms are
+// all patterns or all conditions; a condition switch needs an else, and a
+// pattern switch must not have arms the ones above already cover, and must
+// cover every value unless it ends in else (an else it never reaches is an
+// error too). A pattern arm may lead to a nested switch of conditions, which
+// sees its bindings.
 proc Switch(s: { env: Env, sc: Scope, src: Path, arms: []Arm, span: Span, nested: bool }): Res<[]SArm> {
 	Switch switch {
 		(HeadIndex(arms = this.s.arms, kind = "pat") >= 0 && this.s.nested) -> id(Err({ msg = "a nested switch has nothing new to match, so its arms are conditions: (expr) -> ..", span = this.s.arms[HeadIndex(arms = this.s.arms, kind = "pat")].span })),
@@ -45,6 +49,8 @@ func EndsInElse(arms: []SArm): bool = "sema_leaf.rs:ends_in_else";
 func PatsOf(arms: []SArm): []SPat = "sema_leaf.rs:pats_of";
 func UnwrapArms(r: Res<[]SArm>): []SArm = "sema_leaf.rs:unwrap_arms";
 
+// Checks each arm in turn: its head (else, which must come last, a
+// condition, or a pattern with its bindings), then its body.
 proc Arms(s: { env: Env, sc: Scope, src: Path, arms: []Arm, i: int, acc: []SArm }): Res<[]SArm> {
 	Arms switch {
 		(this.s.i == this.s.arms.len) -> id(Ok(this.s.acc)),
@@ -72,6 +78,8 @@ proc Arms(s: { env: Env, sc: Scope, src: Path, arms: []Arm, i: int, acc: []SArm 
 	};
 }
 
+// Checks an arm's body: the call it makes, or its nested switch, keeping the
+// arm's head as written for the diagram.
 proc ArmBody(s: { env: Env, sc: Scope, src: Path, arm: Arm, test: Test }): Res<SArm> {
 	ArmBody -> id(this.s.arm.body) as B;
 	B switch {
@@ -90,8 +98,10 @@ proc ArmBody(s: { env: Env, sc: Scope, src: Path, arm: Arm, test: Test }): Res<S
 
 // ---- Patterns ----
 
-// Pattern p, checked against the type of the value it matches; its
-// bindings are added to `binds`.
+// Checks a pattern against the type of the value it matches, adding its
+// bindings to `binds`: `_`, a binding (not a variant's name, a node's or a
+// binding's already there), a variant with its payload's pattern, a struct
+// with every field, or alternatives.
 proc CheckPat(s: { env: Env, p: Pat, want: Type, binds: []Member }): Res<PatOut> {
 	CheckPat -> Unfold(s = { t = this.s.want, defs = this.s.env.types }) as Shape;
 	Shape -> id(CheckPat.s.p.kind) as K;
@@ -143,9 +153,12 @@ proc CheckPat(s: { env: Env, p: Pat, want: Type, binds: []Member }): Res<PatOut>
 
 func BindName(k: PatKind): Ident = "sema_leaf.rs:bind_name";
 func VariantTag(k: PatKind): Ident = "sema_leaf.rs:variant_tag";
-// How to match a variant: `()` for one without payload, `(_)` otherwise.
+// Says how to match a variant, for a hint: `()` for one without payload,
+// `(_)` otherwise.
 func VariantFix(t: Type): string = "sema_leaf.rs:variant_fix";
 
+// Checks a struct pattern's fields: each must be one of the struct's, given
+// once, with its pattern checked against the field's type.
 proc PatFields(s: { env: Env, want: Type, fs: []Member, fields: []PatField, i: int, given: map[string]SPat, binds: []Member, span: Span }): Res<PatOut> {
 	PatFields switch {
 		(this.s.i == this.s.fields.len) -> FillPatFields(s = { want = this.s.want, fs = this.s.fs, given = this.s.given, binds = this.s.binds, span = this.s.span, i = 0, acc = [] }),
@@ -165,6 +178,8 @@ proc PatFields(s: { env: Env, want: Type, fs: []Member, fields: []PatField, i: i
 	};
 }
 
+// Puts a struct pattern's fields in the type's order, failing on one that
+// isn't given, with a hint to write it as `_`.
 proc FillPatFields(s: { want: Type, fs: []Member, given: map[string]SPat, binds: []Member, span: Span, i: int, acc: []PatMember }): Res<PatOut> {
 	FillPatFields switch {
 		(this.s.i == this.s.fs.len) -> id(Ok({ p = { kind = Struct(this.s.acc), ty = this.s.want }, binds = this.s.binds })),
@@ -174,6 +189,8 @@ proc FillPatFields(s: { want: Type, fs: []Member, given: map[string]SPat, binds:
 	ShowType -> id(Err({ msg = "struct pattern is missing field " + FillPatFields.s.fs[FillPatFields.s.i].name + " of " + this + "; write " + FillPatFields.s.fs[FillPatFields.s.i].name + " = _ to ignore it", span = FillPatFields.s.span }));
 }
 
+// Checks each alternative of an or-pattern against the same type;
+// alternatives can't bind names yet.
 proc PatAlts(s: { env: Env, want: Type, alts: []Pat, i: int, acc: []SPat, binds: []Member }): Res<PatOut> {
 	PatAlts switch {
 		(this.s.i == this.s.alts.len) -> id(Ok({ p = { kind = Or(this.s.acc), ty = this.s.want }, binds = this.s.binds })),
@@ -204,22 +221,23 @@ type MaybeW = enum { None, Some([]W) };
 type Ctor = { c: string, args: []Type };
 
 func RowsOf(pats: []SPat): [][]P = "sema_leaf.rs:rows_of";
-// Rows matching constructor c with `arity` arguments, the first column
-// replaced by its arguments.
+// Keeps the rows whose first column can match constructor c, replacing that
+// column by its `arity` arguments (wildcards for a wildcard).
 func Specialize(rows: [][]P, c: string, arity: int): [][]P = "sema_leaf.rs:specialize";
-// Rows whose first column is a wildcard, without it.
+// Keeps the rows whose first column is a wildcard, dropping that column.
 func Default(rows: [][]P): [][]P = "sema_leaf.rs:default_rows";
-// The constructors the first column names.
+// Lists the constructors the rows' first column names.
 func Used(rows: [][]P): []string = "sema_leaf.rs:used";
-// The constructors of an unfolded type and their argument types; none for
-// types patterns can't take apart.
+// Lists the constructors of an unfolded type and their argument types: an
+// enum's variants, a struct's one; none for types patterns can't take apart.
 func Ctors(t: Type): []Ctor = "sema_leaf.rs:ctors";
 func AllUsed(cs: []Ctor, used: []string): bool = "sema_leaf.rs:all_used";
 func Wilds(n: int): []P = "sema_leaf.rs:wilds";
 func RestP(ps: []P): []P = "sema_leaf.rs:rest_p";
 func RestT(ts: []Type): []Type = "sema_leaf.rs:rest";
 
-// The first arm that can never match because the arms above cover it, or -1.
+// Finds the first arm that can never match because the arms above it cover
+// everything it does; -1 if there's none.
 proc Unreachable(s: { env: Env, pats: []SPat, ty: Type, i: int, rows: [][]P }): int {
 	Unreachable switch {
 		(this.s.i == this.s.pats.len) -> id(-1),
@@ -233,7 +251,10 @@ proc Unreachable(s: { env: Env, pats: []SPat, ty: Type, i: int, rows: [][]P }): 
 
 type UsefulIn = { types: []TypeDef, rows: [][]P, q: []P, tys: []Type };
 
-// Is there a value matching q but no row?
+// Decides whether some value matches q but none of the rows, column by
+// column: alternatives are tried one at a time, a constructor specializes
+// the rows, and a wildcard tries every constructor if the rows name them
+// all, else just the rows with a wildcard there.
 proc Useful(s: UsefulIn): bool {
 	Useful switch {
 		(this.s.q.len == 0) -> id(this.s.rows.len == 0),
@@ -254,6 +275,8 @@ proc Useful(s: UsefulIn): bool {
 func CtorOf(p: P): { c: string, args: []P } = "sema_leaf.rs:ctor_of";
 func CtorArgs(cs: []Ctor, c: string): []Type = "sema_leaf.rs:ctor_args";
 
+// Decides whether any alternative of an or-pattern, followed by the rest of
+// q, matches a value none of the rows does.
 proc AnyUseful(s: { types: []TypeDef, rows: [][]P, alts: []P, rest: []P, tys: []Type, i: int }): bool {
 	AnyUseful switch {
 		(this.s.i == this.s.alts.len) -> id(false),
@@ -265,6 +288,8 @@ proc AnyUseful(s: { types: []TypeDef, rows: [][]P, alts: []P, rest: []P, tys: []
 	};
 }
 
+// Decides whether any constructor of the type, with wildcards for its
+// arguments, matches a value none of the rows does.
 proc AnyCtorUseful(s: { types: []TypeDef, rows: [][]P, cs: []Ctor, rest: []P, tys: []Type, i: int }): bool {
 	AnyCtorUseful switch {
 		(this.s.i == this.s.cs.len) -> id(false),
@@ -278,7 +303,9 @@ proc AnyCtorUseful(s: { types: []TypeDef, rows: [][]P, cs: []Ctor, rest: []P, ty
 
 type MissingIn = { types: []TypeDef, rows: [][]P, tys: []Type };
 
-// Values (one per column) that no row matches, if any.
+// Finds values, one per column, that none of the rows matches, if there are
+// any: the first constructor whose specialized rows miss some value, or else
+// a constructor no row names (any value, for a type without constructors).
 proc Missing(s: MissingIn): MaybeW {
 	Missing switch {
 		(this.s.tys.len == 0 && this.s.rows.len == 0) -> id(Some([])),
@@ -299,6 +326,8 @@ proc Missing(s: MissingIn): MaybeW {
 
 func UnnamedCtor(cs: []Ctor, used: []string): W = "sema_leaf.rs:unnamed_ctor";
 
+// Tries each constructor in turn for a value the rows miss, regrouping the
+// first one found under its constructor.
 proc FirstMissing(s: { types: []TypeDef, rows: [][]P, cs: []Ctor, tys: []Type, i: int }): MaybeW {
 	func Regroup(c: string, n: int, ws: []W): []W = "sema_leaf.rs:regroup";
 	FirstMissing switch {
@@ -311,7 +340,8 @@ proc FirstMissing(s: { types: []TypeDef, rows: [][]P, cs: []Ctor, tys: []Type, i
 	};
 }
 
-// A missing value as a pattern: `_`, `{ a = _, b = Lit(_) }`, `Neg(_)`.
+// Writes a missing value as a pattern, for the error: `_`, `{ a = _, b =
+// Lit(_) }`, `Neg(_)`.
 proc Render(s: { types: []TypeDef, w: W, t: Type }): string {
 	Render -> Unfold(s = { t = this.s.t, defs = this.s.types });
 	Unfold -> id(Render.s.w) as V;
@@ -329,6 +359,8 @@ proc Render(s: { types: []TypeDef, w: W, t: Type }): string {
 
 func CtorName(w: W): string = "sema_leaf.rs:ctor_name";
 
+// Writes a struct's missing value field by field, as `name = pattern`,
+// separated by commas.
 proc RenderFields(s: { types: []TypeDef, fs: []Member, args: []W, i: int, acc: string }): string {
 	RenderFields switch {
 		(this.s.i == this.s.fs.len || this.s.i == this.s.args.len) -> id(this.s.acc),

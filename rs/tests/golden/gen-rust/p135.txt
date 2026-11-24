@@ -416,7 +416,7 @@ impl<K: Ord + Clone, V: Clone> Map<K, V> {
     }
 }
 
-/// A typedef.
+/// id(..) as N: a merge point, and a loop head carrying a struct.
 #[derive(Debug, Clone, PartialEq)]
 pub enum E {
     A(i64),

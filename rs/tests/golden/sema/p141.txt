@@ -1,0 +1,49 @@
+// Not a doc: the blank line below separates it from the typedef.
+
+// The area of a shape and its kind.
+type Measured = { kind: string, area: int };
+// A result, and where parsing stopped.
+type R<T> = { x: T, pos: int };
+// A list of ids.
+type Ids = []int;
+type Shape = enum { Square(int), Circle(int) };
+
+interface Log {
+	// Writes one line.
+	func Line(s: string): bool;
+}
+
+// The area of each shape, summed, and how many there are.
+//
+// A doc with an indented line, which rustdoc would take for code:
+//
+//     Measure(shapes = [Square(2)]) == 4
+proc Measure(shapes: []Shape): R<int> {
+	// The area of one shape.
+	func Area(s: Shape): Measured;
+	func Sum(xs: []Measured): int;
+	// Counts the shapes it's given.
+	proc Count(xs: []Measured): R<int> {
+		Count -> id({ x = this.xs.len, pos = 0 });
+	};
+	Measure for each (this.shapes) -> Area(s = this);
+	Area collect each (Area) -> Sum(xs = this);
+	Sum -> Log.Line(s = "summed");
+	Log.Line -> Area(s = Square(1)) as One;
+	One -> Count(xs = [this]);
+}
+
+---
+#1 edge #0: call #8(s:Shape=Square(1)) @942..946 text="s = Square(1)"
+#1 edge #2: for each this.shapes:[]Shape@820..831 :Shape -> call #3(s:Shape=this:Shape@845..849) @836..840 text="s = this"
+#1 edge #3: collect -> call #4(xs:[]Measured=this:[]Measured@890..894) @881..884 text="xs = this"
+#1 edge #4: call #0(s:string="summed") @905..913 text="s = \"summed\""
+#1 edge #8: call #5(xs:[]Measured=[this:Measured@990..994]) @978..983 text="xs = [this]"
+#1 spawned={}
+#1 region 0: parent=-1 entry=2 elem=void nodes=[2, 4, 0, 8, 5] sink=-1
+#1 region 1: parent=0 entry=3 elem=Shape nodes=[3] sink=3
+#1 region_of={0: 0, 2: 0, 3: 1, 4: 0, 5: 0, 8: 0} opens={2: 1}
+#5 edge #6: call #7(value:R<int>={x=this.xs:[]Measured@772..783.len@[]Measured,pos=0}) @763..765 text="{ x = this.xs.len, pos = 0 }"
+#5 spawned={}
+#5 region 0: parent=-1 entry=6 elem=void nodes=[6, 7] sink=-1
+#5 region_of={6: 0, 7: 0} opens={}

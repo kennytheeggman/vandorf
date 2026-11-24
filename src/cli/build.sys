@@ -4,10 +4,15 @@
 type Checked = { project: Project, prog: Program };
 type OutFile = { path: string, text: string, kind: string };
 
-// Errors as snippets (message, path:line:col, the line underlined).
+// Renders errors as snippets, each its message, path:line:col and the line
+// with the span underlined, a blank line apart; an error repeated at the
+// same span shows once.
 func RenderErrors(errors: []Diag, paths: []string, srcs: []string): string = "cli_leaf.rs:render_errors";
 
-// The project around the working directory, parsed and checked.
+// Finds the vandorf.toml at or above the working directory, loads its
+// project, then parses and checks every file. Returns the project and its
+// checked program, or every parse error (or else every check error) rendered
+// with its file and line.
 proc CheckProject(n: int): Res<Checked> {
 	CheckProject -> Fs.Cwd(n = 0);
 	Fs.Cwd -> FindUp(s = { dir = this, marker = "vandorf.toml" });
@@ -31,8 +36,9 @@ proc CheckProject(n: int): Res<Checked> {
 
 func UnwrapP(r: Res<Project>): Project = "cli_leaf.rs:unwrap_p";
 
-// Each file parsed (its spans carrying its index), then merged; or every
-// file's parse error.
+// Parses each source file in turn, its spans carrying its index, and merges
+// what they declare into one file. A file that doesn't parse adds its error
+// and is skipped, so every file's parse error is reported at once.
 proc ParseAll(s: { srcs: []string, i: int, file: File, errors: []Diag }): { file: File, errors: []Diag } {
 	ParseAll switch {
 		(this.s.i == this.s.srcs.len) -> id({ file = this.s.file, errors = this.s.errors }),
@@ -46,8 +52,9 @@ proc ParseAll(s: { srcs: []string, i: int, file: File, errors: []Diag }): { file
 
 func HasRust(m: Manifest): bool = "cli_leaf.rs:has_rust";
 
-// What the manifest configures, Go then Rust: each language's library and
-// the bins (all, or `only`).
+// Builds what the manifest configures: Go first, then Rust, each language's
+// library and the bins (all of them, or only `only`). Fails if it configures
+// neither.
 proc Build(s: { c: Checked, only: string }): string {
 	func GoOutDir(root: string, g: GoTarget): string = "cli_leaf.rs:go_out_dir";
 	Build switch {
@@ -67,19 +74,30 @@ proc Build(s: { c: Checked, only: string }): string {
 	RustBuild -> id("built " + Build.s.c.project.manifest.name);
 }
 
+// Rebases the program's implementation paths onto out, the Go output
+// directory, from the .sys files naming them.
 func RebasedTo(c: Checked, out: string): Program = "cli_leaf.rs:rebased_to";
-// [go]'s package, or the output directory's name.
+// Names the Go package: [go]'s package, or else the output directory's name,
+// made an identifier.
 func GoPackage(g: GoTarget, out: string): string = "cli_leaf.rs:go_package";
-// [go]'s module, or the import path of out in the go.mod at root (text).
+// Works out the Go import path of out: [go]'s module if it's set, else
+// go.mod's module path (root: go.mod's directory, "" if none) followed by
+// out's directories below root.
 func GoImportBase(g: GoTarget, root: string, gomod: string, out: string): MaybeStr = "cli_leaf.rs:go_import_base";
-// Each bin's main package: [bin.*]'s go, by default <go.out>/../cmd/<name>,
-// relative to go.out.
+// Lays out each bin's Go main package: [bin.*]'s go, by default
+// <go.out>/../cmd/<name>, relative to go.out, with the proc it runs.
 func GoMainSpecs(c: Checked, g: GoTarget, names: []string): []GoMainSpec = "cli_leaf.rs:go_main_specs";
 func GoOutFiles(out: string, files: []GoFile): []OutFile = "cli_leaf.rs:go_out_files";
+// Lists a check for each func implemented in Go, as impl_checks does for
+// Rust: its file, its function (defined by `func`), and its declaration's
+// signature and doc.
 func GoImplChecks(prog: Program, t: Table, g: GoTarget, out: string, import_base: MaybeStr, root: string, paths: []string, srcs: []string): []ImplCheck = "cli_leaf.rs:go_impl_checks";
 
-// Go for the project: [go]'s packages, the bins' mains, and the servers
-// (`vcc build <bin>` builds none).
+// Generates the project's Go: [go]'s code and types packages, the bins'
+// mains and the servers' (none for `vcc build <bin>`). Writes them, unless
+// that would overwrite a file vandorf didn't generate, formats them, checks
+// the implementations against their declarations, then runs [go]'s post
+// commands.
 proc GoBuild(s: { c: Checked, g: GoTarget, names: []string, only: string, out: string }): string {
 	func NoGoSpecs(n: int): Res<[]GoServerSpec> = "cli_leaf.rs:no_go_specs";
 	GoBuild -> FindUp(s = { dir = this.s.out, marker = "go.mod" });
@@ -106,15 +124,18 @@ proc GoBuild(s: { c: Checked, g: GoTarget, names: []string, only: string, out: s
 	// Generated code is already indented; gofmt only aligns it.
 	WriteAll -> Tools.Gofmt(files = OutPaths(files = GoOutFiles(out = GoBuild.s.out, files = GoGenerate.files)));
 	Tools.Gofmt -> BuildTable(prog = RebasedTo(c = GoBuild.s.c, out = GoBuild.s.out));
-	BuildTable -> ImplWarnings(s = { checks = GoImplChecks(prog = RebasedTo(c = GoBuild.s.c, out = GoBuild.s.out), t = this, g = GoBuild.s.g, out = GoBuild.s.out, import_base = Base, root = GoBuild.s.c.project.root, paths = GoBuild.s.c.project.paths, srcs = GoBuild.s.c.project.srcs), i = 0 });
+	BuildTable -> ImplWarnings(s = { checks = GoImplChecks(prog = RebasedTo(c = GoBuild.s.c, out = GoBuild.s.out), t = this, g = GoBuild.s.g, out = GoBuild.s.out, import_base = Base, root = GoBuild.s.c.project.root, paths = GoBuild.s.c.project.paths, srcs = GoBuild.s.c.project.srcs), t = this, i = 0, errors = [] });
 	ImplWarnings -> Commands(s = { what = "post-build", cmds = GoBuild.s.g.post, dir = GoBuild.s.c.project.root, i = 0 });
 }
 
 func UnwrapOr(m: MaybeStr, d: string): string = "cli_leaf.rs:unwrap_or";
 
-// The Go servers: each a main package, by default <go.out>/../cmd/<name>,
-// relative to go.out, with its routes and its static files' contents.
+// Gathers each Go server's spec from its [http.*]: its raw routes and routes
+// (failing on one that's in both, or isn't a method and a path), its setup,
+// and its static files with their contents.
 proc GoServerSpecs(s: { c: Checked, g: GoTarget, names: []string, i: int, acc: []GoServerSpec }): Res<[]GoServerSpec> {
+	// Places a server's Go main package: [http.*]'s go, by default
+	// <go.out>/../cmd/<name>, relative to go.out.
 	func GoServerPath(c: Checked, g: GoTarget, name: string): string = "cli_leaf.rs:go_server_path";
 	func SetupName(d: ServerDecl): string = "cli_leaf.rs:setup_name";
 	GoServerSpecs switch {
@@ -135,7 +156,8 @@ proc GoServerSpecs(s: { c: Checked, g: GoTarget, names: []string, i: int, acc: [
 	};
 }
 
-// A Go server's static files, with their contents.
+// Reads a Go server's static files, each with its URL and content type, to
+// embed in its main; fails on one that doesn't exist.
 proc GoStatics(s: { name: string, root: string, statics: map[string]string, keys: []string, j: int, acc: []GoStatic }): Res<[]GoStatic> {
 	func ContentType(file: string): string = "cli_leaf.rs:content_type";
 	GoStatics switch {
@@ -149,7 +171,11 @@ proc GoStatics(s: { name: string, root: string, statics: map[string]string, keys
 	Fs.Read -> GoStatics(s = { ..GoStatics.s, j = GoStatics.s.j + 1, acc = GoStatics.s.acc + [{ url = GoStatics.s.keys[GoStatics.s.j], file = GoStatics.s.statics[GoStatics.s.keys[GoStatics.s.j]], ctype = ContentType(file = GoStatics.s.statics[GoStatics.s.keys[GoStatics.s.j]]), text = this }] });
 }
 
-// Rust for the project: [rust]'s module, and the bins (all, or `only`).
+// Generates the project's Rust: [rust]'s module (types, procs, mod.rs and
+// the servers' handlers), then the bins' and servers' mains, all or just
+// `only`. Writes them, unless that would overwrite a file vandorf didn't
+// generate, formats them, checks the implementations against their
+// declarations, then runs [rust]'s post commands.
 proc RustBuild(s: { c: Checked, only: string }): string {
 	func Dirs(root: string, paths: []string): []string = "cli_leaf.rs:dirs";
 	RustBuild -> id(this.s.c.project.manifest.rust) as R;
@@ -184,13 +210,14 @@ proc RustBuild(s: { c: Checked, only: string }): string {
 	Guard -> WriteAll(s = { files = ServerFiles, i = 0 });
 	WriteAll -> Tools.Rustfmt(files = OutPaths(files = ServerFiles));
 	Tools.Rustfmt -> BuildTable(prog = Rebased(c = RustBuild.s.c));
-	// Warnings for implementations that aren't where the .sys says.
-	BuildTable -> ImplWarnings(s = { checks = ImplChecks(prog = Rebased(c = RustBuild.s.c), t = this, module_dir = ModuleDir(target = UnwrapR(r = R), out = OutDir(c = RustBuild.s.c), croot = Crate), out = OutDir(c = RustBuild.s.c), root = RustBuild.s.c.project.root, paths = RustBuild.s.c.project.paths, srcs = RustBuild.s.c.project.srcs), i = 0 });
+	// Implementations that aren't where the .sys says (warnings), or don't
+	// match it (errors).
+	BuildTable -> ImplWarnings(s = { checks = ImplChecks(prog = Rebased(c = RustBuild.s.c), t = this, module_dir = ModuleDir(target = UnwrapR(r = R), out = OutDir(c = RustBuild.s.c), croot = Crate), out = OutDir(c = RustBuild.s.c), root = RustBuild.s.c.project.root, paths = RustBuild.s.c.project.paths, srcs = RustBuild.s.c.project.srcs), t = this, i = 0, errors = [] });
 	ImplWarnings -> Commands(s = { what = "post-build", cmds = UnwrapR(r = R).post, dir = RustBuild.s.c.project.root, i = 0 });
 }
 
-// vcc test: builds everything, then runs each language's test commands,
-// Go's then Rust's.
+// Runs `vcc test`: builds everything, then runs each language's test
+// commands, Go's then Rust's. Fails if there are none.
 proc Test(s: Checked): string {
 	func GoTests(m: Manifest): []string = "cli_leaf.rs:go_tests";
 	func RustTests(m: Manifest): []string = "cli_leaf.rs:rust_tests";
@@ -203,8 +230,9 @@ proc Test(s: Checked): string {
 	RustRun -> id("tested " + Test.s.project.manifest.name);
 }
 
-// Shell commands, in order, in dir; the first that fails fails the proc
-// that called this. what names them in messages.
+// Runs shell commands in order in dir, announcing each on stderr; the first
+// that fails fails the proc that called this. `what` names them in messages
+// (post-build, test).
 proc Commands(s: { what: string, cmds: []string, dir: string, i: int }): string {
 	Commands switch {
 		(this.s.i == this.s.cmds.len) -> id(""),
@@ -217,14 +245,38 @@ proc Commands(s: { what: string, cmds: []string, dir: string, i: int }): string 
 	};
 }
 
-// keyword: what defines the function (fn, func).
-type ImplCheck = { path: string, function: string, keyword: string, missing: string, undefined: string };
+// An implementation to check, at path (absolute), against the declaration
+// naming it: keyword is what defines the function (fn, func); missing and
+// undefined, the warnings when path or the function doesn't exist. qual,
+// sig and doc are the declaration's name, the implementation's expected
+// signature and the declaration's doc comment; shown is path as messages
+// show it; decl_path, decl_text, at and end place the declaration, for
+// errors.
+type ImplCheck = {
+	path: string, function: string, keyword: string, missing: string, undefined: string,
+	qual: string, shown: string, sig: string, doc: string,
+	decl_path: string, decl_text: string, at: int, end: int
+};
+// Lists a check for each func implemented in Rust: its file (absolute), its
+// function, the warnings to print if the file is missing or doesn't define
+// it, and its declaration's signature and doc.
 func ImplChecks(prog: Program, t: Table, module_dir: MaybeStr, out: string, root: string, paths: []string, srcs: []string): []ImplCheck = "cli_leaf.rs:impl_checks";
 
-proc ImplWarnings(s: { checks: []ImplCheck, i: int }): bool {
+// Checks each implementation against its declaration. A missing file or
+// function is a warning (the func calls a stub until it exists); a signature
+// or doc comment that doesn't match the declaration is an error, and the
+// build fails with all of them, before the language's post commands compile
+// the code.
+proc ImplWarnings(s: { checks: []ImplCheck, t: Table, i: int, errors: []string }): bool {
+	// Whether src defines `fn function` (or a generic `fn function<` / `func
+	// Function[T any](`); keyword is fn or func.
 	func Defines(src: string, function: string, keyword: string): bool = "cli_leaf.rs:defines_fn";
+	// Compares an implementation src defines with its declaration: an error for
+	// a signature that doesn't match, and one for a doc comment that doesn't.
+	func Mismatches(src: string, c: ImplCheck, t: Table): []string = "cli_leaf.rs:impl_mismatches";
 	ImplWarnings switch {
-		(this.s.i == this.s.checks.len) -> id(true),
+		(this.s.i == this.s.checks.len && this.s.errors.len == 0) -> id(true),
+		(this.s.i == this.s.checks.len) -> Refuse(msg = Join(parts = this.s.errors, sep = "\n\n")),
 		else -> Fs.IsFile(path = this.s.checks[this.s.i].path)
 	};
 	Fs.IsFile switch {
@@ -232,24 +284,30 @@ proc ImplWarnings(s: { checks: []ImplCheck, i: int }): bool {
 		else -> Console.Err(line = ImplWarnings.s.checks[ImplWarnings.s.i].missing + "\n") as Missing
 	};
 	Fs.Read switch {
-		(Defines(src = this, function = ImplWarnings.s.checks[ImplWarnings.s.i].function, keyword = ImplWarnings.s.checks[ImplWarnings.s.i].keyword)) -> ImplWarnings(s = { ..ImplWarnings.s, i = ImplWarnings.s.i + 1 }),
+		(Defines(src = this, function = ImplWarnings.s.checks[ImplWarnings.s.i].function, keyword = ImplWarnings.s.checks[ImplWarnings.s.i].keyword)) -> ImplWarnings(s = { ..ImplWarnings.s, i = ImplWarnings.s.i + 1, errors = ImplWarnings.s.errors + Mismatches(src = this, c = ImplWarnings.s.checks[ImplWarnings.s.i], t = ImplWarnings.s.t) }),
 		else -> Console.Err(line = ImplWarnings.s.checks[ImplWarnings.s.i].undefined + "\n") as Undefined
 	};
 	Missing -> ImplWarnings(s = { ..ImplWarnings.s, i = ImplWarnings.s.i + 1 });
 	Undefined -> ImplWarnings(s = { ..ImplWarnings.s, i = ImplWarnings.s.i + 1 });
+	// Fails with the errors, without the first's `error: ` (the executable
+	// prints it).
+	func Refuse(msg: string): bool = "cli_leaf.rs:refuse_report";
 }
 
 func Fail(msg: string): string = "../leaf.rs:fail";
 func UnwrapR(r: MaybeRust): RustTarget = "cli_leaf.rs:unwrap_r";
 func OutDir(c: Checked): string = "cli_leaf.rs:out_dir";
 func OutPaths(files: []OutFile): []string = "cli_leaf.rs:out_paths";
-// The program with implementation paths relative to [rust]'s out.
+// Rebases the program's implementation paths onto [rust]'s out, from the
+// .sys files naming them.
 func Rebased(c: Checked): Program = "cli_leaf.rs:rebased";
-// [rust]'s module_dir, or out relative to the crate's src/.
+// Works out where the Rust output sits in its crate: [rust]'s module_dir, or
+// else out relative to the crate's src/.
 func ModuleDir(target: RustTarget, out: string, croot: string): MaybeStr = "cli_leaf.rs:module_dir";
 func BinNames(bins: map[string]Bin, only: string): []string = "cli_leaf.rs:bin_names";
 
-// The library crate's name, from the Cargo.toml in dir ("" if none).
+// Reads the library crate's name from the Cargo.toml in dir, taking whether
+// it has a src/lib.rs into account; "" if there's no crate or no library.
 proc CrateName(dir: string): string {
 	CrateName switch {
 		(this.dir == "") -> id(""),
@@ -259,7 +317,12 @@ proc CrateName(dir: string): string {
 	Fs.IsFile -> id(CargoLibName(toml = Fs.Read, has_lib_rs = this));
 }
 
+// Generates each bin's Rust main in turn, appending it to the files to
+// write; fails on a bin whose entry proc can't run as a main.
 proc Mains(s: { prog: Program, bins: map[string]Bin, names: []string, module_dir: MaybeStr, krate: string, out: string, i: int, acc: []OutFile }): []OutFile {
+	// Generates an executable running proc `entry` (src/codegen/rust.rs:
+	// main_artifact): its directory relative to the output module, its file name
+	// and its text, or why the proc can't be one.
 	func RustMain(prog: Program, t: Table, name: string, entry: string, path: string, module_dir: MaybeStr, krate: string): { dir: string, file: string, text: string, err: MaybeStr } = "../gen/gen_leaf.rs:rust_main";
 	func BinPath(b: Bin, name: string): string = "cli_leaf.rs:bin_path";
 	func FailFiles(msg: string): []OutFile = "cli_leaf.rs:fail_files";
@@ -275,7 +338,7 @@ proc Mains(s: { prog: Program, bins: map[string]Bin, names: []string, module_dir
 }
 
 // Refuses to overwrite a file vandorf didn't generate (say, a hand-written
-// src/main.rs).
+// src/main.rs): each file that exists must start with vandorf's header.
 proc Guard(s: { files: []OutFile, i: int }): bool {
 	Guard switch {
 		(this.s.i == this.s.files.len) -> id(true),
@@ -292,6 +355,7 @@ proc Guard(s: { files: []OutFile, i: int }): bool {
 	func Refuse(msg: string): bool = "cli_leaf.rs:refuse";
 }
 
+// Writes each generated file, announcing it on stderr with its kind.
 proc WriteAll(s: { files: []OutFile, i: int }): bool {
 	func Pad(s: string, n: int): string = "cli_leaf.rs:pad";
 	WriteAll switch {
@@ -305,7 +369,7 @@ proc WriteAll(s: { files: []OutFile, i: int }): bool {
 func HttpFile(out: string, text: string): []OutFile = "cli_leaf.rs:http_file";
 func UnwrapSpecs(r: Res<[]ServerSpec>): []ServerSpec = "cli_leaf.rs:unwrap_specs";
 
-// The server executables, after the bins.
+// Generates each server's Rust main in turn, after the bins.
 proc ServerFiles(s: { specs: []ServerSpec, module_dir: MaybeStr, krate: string, out: string, i: int, acc: []OutFile }): []OutFile {
 	func FailFiles(msg: string): []OutFile = "cli_leaf.rs:fail_files";
 	ServerFiles switch {
@@ -318,13 +382,15 @@ proc ServerFiles(s: { specs: []ServerSpec, module_dir: MaybeStr, krate: string, 
 	};
 }
 
-// The servers of [http.*] as the backend takes them: routes split into
-// method and path, static files as the server's source file reaches them.
+// Gathers each Rust server's spec from its [http.*]: its raw routes and
+// routes split into method and path (failing on one that's in both, or isn't
+// a method and a path), its setup, and its static files as its main's source
+// file reaches them.
 proc ServerSpecs(s: { m: Manifest, root: string, out: string, module_dir: MaybeStr, names: []string, i: int, acc: []ServerSpec }): Res<[]ServerSpec> {
 	func ServerPath(d: ServerDecl, name: string): string = "cli_leaf.rs:server_path";
 	func SetupName(d: ServerDecl): string = "cli_leaf.rs:setup_name";
-	// The directory of a file under the crate's src/, out being module_dir
-	// below src/.
+	// Finds the directory of a file under the crate's src/ (path, relative to
+	// src/): src/ is found by going up from out once per segment of module_dir.
 	func FileDir(out: string, module_dir: MaybeStr, path: string): string = "cli_leaf.rs:file_dir";
 	ServerSpecs switch {
 		(this.s.i == this.s.names.len) -> id(Ok(this.s.acc)),
@@ -346,9 +412,14 @@ proc ServerSpecs(s: { m: Manifest, root: string, out: string, module_dir: MaybeS
 
 func UnwrapRoutes(r: Res<[]Route>): []Route = "cli_leaf.rs:unwrap_routes";
 
+// Splits each route of a server into its method and path, failing on one
+// that's also in `other` (the server's other routes) or isn't a method and a
+// path.
 proc Routes(s: { name: string, routes: map[string]string, keys: []string, other: map[string]string, j: int, acc: []Route }): Res<[]Route> {
 	// other: the server's other routes, which these mustn't repeat.
-	// "POST /api/calc" as a method and a path, if it is one.
+
+	// Splits "POST /api/calc" into a route's method and path, with the proc it
+	// runs; none if it isn't a method and a path.
 	func Split(route: string, proc: string): []Route = "cli_leaf.rs:split_route";
 	func DebugQ(s: string): string = "cli_leaf.rs:debug_quote";
 	Routes switch {
@@ -359,6 +430,9 @@ proc Routes(s: { name: string, routes: map[string]string, keys: []string, other:
 	};
 }
 
+// Resolves a Rust server's static files, each with its URL, its path from
+// the server's source file and its content type; fails on one that doesn't
+// exist.
 proc Statics(s: { name: string, root: string, dir: string, statics: map[string]string, keys: []string, j: int, acc: []StaticFile }): Res<[]StaticFile> {
 	func ContentType(file: string): string = "cli_leaf.rs:content_type";
 	Statics switch {
@@ -371,8 +445,10 @@ proc Statics(s: { name: string, root: string, dir: string, statics: map[string]s
 	};
 }
 
-// A diagnostic as a snippet (for the parity tests).
+// Renders one diagnostic: the level and message, `path:line:col`, and the
+// line with the span underlined, then the notes as `= note` lines.
 func Snippet(level: string, msg: string, path: string, text: string, at: int, end: int, notes: []string): string = "cli_leaf.rs:snippet";
+// Renders one diagnostic, for the parity tests.
 proc RenderSnippet(s: { level: string, msg: string, path: string, text: string, at: int, end: int, notes: []string }): string {
 	RenderSnippet -> id(Snippet(level = this.s.level, msg = this.s.msg, path = this.s.path, text = this.s.text, at = this.s.at, end = this.s.end, notes = this.s.notes));
 }

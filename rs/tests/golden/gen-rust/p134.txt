@@ -106,6 +106,9 @@ enum PcCount {
 }
 
 /// Runs proc Count.
+///
+/// A bare self-edge is a loop back to the signature node; an aliased one is
+/// a recursive call.
 pub fn run_count(n: i64, acc: i64) -> Result<i64, Error> {
     let mut env = EnvCount::default();
     env.in_count_count = Some(InCountCount { n: n, acc: acc });

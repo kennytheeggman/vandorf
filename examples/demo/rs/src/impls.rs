@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicI64, Ordering};
 
-/// Returns 0..i-1.
+/// Lists 0..i-1, with i as a string.
 pub fn range(i: i64) -> Result<types::ForEachStartOut, String> {
     Ok(types::ForEachStartOut { l: (0..i).collect(), s: i.to_string().into() })
 }
@@ -57,12 +57,12 @@ pub fn logged() -> Vec<i64> {
     LOGGED.lock().unwrap().clone()
 }
 
-/// Passes Main's command-line arguments on to Bar.
+/// Passes Main's command-line arguments on to Bar, unchanged.
 pub fn args(a: i64, b: Str) -> Result<types::BarArgs, String> {
     Ok(types::BarArgs { a, b })
 }
 
-/// Returns base + 2.
+/// Builds the expression `base + 2`, of two literals.
 pub fn build(base: i64) -> Result<types::Expr, String> {
     let lit = |i| Arc::new(types::Expr::Lit(i));
     Ok(types::Expr::Add(Arc::new(types::ExprAdd { l: lit(base), r: lit(2) })))
@@ -88,7 +88,7 @@ pub fn look(e: types::Expr) -> Result<types::Expr, String> {
     Ok(e)
 }
 
-/// Whether |i| < 100.
+/// Checks whether |i| < 100.
 pub fn small(i: i64) -> Result<bool, String> {
     Ok(i.abs() < 100)
 }

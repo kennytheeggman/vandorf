@@ -16,7 +16,8 @@
             {
               "type": 0,
               "label": "A",
-              "sublabel": "../../x/lf.rs:a"
+              "sublabel": "../../x/lf.rs:a",
+              "sig": "(): int"
             }
           ]
         },
@@ -25,7 +26,8 @@
             {
               "type": 0,
               "label": "B",
-              "sublabel": "../../y/lf.rs:b"
+              "sublabel": "../../y/lf.rs:b",
+              "sig": "(): int"
             }
           ]
         }

@@ -12,7 +12,8 @@
 type Json = enum { Null, Bool(bool), Num(int), Str(string), Arr([]Json), Obj([]JsonField) };
 type JsonField = { key: string, value: Json };
 
-// serde_json's pretty format.
+// Writes a JSON value in serde_json's pretty format, two spaces per level,
+// as the reference printed the document.
 func Pretty(j: Json): string = "doc_leaf.rs:pretty";
 
 // 0 func, 1 proc. Edges: 0 call, 1 match, 2 for each expand, 3 for each
@@ -23,25 +24,32 @@ type Out = { ty: int, target: int, label: MaybeStr, value: string, args: string 
 type Pos = { r: int, c: int };
 type Layout = { rows: [][]int, pos: map[int]Pos, out: map[int][]Pending };
 
-// l with n placed at the end of row r.
+// Places node n at the end of row r, recording its position.
 func Place(l: Layout, n: int, r: int): Layout = "doc_leaf.rs:place";
-// l without `set` and their recorded edges.
+// Takes the nodes in `set` out of the grid, with their recorded edges,
+// closing up their rows; they're placed again from where they're pushed down
+// to.
 func PushDown(l: Layout, set: map[int]bool): Layout = "doc_leaf.rs:push_down";
 func TrimRows(l: Layout): Layout = "doc_leaf.rs:trim_rows";
-// The calls a switch can end in, each with the arm heads on the way.
+// Lists the calls a switch can end in, nested switches flattened, each with
+// the arm heads on the way, for the edge labels.
 func ArmPaths(arms: []SArm): []{ labels: []string, call: Call } = "doc_leaf.rs:arm_paths";
-// An arm's head as written, without the parentheses around a condition.
+// Lists every proc, nested ones included, in node order.
 func Procs(nodes: []NodeDecl): []int = "doc_leaf.rs:all_procs";
 func GraphOf(n: NodeDecl): Graph = "doc_leaf.rs:graph_of";
+// Lists the nodes in the last row that have an edge out: steps of a region,
+// or spawn branches leading on to their join.
 func Frontier(l: Layout, g: Graph): []int = "doc_leaf.rs:frontier";
 
-// One grid per proc, nested ones included, keyed by qualified name.
+// Prints the visualizer document: one grid per proc, nested ones included,
+// keyed by qualified name, as pretty JSON.
 proc Document(prog: Program): string {
 	Document -> Grids(s = { prog = this.prog, procs = Procs(nodes = this.prog.nodes), i = 0, acc = [:] });
 	Grids -> id(Pretty(j = Obj([{ key = "grids", value = Obj(JsonFields(m = this)) }])));
 }
 
-// The document as a JSON value.
+// Builds the visualizer document as a JSON value, one grid per proc, for the
+// IDE.
 proc DocumentJson(prog: Program): Json {
 	DocumentJson -> Grids(s = { prog = this.prog, procs = Procs(nodes = this.prog.nodes), i = 0, acc = [:] });
 	Grids -> id(Obj([{ key = "grids", value = Obj(JsonFields(m = this)) }]));
@@ -49,6 +57,8 @@ proc DocumentJson(prog: Program): Json {
 
 func JsonFields(m: map[string]Json): []JsonField = "doc_leaf.rs:fields";
 
+// Lays out each proc in turn, from its signature node down, and adds its
+// grid to the document under its qualified name.
 proc Grids(s: { prog: Program, procs: []int, i: int, acc: map[string]Json }): map[string]Json {
 	Grids switch {
 		(this.s.i == this.s.procs.len) -> id(this.s.acc),
@@ -62,7 +72,8 @@ func ProcEntry(nodes: []NodeDecl, pid: int): int = "../sema/sema_leaf.rs:proc_en
 
 type SweepIn = { prog: Program, pid: int, g: Graph, l: Layout };
 
-// One row per step, until the last row has no edges out. Every pushdown
+// Lays a proc out one row per step: every node in the last row that has
+// edges out adds their targets to a new row, until none does. Every pushdown
 // moves a node strictly lower, so the grid can't grow past a row per node;
 // guard regardless.
 proc Sweep(s: SweepIn): Layout {
@@ -75,6 +86,9 @@ proc Sweep(s: SweepIn): Layout {
 
 type SourcesIn = { at: SweepIn, srcs: []int, last: int, row: int, l: Layout, i: int };
 
+// Records the edges out of each node of the last row in turn, placing their
+// targets in the new row; a node a pushdown already moved, or already
+// recorded, is skipped.
 proc Sources(s: SourcesIn): Layout {
 	Sources switch {
 		(this.s.i == this.s.srcs.len) -> id(this.s.l),
@@ -87,7 +101,10 @@ proc Sources(s: SourcesIn): Layout {
 	Record -> Sources(s = { at = Sources.s.at, srcs = Sources.s.srcs, last = Sources.s.last, row = Sources.s.row, l = this, i = Sources.s.i + 1 });
 }
 
-// Each edge out of src: placing (or pushing down) its target, or a back edge.
+// Records each edge out of src: places its target in the new row if it isn't
+// placed yet, or pushes it and what's downstream of it down to the new row;
+// an edge to a node that already reaches src is a back edge, drawn upward
+// without moving anything.
 proc Record(s: { prog: Program, pid: int, src: int, row: int, outs: []Out, i: int, l: Layout, acc: []Pending }): Layout {
 	func Placed(l: Layout, target: int, back: bool): { l: Layout, back: bool } = "../sema/sema_leaf.rs:pack_placed";
 	Record switch {
@@ -104,10 +121,12 @@ proc Record(s: { prog: Program, pid: int, src: int, row: int, outs: []Out, i: in
 	CallSig -> Record(s = { prog = Record.s.prog, pid = Record.s.pid, src = Record.s.src, row = Record.s.row, outs = Record.s.outs, i = Record.s.i + 1, l = Placed.l, acc = Record.s.acc + [{ ty = Record.s.outs[Record.s.i].ty, target = Record.s.outs[Record.s.i].target, label = Record.s.outs[Record.s.i].label, value = Record.s.outs[Record.s.i].value, call = this, args = Record.s.outs[Record.s.i].args, back = Placed.back }] });
 }
 
-// `from` and every placed node reachable from it along forward edges.
+// Finds `from` and every placed node reachable from it along recorded
+// forward edges: what moves when it's pushed down.
 proc Downstream(s: { l: Layout, stack: []int, seen: map[int]bool }): map[int]bool {
 	func Last(xs: []int): int = "../sema/sema_leaf.rs:last_int";
 	func Pop(xs: []int): []int = "../sema/sema_leaf.rs:pop_int";
+	// Lists the targets of n's recorded forward edges.
 	func Forward(l: Layout, n: int): []int = "doc_leaf.rs:forward";
 	Downstream switch {
 		(this.s.stack.len == 0) -> id(this.s.seen),
@@ -116,10 +135,15 @@ proc Downstream(s: { l: Layout, stack: []int, seen: map[int]bool }): map[int]boo
 	};
 }
 
+// Lists the edges out of src as the diagram draws them, each with what it
+// carries: a call, one edge per arm path of a switch, a for each's
+// expansion, a collect, a spawn's branches, or a branch on to its join.
 proc EdgeTargets(s: { prog: Program, g: Graph, src: int }): []Out {
-	// A spawner's edges, one to each branch.
+	// Draws a spawner's edges: one to each branch, marked as a spawn.
 	func SpawnOuts(branches: []SBranch, value: string): []Out = "doc_leaf.rs:spawn_outs";
-	// A branch leads on to its spawn's join.
+	// Draws a branch's edge on to its spawn's join: a joined one's, or, when
+	// every branch is detached, the first one's (drawn from the strip); none for
+	// other detached ones.
 	func BranchOuts(g: Graph, src: int, value: string): []Out = "doc_leaf.rs:branch_outs";
 	func Joined(g: Graph, src: int): Type = "doc_leaf.rs:joined_type";
 	EdgeTargets switch {
@@ -141,7 +165,8 @@ proc EdgeTargets(s: { prog: Program, g: Graph, src: int }): []Out {
 	Elem -> id([{ ty = 2, target = ForEachCall(e = E).target, label = None(), value = this, args = ForEachCall(e = E).text }]);
 }
 
-// A nested switch's arms are flattened into one edge per call.
+// Draws a switch as one edge per call it can end in, nested switches
+// flattened, each labelled with the arm heads on the way.
 proc MatchOuts(s: { paths: []{ labels: []string, call: Call }, value: string, i: int, acc: []Out }): []Out {
 	func Labels(ls: []string): string = "doc_leaf.rs:join_labels";
 	MatchOuts switch {
@@ -150,13 +175,14 @@ proc MatchOuts(s: { paths: []{ labels: []string, call: Call }, value: string, i:
 	};
 }
 
-// `B(i: int, l: []int)`: what a call to n receives.
+// Shows what a call to n receives, `B(i: int, l: []int)`, named as the
+// diagram names n.
 proc CallSig(s: { prog: Program, pid: int, n: int }): string {
 	CallSig -> ShowParams(s = { ps = NodeParams(nodes = this.s.prog.nodes, n = this.s.n), i = 0, acc = "" });
 	ShowParams -> id(DisplayLabel(prog = CallSig.s.prog, pid = CallSig.s.pid, n = CallSig.s.n) + "(" + this + ")");
 }
 
-// `p: t, q: u`
+// Shows parameters as `p: t, q: u`.
 proc ShowParams(s: { ps: []Member, i: int, acc: string }): string {
 	ShowParams switch {
 		(this.s.i == this.s.ps.len) -> id(this.s.acc),
@@ -165,12 +191,14 @@ proc ShowParams(s: { ps: []Member, i: int, acc: string }): string {
 	ShowType -> ShowParams(s = { ps = ShowParams.s.ps, i = ShowParams.s.i + 1, acc = ShowParams.s.acc + Sep(i = ShowParams.s.i) + ShowParams.s.ps[ShowParams.s.i].name + ": " + this });
 }
 
-// Funcs local to the proc by bare name; others (interface funcs, top-level
-// funcs) by qualified name.
+// Names a node as proc pid's diagram shows it: funcs local to the proc by
+// bare name; others (interface funcs, top-level funcs) by qualified name.
 func DisplayLabel(prog: Program, pid: int, n: int): string = "doc_leaf.rs:display_label";
 
 // ---- JSON ----
 
+// Turns a proc's layout into its grid: the rows, each a list of nodes, and
+// the edges between them by row and column.
 proc GridJson(s: { prog: Program, pid: int, l: Layout }): Json {
 	func Rows(prog: Program, pid: int, l: Layout): Json = "doc_leaf.rs:rows_json";
 	func Edges(l: Layout): Json = "doc_leaf.rs:edges_json";

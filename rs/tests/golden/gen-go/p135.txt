@@ -432,7 +432,7 @@ func RunSum(ctx context.Context, xs []int) (int, error) {
 
 package types
 
-// E is a typedef.
+// id(..) as N: a merge point, and a loop head carrying a struct.
 // Tag is one of "A", "B"; the field it names holds the payload.
 type E struct {
 	Tag string
@@ -885,7 +885,7 @@ func RunSum(ctx context.Context, xs []int) (int, error) {
 
 package app
 
-// E is a typedef.
+// id(..) as N: a merge point, and a loop head carrying a struct.
 // Tag is one of "A", "B"; the field it names holds the payload.
 type E struct {
 	Tag string

@@ -15,7 +15,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "A"
+              "label": "A",
+              "sig": "(): int"
             }
           ]
         },
@@ -24,27 +25,32 @@
             {
               "type": 0,
               "label": "B",
+              "sig": "(n: int): int",
               "branch": "joined"
             },
             {
               "type": 0,
               "label": "B2",
               "sublabel": "instance of B",
+              "sig": "(n: int): int",
               "branch": "joined"
             },
             {
               "type": 0,
               "label": "C",
+              "sig": "(n: int): string",
               "branch": "joined"
             },
             {
               "type": 0,
               "label": "S",
+              "sig": "(n: int): void",
               "branch": "joined"
             },
             {
               "type": 0,
               "label": "L",
+              "sig": "(s: string): void",
               "branch": "detached"
             }
           ]
@@ -53,7 +59,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "D"
+              "label": "D",
+              "sig": "(b: int, b2: int, c: string): int"
             }
           ]
         }

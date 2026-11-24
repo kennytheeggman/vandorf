@@ -16,7 +16,8 @@
             {
               "type": 0,
               "label": "Q",
-              "sublabel": "../../go/q.go:Q"
+              "sublabel": "../../go/q.go:Q",
+              "sig": "(): int"
             }
           ]
         }

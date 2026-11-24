@@ -7,7 +7,8 @@
             {
               "type": 3,
               "label": "Count",
-              "sublabel": "(n: int, acc: int)"
+              "sublabel": "(n: int, acc: int)",
+              "doc": "A bare self-edge is a loop back to the signature node; an aliased one is\na recursive call."
             }
           ]
         },
@@ -73,7 +74,8 @@
             {
               "type": 1,
               "label": "A",
-              "sublabel": "instance of Fib"
+              "sublabel": "instance of Fib",
+              "sig": "(n: int): int"
             }
           ]
         },
@@ -82,7 +84,8 @@
             {
               "type": 1,
               "label": "B",
-              "sublabel": "instance of Fib"
+              "sublabel": "instance of Fib",
+              "sig": "(n: int): int"
             }
           ]
         },
@@ -90,7 +93,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "Add"
+              "label": "Add",
+              "sig": "(a: int, b: int): int"
             }
           ]
         }

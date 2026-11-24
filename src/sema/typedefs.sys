@@ -29,15 +29,19 @@ func IsPrim(name: string): bool = "sema_leaf.rs:is_prim";
 func Itoa(i: int): string = "sema_leaf.rs:itoa";
 func Cap(s: string): string = "sema_leaf.rs:cap";
 // Struct updates of the state.
+
 func WithError(cx: TyCx, msg: string, span: Span): TyCx = "sema_leaf.rs:with_error";
 func WithTypes(cx: TyCx, types: []TypeDef): TyCx = "sema_leaf.rs:with_types";
-// cx with a new typedef: name, ident, declared at span.
+// Adds a typedef to cx, its type still void: its name and ident, where it's
+// declared (span), and its name to look it up by.
 func NewDef(cx: TyCx, name: string, ident: string, span: Span): TyCx = "sema_leaf.rs:new_def";
 func NewInst(cx: TyCx, key: string, ident: string, span: Span): TyCx = "sema_leaf.rs:new_inst";
 func SetTy(types: []TypeDef, id: int, t: Type): []TypeDef = "sema_leaf.rs:set_ty";
-// errors[from..] with " (in key)" appended.
+// Says which instance errors came from: appends " (in key)" to each of
+// errors[from..], leaving earlier ones as they were.
 func InInstance(errors: []Diag, from: int, key: string): []Diag = "sema_leaf.rs:in_instance";
-// The innermost bound type parameter `name`, if any.
+// Looks up the type parameter `name` in the instance being resolved, the
+// innermost: the argument it's bound to, if any.
 func Bound(bound: []map[string]Type, name: string): MaybeType = "sema_leaf.rs:bound";
 func Join(parts: []string, sep: string): string = "sema_leaf.rs:join";
 func IsKeyType(t: Type): bool = "sema_leaf.rs:is_key_type";
@@ -46,6 +50,9 @@ func ParamMap(params: []Ident, args: []Type): map[string]Type = "sema_leaf.rs:pa
 
 // ---- Resolving a written type ----
 
+// Resolves a written type against the typedefs declared so far: names,
+// instances of generics, arrays, maps, structs and enums. Errors go into cx,
+// and the type is None if it doesn't resolve.
 proc Ty(s: { cx: TyCx, t: TypeExpr }): TyOut {
 	func ArrayOf(t: MaybeType): MaybeType = "sema_leaf.rs:array_of";
 	func StructOf(ms: MaybeMembers): MaybeType = "sema_leaf.rs:struct_of";
@@ -64,8 +71,10 @@ proc Ty(s: { cx: TyCx, t: TypeExpr }): TyOut {
 	Variants -> id({ cx = this.cx, t = EnumOf(ms = this.ms) });
 }
 
-// A name without type arguments: a bound type parameter, a primitive or a
-// typedef.
+// Resolves a name written without type arguments: a type parameter bound by
+// the instance being resolved, a primitive, or a typedef. Otherwise it
+// records why it isn't a type (unknown, or generic and missing its
+// arguments).
 proc NamedTy(s: { cx: TyCx, n: Ident }): TyOut {
 	NamedTy -> Bound(bound = this.s.cx.bound, name = this.s.n.name);
 	Bound switch {
@@ -82,7 +91,9 @@ proc NamedTy(s: { cx: TyCx, n: Ident }): TyOut {
 	};
 }
 
-// Why `name`, written without arguments, isn't a type (None if it is).
+// Explains why `name`, written without arguments, isn't a type: unknown, or
+// generic and needing arguments (with an example of them). None if it is a
+// type.
 proc NameProblem(s: { cx: TyCx, name: string }): MaybeStr {
 	func ParamNames(ps: []Ident): string = "sema_leaf.rs:param_names";
 	NameProblem switch {
@@ -94,7 +105,9 @@ proc NameProblem(s: { cx: TyCx, name: string }): MaybeStr {
 
 func IsBoundName(bound: []map[string]Type, name: string): bool = "sema_leaf.rs:is_bound";
 
-// Why `name<..>` with `count` arguments isn't a type (None if it is).
+// Explains why `name<..>` with `count` arguments isn't a type: the wrong
+// number of arguments, a type that isn't generic, or an unknown one. None if
+// it is a type.
 proc InstProblem(s: { cx: TyCx, name: string, count: int }): MaybeStr {
 	func Plural(n: int): string = "sema_leaf.rs:plural";
 	InstProblem switch {
@@ -105,6 +118,8 @@ proc InstProblem(s: { cx: TyCx, name: string, count: int }): MaybeStr {
 	};
 }
 
+// Resolves a map type: its key and value, then checks the key is an int or a
+// string, through any typedef names.
 proc TyMap(s: { cx: TyCx, key: TypeExpr, value: TypeExpr }): TyOut {
 	func MapOf(k: Type, v: MaybeType): MaybeType = "sema_leaf.rs:map_of";
 	TyMap -> Ty(s = { cx = this.s.cx, t = this.s.key }) as Key;
@@ -123,8 +138,9 @@ proc TyMap(s: { cx: TyCx, key: TypeExpr, value: TypeExpr }): TyOut {
 
 func UnwrapT(t: MaybeType): Type = "sema_leaf.rs:unwrap_t";
 
-// fs, each resolved; None if any field is a duplicate or doesn't resolve
-// (all are still checked).
+// Resolves a struct's fields, each in turn, reporting duplicates. All are
+// checked even after one fails, so every error is found; the fields are None
+// if any failed.
 proc Fields(s: { cx: TyCx, fs: []Field, i: int, ok: bool, acc: []Member }): { cx: TyCx, ms: MaybeMembers } {
 	func Done(ok: bool, ms: []Member): MaybeMembers = "sema_leaf.rs:members_if";
 	Fields switch {
@@ -142,8 +158,8 @@ proc Fields(s: { cx: TyCx, fs: []Field, i: int, ok: bool, acc: []Member }): { cx
 	};
 }
 
-// vs, each resolved (void for no payload); stops at the first duplicate or
-// payload that doesn't resolve.
+// Resolves an enum's variants, each payload in turn (void for none); stops
+// at the first duplicate or payload that doesn't resolve.
 proc Variants(s: { cx: TyCx, vs: []Variant, i: int, acc: []Member }): { cx: TyCx, ms: MaybeMembers } {
 	Variants switch {
 		(this.s.i == this.s.vs.len) -> id({ cx = this.s.cx, ms = Some(this.s.acc) }),
@@ -162,8 +178,11 @@ proc Variants(s: { cx: TyCx, vs: []Variant, i: int, acc: []Member }): { cx: TyCx
 
 // ---- Instances ----
 
-// The typedef for `n<args>`, made the first time it's used: the generic
-// body with the arguments substituted.
+// Resolves `n<args>`: checks the generic exists and takes that many
+// arguments, resolves them, and makes the instance the first time it's used.
+// It's a typedef of its own, keyed by how it's shown (`R<int>`), whose body
+// is the generic's with the arguments substituted. Guards against instances
+// that never stop expanding.
 proc Instance(s: { cx: TyCx, n: Ident, args: []TypeExpr, i: int, tys: []Type }): TyOut {
 	Instance -> InstProblem(s = { cx = this.s.cx, name = this.s.n.name, count = this.s.args.len });
 	InstProblem switch {
@@ -189,8 +208,8 @@ proc Instance(s: { cx: TyCx, n: Ident, args: []TypeExpr, i: int, tys: []Type }):
 type MaybeTypes = enum { None, Some([]Type) };
 func TysOf(m: MaybeTypes): []Type = "sema_leaf.rs:unwrap_tys";
 
-// The arguments, resolved; None at the first that doesn't resolve or is
-// void or a struct or enum written out.
+// Resolves an instance's type arguments in turn; None at the first that
+// doesn't resolve, or that's void or a struct or enum written out.
 proc InstArgs(s: { cx: TyCx, args: []TypeExpr, i: int, tys: []Type }): { cx: TyCx, tys: MaybeTypes } {
 	func WrittenOut(t: Type): bool = "sema_leaf.rs:is_struct_or_enum";
 	InstArgs switch {
@@ -208,7 +227,9 @@ proc InstArgs(s: { cx: TyCx, args: []TypeExpr, i: int, tys: []Type }): { cx: TyC
 }
 
 // Resolves a new instance's body: the generic's, with its parameters bound
-// to the arguments. cx already has the instance (the last typedef).
+// to the arguments, then sets it as the instance's type. cx already has the
+// instance (the last typedef). Errors inside say which instance they came
+// from, and a body that is only a chain of names back to itself is rejected.
 proc InstBody(s: { cx: TyCx, key: string, n: Ident, tys: []Type }): TyOut {
 	InstBody -> Ty(s = { cx = { ..this.s.cx, bound = this.s.cx.bound + [ParamMap(params = this.s.cx.generics[this.s.n.name].params, args = this.s.tys)] }, t = this.s.cx.generics[this.s.n.name].ty }) as Body;
 	// Which instance an error in a generic body came from, said once.
@@ -231,7 +252,8 @@ proc InstBody(s: { cx: TyCx, key: string, n: Ident, tys: []Type }): TyOut {
 func IsSome(t: MaybeType): bool = "sema_leaf.rs:is_some";
 func WithErrors(cx: TyCx, errors: []Diag): TyCx = "sema_leaf.rs:with_errors";
 
-// Whether following typedef names from `t` comes back to one already seen.
+// Follows typedef names from `t`, through each name's definition, to see
+// whether they come back to one already seen.
 proc ChainCycle(s: { types: []TypeDef, start: int, seen: []int, t: Type }): bool {
 	func Seen(seen: []int, x: int): bool = "sema_leaf.rs:has_int";
 	ChainCycle -> id(this.s.t) as T;
@@ -244,7 +266,7 @@ proc ChainCycle(s: { types: []TypeDef, start: int, seen: []int, t: Type }): bool
 	};
 }
 
-// Each type, shown.
+// Shows each of the types, as written.
 proc ShowAll(s: { ts: []Type, i: int, acc: []string }): []string {
 	ShowAll switch {
 		(this.s.i == this.s.ts.len) -> id(this.s.acc),
@@ -253,8 +275,9 @@ proc ShowAll(s: { ts: []Type, i: int, acc: []string }): []string {
 	ShowType -> ShowAll(s = { ts = ShowAll.s.ts, i = ShowAll.s.i + 1, acc = ShowAll.s.acc + [this] });
 }
 
-// The types as part of an identifier, for naming instances: `int` -> `Int`,
-// `[]Field` -> `FieldList`, `map[string]int` -> `MapStringInt`.
+// Names a list of types as part of an identifier, for naming instances:
+// `int` -> `Int`, `[]Field` -> `FieldList`, `map[string]int` ->
+// `MapStringInt`.
 proc IdentAll(s: { ts: []Type, types: []TypeDef, i: int, acc: string }): string {
 	IdentAll switch {
 		(this.s.i == this.s.ts.len) -> id(this.s.acc),
@@ -263,11 +286,14 @@ proc IdentAll(s: { ts: []Type, types: []TypeDef, i: int, acc: string }): string 
 	IdentOf -> IdentAll(s = { ts = IdentAll.s.ts, types = IdentAll.s.types, i = IdentAll.s.i + 1, acc = IdentAll.s.acc + this });
 }
 
+// Names one type as part of an identifier: a primitive or typedef
+// capitalized, an array its element's name and `List`, a map `Map`, its
+// key's and its value's.
 proc IdentOf(s: { t: Type, types: []TypeDef }): string {
-	func PrimIdent(p: string): string = "sema_leaf.rs:cap";
+	func PrimIdent(s: string): string = "sema_leaf.rs:cap";
 	IdentOf -> id(this.s.t) as T;
 	T switch {
-		Prim(p) -> id(PrimIdent(p = p)),
+		Prim(p) -> id(PrimIdent(s = p)),
 		Named(n) -> id(Cap(s = IdentOf.s.types[n.id].ident)),
 		Array(e) -> IdentOf(s = { t = e, types = IdentOf.s.types }) as Elem,
 		Map(m) -> IdentOf(s = { t = m.key, types = IdentOf.s.types }) as Key,
@@ -282,8 +308,11 @@ func MapValue(t: Type): Type = "sema_leaf.rs:map_value";
 
 // ---- Declaring typedefs ----
 
-// Declares all typedefs before resolving any, so they can refer to each
-// other in any order, then rejects cycles that never reach a structure.
+// Declares all of a program's typedefs before resolving any, so they can
+// refer to each other in any order: each name is checked (not a primitive,
+// not a duplicate) and either declared or kept as a generic. Then it checks
+// the generics, resolves the rest, and rejects cycles that never reach a
+// structure.
 proc DeclareTypes(s: { cx: TyCx, decls: []TypeDecl, i: int }): TyCx {
 	DeclareTypes switch {
 		(this.s.i == this.s.decls.len) -> CheckGenerics(s = { cx = this.s.cx, decls = this.s.decls, i = 0 }),
@@ -299,7 +328,8 @@ proc DeclareTypes(s: { cx: TyCx, decls: []TypeDecl, i: int }): TyCx {
 	};
 }
 
-// Checks each generic typedef's first declaration.
+// Checks each generic typedef where it's first declared: its parameters, and
+// the names in its body.
 proc CheckGenerics(s: { cx: TyCx, decls: []TypeDecl, i: int }): TyCx {
 	CheckGenerics switch {
 		(this.s.i == this.s.decls.len) -> id(this.s.cx),
@@ -309,13 +339,13 @@ proc CheckGenerics(s: { cx: TyCx, decls: []TypeDecl, i: int }): TyCx {
 	CheckGeneric -> CheckGenerics(s = { cx = this, decls = CheckGenerics.s.decls, i = CheckGenerics.s.i + 1 });
 }
 
-// Resolves each typedef that isn't generic, once.
+// Resolves the type of each typedef that isn't generic, once.
 proc ResolveDecls(s: { cx: TyCx, decls: []TypeDecl, i: int, ok: []int }): TyCx {
-	func Done(ok: []int, x: int): bool = "sema_leaf.rs:has_int";
+	func Done(seen: []int, x: int): bool = "sema_leaf.rs:has_int";
 	ResolveDecls switch {
 		(this.s.i == this.s.decls.len) -> id(this.s.cx),
 		(this.s.decls[this.s.i].params.len > 0 || !(this.s.decls[this.s.i].name.name in this.s.cx.names)) -> ResolveDecls(s = { cx = this.s.cx, decls = this.s.decls, i = this.s.i + 1, ok = this.s.ok }),
-		(Done(ok = this.s.ok, x = this.s.cx.names[this.s.decls[this.s.i].name.name])) -> ResolveDecls(s = { cx = this.s.cx, decls = this.s.decls, i = this.s.i + 1, ok = this.s.ok }),
+		(Done(seen = this.s.ok, x = this.s.cx.names[this.s.decls[this.s.i].name.name])) -> ResolveDecls(s = { cx = this.s.cx, decls = this.s.decls, i = this.s.i + 1, ok = this.s.ok }),
 		else -> Ty(s = { cx = this.s.cx, t = this.s.decls[this.s.i].ty })
 	};
 	Ty switch {
@@ -324,8 +354,10 @@ proc ResolveDecls(s: { cx: TyCx, decls: []TypeDecl, i: int, ok: []int }): TyCx {
 	};
 }
 
-// A generic typedef's parameters and the names in its body; the rest is
-// checked per instance.
+// Checks a generic typedef: that its parameters are new names, used in its
+// body, and that the body names only parameters and types. A generic with
+// errors is marked broken, so its instances don't report them again; the
+// rest is checked per instance.
 proc CheckGeneric(s: { cx: TyCx, d: TypeDecl }): TyCx {
 	CheckGeneric -> CheckParams(s = { cx = this.s.cx, ps = this.s.d.params, i = 0, seen = [] });
 	CheckParams -> CheckBody(s = { cx = this, t = CheckGeneric.s.d.ty, params = IdentNames(ids = CheckGeneric.s.d.params), used = [] }) as Body;
@@ -339,6 +371,8 @@ proc CheckGeneric(s: { cx: TyCx, d: TypeDecl }): TyCx {
 func IdentNames(ids: []Ident): []string = "sema_leaf.rs:ident_names";
 func HasStr(xs: []string, x: string): bool = "sema_leaf.rs:has_str";
 
+// Checks a generic's type parameters: no duplicates, and none named like a
+// primitive or a typedef.
 proc CheckParams(s: { cx: TyCx, ps: []Ident, i: int, seen: []string }): TyCx {
 	CheckParams switch {
 		(this.s.i == this.s.ps.len) -> id(this.s.cx),
@@ -348,6 +382,7 @@ proc CheckParams(s: { cx: TyCx, ps: []Ident, i: int, seen: []string }): TyCx {
 	};
 }
 
+// Reports each of a generic's type parameters that its body never uses.
 proc Unused(s: { cx: TyCx, ps: []Ident, used: []string, i: int }): TyCx {
 	Unused switch {
 		(this.s.i == this.s.ps.len) -> id(this.s.cx),
@@ -358,7 +393,8 @@ proc Unused(s: { cx: TyCx, ps: []Ident, used: []string, i: int }): TyCx {
 
 type BodyCheck = { cx: TyCx, t: TypeExpr, params: []string, used: []string };
 
-// The names in a generic body: parameters (recorded as used) or types.
+// Checks the names in a generic body: each is a parameter (recorded as used)
+// or a type, and each instance used in it has the right number of arguments.
 proc CheckBody(s: BodyCheck): { cx: TyCx, used: []string } {
 	func Exprs(fs: []Field): []TypeExpr = "sema_leaf.rs:field_types";
 	func Payloads(vs: []Variant): []TypeExpr = "sema_leaf.rs:payload_types";
@@ -387,6 +423,8 @@ proc CheckBody(s: BodyCheck): { cx: TyCx, used: []string } {
 func NameSpan(k: TypeKind): Span = "sema_leaf.rs:name_span";
 func InstArgExprs(k: TypeKind): []TypeExpr = "sema_leaf.rs:inst_args";
 
+// Checks each of a generic body's parts in turn, gathering the parameters
+// used.
 proc CheckBodies(s: { cx: TyCx, ts: []TypeExpr, params: []string, used: []string, i: int }): { cx: TyCx, used: []string } {
 	CheckBodies switch {
 		(this.s.i == this.s.ts.len) -> id({ cx = this.s.cx, used = this.s.used }),
@@ -404,6 +442,9 @@ proc CheckTypedefs(s: { cx: TyCx, from: int }): TyCx {
 	NamedEdges -> MarkTypedefs(s = { cx = CheckTypedefs.s.cx, edges = this, id = CheckTypedefs.s.from });
 }
 
+// Goes through the typedefs from `id` on: one that reaches itself is
+// recursive (an error unless it's a struct or enum), and one whose structure
+// is void is an error.
 proc MarkTypedefs(s: { cx: TyCx, edges: [][]int, id: int }): TyCx {
 	func Structure(t: Type): bool = "sema_leaf.rs:is_struct_or_enum";
 	MarkTypedefs switch {
@@ -423,8 +464,8 @@ proc MarkTypedefs(s: { cx: TyCx, edges: [][]int, id: int }): TyCx {
 
 func Rec(cx: TyCx, id: int, rec: bool): TyCx = "sema_leaf.rs:with_recursive";
 
-// For each typedef, the typedefs its definition names directly (not through
-// another typedef).
+// Finds, for each typedef, the typedefs its definition names directly (not
+// through another typedef).
 proc NamedEdges(s: { types: []TypeDef, i: int, acc: [][]int }): [][]int {
 	NamedEdges switch {
 		(this.s.i == this.s.types.len) -> id(this.s.acc),
@@ -433,8 +474,11 @@ proc NamedEdges(s: { types: []TypeDef, i: int, acc: [][]int }): [][]int {
 	NamedIn -> NamedEdges(s = { types = NamedEdges.s.types, i = NamedEdges.s.i + 1, acc = NamedEdges.s.acc + [this] });
 }
 
-// Typedefs the types mention, depth first, in order.
+// Finds the typedefs the types mention, depth first, in order, without
+// looking inside the typedefs themselves.
 proc NamedIn(s: { ts: []Type, acc: []int }): []int {
+	// Lists a type's direct parts, in order: an array's element, a map's key and
+	// value, a struct's or enum's member types (what NamedIn looks inside).
 	func Parts(t: Type): []Type = "sema_leaf.rs:parts";
 	func NameOf(t: Type): []int = "sema_leaf.rs:name_of";
 	NamedIn switch {
@@ -445,7 +489,8 @@ proc NamedIn(s: { ts: []Type, acc: []int }): []int {
 
 func Rest(ts: []Type): []Type = "sema_leaf.rs:rest";
 
-// The typedefs reachable from `stack` along `edges`.
+// Finds every typedef reachable from those on `stack` along `edges`, depth
+// first.
 proc Reach(s: { edges: [][]int, stack: []int, seen: map[int]bool }): map[int]bool {
 	func Last(xs: []int): int = "sema_leaf.rs:last_int";
 	func Pop(xs: []int): []int = "sema_leaf.rs:pop_int";
@@ -456,7 +501,7 @@ proc Reach(s: { edges: [][]int, stack: []int, seen: map[int]bool }): map[int]boo
 	};
 }
 
-// The typedefs of a program, declared and resolved, from an empty state.
+// Declares and resolves a program's typedefs, from an empty state.
 proc TypesOf(decls: []TypeDecl): TyCx {
 	TypesOf -> DeclareTypes(s = { cx = { types = [], spans = [], names = [:], generics = [:], broken = [:], insts = [:], bound = [], errors = [] }, decls = this.decls, i = 0 });
 }

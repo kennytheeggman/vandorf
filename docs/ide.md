@@ -26,6 +26,16 @@ ide --addr 127.0.0.1:9000
   signature end under the header. Click any node for its details,
   including its implementations' source, read out of their files. Edit in
   the text tab; the diagram follows.
+- **Signatures and doc comments** show on the nodes: under a func's,
+  proc's or instance's name its signature, then its doc's first line, each
+  cut to the node's width with a ▸ when there's more; click one to open it
+  (▾ closes it). An open doc reads as paragraphs: a line break inside a
+  paragraph is a space, a blank line starts a new paragraph, and a line
+  starting with `-` or `*` starts a list item. A func's implementations
+  show in its details, not on its node. The details panel shows a func's, proc's or type's doc in
+  full, under its signature (the signature node's is its proc's), and the
+  explorer's tooltips and the project overview's entry points show them
+  too.
 - **Terminal** (bottom): shells in the project, and Check, Build and Test
   buttons that run vcc on the active file's project. Terminals are offered
   only when the IDE listens on a loopback address.

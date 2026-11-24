@@ -15,7 +15,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "A"
+              "label": "A",
+              "sig": "(): []int"
             }
           ]
         },
@@ -23,7 +24,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "B"
+              "label": "B",
+              "sig": "(i: int): int"
             }
           ]
         },
@@ -31,7 +33,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "C"
+              "label": "C",
+              "sig": "(i: int): int"
             }
           ]
         },
@@ -39,7 +42,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "D"
+              "label": "D",
+              "sig": "(l: []int): int"
             }
           ]
         }

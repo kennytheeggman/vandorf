@@ -8,8 +8,9 @@ type Program = { types: []TypeDef, nodes: []NodeDecl, globals: map[string]Global
 type Global = enum { Interface(map[string]int), Node(int) };
 
 // `qual`: ["Iface", "F"] for an interface func, ["P", "F"] for a func local
-// to proc P, ["P"] for a top-level proc.
-type NodeDecl = { qual: []string, span: Span, kind: NodeKind };
+// to proc P, ["P"] for a top-level proc. `doc`: its declaration's doc
+// comment (a signature node's is its proc's; ids and aliases have none).
+type NodeDecl = { qual: []string, span: Span, kind: NodeKind, doc: string };
 
 type NodeKind = enum {
 	Func(FuncDecl),

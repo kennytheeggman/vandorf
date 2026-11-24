@@ -6,20 +6,26 @@ type AtLevel = { cur: Cur, level: int };
 type AtLevelValue = { cur: Cur, level: int, left: Value };
 type AtValue = { cur: Cur, left: Value };
 
-// Whether t is an operator of the given level.
+// Whether t is an operator of precedence `level`: `||` at 0, `&&` at 1,
+// comparisons and `in` at 2, `+ -` at 3, `* / %` at 4.
 func OpAt(t: Tok, level: int): bool = "leaf.rs:op_at";
-// `l op r`: a Binary, or an In for `in`.
+// Builds `l op r` from its operands, spanning both: a Binary, or an In when
+// the operator is `in`.
 func Combine(op: Tok, l: Value, r: Value): Value = "leaf.rs:combine";
-// `op e` for ! and -; `-` and a number literal make a negative literal.
+// Builds `op e` for a prefix `!` or `-`, spanning both; `-` before a number
+// literal folds into a negative literal instead.
 func Prefix(op: Tok, e: Value): Value = "leaf.rs:prefix";
 
+// Parses an expression, starting at the loosest precedence, `||`.
 proc PExpr(toks: []Tok, pos: int): R<Value> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PExpr -> At(toks = this.toks, pos = this.pos);
 	At -> PBin(toks = this.toks, pos = this.pos, level = 0);
 }
 
-// The operators of one level, each operand an expression of the next.
+// Parses the operators of one precedence level: a left operand at the next
+// level up, then any more of this level's operators (prefix operators once
+// past the last level).
 proc PBin(toks: []Tok, pos: int, level: int): R<Value> {
 	func AtL(toks: []Tok, pos: int, level: int): AtLevel = "leaf.rs:at_level";
 	PBin -> AtL(toks = this.toks, pos = this.pos, level = this.level);
@@ -30,7 +36,9 @@ proc PBin(toks: []Tok, pos: int, level: int): R<Value> {
 	Left -> PBinRest(toks = AtL.cur.toks, pos = this.pos, level = AtL.level, left = this.x);
 }
 
-// (op operand)* after `left`, folding to the left: a loop back to AtLV.
+// Parses the operators of a level that follow `left`, each with its right
+// operand at the next level, folding them to the left. A comparison (level
+// 2) takes only one, so `a < b < c` doesn't parse.
 proc PBinRest(toks: []Tok, pos: int, level: int, left: Value): R<Value> {
 	func AtLV(toks: []Tok, pos: int, level: int, left: Value): AtLevelValue = "leaf.rs:at_level_value";
 	PBinRest -> AtLV(toks = this.toks, pos = this.pos, level = this.level, left = this.left);
@@ -44,7 +52,10 @@ proc PBinRest(toks: []Tok, pos: int, level: int, left: Value): R<Value> {
 	};
 }
 
-// unary := ('!' | '-') unary | postfix
+// Parses a prefix `!` or `-` and its operand, any number of them, or else a
+// postfix expression.
+//
+//   unary := ('!' | '-') unary | postfix
 proc PUnary(toks: []Tok, pos: int): R<Value> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PUnary -> At(toks = this.toks, pos = this.pos);
@@ -55,7 +66,9 @@ proc PUnary(toks: []Tok, pos: int): R<Value> {
 	Operand -> id({ x = Prefix(op = At.tok, e = this.x), pos = this.pos });
 }
 
-// postfix := atom ('[' expr ']' | '.' NAME)*
+// Parses an atom and the indexes and field selections after it.
+//
+//   postfix := atom ('[' expr ']' | '.' NAME)*
 proc PPostfix(toks: []Tok, pos: int): R<Value> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PPostfix -> At(toks = this.toks, pos = this.pos);
@@ -63,7 +76,8 @@ proc PPostfix(toks: []Tok, pos: int): R<Value> {
 	PAtom -> PPostRest(toks = At.toks, pos = this.pos, left = this.x);
 }
 
-// ('[' expr ']' | '.' NAME)* after `left`: a loop back to AtV.
+// Parses the `[key]` and `.field` selections that follow `left`, each
+// wrapping what came before it, for as long as they continue.
 proc PPostRest(toks: []Tok, pos: int, left: Value): R<Value> {
 	func AtV(toks: []Tok, pos: int, left: Value): AtValue = "leaf.rs:at_value";
 	PPostRest -> AtV(toks = this.toks, pos = this.pos, left = this.left);
@@ -85,8 +99,12 @@ proc PPostRest(toks: []Tok, pos: int, left: Value): R<Value> {
 	);
 }
 
-// atom := INT | FLOAT | STRING | 'true' | 'false' | '{' arg,* '}' | '{' '..' expr (',' arg)* '}' | '[' ... ']'
-//       | '(' expr ')' | path | path '(' ((NAME '=')? expr),* ')'
+// Parses an atom: a literal, a struct literal or update, an array or map
+// literal, a parenthesized expression, a path, or a call of a func.
+//
+//   atom := INT | FLOAT | STRING | 'true' | 'false' | '{' arg,* '}'
+//         | '{' '..' expr (',' arg)* '}' | '[' ... ']' | '(' expr ')'
+//         | path | path '(' ((NAME '=')? expr),* ')'
 proc PAtom(toks: []Tok, pos: int): R<Value> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PAtom -> At(toks = this.toks, pos = this.pos);
@@ -103,6 +121,7 @@ proc PAtom(toks: []Tok, pos: int): R<Value> {
 		(this.tok.kind == "ident") -> PPath(toks = this.toks, pos = this.pos),
 		else -> NotAtom(toks = this.toks, pos = this.pos, what = "an expression")
 	};
+	// Fails at toks[pos], saying what was expected there instead.
 	func NotAtom(toks: []Tok, pos: int, what: string): R<Value> = "leaf.rs:expected_value";
 	StructArgs -> Expect(toks = At.toks, pos = this.pos, text = "}", what = ", or }") as StructClose;
 	// `{ ..base }` or `{ ..base, f = v, .. }`
@@ -130,7 +149,10 @@ proc PAtom(toks: []Tok, pos: int): R<Value> {
 	});
 }
 
-// After '[': '[' ':' ']' | '[' (expr ':' expr),+ ','? ']' | '[' expr,* ','? ']'
+// Parses an array or map literal after its `[`: `[:]` is the empty map, `[]`
+// the empty array, and a first item followed by `:` makes a map.
+//
+//   '[' ':' ']' | '[' (expr ':' expr),+ ','? ']' | '[' expr,* ','? ']'
 proc PBracket(toks: []Tok, pos: int): R<Value> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PBracket -> At(toks = this.toks, pos = this.pos);
@@ -155,7 +177,8 @@ proc PBracket(toks: []Tok, pos: int): R<Value> {
 	ArrayClose -> id({ x = { kind = Array([First.x] + PValuesRest.x), span = { at = At.prev.at, end = this.prev.end, file = At.prev.file } }, pos = this.pos });
 }
 
-// (',' expr)* ','?, stopping at a closing bracket.
+// Parses an array literal's items after its first, each after a comma, a
+// trailing comma allowed, until its closing bracket.
 proc PValuesRest(toks: []Tok, pos: int): R<[]Value> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []Value): AtAcc<[]Value> = "leaf.rs:at_values";
@@ -172,7 +195,8 @@ proc PValuesRest(toks: []Tok, pos: int): R<[]Value> {
 	PExpr -> Loop(toks = Loop.cur.toks, pos = this.pos, acc = Loop.acc + [this.x]);
 }
 
-// (',' expr ':' expr)* ','?, stopping at a closing bracket.
+// Parses a map literal's `key: value` entries after its first, each after a
+// comma, a trailing comma allowed, until its closing bracket.
 proc PEntriesRest(toks: []Tok, pos: int): R<[]Entry> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []Entry): AtAcc<[]Entry> = "leaf.rs:at_entries";
@@ -191,7 +215,8 @@ proc PEntriesRest(toks: []Tok, pos: int): R<[]Entry> {
 	Val -> Loop(toks = Loop.cur.toks, pos = this.pos, acc = Loop.acc + [{ key = Key.x, value = this.x }]);
 }
 
-// ((NAME '=')? expr),* ','?, stopping at a closing bracket.
+// Parses a call's arguments, separated by commas, until its closing
+// parenthesis.
 proc PApplyArgs(toks: []Tok, pos: int): R<[]ApplyArg> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	func Loop(toks: []Tok, pos: int, acc: []ApplyArg): AtAcc<[]ApplyArg> = "leaf.rs:at_apply_args";
@@ -208,6 +233,7 @@ proc PApplyArgs(toks: []Tok, pos: int): R<[]ApplyArg> {
 	};
 }
 
+// Parses one argument of a call: `name = value`, or just a value.
 proc PApplyArg(toks: []Tok, pos: int): R<ApplyArg> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PApplyArg -> At(toks = this.toks, pos = this.pos);

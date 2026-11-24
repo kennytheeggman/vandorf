@@ -66,6 +66,8 @@ fn write(j: &Json, indent: usize, out: &mut String) {
     }
 }
 
+/// Writes a JSON value in serde_json's pretty format, two spaces per level,
+/// as the reference printed the document.
 pub fn pretty(j: Json) -> Result<Str, String> {
     let mut out = String::new();
     write(&j, 0, &mut out);
@@ -94,6 +96,7 @@ fn rows_vec(l: &Layout) -> Vec<Vec<i64>> {
     l.rows.iter().map(|r| r.to_vec()).collect()
 }
 
+/// Places node n at the end of row r, recording its position.
 pub fn place(mut l: Layout, n: i64, r: i64) -> Result<Layout, String> {
     let mut rows = rows_vec(&l);
     let c = rows[r as usize].len() as i64;
@@ -103,6 +106,9 @@ pub fn place(mut l: Layout, n: i64, r: i64) -> Result<Layout, String> {
     Ok(l)
 }
 
+/// Takes the nodes in `set` out of the grid, with their recorded edges,
+/// closing up their rows; they're placed again from where they're pushed down
+/// to.
 pub fn push_down(mut l: Layout, set: Map<i64, bool>) -> Result<Layout, String> {
     let rows: Vec<Vec<i64>> = rows_vec(&l)
         .into_iter()
@@ -136,7 +142,8 @@ pub fn trim_rows(mut l: Layout) -> Result<Layout, String> {
     Ok(l)
 }
 
-/// Nodes in the last row with an edge out, in a region.
+/// Lists the nodes in the last row that have an edge out: steps of a region,
+/// or spawn branches leading on to their join.
 pub fn frontier(l: Layout, g: Graph) -> Result<List<i64>, String> {
     let last = l.rows.last().cloned().unwrap_or_default();
     Ok(last
@@ -155,7 +162,7 @@ fn spawn_of(g: &Graph, sp: i64) -> &SEdgeSpawn {
     }
 }
 
-/// A spawner's edges, one to each branch.
+/// Draws a spawner's edges: one to each branch, marked as a spawn.
 pub fn spawn_outs(branches: List<SBranch>, value: Str) -> Result<List<Out>, String> {
     Ok(branches
         .iter()
@@ -169,8 +176,8 @@ pub fn spawn_outs(branches: List<SBranch>, value: Str) -> Result<List<Out>, Stri
         .collect())
 }
 
-/// A branch's edge on to its spawn's join: a joined one's, or, when every
-/// branch is detached, the first one's (drawn from the strip); none for
+/// Draws a branch's edge on to its spawn's join: a joined one's, or, when
+/// every branch is detached, the first one's (drawn from the strip); none for
 /// other detached ones.
 pub fn branch_outs(g: Graph, src: i64, value: Str) -> Result<List<Out>, String> {
     let s = spawn_of(&g, g.spawned[&src]);
@@ -195,7 +202,7 @@ pub fn joined_type(g: Graph, src: i64) -> Result<Type, String> {
     Ok(spawn_of(&g, g.spawned[&src]).joined.clone())
 }
 
-/// Targets of n's recorded forward edges.
+/// Lists the targets of n's recorded forward edges.
 pub fn forward(l: Layout, n: i64) -> Result<List<i64>, String> {
     Ok(l.out
         .get(&n)
@@ -212,6 +219,8 @@ fn leaves(a: &SArm, path: &mut Vec<Str>, out: &mut Vec<(Vec<Str>, Call)>) {
     path.pop();
 }
 
+/// Lists the calls a switch can end in, nested switches flattened, each with
+/// the arm heads on the way, for the edge labels.
 pub fn arm_paths(arms: List<SArm>) -> Result<List<ArmPathsOutItem>, String> {
     let mut out = vec![];
     for a in arms.iter() {
@@ -258,7 +267,7 @@ pub fn join_labels(ls: List<Str>) -> Result<Str, String> {
         .into())
 }
 
-/// All procs, nested ones included.
+/// Lists every proc, nested ones included, in node order.
 pub fn all_procs(nodes: List<NodeDecl>) -> Result<List<i64>, String> {
     Ok((0..nodes.len() as i64)
         .filter(|&i| matches!(nodes[i as usize].kind, NodeKind::Proc(_)))
@@ -291,6 +300,8 @@ fn display(prog: &Program, pid: i64, n: i64) -> String {
     }
 }
 
+/// Names a node as proc pid's diagram shows it: funcs local to the proc by
+/// bare name; others (interface funcs, top-level funcs) by qualified name.
 pub fn display_label(prog: Program, pid: i64, n: i64) -> Result<Str, String> {
     Ok(display(&prog, pid, n).into())
 }
@@ -338,6 +349,22 @@ fn show_params(ps: &List<Member>) -> String {
         .map(|m| format!("{}: {}", m.name, show_ty(&m.ty)))
         .collect();
     format!("({})", shown.join(", "))
+}
+
+/// A func's or proc's signature as written, `(a: int): string`; an
+/// instance's is what it instances'. Other nodes have none.
+fn sig_of(prog: &Program, n: i64) -> Option<String> {
+    match &prog.nodes[n as usize].kind {
+        NodeKind::Func(f) => Some(format!("{}: {}", show_params(&f.params), show_ty(&f.ret))),
+        NodeKind::Proc(p) => {
+            let NodeKind::Sig(s) = &prog.nodes[p.entry as usize].kind else {
+                return None;
+            };
+            Some(format!("{}: {}", show_params(&s.params), show_ty(&p.ret)))
+        }
+        NodeKind::Alias(b) => sig_of(prog, *b),
+        _ => None,
+    }
 }
 
 fn node_json(prog: &Program, pid: i64, n: i64) -> Json {
@@ -393,6 +420,17 @@ fn node_json(prog: &Program, pid: i64, n: i64) -> Json {
     }
     if let Some(i) = iface {
         fs.push(field("interface", Json::Str(i.into())));
+    }
+    if let Some(sig) = sig_of(prog, n) {
+        fs.push(field("sig", Json::Str(sig.into())));
+    }
+    // Its declaration's doc comment: an instance's is what it instances'.
+    let doc = match &decl.kind {
+        NodeKind::Alias(b) => prog.nodes[*b as usize].doc.clone(),
+        _ => decl.doc.clone(),
+    };
+    if !doc.is_empty() {
+        fs.push(field("doc", Json::Str(doc)));
     }
     // Spawn branches are marked joined or detached.
     if let NodeKind::Proc(p) = &prog.nodes[pid as usize].kind
@@ -502,7 +540,7 @@ pub fn compact(j: Json) -> Result<Str, String> {
     Ok(out.into())
 }
 
-/// A JSON text as a Json; numbers that aren't ints are an error.
+/// Parses a JSON text into a Json; numbers that aren't ints are an error.
 pub fn parse_json(text: Str) -> Result<ResJson, String> {
     struct P<'a> {
         b: &'a [u8],
@@ -688,7 +726,7 @@ pub fn parse_json(text: Str) -> Result<ResJson, String> {
     })
 }
 
-/// A string field of a JSON object, if it is one.
+/// Reads a string field of a JSON object, if there is one and it's a string.
 pub fn json_str(j: Json, key: Str) -> Result<MaybeStr, String> {
     Ok(match j {
         Json::Obj(fs) => fs

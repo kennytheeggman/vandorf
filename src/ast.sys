@@ -10,16 +10,18 @@ type OptIdent = enum { None, Some(Ident) };
 
 type File = { types: []TypeDecl, interfaces: []Interface, nodes: []Node };
 // `params` is empty unless the typedef is generic: `type R<T> = ..`.
-type TypeDecl = { name: Ident, params: []Ident, ty: TypeExpr };
-type Interface = { name: Ident, funcs: []Func };
+// `doc`, here and on interfaces, funcs and procs: the comment lines directly
+// above the declaration, without their `//` (see Tok).
+type TypeDecl = { name: Ident, params: []Ident, ty: TypeExpr, doc: string };
+type Interface = { name: Ident, funcs: []Func, doc: string };
 type Node = enum { Func(Func), Proc(Proc) };
 
-type Func = { name: Ident, params: []Field, ret: OptType, imps: []ImplRef };
+type Func = { name: Ident, params: []Field, ret: OptType, imps: []ImplRef, doc: string };
 // `file:function`, `file` relative to the .sys file.
 type ImplRef = { file: string, function: string, span: Span };
 // `proc P(a: int): T { P -> .. }`: the body starts from P, the signature
 // node.
-type Proc = { name: Ident, params: []Field, ret: TypeExpr, nodes: []Node, edges: []Edge };
+type Proc = { name: Ident, params: []Field, ret: TypeExpr, nodes: []Node, edges: []Edge, doc: string };
 
 type Field = { name: Ident, ty: TypeExpr };
 type TypeExpr = { kind: TypeKind, span: Span };

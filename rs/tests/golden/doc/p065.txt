@@ -15,7 +15,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "S"
+              "label": "S",
+              "sig": "(): { a: bool, b: enum { X, Y(int) } }"
             }
           ]
         },
@@ -23,7 +24,8 @@
           "nodes": [
             {
               "type": 0,
-              "label": "T"
+              "label": "T",
+              "sig": "(i: int): int"
             }
           ]
         }
