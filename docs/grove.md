@@ -57,7 +57,8 @@ needed, detached for a tag or a commit.
 The page pins and unpins with `POST /api/pins/pin {ref}` and
 `POST /api/pins/unpin {id}`, with the session's token.
 
-The checked-out branch is pinned to begin with. A repository grove used
+The checked-out branch is pinned to begin with (or, with a detached HEAD,
+its commit). A repository grove used
 before pins is moved over the first time it's read: the checked-out branch
 is pinned with the old root's name and sections (from `grove/root.toml`,
 which is left as it was), and the ideas that hung from the root hang from

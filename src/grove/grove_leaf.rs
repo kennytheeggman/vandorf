@@ -915,7 +915,7 @@ pub fn idea_of_branch(branch: Str) -> Result<ResString, String> {
     Ok(match branch.strip_prefix("idea/") {
         Some(id) if is_valid_id(id) => ResString::Ok(s(id)),
         _ => ResString::Err(no_span(format!(
-            "this worktree isn't an idea's: it has {branch} checked out"
+            "this worktree isn't a pin's or an idea's: it has {branch} checked out (grove pin {branch} pins it)"
         ))),
     })
 }
