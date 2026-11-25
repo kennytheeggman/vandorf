@@ -58,6 +58,77 @@ fn diffs_pairs() {
     }
 }
 
+/// A merged grid without what was removed, its marks and old values gone and
+/// its cells renumbered: the new revision's grid, if the merge kept the new
+/// layout as it was.
+fn new_side(grid: &v::Json) -> v::Json {
+    let fields = |j: &v::Json| match j {
+        v::Json::Obj(fs) => fs.to_vec(),
+        _ => panic!("not an object: {j:?}"),
+    };
+    let removed = |j: &v::Json| fields(j).iter().any(|f| &*f.key == "diff" && f.value == v::Json::Str("removed".into()));
+    let unmarked = |j: &v::Json| v::Json::Obj(fields(j).into_iter().filter(|f| &*f.key != "diff" && &*f.key != "was").collect());
+    let v::Json::Arr(rows) = field(grid, "rows") else { panic!() };
+    // Where each kept cell goes.
+    let mut at = std::collections::HashMap::new();
+    let mut out_rows = vec![];
+    for (r, row) in rows.iter().enumerate() {
+        let v::Json::Arr(nodes) = field(row, "nodes") else { panic!() };
+        let mut kept = vec![];
+        for (c, n) in nodes.iter().enumerate().filter(|(_, n)| !removed(n)) {
+            at.insert((r as i64, c as i64), (out_rows.len() as i64, kept.len() as i64));
+            kept.push(unmarked(n));
+        }
+        if !kept.is_empty() {
+            out_rows.push(v::Json::Obj(vec![v::JsonField { key: "nodes".into(), value: v::Json::Arr(kept.into()) }].into()));
+        }
+    }
+    let cell = |j: &v::Json| match j {
+        v::Json::Arr(rc) => match (&rc[0], &rc[1]) {
+            (v::Json::Num(r), v::Json::Num(c)) => at[&(*r, *c)],
+            _ => panic!(),
+        },
+        _ => panic!(),
+    };
+    let v::Json::Arr(edges) = field(grid, "edges") else { panic!() };
+    let edges: Vec<v::Json> = edges.iter().filter(|e| !removed(e)).map(|e| {
+        v::Json::Obj(fields(&unmarked(e)).into_iter().map(|f| match &*f.key {
+            "source" | "target" => {
+                let (r, c) = cell(&f.value);
+                v::JsonField { key: f.key, value: v::Json::Arr(vec![v::Json::Num(r), v::Json::Num(c)].into()) }
+            }
+            _ => f,
+        }).collect())
+    }).collect();
+    v::Json::Obj(vec![
+        v::JsonField { key: "rows".into(), value: v::Json::Arr(out_rows.into()) },
+        v::JsonField { key: "edges".into(), value: v::Json::Arr(edges.into()) },
+    ].into())
+}
+
+#[test]
+fn the_new_side_of_a_diff_is_the_new_document() {
+    // Every pair whose sides check: each merged grid of a proc the new side
+    // has is, without what was removed, the new revision's own grid.
+    let mut n = 0;
+    for (name, old, new) in pairs() {
+        let path = format!("{name}.sys");
+        let (o, s) = (side("old", &[&path], &[&old]), side("new", &[&path], &[&new]));
+        let Ok(prog) = common::analyze(&[&new]) else { continue };
+        if !o.checks {
+            continue;
+        }
+        let doc = vcc::vcc::run_diff(v::DiffPair { old: o, new: s }).unwrap();
+        let want = vcc::vcc::run_document_json(prog).unwrap();
+        let v::Json::Obj(grids) = field(&want, "grids") else { panic!() };
+        for g in grids.iter() {
+            assert_eq!(new_side(field(field(&doc, "grids"), &g.key)), g.value, "{name}: {}", g.key);
+            n += 1;
+        }
+    }
+    assert!(n >= 12, "{n}");
+}
+
 /// A program diffs against itself to nothing, and its grids are the
 /// visualizer document's: an unchanged proc is drawn as it always is.
 fn same(name: &str, srcs: &[&str]) -> bool {
