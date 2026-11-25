@@ -300,6 +300,20 @@ pub fn unwrap_p(r: ResProject) -> Result<Project, String> {
     }
 }
 
+pub fn unwrap_base(r: ResGitBase) -> Result<GitBase, String> {
+    match r {
+        ResGitBase::Ok(b) => Ok(b),
+        ResGitBase::Err(e) => Err(e.msg.to_string()),
+    }
+}
+
+pub fn unwrap_side(r: ResDiffSide) -> Result<DiffSide, String> {
+    match r {
+        ResDiffSide::Ok(s) => Ok(s),
+        ResDiffSide::Err(e) => Err(e.msg.to_string()),
+    }
+}
+
 pub fn unwrap_r(r: MaybeRust) -> Result<RustTarget, String> {
     match r {
         MaybeRust::Some(t) => Ok(t),
@@ -624,6 +638,12 @@ usage:
   vcc test                     # build, then each language's test commands
   vcc check
   vcc doc                      # the visualizer document, on stdout
+  vcc diff [<rev>] [<rev>]     # how the procs changed: base..working tree,
+                               # <rev>..working tree, or <rev>..<rev>
+  vcc diff ... --json          # the diff document, for the visualizer
+  vcc base [<rev>]             # print the worktree's base, or set it
+  vcc review                   # a throwaway worktree at the base with the
+                               # working tree's files, removed when done
 
 Each works on the project: the nearest vandorf.toml in the current directory
 or its parents (see the README for its fields). A project's .sys files share
@@ -639,6 +659,12 @@ language, build runs that language's `post` commands; test runs each
 language's `test` commands. They run in the manifest's directory; the first
 that fails fails the command.
 
+diff, base and review work on the git worktree the project is in. Its base
+is the commit refs/worktree/base names (each worktree has its own), or HEAD
+while that's unset: `git update-ref refs/worktree/base <rev>` or
+`vcc base <rev>` sets it. A revision, or a proc, that doesn't check is
+reported with its error rather than failing the diff.
+
 The IDE is the ide executable built alongside vcc: ide [--addr 127.0.0.1:8080],
 on the working directory. It offers terminals only when listening on a
 loopback address.";
@@ -647,6 +673,29 @@ loopback address.";
 /// a bad command line points at.
 pub fn usage(_n: i64) -> Result<Str, String> {
     Ok(USAGE.into())
+}
+
+/// Reads diff's command line (after `diff`): up to two revisions and
+/// --json; err says what's wrong otherwise.
+pub fn diff_args(args: List<Str>) -> Result<DiffArgs, String> {
+    let (mut revs, mut json, mut err) = (vec![], false, String::new());
+    for a in args.iter().skip(1) {
+        match &**a {
+            "--json" => json = true,
+            f if f.starts_with('-') && err.is_empty() => {
+                err = format!("unknown flag {f} (see vcc --help)");
+            }
+            _ => revs.push(a.clone()),
+        }
+    }
+    if err.is_empty() && revs.len() > 2 {
+        err = "too many arguments for diff (see vcc --help)".into();
+    }
+    Ok(DiffArgs {
+        revs: revs.into(),
+        json,
+        err: err.into(),
+    })
 }
 
 /// Finds the first argument after the command that starts with `-`, a flag

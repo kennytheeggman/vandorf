@@ -65,7 +65,7 @@ fn same(name: &str, srcs: &[&str]) -> bool {
     let paths: Vec<String> = (0..srcs.len()).map(|i| format!("{name}-{i}.sys")).collect();
     let paths: Vec<&str> = paths.iter().map(|p| p.as_str()).collect();
     let s = side("same", &paths, srcs);
-    let doc = vcc::vcc::run_diff(v::DiffS { old: s.clone(), new: s }).unwrap();
+    let doc = vcc::vcc::run_diff(v::DiffPair { old: s.clone(), new: s }).unwrap();
     for k in ["procs", "types", "interfaces", "funcs"] {
         assert_eq!(field(&doc, k), &v::Json::Obj(Default::default()), "{name}: {k}");
     }

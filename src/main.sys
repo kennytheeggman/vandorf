@@ -2,14 +2,21 @@
 // then runs the command on the project around the working directory. `check`
 // prints how many files and procs it has, `doc` prints its visualizer
 // document, `build` generates its Go and Rust (and builds them), `test`
-// builds it and runs its tests. A mistake in the command line fails with a
-// message pointing at --help.
+// builds it and runs its tests. `diff`, `base` and `review` compare it
+// between git revisions. A mistake in the command line fails with a message
+// pointing at --help.
 //
 //   vcc check          checks the project around the working directory
 //   vcc doc            prints its visualizer document
 //   vcc build [bin]    generates its Go and Rust (and every bin, or just
 //                      bin), running each language's post commands
 //   vcc test           builds it all, then runs each language's test commands
+//   vcc diff [rev] [rev] [--json]
+//                      prints how its procs changed between revisions, by
+//                      default the worktree's base and the working tree
+//   vcc base [rev]     prints the worktree's base, or sets it to rev
+//   vcc review         a throwaway worktree at the base with the working
+//                      tree's files, removed when done
 //   vcc --help         prints the usage
 //
 // -C <dir>, anywhere and any number of times, runs the command as if started
@@ -39,12 +46,16 @@ proc Vcc(argv: []string): void {
 	Cmd switch {
 		(this.len == 0) -> Usage(msg = Help(n = 0)) as NoCommand,
 		(this[0] == "-h" || this[0] == "--help" || this[0] == "help") -> Console.Out(text = Help(n = 0)),
+		// diff reads its own flags.
+		(this[0] == "diff") -> DiffCommand(args = this),
 		(FirstFlag(args = this) != "") -> Usage(msg = "unknown flag " + FirstFlag(args = this) + " (see vcc --help)") as BadFlag,
+		(this.len <= 2 && this[0] == "base") -> BaseCommand(args = this),
+		(this.len == 1 && this[0] == "review") -> ReviewCommand(n = 0),
 		(this.len == 1 && this[0] == "check") -> CheckProject(n = 0) as ForCheck,
 		(this.len == 1 && this[0] == "doc") -> CheckProject(n = 0) as ForDoc,
 		(this.len >= 1 && this.len <= 2 && this[0] == "build") -> CheckProject(n = 0) as ForBuild,
 		(this.len == 1 && this[0] == "test") -> CheckProject(n = 0) as ForTest,
-		(this[0] == "check" || this[0] == "doc" || this[0] == "build" || this[0] == "test") -> Usage(msg = "too many arguments for " + this[0] + " (see vcc --help)") as TooMany,
+		(this[0] == "check" || this[0] == "doc" || this[0] == "build" || this[0] == "test" || this[0] == "base" || this[0] == "review") -> Usage(msg = "too many arguments for " + this[0] + " (see vcc --help)") as TooMany,
 		else -> Usage(msg = "unknown command " + this[0] + " (see vcc --help)")
 	};
 	ForCheck switch {
