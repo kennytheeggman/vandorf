@@ -56,7 +56,7 @@ source ─▶ lex ─▶ parse ─▶ sema ─┬─▶ doc ─▶ the visualize
 | Codegen | `gen/` | The type table shared by both backends (`table.sys`): one name per struct or enum shape. Then Rust (`rust.sys`, `rust_procs.sys`, `rust_http.sys`) and Go (`go.sys`): types, a state machine per proc, servers and mains. |
 | Commands | `main.sys`, `cli/` | The command line, projects and manifests (`project.sys`), and `check`, `doc`, `build` and `test` (`build.sys`), with the check of each implementation's signature and doc against its declaration. |
 | IDE | `ide/` | The IDE's HTTP routes, each a raw route to its own proc: pages, the file tree, compiles (with a cache of checked programs), saves and terminals. |
-| grove | `grove/` | The idea tree's routes: ideas from git and their metadata, branching, discarding and layouts (`ideas.sys`), interiors and their processes (`interiors.sys`); it shares the IDE's session, gates and terminals. |
+| grove | `grove/` | The idea tree's routes: pins, the git sources ideas are branched from (`pins.sys`), ideas from git and their metadata, branching, discarding and layouts (`ideas.sys`), merging and rebasing (`lifecycle.sys`), interiors and their processes (`interiors.sys`), and the command line (`agents.sys`); it shares the IDE's session, gates and terminals. |
 
 ### Parsing
 
