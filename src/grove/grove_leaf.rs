@@ -714,20 +714,29 @@ const USAGE: &str =
     "usage: grove [--addr host:port]     serve the idea tree (default 127.0.0.1:8090)
        grove <command> [args]
 
-Commands work in the idea whose worktree they're run in (\"this idea\"; the
-repository's own worktree is the root):
+Commands work in the pin or idea whose worktree they're run in (\"this
+idea\"; the repository's own worktree is its checked-out branch's pin). A
+pin is named by its id (branch@main, tag@v1, commit@<sha>) or by what it
+pins (main, v1, the commit's first digits):
 
-  list                       the ideas as a tree; * marks this idea
-  current                    this idea: its id, name, branch and worktree
-  branch [name] [--from <idea>] [--run <cmd>] [--no-terminal]
-                             a new idea branched from this one (or --from's;
-                             --from \"\" is the root), at its head, with a
-                             worktree of its own. grove opens a terminal in
-                             it and types --run's command there, such as
+  list                       the pins and their ideas as a tree; * marks
+                             this one
+  current                    this pin or idea: its id, name, branch,
+                             worktree, parent and pin
+  branch [name] [--from <pin|idea>] [--run <cmd>] [--no-terminal]
+                             a new idea branched from this one (or --from's),
+                             at its head, with a worktree of its own. grove
+                             opens a terminal in it and types --run's
+                             command there, such as
                              --run 'claude \"try a cache\"'.
-  rename <name> [--idea <idea>]
-                             renames this idea (or --idea)
+  rename <name> [--idea <pin|idea>]
+                             renames this pin or idea (or --idea)
   restore <idea>             gives a discarded idea its worktree back
+  pin <branch|tag|commit>    pins a branch, which the pin follows, or a tag
+                             or a commit, which stay put, for ideas to
+                             branch from; it gets a worktree of its own
+                             unless its branch is checked out already
+  unpin <pin>                unpins a pin with no active ideas on it
   run [--idea <idea>] [--new] [--] <cmd...>
                              types cmd into a terminal of this idea (or
                              --idea's): its first terminal section whose
@@ -748,12 +757,13 @@ repository's own worktree is the root):
                              rebases this idea onto its parent's head. On a
                              conflict it stops for you to resolve it; then
                              git add the files and grove rebase --continue.
-                             An idea must be on the root's head to be merged.
+                             An idea must be on its pin's head to be merged.
   help                       this
 
-Discarding and merging are left to people, in grove's tree. Each command works on the
-repository itself, then tells grove ($GROVE_URL, with $GROVE_TOKEN, both
-set in grove's terminals) so its tree catches up at once.
+Discarding and merging are left to people, in grove's tree, and so is
+unpinning a pin with ideas on it, which discards them. Each command works
+on the repository itself, then tells grove ($GROVE_URL, with $GROVE_TOKEN,
+both set in grove's terminals) so its tree catches up at once.
 
 grove's terminals have grove's directory first on PATH (put back after zsh's
 and bash's startup files), and $GROVE_BIN, grove's own executable: scripts
@@ -835,7 +845,7 @@ pub fn parse_cli(argv: List<Str>) -> Result<CliArgs, String> {
         "list" | "current" => (args.len(), 0, 0, &[]),
         "branch" => (args.len(), 0, 1, &["from", "run", "no-terminal"]),
         "rename" => (args.len(), 1, 1, &["idea"]),
-        "restore" => (args.len(), 1, 1, &[]),
+        "restore" | "pin" | "unpin" => (args.len(), 1, 1, &[]),
         "run" => (args.len(), 1, usize::MAX, &["idea", "new"]),
         "status" => (args.len(), 1, usize::MAX, &["idea"]),
         "rebase" => (args.len(), 0, 0, &["idea", "continue"]),
@@ -1767,6 +1777,55 @@ pub fn count_of(r: ResString) -> Result<i64, String> {
 /// Whether a file name is a metadata file's: it ends in .toml.
 pub fn is_toml(name: Str) -> Result<bool, String> {
     Ok(name.ends_with(".toml"))
+}
+
+/// A ref given to pin, read (PinWant).
+pub fn ref_kind(name: Str) -> Result<PinWant, String> {
+    let (kind, name) = match (
+        name.strip_prefix("refs/heads/"),
+        name.strip_prefix("refs/tags/"),
+    ) {
+        (Some(b), _) => ("branch", s(b)),
+        (_, Some(t)) => ("tag", s(t)),
+        _ => ("", name),
+    };
+    Ok(PinWant {
+        kind: s(kind),
+        name,
+    })
+}
+
+/// The pin named on the command line: a pin's id, or the branch, tag or
+/// commit it pins (a commit by its first four or more digits); "" if no pin
+/// is.
+pub fn pin_named(pins: List<Pin>, name: Str) -> Result<Str, String> {
+    let n = &*name;
+    Ok(pins
+        .iter()
+        .find(|p| *p.id == *n)
+        .or_else(|| pins.iter().find(|p| &*p.kind != "commit" && &*p.r#ref == n))
+        .or_else(|| {
+            pins.iter()
+                .find(|p| &*p.kind == "commit" && n.len() >= 4 && p.r#ref.starts_with(n))
+        })
+        .map_or(s(""), |p| p.id.clone()))
+}
+
+/// The names of the ideas of xs that are active: that have a worktree
+/// (WorktreeOf) in the output of `git worktree list --porcelain`.
+pub fn active_names(xs: List<Idea>, porcelain: Str) -> Result<List<Str>, String> {
+    let wts = worktrees(&porcelain);
+    Ok(xs
+        .iter()
+        .filter(|i| find_wt(&wts, &i.id).is_some())
+        .map(|i| {
+            if i.name.is_empty() {
+                i.id.clone()
+            } else {
+                i.name.clone()
+            }
+        })
+        .collect())
 }
 
 pub fn unwrap_pins(r: ResPinList) -> Result<List<Pin>, String> {

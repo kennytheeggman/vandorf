@@ -7,6 +7,8 @@
 // branch is checked out in (the repository's own, for the checked-out
 // branch), or else grove's, grove/worktrees/<file>, detached for a tag or a
 // commit.
+//   POST /api/pins/pin {ref}     pins a branch, a tag or a commit, its id
+//   POST /api/pins/unpin {id}    unpins a pin, discarding the ideas on it
 //
 // A pin's id is its kind and ref, kind@ref: branch@main, tag@v1.0,
 // commit@<sha>. An idea's id can't have an @, so the two never meet. The
@@ -96,6 +98,15 @@ func HeadOf(heads: map[string]string, id: string): string = "grove_leaf.rs:head_
 func CountOf(r: Res<string>): int = "grove_leaf.rs:count_of";
 // Whether a file name is a metadata file's: it ends in .toml.
 func IsToml(name: string): bool = "grove_leaf.rs:is_toml";
+// A ref given to pin, read (PinWant).
+func RefKind(name: string): PinWant = "grove_leaf.rs:ref_kind";
+// The pin named on the command line: a pin's id, or the branch, tag or
+// commit it pins (a commit by its first four or more digits); "" if no pin
+// is.
+func PinNamed(pins: []Pin, name: string): string = "grove_leaf.rs:pin_named";
+// The names of the ideas of xs that are active: that have a worktree
+// (WorktreeOf) in the output of `git worktree list --porcelain`.
+func ActiveNames(xs: []Idea, porcelain: string): []string = "grove_leaf.rs:active_names";
 func UnwrapPins(r: Res<[]Pin>): []Pin = "grove_leaf.rs:unwrap_pins";
 func UnwrapPin(r: Res<Pin>): Pin = "grove_leaf.rs:unwrap_pin";
 func UnwrapForest(r: Res<Forest>): Forest = "grove_leaf.rs:unwrap_forest";
@@ -316,4 +327,135 @@ proc SaveNode(s: { repo: Repo, idea: Idea }): Res<string> {
 	};
 	SavePin -> id(this);
 	SaveIdea -> id(this);
+}
+
+// Pins a branch, a tag or a commit: ref names a branch if there's one by
+// that name, else a tag, else whatever commit git finds by it (HEAD~2,
+// origin/main); refs/heads/<name> and refs/tags/<name> say which. Gives the
+// pin a worktree (PinWorktree), and stores it. Refuses one that's pinned
+// already, and an idea's branch (idea/<id>). Gives its id.
+proc PinRef(s: { repo: Repo, ref: string }): Res<string> {
+	PinRef -> id(RefKind(name = this.s.ref)) as Want;
+	Want switch {
+		(this.name == "") -> id(Err(GroveErr(msg = "name a branch, a tag or a commit to pin"))),
+		(this.kind == "tag") -> Grove.Git(dir = PinRef.s.repo.top, args = ["show-ref", "--verify", "--quiet", "refs/tags/" + this.name]) as Tag,
+		else -> Grove.Git(dir = PinRef.s.repo.top, args = ["show-ref", "--verify", "--quiet", "refs/heads/" + this.name]) as Branch
+	};
+	Branch switch {
+		Ok(_) -> id(NewPin(kind = "branch", name = Want.name)) as Found,
+		Err(_) -> switch {
+			(Want.kind == "branch") -> id(Err(GroveErr(msg = "nothing to pin: there's no branch " + Want.name))),
+			else -> Grove.Git(dir = PinRef.s.repo.top, args = ["show-ref", "--verify", "--quiet", "refs/tags/" + Want.name]) as Tag
+		}
+	};
+	Tag switch {
+		Ok(_) -> id(NewPin(kind = "tag", name = Want.name)) as Found,
+		Err(_) -> switch {
+			(Want.kind == "tag") -> id(Err(GroveErr(msg = "nothing to pin: there's no tag " + Want.name))),
+			else -> Grove.Git(dir = PinRef.s.repo.top, args = ["rev-parse", "--verify", "--quiet", Want.name + "^{commit}"]) as Commit
+		}
+	};
+	Commit switch {
+		Ok(c) -> id(NewPin(kind = "commit", name = c)) as Found,
+		Err(_) -> id(Err(GroveErr(msg = "nothing to pin: " + Want.name + " isn't a branch, a tag or a commit")))
+	};
+	Found switch {
+		(this.kind == "branch" && HasPrefix(text = this.ref, prefix = "idea/")) -> id(Err(GroveErr(msg = this.ref + " is an idea's branch: branch from the idea instead"))),
+		else -> LoadPins(repo = PinRef.s.repo)
+	};
+	LoadPins switch {
+		Ok(ps) -> id(FindPin(pins = ps, id = Found.id)) as Pinned,
+		Err(e) -> id(Err(e))
+	};
+	Pinned switch {
+		Ok(p) -> id(Err(GroveErr(msg = Found.ref + " is pinned already, as " + p.name))),
+		Err(_) -> PinWorktree(s = { repo = PinRef.s.repo, pin = Found })
+	};
+	PinWorktree switch {
+		Ok(_) -> SavePin(s = { repo = PinRef.s.repo, pin = Found }),
+		Err(e) -> id(Err(e))
+	};
+}
+
+// Unpins a pin: discards every idea on it, as discarding does (DiscardEach,
+// children first), removes its worktree if it's grove's (the repository's
+// own, or one made outside grove, stays), stops what grove started in it,
+// and forgets it. Refuses, unpinning nothing, if any of those ideas, or
+// grove's worktree for it, has changes that aren't committed. Its merged
+// and discarded ideas keep their branches and metadata, as discarded ones
+// do. Gives its id.
+proc Unpin(s: { repo: Repo, id: string }): Res<string> {
+	Unpin -> LoadPin(s = this.s);
+	LoadPin switch {
+		Ok(p) -> id(p) as P,
+		Err(e) -> id(Err(e))
+	};
+	P -> LoadForest(repo = Unpin.s.repo);
+	LoadForest switch {
+		Ok(f) -> id(Beneath(xs = f.ideas, id = Unpin.s.id)) as Gone,
+		Err(e) -> id(Err(e))
+	};
+	Gone -> DirtyOnes(s = { repo = Unpin.s.repo, xs = this, i = 0, acc = [] });
+	DirtyOnes switch {
+		(this.len > 0) -> id(Err(GroveErr(msg = "nothing was unpinned: these have changes that aren't committed: " + JoinWith(xs = this, sep = ", ")))),
+		else -> Grove.Git(dir = Unpin.s.repo.top, args = ["worktree", "list", "--porcelain"]) as Worktrees
+	};
+	Worktrees switch {
+		Ok(out) -> id(PinWorktreeOf(porcelain = out, p = P)) as Wt,
+		Err(e) -> id(Err(e))
+	};
+	Wt switch {
+		(this != "" && this == PinWorktreePath(common = Unpin.s.repo.common, id = P.id)) -> Grove.Git(dir = this, args = ["status", "--porcelain"]) as Dirty,
+		else -> DiscardEach(s = { repo = Unpin.s.repo, xs = Gone, i = 0 })
+	};
+	Dirty switch {
+		Ok(out) -> switch {
+			(out != "") -> id(Err(GroveErr(msg = "nothing was unpinned: " + P.name + " has changes that aren't committed in " + Wt))),
+			else -> DiscardEach(s = { repo = Unpin.s.repo, xs = Gone, i = 0 })
+		},
+		Err(e) -> id(Err(e))
+	};
+	DiscardEach switch {
+		Ok(_) -> switch {
+			(Wt != "" && Wt == PinWorktreePath(common = Unpin.s.repo.common, id = P.id)) -> Grove.Git(dir = Unpin.s.repo.top, args = ["worktree", "remove", Wt]) as Remove,
+			else -> id(Wt) as Removed
+		},
+		Err(e) -> id(Err(GroveErr(msg = "cannot unpin " + P.name + ": " + e.msg)))
+	};
+	Remove switch {
+		Ok(_) -> id(Wt) as Removed,
+		Err(e) -> id(Err(GroveErr(msg = "cannot unpin " + P.name + ": its ideas are discarded, but its worktree stays: " + e.msg)))
+	};
+	Removed -> Interiors.Stop(worktree = this);
+	Interiors.Stop for each (P.sections) -> Term.Kill(id = this.term) as Killed;
+	Killed collect each (Killed) -> Grove.SetStatus(id = P.id, state = "", message = "");
+	Grove.SetStatus -> Grove.Remove(common = Unpin.s.repo.common, path = PinPath(common = Unpin.s.repo.common, id = P.id));
+	Grove.Remove switch {
+		Ok(_) -> id(Ok(P.id)),
+		Err(e) -> id(Err(GroveErr(msg = "cannot forget " + P.name + ": " + e.msg)))
+	};
+}
+
+// Serves POST /api/pins/pin {ref}: pins a branch, a tag or a commit
+// (PinRef), its id.
+proc PinRoute(req: HttpRequest): HttpResponse {
+	PinRoute -> GroveWrite(req = this.req);
+	GroveWrite switch {
+		Stop(r) -> id(r),
+		Go(w) -> PinRef(s = { repo = w.repo, ref = StrOr(j = w.j, key = "ref", d = "") })
+	};
+	PinRef -> Grove.Changed(n = 0);
+	Grove.Changed -> id(Answer(r = PinRef, key = "id"));
+}
+
+// Serves POST /api/pins/unpin {id}: unpins the pin, discarding the ideas on
+// it (Unpin). People only.
+proc UnpinRoute(req: HttpRequest): HttpResponse {
+	UnpinRoute -> GroveWrite(req = this.req);
+	GroveWrite switch {
+		Stop(r) -> id(r),
+		Go(w) -> Unpin(s = { repo = w.repo, id = StrOr(j = w.j, key = "id", d = "") })
+	};
+	Unpin -> Grove.Changed(n = 0);
+	Grove.Changed -> id(Answer(r = Unpin, key = "id"));
 }

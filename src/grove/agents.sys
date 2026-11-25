@@ -2,8 +2,9 @@
 // of [http.grove]), which works on the repository directly and then tells
 // a running grove, and the routes that hear it. grove's terminals and
 // interiors get $GROVE_URL and $GROVE_TOKEN, the agents' token, which only
-// the agent routes take: an agent can branch, rename and restore ideas, open
-// terminals in them and run commands there, but discarding is left to
+// the agent routes take: an agent can branch, rename and restore ideas, pin
+// branches, tags and commits, open terminals in them and run commands
+// there, but discarding (unpinning a pin with ideas on it, too) is left to
 // people, in the tree.
 //   POST /api/agent/notify {idea, open, run}   a change; with open, a terminal in the idea
 //   POST /api/agent/run {idea, cmd, new}       cmd typed into one of the idea's terminals
@@ -260,6 +261,8 @@ proc CliRun(s: { repo: Repo, a: CliArgs }): Res<string> {
 		(this.s.a.cmd == "run") -> CliRunIn(s = this.s),
 		(this.s.a.cmd == "status") -> CliStatus(s = this.s),
 		(this.s.a.cmd == "rebase") -> CliRebase(s = this.s),
+		(this.s.a.cmd == "pin") -> CliPin(s = this.s),
+		(this.s.a.cmd == "unpin") -> CliUnpin(s = this.s),
 		else -> CliRestore(s = this.s)
 	};
 }
@@ -322,14 +325,33 @@ proc CliCurrent(repo: Repo): Res<string> {
 	};
 }
 
-// `grove branch [name] [--from <idea>] [--run <cmd>] [--no-terminal]`: a
-// new idea branched from the one here (or --from), then grove told, opening
-// a terminal in it unless --no-terminal, with --run typed there.
+// What --from or --idea names: a pin's or an idea's id, as it is, or else
+// the pin of the branch, tag or commit it names (PinNamed), so --from main
+// is main's pin.
+proc Named(s: { repo: Repo, name: string }): string {
+	Named switch {
+		(this.s.name == "" || IsPinId(id = this.s.name)) -> id(this.s.name),
+		else -> Grove.Git(dir = this.s.repo.top, args = ["rev-parse", "--verify", "--quiet", "refs/heads/idea/" + this.s.name])
+	};
+	Grove.Git switch {
+		Ok(_) -> id(Named.s.name),
+		Err(_) -> LoadPins(repo = Named.s.repo)
+	};
+	LoadPins switch {
+		Ok(ps) -> id(OrStr(a = PinNamed(pins = ps, name = Named.s.name), d = Named.s.name)),
+		Err(_) -> id(Named.s.name)
+	};
+}
+
+// `grove branch [name] [--from <pin|idea>] [--run <cmd>] [--no-terminal]`: a
+// new idea branched from the pin or idea here (or --from), then grove told,
+// opening a terminal in it unless --no-terminal, with --run typed there.
 proc CliBranch(s: { repo: Repo, a: CliArgs }): Res<string> {
 	CliBranch switch {
-		(this.s.a.has_from) -> id(Ok(this.s.a.from)) as From,
+		(this.s.a.has_from) -> Named(s = { repo = this.s.repo, name = this.s.a.from }),
 		else -> Here(repo = this.s.repo)
 	};
+	Named -> id(Ok(this)) as From;
 	Here -> id(this) as From;
 	From switch {
 		Ok(f) -> BranchIdea(s = { repo = CliBranch.s.repo, from = f, name = Arg0(a = CliBranch.s.a) }),
@@ -342,13 +364,14 @@ proc CliBranch(s: { repo: Repo, a: CliArgs }): Res<string> {
 	Grove.Notify -> id(Ok(BranchedText(id = UnwrapR2(r = BranchIdea), name = Arg0(a = CliBranch.s.a), from = UnwrapR2(r = From), worktree = WorktreePath(common = CliBranch.s.repo.common, id = UnwrapR2(r = BranchIdea)), open = CliBranch.s.a.terminal, run = CliBranch.s.a.run, notified = this)));
 }
 
-// `grove rename <name> [--idea <idea>]`: renames the idea here (or --idea),
-// then tells grove.
+// `grove rename <name> [--idea <idea>]`: renames the pin or idea here (or
+// --idea), then tells grove.
 proc CliRename(s: { repo: Repo, a: CliArgs }): Res<string> {
 	CliRename switch {
-		(this.s.a.has_idea) -> id(Ok(this.s.a.idea)) as Which,
+		(this.s.a.has_idea) -> Named(s = { repo = this.s.repo, name = this.s.a.idea }),
 		else -> Here(repo = this.s.repo)
 	};
+	Named -> id(Ok(this)) as Which;
 	Here -> id(this) as Which;
 	Which switch {
 		Ok(i) -> RenameIdea(s = { repo = CliRename.s.repo, id = i, name = Arg0(a = CliRename.s.a) }),
@@ -378,9 +401,10 @@ proc CliRestore(s: { repo: Repo, a: CliArgs }): Res<string> {
 // needs grove running.
 proc CliRunIn(s: { repo: Repo, a: CliArgs }): Res<string> {
 	CliRunIn switch {
-		(this.s.a.has_idea) -> id(Ok(this.s.a.idea)) as Which,
+		(this.s.a.has_idea) -> Named(s = { repo = this.s.repo, name = this.s.a.idea }),
 		else -> Here(repo = this.s.repo)
 	};
+	Named -> id(Ok(this)) as Which;
 	Here -> id(this) as Which;
 	Which switch {
 		Ok(i) -> Grove.Notify(path = "/api/agent/run", body = RunBody(idea = i, cmd = RunCmd(a = CliRunIn.s.a), fresh = CliRunIn.s.a.fresh)),
@@ -394,9 +418,10 @@ proc CliRunIn(s: { repo: Repo, a: CliArgs }): Res<string> {
 // node. Quiet when grove hears it, so it can run from an agent's hooks.
 proc CliStatus(s: { repo: Repo, a: CliArgs }): Res<string> {
 	CliStatus switch {
-		(this.s.a.has_idea) -> id(Ok(this.s.a.idea)) as Which,
+		(this.s.a.has_idea) -> Named(s = { repo = this.s.repo, name = this.s.a.idea }),
 		else -> Here(repo = this.s.repo)
 	};
+	Named -> id(Ok(this)) as Which;
 	Here -> id(this) as Which;
 	Which switch {
 		Ok(i) -> Grove.Notify(path = "/api/agent/status", body = StatusBody(idea = i, a = CliStatus.s.a)),
@@ -417,9 +442,10 @@ func RebaseNotice(idea: string): string = "grove_leaf.rs:rebase_notice";
 // clears its failed rebase flag.
 proc CliRebase(s: { repo: Repo, a: CliArgs }): Res<string> {
 	CliRebase switch {
-		(this.s.a.has_idea) -> id(Ok(this.s.a.idea)) as Which,
+		(this.s.a.has_idea) -> Named(s = { repo = this.s.repo, name = this.s.a.idea }),
 		else -> Here(repo = this.s.repo)
 	};
+	Named -> id(Ok(this)) as Which;
 	Here -> id(this) as Which;
 	Which switch {
 		Ok(i) -> switch {
@@ -435,4 +461,43 @@ proc CliRebase(s: { repo: Repo, a: CliArgs }): Res<string> {
 		Err(e) -> id(Err(e))
 	};
 	Grove.Notify -> id(Ok(ToldText(done = UnwrapR2(r = Done) + ": " + OrStr(a = UnwrapR2(r = Which), d = "the root"), notified = this)));
+}
+
+// `grove pin <branch|tag|commit>`: pins it (PinRef), with a worktree of its
+// own unless its branch is checked out already, then tells grove.
+proc CliPin(s: { repo: Repo, a: CliArgs }): Res<string> {
+	CliPin -> PinRef(s = { repo = this.s.repo, ref = Arg0(a = this.s.a) });
+	PinRef switch {
+		Ok(p) -> IdeaWorktree(s = { repo = CliPin.s.repo, id = p }),
+		Err(e) -> id(Err(e))
+	};
+	IdeaWorktree -> Grove.Notify(path = "/api/agent/notify", body = NotifyBody(idea = UnwrapR2(r = PinRef), open = false, run = ""));
+	Grove.Notify -> id(Ok(ToldText(done = "pinned " + UnwrapR2(r = PinRef) + "\nworktree: " + OkOr(r = IdeaWorktree, d = "(none)"), notified = this)));
+}
+
+// `grove unpin <pin>`: unpins a pin (named by its id, or by the branch, tag
+// or commit it pins: PinNamed), then tells grove. Unpinning discards the
+// ideas on a pin, so one with any that are active is left to people, in
+// the tree.
+proc CliUnpin(s: { repo: Repo, a: CliArgs }): Res<string> {
+	CliUnpin -> LoadForest(repo = this.s.repo);
+	LoadForest switch {
+		Ok(f) -> Grove.Git(dir = CliUnpin.s.repo.top, args = ["worktree", "list", "--porcelain"]) as Worktrees,
+		Err(e) -> id(Err(e))
+	};
+	Worktrees switch {
+		Ok(out) -> id(PinNamed(pins = UnwrapForest(r = LoadForest).pins, name = Arg0(a = CliUnpin.s.a))) as Which,
+		Err(e) -> id(Err(e))
+	};
+	Which -> id(ActiveNames(xs = Beneath(xs = UnwrapForest(r = LoadForest).ideas, id = this), porcelain = UnwrapR2(r = Worktrees))) as Live;
+	Live switch {
+		(Which == "") -> id(Err(GroveErr(msg = "no pin " + Arg0(a = CliUnpin.s.a) + ": grove list shows the pins"))),
+		(this.len > 0) -> id(Err(GroveErr(msg = "unpinning " + Which + " discards the ideas on it (" + JoinWith(xs = this, sep = ", ") + "), which is left to people: unpin it in grove's tree (right-click its node)"))),
+		else -> Unpin(s = { repo = CliUnpin.s.repo, id = Which })
+	};
+	Unpin switch {
+		Ok(p) -> Grove.Notify(path = "/api/agent/notify", body = NotifyBody(idea = p, open = false, run = "")),
+		Err(e) -> id(Err(e))
+	};
+	Grove.Notify -> id(Ok(ToldText(done = "unpinned " + Which, notified = this)));
 }

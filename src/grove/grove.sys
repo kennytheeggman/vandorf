@@ -44,6 +44,9 @@ interface Grove {
 	// renamed into place, holding grove's lock (grove/lock in the common git
 	// directory) while it does.
 	func Store(common: string, path: string, text: string): Res<string> = "grove_io.rs:store";
+	// Removes the file at path if there's one, holding grove's lock while it
+	// does.
+	func Remove(common: string, path: string): Res<string> = "grove_io.rs:remove";
 	// Deletes a discarded or merged leaf, merged meaning in base, its pin's
 	// head ("" for none). Keep its metadata until after Git succeeds so a
 	// failed cleanup can be retried, and let Git protect uncommitted changes.

@@ -204,6 +204,23 @@ pub fn store(common: Str, path: Str, text: Str) -> Result<ResString, String> {
     })
 }
 
+/// Removes the file at path if there's one, holding grove's lock while it
+/// does.
+pub fn remove(common: Str, path: Str) -> Result<ResString, String> {
+    let rm = || -> Result<(), String> {
+        let _held = lock(&common)?;
+        match std::fs::remove_file(&*path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!("cannot remove {path}: {e}")),
+        }
+    };
+    Ok(match rm() {
+        Ok(()) => ResString::Ok(path),
+        Err(e) => err_str(e),
+    })
+}
+
 // ---- Interiors ----
 
 /// Lists the interior manifests that exist: the user's

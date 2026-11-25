@@ -831,3 +831,104 @@ fn pins_are_the_git_sources() {
     drop(_server);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn pinning_and_unpinning() {
+    let dir = repo_named("grove-pin-test");
+    let common = dir.join(".git");
+    let wt = |id: &str| common.join("grove/worktrees").join(id);
+    let first = git(&dir, &["rev-parse", "HEAD"]);
+    git(&dir, &["branch", "feature/x"]);
+    git(&dir, &["branch", "dev"]);
+    git(&dir, &["tag", "v1"]);
+    std::fs::write(dir.join("b.txt"), "b\n").unwrap();
+    git(&dir, &["add", "."]);
+    git(&dir, &["commit", "-qm", "second"]);
+    let (_server, port, token) = serve(&dir, &[]);
+    let pin = |r: &str| call(port, "POST", "/api/pins/pin", &token, &format!(r#"{{"ref": "{r}"}}"#)).1;
+    let unpin = |id: &str| call(port, "POST", "/api/pins/unpin", &token, &format!(r#"{{"id": "{id}"}}"#)).1;
+    let tree = || call(port, "GET", "/api/ideas", "", "").1;
+    let detached = |dir: &Path| !Command::new("git").args(["symbolic-ref", "-q", "HEAD"]).current_dir(dir).status().unwrap().success();
+
+    // A branch (its name needn't make a file name), a tag and a commit (by
+    // anything git finds it by), each with a worktree of grove's.
+    assert_eq!(pin("feature/x"), r#"{"id":"branch@feature/x","ok":true}"#);
+    assert!(common.join("grove/pins/branch@feature%2Fx.toml").exists());
+    assert_eq!(git(&wt("branch@feature%2Fx"), &["symbolic-ref", "HEAD"]), "refs/heads/feature/x");
+    assert_eq!(pin("refs/tags/v1"), r#"{"id":"tag@v1","ok":true}"#);
+    assert!(detached(&wt("tag@v1")) && git(&wt("tag@v1"), &["rev-parse", "HEAD"]) == first);
+    assert_eq!(pin("HEAD~1"), format!(r#"{{"id":"commit@{first}","ok":true}}"#));
+    assert!(detached(&wt(&format!("commit@{first}"))));
+    assert!(tree().contains(&format!(r#""id":"commit@{first}","kind":"commit","name":"{}","parent":"","pin":"commit@{first}","ref":"{first}""#, &first[..8])));
+
+    // Refused: one pinned already, an idea's branch, nothing; and the
+    // session's token is needed.
+    git(&dir, &["branch", "idea/zz", "main"]);
+    for (r, err) in [
+        ("main", "main is pinned already, as main"),
+        ("feature/x", "feature/x is pinned already, as feature/x"),
+        ("idea/zz", "idea/zz is an idea's branch: branch from the idea instead"),
+        ("refs/tags/nope", "nothing to pin: there's no tag nope"),
+        ("refs/heads/v1", "nothing to pin: there's no branch v1"),
+        ("nope", "nothing to pin: nope isn't a branch, a tag or a commit"),
+        ("", "name a branch, a tag or a commit to pin"),
+    ] {
+        assert_eq!(pin(r), format!(r#"{{"error":"{err}","ok":false}}"#), "{r}");
+    }
+    assert_eq!(call(port, "POST", "/api/pins/pin", "wrong", r#"{"ref": "dev"}"#).0, 403);
+    assert_eq!(call(port, "POST", "/api/pins/unpin", "wrong", r#"{"id": "tag@v1"}"#).0, 403);
+
+    // The command line: grove pin, then grove current in the pin's worktree,
+    // branching from it by what it pins, and grove list.
+    let (ok, out) = grove(&dir, &[], &["pin", "dev"]);
+    assert!(ok && out.starts_with(&format!("pinned branch@dev\nworktree: {}\ngrove wasn't told", wt("branch@dev").display())), "{out}");
+    let (ok, out) = grove(&wt("branch@dev"), &[], &["current"]);
+    assert!(ok && out.starts_with("id:       branch@dev\nname:     dev\nbranch:   dev\n") && out.contains("\npin:      branch@dev (branch dev)\n"), "{out}");
+    let (ok, out) = grove(&wt("tag@v1"), &[], &["current"]);
+    assert!(ok && out.contains("branch:   (none: detached at the tag v1)\n"), "{out}");
+    let (ok, out) = grove(&dir, &[], &["branch", "on dev", "--from", "dev", "--no-terminal"]);
+    assert!(ok && out.contains(" (on dev) from branch@dev\n"), "{out}");
+    let d = out["branched idea ".len()..].split(' ').next().unwrap().to_string();
+    let (ok, out) = grove(&wt(&d), &[], &["current"]);
+    assert!(ok && out.contains("\nparent:   branch@dev\npin:      branch@dev (branch dev)\n"), "{out}");
+    let (ok, out) = grove(&dir, &[], &["list"]);
+    assert!(ok && out.starts_with(&format!("  branch@dev  dev\n    {d}    on dev\n")) && out.contains("\n* branch@main  main\n"), "{out}");
+
+    // grove unpin leaves a pin with ideas on it to people; any other goes,
+    // named by what it pins, its worktree too.
+    let (ok, out) = grove(&dir, &[], &["unpin", "dev"]);
+    assert!(!ok && out.contains("unpinning branch@dev discards the ideas on it (on dev), which is left to people"), "{out}");
+    let (ok, out) = grove(&dir, &[], &["unpin", "nope"]);
+    assert!(!ok && out.contains("no pin nope: grove list shows the pins"), "{out}");
+    let (ok, out) = grove(&dir, &[], &["unpin", &first[..7]]);
+    assert!(ok && out.starts_with(&format!("unpinned commit@{first}")), "{out}");
+    assert!(!wt(&format!("commit@{first}")).exists() && !tree().contains(&format!(r#""id":"commit@{first}""#)));
+
+    // Unpinning in the tree discards the pin's ideas, refused if any of them,
+    // or grove's worktree for the pin, has changes that aren't committed.
+    std::fs::write(wt(&d).join("wip"), "x").unwrap();
+    assert_eq!(unpin("branch@dev"), r#"{"error":"nothing was unpinned: these have changes that aren't committed: on dev","ok":false}"#);
+    std::fs::remove_file(wt(&d).join("wip")).unwrap();
+    std::fs::write(wt("branch@dev").join("wip"), "x").unwrap();
+    assert!(unpin("branch@dev").contains("nothing was unpinned: dev has changes that aren't committed in "));
+    std::fs::remove_file(wt("branch@dev").join("wip")).unwrap();
+    assert!(wt(&d).exists() && common.join("grove/pins/branch@dev.toml").exists());
+    assert_eq!(unpin("branch@dev"), r#"{"id":"branch@dev","ok":true}"#);
+    assert!(!wt(&d).exists() && !wt("branch@dev").exists() && !common.join("grove/pins/branch@dev.toml").exists());
+    assert_eq!(git(&dir, &["rev-parse", &format!("idea/{d}")]), first);
+    assert_eq!(idea_in(port, "on dev").0, "discarded");
+    assert!(!tree().contains(r#""id":"branch@dev""#));
+    assert_eq!(unpin("branch@dev"), r#"{"error":"no pin branch@dev","ok":false}"#);
+
+    // Unpinning the checked-out branch leaves the repository's own worktree,
+    // which then isn't a pin's until it's pinned again.
+    assert_eq!(unpin("branch@main"), r#"{"id":"branch@main","ok":true}"#);
+    assert!(dir.join("b.txt").exists());
+    let (ok, out) = grove(&dir, &[], &["current"]);
+    assert!(!ok && out.contains("the repository's own worktree isn't a pin's: pin its branch with grove pin main"), "{out}");
+    let (ok, out) = grove(&dir, &[], &["pin", "main"]);
+    assert!(ok && out.starts_with(&format!("pinned branch@main\nworktree: {}\n", dir.display())), "{out}");
+
+    drop(_server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
