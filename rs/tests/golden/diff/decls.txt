@@ -1,0 +1,223 @@
+old → new
+procs: 1 changed
+  ~ Main  nodes ~2, edges ~1
+interfaces: 1 added, 1 removed, 1 changed
+  + Clock  funcs +1
+  - Log    funcs -1
+  ~ Store  funcs +1 ~1
+funcs: 1 removed, 1 changed
+  - Drop
+  ~ Trim  impl, doc
+files: 1 changed
+  ~ decls.sys
+
+{
+  "old": {
+    "label": "old",
+    "checks": true
+  },
+  "new": {
+    "label": "new",
+    "checks": true
+  },
+  "files": [
+    {
+      "path": "decls.sys",
+      "status": "changed"
+    }
+  ],
+  "counts": {
+    "procs": {
+      "added": 0,
+      "removed": 0,
+      "changed": 1,
+      "unchecked": 0
+    },
+    "types": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "interfaces": {
+      "added": 1,
+      "removed": 1,
+      "changed": 1
+    },
+    "funcs": {
+      "added": 0,
+      "removed": 1,
+      "changed": 1
+    }
+  },
+  "procs": {
+    "Main": {
+      "status": "changed",
+      "counts": {
+        "nodes": {
+          "added": 0,
+          "removed": 0,
+          "changed": 2
+        },
+        "edges": {
+          "added": 0,
+          "removed": 0,
+          "changed": 1
+        },
+        "regions": {
+          "added": 0,
+          "removed": 0,
+          "changed": 0
+        }
+      },
+      "regions": [],
+      "text": {
+        "old": "proc Main(key: string): string {\n\tMain -> Store.Get(key = this.key);\n\tStore.Get -> Trim(s = this);\n}",
+        "new": "proc Main(key: string): string {\n\tMain -> Store.Get(key = this.key, fallback = \"\");\n\tStore.Get -> Trim(s = this);\n}"
+      }
+    }
+  },
+  "types": {},
+  "interfaces": {
+    "Clock": {
+      "status": "added",
+      "funcs": [
+        {
+          "name": "Now",
+          "status": "added",
+          "sig": "(): int",
+          "impl": "clock.rs:now"
+        }
+      ]
+    },
+    "Log": {
+      "status": "removed",
+      "funcs": [
+        {
+          "name": "Line",
+          "status": "removed",
+          "sig": "(s: string): void",
+          "impl": "log.rs:line"
+        }
+      ]
+    },
+    "Store": {
+      "status": "changed",
+      "funcs": [
+        {
+          "name": "Delete",
+          "status": "added",
+          "sig": "(key: string): void",
+          "impl": "store.go:Delete · store.rs:delete"
+        },
+        {
+          "name": "Get",
+          "status": "changed",
+          "sig": "(key: string, fallback: string): string",
+          "impl": "store.go:Get · store.rs:get",
+          "doc": "Reads a key.",
+          "was": {
+            "sig": "(key: string): string"
+          }
+        }
+      ]
+    }
+  },
+  "funcs": {
+    "Drop": {
+      "status": "removed",
+      "sig": "(s: string): string",
+      "impl": "util.rs:drop"
+    },
+    "Trim": {
+      "status": "changed",
+      "sig": "(s: string): string",
+      "impl": "util.rs:trim_spaces",
+      "doc": "Trims spaces.",
+      "was": {
+        "impl": "util.rs:trim",
+        "doc": "Trims."
+      }
+    }
+  },
+  "grids": {
+    "Main": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Main",
+              "sublabel": "(key: string)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Store.Get",
+              "sublabel": "store.go:Get · store.rs:get",
+              "interface": "Store",
+              "sig": "(key: string, fallback: string): string",
+              "doc": "Reads a key.",
+              "diff": "changed",
+              "was": {
+                "sig": "(key: string): string"
+              }
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Trim",
+              "sublabel": "util.rs:trim_spaces",
+              "sig": "(s: string): string",
+              "doc": "Trims spaces.",
+              "diff": "changed",
+              "was": {
+                "sublabel": "util.rs:trim",
+                "doc": "Trims."
+              }
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ key: string }",
+          "call": "Store.Get(key: string, fallback: string)",
+          "args": "key = this.key, fallback = \"\"",
+          "diff": "changed",
+          "was": {
+            "args": "key = this.key"
+          }
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "string",
+          "call": "Trim(s: string)",
+          "args": "s = this"
+        }
+      ]
+    }
+  }
+}

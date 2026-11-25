@@ -1,0 +1,4 @@
+proc P(n: int): int {
+	func A(n: int): int;
+	P -> A(n = this.n);
+}

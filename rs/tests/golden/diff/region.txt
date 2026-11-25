@@ -1,0 +1,200 @@
+old → new
+procs: 1 changed
+  ~ Sum  nodes +1, edges +2 -1, regions ~1
+files: 1 changed
+  ~ region.sys
+
+{
+  "old": {
+    "label": "old",
+    "checks": true
+  },
+  "new": {
+    "label": "new",
+    "checks": true
+  },
+  "files": [
+    {
+      "path": "region.sys",
+      "status": "changed"
+    }
+  ],
+  "counts": {
+    "procs": {
+      "added": 0,
+      "removed": 0,
+      "changed": 1,
+      "unchecked": 0
+    },
+    "types": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "interfaces": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "funcs": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    }
+  },
+  "procs": {
+    "Sum": {
+      "status": "changed",
+      "counts": {
+        "nodes": {
+          "added": 1,
+          "removed": 0,
+          "changed": 0
+        },
+        "edges": {
+          "added": 2,
+          "removed": 1,
+          "changed": 0
+        },
+        "regions": {
+          "added": 0,
+          "removed": 0,
+          "changed": 1
+        }
+      },
+      "regions": [
+        {
+          "opener": "Sum.Sum",
+          "at": [
+            0,
+            0
+          ],
+          "diff": "changed",
+          "nodes": [
+            "Sum.Each",
+            "Sum.Twice"
+          ],
+          "sink": "Sum.Twice",
+          "elem": "int",
+          "was": {
+            "nodes": [
+              "Sum.Each"
+            ],
+            "sink": "Sum.Each"
+          }
+        }
+      ],
+      "text": {
+        "old": "proc Sum(xs: []int): int {\n\tfunc Each(x: int): int;\n\tfunc Twice(x: int): int;\n\tfunc Total(l: []int): int;\n\tSum for each (this.xs) -> Each(x = this);\n\tEach collect each (Each) -> Total(l = this);\n}",
+        "new": "proc Sum(xs: []int): int {\n\tfunc Each(x: int): int;\n\tfunc Twice(x: int): int;\n\tfunc Total(l: []int): int;\n\tSum for each (this.xs) -> Each(x = this);\n\tEach -> Twice(x = this);\n\tTwice collect each (Twice) -> Total(l = this);\n}"
+      }
+    }
+  },
+  "types": {},
+  "interfaces": {},
+  "funcs": {},
+  "grids": {
+    "Sum": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Sum",
+              "sublabel": "(xs: []int)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Each",
+              "sig": "(x: int): int"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Twice",
+              "sig": "(x: int): int",
+              "diff": "added"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Total",
+              "sig": "(l: []int): int"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 2,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "int",
+          "call": "Each(x: int)",
+          "args": "x = this"
+        },
+        {
+          "type": 3,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "int",
+          "call": "Twice(x: int)",
+          "args": "x = this",
+          "diff": "added"
+        },
+        {
+          "type": 4,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            3,
+            0
+          ],
+          "valueType": "[]int",
+          "call": "Total(l: []int)",
+          "args": "l = this",
+          "diff": "removed"
+        },
+        {
+          "type": 4,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            3,
+            0
+          ],
+          "valueType": "[]int",
+          "call": "Total(l: []int)",
+          "args": "l = this",
+          "diff": "added"
+        }
+      ]
+    }
+  }
+}

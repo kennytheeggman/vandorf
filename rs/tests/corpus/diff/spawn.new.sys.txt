@@ -1,0 +1,6 @@
+proc Fan(n: int): int {
+	func Get(n: int): int;
+	func Log(n: int);
+	func Merge(a: int, b: int): int;
+	Fan -> spawn { Get(n = this.n), Get(n = this.n + 1) as G2, Get(n = 0) as G3 } join Merge(a = this.Get, b = this.G3);
+}

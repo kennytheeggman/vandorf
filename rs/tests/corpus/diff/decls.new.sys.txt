@@ -1,0 +1,18 @@
+interface Store {
+	// Reads a key.
+	func Get(key: string, fallback: string): string = "store.go:Get", "store.rs:get";
+	func Put(key: string, value: string) = "store.go:Put", "store.rs:put";
+	func Delete(key: string) = "store.go:Delete", "store.rs:delete";
+}
+
+interface Clock {
+	func Now(): int = "clock.rs:now";
+}
+
+// Trims spaces.
+func Trim(s: string): string = "util.rs:trim_spaces";
+
+proc Main(key: string): string {
+	Main -> Store.Get(key = this.key, fallback = "");
+	Store.Get -> Trim(s = this);
+}

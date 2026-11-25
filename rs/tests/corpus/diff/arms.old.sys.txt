@@ -1,0 +1,13 @@
+type Shape = enum { Dot, Circle(int), Rect({ w: int, h: int }) };
+
+proc Area(s: Shape): int {
+	func Get(s: Shape): Shape;
+	func Round(r: int): int;
+	func Box(w: int, h: int): int;
+	Area -> Get(s = this.s);
+	Get switch {
+		Dot() -> id(0),
+		Circle(r) -> Round(r = r),
+		Rect(b) -> Box(w = b.w, h = b.h)
+	};
+}

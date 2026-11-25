@@ -1,0 +1,108 @@
+old → new
+no changes
+
+{
+  "old": {
+    "label": "old",
+    "checks": true
+  },
+  "new": {
+    "label": "new",
+    "checks": true
+  },
+  "files": [],
+  "counts": {
+    "procs": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0,
+      "unchecked": 0
+    },
+    "types": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "interfaces": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "funcs": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    }
+  },
+  "procs": {},
+  "types": {},
+  "interfaces": {},
+  "funcs": {},
+  "grids": {
+    "Measure": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Measure",
+              "sublabel": "(shapes: []Shape)",
+              "doc": "The area of each shape, summed."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Area",
+              "sublabel": "impl.go:Area · impl.rs:area",
+              "sig": "(s: Shape): int",
+              "doc": "The area of one shape."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Sum",
+              "sublabel": "impl.go:Sum · impl.rs:sum",
+              "sig": "(l: []int): int"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 2,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "Shape",
+          "call": "Area(s: Shape)",
+          "args": "s = this"
+        },
+        {
+          "type": 4,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "[]int",
+          "call": "Sum(l: []int)",
+          "args": "l = this"
+        }
+      ]
+    }
+  }
+}

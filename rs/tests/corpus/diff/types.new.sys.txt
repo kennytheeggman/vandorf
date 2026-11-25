@@ -1,0 +1,10 @@
+// A point in the plane.
+type Point = { x: int, z: int, y: string };
+type Shape = enum { Dot, Circle(int), Square(int) };
+type Ids = []string;
+type Fresh = { b: int };
+
+proc P(p: Point, s: Shape, i: Ids, f: Fresh): int {
+	func F(p: Point): int;
+	P -> F(p = this.p);
+}

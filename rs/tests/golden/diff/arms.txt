@@ -1,0 +1,207 @@
+old → new
+procs: 1 changed
+  ~ Area  nodes +1, edges +1 ~2
+files: 1 changed
+  ~ arms.sys
+
+{
+  "old": {
+    "label": "old",
+    "checks": true
+  },
+  "new": {
+    "label": "new",
+    "checks": true
+  },
+  "files": [
+    {
+      "path": "arms.sys",
+      "status": "changed"
+    }
+  ],
+  "counts": {
+    "procs": {
+      "added": 0,
+      "removed": 0,
+      "changed": 1,
+      "unchecked": 0
+    },
+    "types": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "interfaces": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "funcs": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    }
+  },
+  "procs": {
+    "Area": {
+      "status": "changed",
+      "counts": {
+        "nodes": {
+          "added": 1,
+          "removed": 0,
+          "changed": 0
+        },
+        "edges": {
+          "added": 1,
+          "removed": 0,
+          "changed": 2
+        },
+        "regions": {
+          "added": 0,
+          "removed": 0,
+          "changed": 0
+        }
+      },
+      "regions": [],
+      "text": {
+        "old": "proc Area(s: Shape): int {\n\tfunc Get(s: Shape): Shape;\n\tfunc Round(r: int): int;\n\tfunc Box(w: int, h: int): int;\n\tArea -> Get(s = this.s);\n\tGet switch {\n\t\tDot() -> id(0),\n\t\tCircle(r) -> Round(r = r),\n\t\tRect(b) -> Box(w = b.w, h = b.h)\n\t};\n}",
+        "new": "proc Area(s: Shape): int {\n\tfunc Get(s: Shape): Shape;\n\tfunc Round(r: int): int;\n\tfunc Box(w: int, h: int): int;\n\tArea -> Get(s = this.s);\n\tGet switch {\n\t\tDot() -> id(1),\n\t\tCircle(r) -> switch {\n\t\t\t(r > 10) -> Round(r = r),\n\t\t\telse -> id(0)\n\t\t},\n\t\tRect(b) -> Box(w = b.w, h = b.h)\n\t};\n}"
+      }
+    }
+  },
+  "types": {},
+  "interfaces": {},
+  "funcs": {},
+  "grids": {
+    "Area": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Area",
+              "sublabel": "(s: Shape)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Get",
+              "sig": "(s: Shape): Shape"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "id"
+            },
+            {
+              "type": 0,
+              "label": "Round",
+              "sig": "(r: int): int"
+            },
+            {
+              "type": 0,
+              "label": "id",
+              "diff": "added"
+            },
+            {
+              "type": 0,
+              "label": "Box",
+              "sig": "(w: int, h: int): int"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ s: Shape }",
+          "call": "Get(s: Shape)",
+          "args": "s = this.s"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "label": "Dot()",
+          "valueType": "Shape",
+          "call": "id1(value: int)",
+          "args": "1",
+          "diff": "changed",
+          "was": {
+            "args": "0"
+          }
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            1
+          ],
+          "label": "Circle(r) → r > 10",
+          "valueType": "Shape",
+          "call": "Round(r: int)",
+          "args": "r = r",
+          "diff": "changed",
+          "was": {
+            "label": "Circle(r)"
+          }
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            2
+          ],
+          "label": "Circle(r) → else",
+          "valueType": "Shape",
+          "call": "id2(value: int)",
+          "args": "0",
+          "diff": "added"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            3
+          ],
+          "label": "Rect(b)",
+          "valueType": "Shape",
+          "call": "Box(w: int, h: int)",
+          "args": "w = b.w, h = b.h"
+        }
+      ]
+    }
+  }
+}

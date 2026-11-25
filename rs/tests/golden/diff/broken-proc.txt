@@ -1,0 +1,188 @@
+old → new
+procs: 1 changed, 3 not checking
+  ! BadDecl  doesn't check in new; compare its text
+      error: unknown type Missing
+        --> broken-proc.sys:13:17
+         |
+      13 | proc BadDecl(n: Missing): int {
+         |                 ^^^^^^^
+  ! Breaks   doesn't check in new; compare its text
+      error: argument n of Breaks.A: expected int, found a string literal
+        --> broken-proc.sys:10:18
+         |
+      10 |     Breaks -> A(n = "oops");
+         |                     ^^^^^^
+  ! Fixed    doesn't check in old; compare its text
+      error: argument n of Fixed.A: expected int, found a string literal
+        --> broken-proc.sys:23:17
+         |
+      23 |     Fixed -> A(n = "x");
+         |                    ^^^
+  ~ Good     nodes +1, edges +1
+files: 1 changed
+  ~ broken-proc.sys
+
+{
+  "old": {
+    "label": "old",
+    "checks": true
+  },
+  "new": {
+    "label": "new",
+    "checks": true
+  },
+  "files": [
+    {
+      "path": "broken-proc.sys",
+      "status": "changed"
+    }
+  ],
+  "counts": {
+    "procs": {
+      "added": 0,
+      "removed": 0,
+      "changed": 1,
+      "unchecked": 3
+    },
+    "types": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "interfaces": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "funcs": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    }
+  },
+  "procs": {
+    "BadDecl": {
+      "status": "unchecked",
+      "errors": {
+        "new": "error: unknown type Missing\n  --> broken-proc.sys:13:17\n   |\n13 | proc BadDecl(n: Missing): int {\n   |                 ^^^^^^^"
+      },
+      "text": {
+        "old": "proc BadDecl(n: int): int {\n\tfunc A(n: int): int;\n\tBadDecl -> A(n = this.n);\n}",
+        "new": "proc BadDecl(n: Missing): int {\n\tfunc A(n: int): int;\n\tBadDecl -> A(n = this.n);\n}"
+      }
+    },
+    "Breaks": {
+      "status": "unchecked",
+      "errors": {
+        "new": "error: argument n of Breaks.A: expected int, found a string literal\n  --> broken-proc.sys:10:18\n   |\n10 |     Breaks -> A(n = \"oops\");\n   |                     ^^^^^^"
+      },
+      "text": {
+        "old": "proc Breaks(n: int): int {\n\tfunc A(n: int): int;\n\tBreaks -> A(n = this.n);\n}",
+        "new": "proc Breaks(n: int): int {\n\tfunc A(n: int): int;\n\tBreaks -> A(n = \"oops\");\n}"
+      }
+    },
+    "Fixed": {
+      "status": "unchecked",
+      "errors": {
+        "old": "error: argument n of Fixed.A: expected int, found a string literal\n  --> broken-proc.sys:23:17\n   |\n23 |     Fixed -> A(n = \"x\");\n   |                    ^^^"
+      },
+      "text": {
+        "old": "proc Fixed(n: int): int {\n\tfunc A(n: int): int;\n\tFixed -> A(n = \"x\");\n}",
+        "new": "proc Fixed(n: int): int {\n\tfunc A(n: int): int;\n\tFixed -> A(n = this.n);\n}"
+      }
+    },
+    "Good": {
+      "status": "changed",
+      "counts": {
+        "nodes": {
+          "added": 1,
+          "removed": 0,
+          "changed": 0
+        },
+        "edges": {
+          "added": 1,
+          "removed": 0,
+          "changed": 0
+        },
+        "regions": {
+          "added": 0,
+          "removed": 0,
+          "changed": 0
+        }
+      },
+      "regions": [],
+      "text": {
+        "old": "proc Good(n: int): int {\n\tfunc A(n: int): int;\n\tGood -> A(n = this.n);\n}",
+        "new": "proc Good(n: int): int {\n\tfunc A(n: int): int;\n\tfunc B(n: int): int;\n\tGood -> A(n = this.n);\n\tA -> B(n = this);\n}"
+      }
+    }
+  },
+  "types": {},
+  "interfaces": {},
+  "funcs": {},
+  "grids": {
+    "Good": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Good",
+              "sublabel": "(n: int)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "A",
+              "sig": "(n: int): int"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "B",
+              "sig": "(n: int): int",
+              "diff": "added"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ n: int }",
+          "call": "A(n: int)",
+          "args": "n = this.n"
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "int",
+          "call": "B(n: int)",
+          "args": "n = this",
+          "diff": "added"
+        }
+      ]
+    }
+  }
+}

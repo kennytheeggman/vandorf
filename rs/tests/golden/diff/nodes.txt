@@ -1,0 +1,258 @@
+old → new
+procs: 1 changed
+  ~ Flow  nodes +1 -1, edges +1 -2
+files: 1 changed
+  ~ nodes.sys
+
+{
+  "old": {
+    "label": "old",
+    "checks": true
+  },
+  "new": {
+    "label": "new",
+    "checks": true
+  },
+  "files": [
+    {
+      "path": "nodes.sys",
+      "status": "changed"
+    }
+  ],
+  "counts": {
+    "procs": {
+      "added": 0,
+      "removed": 0,
+      "changed": 1,
+      "unchecked": 0
+    },
+    "types": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "interfaces": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "funcs": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    }
+  },
+  "procs": {
+    "Flow": {
+      "status": "changed",
+      "counts": {
+        "nodes": {
+          "added": 1,
+          "removed": 1,
+          "changed": 0
+        },
+        "edges": {
+          "added": 1,
+          "removed": 2,
+          "changed": 0
+        },
+        "regions": {
+          "added": 0,
+          "removed": 0,
+          "changed": 0
+        }
+      },
+      "regions": [],
+      "text": {
+        "old": "proc Flow(n: int): int {\n\tfunc A(n: int): int;\n\tfunc X(n: int): int;\n\tfunc B(n: int): int;\n\tfunc C(n: int): int;\n\tfunc D(n: int): int;\n\tfunc E(n: int): int;\n\tFlow -> A(n = this.n);\n\tA switch {\n\t\t(this > 0) -> X(n = this),\n\t\t(this < 0) -> B(n = this),\n\t\telse -> C(n = this)\n\t};\n\tX -> D(n = this);\n\tB -> D(n = this);\n\tC -> D(n = this);\n}",
+        "new": "proc Flow(n: int): int {\n\tfunc A(n: int): int;\n\tfunc X(n: int): int;\n\tfunc B(n: int): int;\n\tfunc C(n: int): int;\n\tfunc D(n: int): int;\n\tfunc E(n: int): int;\n\tFlow -> A(n = this.n);\n\tA switch {\n\t\t(this < 0) -> B(n = this),\n\t\telse -> C(n = this)\n\t};\n\tB -> D(n = this);\n\tC -> D(n = this);\n\tD -> E(n = this);\n}"
+      }
+    }
+  },
+  "types": {},
+  "interfaces": {},
+  "funcs": {},
+  "grids": {
+    "Flow": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Flow",
+              "sublabel": "(n: int)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "A",
+              "sig": "(n: int): int"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "X",
+              "sig": "(n: int): int",
+              "diff": "removed"
+            },
+            {
+              "type": 0,
+              "label": "B",
+              "sig": "(n: int): int"
+            },
+            {
+              "type": 0,
+              "label": "C",
+              "sig": "(n: int): int"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "D",
+              "sig": "(n: int): int"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "E",
+              "sig": "(n: int): int",
+              "diff": "added"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ n: int }",
+          "call": "A(n: int)",
+          "args": "n = this.n"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            1
+          ],
+          "label": "this < 0",
+          "valueType": "int",
+          "call": "B(n: int)",
+          "args": "n = this"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            2
+          ],
+          "label": "else",
+          "valueType": "int",
+          "call": "C(n: int)",
+          "args": "n = this"
+        },
+        {
+          "type": 1,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "label": "this > 0",
+          "valueType": "int",
+          "call": "X(n: int)",
+          "args": "n = this",
+          "diff": "removed"
+        },
+        {
+          "type": 0,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            3,
+            0
+          ],
+          "valueType": "int",
+          "call": "D(n: int)",
+          "args": "n = this",
+          "diff": "removed"
+        },
+        {
+          "type": 0,
+          "source": [
+            2,
+            1
+          ],
+          "target": [
+            3,
+            0
+          ],
+          "valueType": "int",
+          "call": "D(n: int)",
+          "args": "n = this"
+        },
+        {
+          "type": 0,
+          "source": [
+            2,
+            2
+          ],
+          "target": [
+            3,
+            0
+          ],
+          "valueType": "int",
+          "call": "D(n: int)",
+          "args": "n = this"
+        },
+        {
+          "type": 0,
+          "source": [
+            3,
+            0
+          ],
+          "target": [
+            4,
+            0
+          ],
+          "valueType": "int",
+          "call": "E(n: int)",
+          "args": "n = this",
+          "diff": "added"
+        }
+      ]
+    }
+  }
+}

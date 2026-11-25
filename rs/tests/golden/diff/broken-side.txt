@@ -1,0 +1,55 @@
+old → new
+new doesn't check, so its procs can't be compared; compare the files' text instead:
+    error: expected an expression, found ')'
+     --> broken-side.sys:3:13
+      |
+    3 |     P -> A(n = );
+      |                ^
+files: 1 changed
+  ~ broken-side.sys
+
+{
+  "old": {
+    "label": "old",
+    "checks": true
+  },
+  "new": {
+    "label": "new",
+    "checks": false,
+    "error": "error: expected an expression, found ')'\n --> broken-side.sys:3:13\n  |\n3 |     P -> A(n = );\n  |                ^"
+  },
+  "files": [
+    {
+      "path": "broken-side.sys",
+      "status": "changed"
+    }
+  ],
+  "counts": {
+    "procs": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0,
+      "unchecked": 0
+    },
+    "types": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "interfaces": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "funcs": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    }
+  },
+  "procs": {},
+  "types": {},
+  "interfaces": {},
+  "funcs": {},
+  "grids": {}
+}

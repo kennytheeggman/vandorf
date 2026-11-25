@@ -83,7 +83,7 @@ pub fn fields(m: Map<Str, Json>) -> Result<List<JsonField>, String> {
         .collect())
 }
 
-fn field(key: &str, value: Json) -> JsonField {
+pub(crate) fn field(key: &str, value: Json) -> JsonField {
     JsonField {
         key: key.into(),
         value,
@@ -281,7 +281,7 @@ pub fn graph_of(n: NodeDecl) -> Result<Graph, String> {
     }
 }
 
-fn qual(n: &NodeDecl) -> String {
+pub(crate) fn qual(n: &NodeDecl) -> String {
     n.qual.iter().map(|s| &**s).collect::<Vec<_>>().join(".")
 }
 
@@ -315,13 +315,13 @@ fn interface_of(prog: &Program, n: i64) -> Option<String> {
 }
 
 /// `id1`, `id2`, ...: an id(..) without `as`.
-fn is_unnamed_id(name: &str) -> bool {
+pub(crate) fn is_unnamed_id(name: &str) -> bool {
     name.strip_prefix("id")
         .is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// A type as written.
-fn show_ty(t: &Type) -> String {
+pub(crate) fn show_ty(t: &Type) -> String {
     let members = |ms: &List<Member>, variants: bool| {
         ms.iter()
             .map(|m| match (variants, &m.ty) {
@@ -353,7 +353,7 @@ fn show_params(ps: &List<Member>) -> String {
 
 /// A func's or proc's signature as written, `(a: int): string`; an
 /// instance's is what it instances'. Other nodes have none.
-fn sig_of(prog: &Program, n: i64) -> Option<String> {
+pub(crate) fn sig_of(prog: &Program, n: i64) -> Option<String> {
     match &prog.nodes[n as usize].kind {
         NodeKind::Func(f) => Some(format!("{}: {}", show_params(&f.params), show_ty(&f.ret))),
         NodeKind::Proc(p) => {
@@ -367,7 +367,7 @@ fn sig_of(prog: &Program, n: i64) -> Option<String> {
     }
 }
 
-fn node_json(prog: &Program, pid: i64, n: i64) -> Json {
+pub(crate) fn node_json(prog: &Program, pid: i64, n: i64) -> Json {
     let decl = &prog.nodes[n as usize];
     let mut iface = None;
     let (ty, label, sub) = match &decl.kind {
@@ -473,30 +473,33 @@ pub fn edges_json(l: Layout) -> Result<Json, String> {
                 let Some(t) = l.pos.get(&e.target) else {
                     continue;
                 };
-                let mut fs = vec![
-                    field("type", Json::Num(e.ty)),
-                    field(
-                        "source",
-                        Json::Arr(vec![Json::Num(ri as i64), Json::Num(ci as i64)].into()),
-                    ),
-                    field(
-                        "target",
-                        Json::Arr(vec![Json::Num(t.r), Json::Num(t.c)].into()),
-                    ),
-                ];
-                if let MaybeStr::Some(label) = &e.label {
-                    fs.push(field("label", Json::Str(label.clone())));
-                }
-                fs.push(field("valueType", Json::Str(e.value.clone())));
-                fs.push(field("call", Json::Str(e.call.clone())));
-                if !e.args.is_empty() {
-                    fs.push(field("args", Json::Str(e.args.clone())));
-                }
-                out.push(Json::Obj(fs.into()));
+                out.push(Json::Obj(
+                    edge_fields(&e, (ri as i64, ci as i64), (t.r, t.c)).into(),
+                ));
             }
         }
     }
     Ok(Json::Arr(out.into()))
+}
+
+/// An edge's fields in the document, drawn from the node at `source` (row,
+/// column) to the one at `target`.
+pub(crate) fn edge_fields(e: &Pending, source: (i64, i64), target: (i64, i64)) -> Vec<JsonField> {
+    let at = |(r, c): (i64, i64)| Json::Arr(vec![Json::Num(r), Json::Num(c)].into());
+    let mut fs = vec![
+        field("type", Json::Num(e.ty)),
+        field("source", at(source)),
+        field("target", at(target)),
+    ];
+    if let MaybeStr::Some(label) = &e.label {
+        fs.push(field("label", Json::Str(label.clone())));
+    }
+    fs.push(field("valueType", Json::Str(e.value.clone())));
+    fs.push(field("call", Json::Str(e.call.clone())));
+    if !e.args.is_empty() {
+        fs.push(field("args", Json::Str(e.args.clone())));
+    }
+    fs
 }
 
 // ---- JSON for the IDE: compact, keys sorted (as serde_json's Value) ----
