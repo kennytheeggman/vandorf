@@ -84,3 +84,16 @@ fn overview_shows_each_servers_command_line() {
     // Without: its executable named after its Rust bin.
     assert!(b.contains(r#""exe":"apid""#) && b.contains(r#""cli":null,"cli_at":null"#), "{b}");
 }
+
+#[test]
+fn terminal_frame_is_inert_until_the_standalone_ide_mounts_it() {
+    for query in [&[][..], &[("embedded", "1")][..]] {
+        let page = req("GET", "/", query, &[], "");
+        assert_eq!(page.status, 200);
+        assert!(page.body.contains(r#"<template id="terminalTemplate"><iframe id="terminal" src="/terminal" title="Terminal"></iframe></template>"#));
+        assert_eq!(page.body.matches(r#"src="/terminal""#).count(), 1);
+    }
+    let terminal = req("GET", "/terminal", &[], &[], "");
+    assert_eq!(terminal.status, 200);
+    assert!(terminal.body.contains("/api/term"));
+}

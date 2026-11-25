@@ -115,7 +115,7 @@ body.dragging iframe{ pointer-events:none }
   <section id="center">
     <div id="editors"></div>
     <div class="split-h" id="splitPanel"></div>
-    <div id="panel"><iframe id="terminal" src="/terminal" title="Terminal"></iframe></div>
+    <div id="panel"><template id="terminalTemplate"><iframe id="terminal" src="/terminal" title="Terminal"></iframe></template></div>
   </section>
 </div>
 <footer>
@@ -142,7 +142,7 @@ body.dragging iframe{ pointer-events:none }
             <div class="seg" id="sTheme"><button data-v="system">System</button><button data-v="light">Light</button><button data-v="dark">Dark</button></div></div>
         </section>
         <section id="sLayout"><h3>Layout</h3>
-          <div class="opt"><div><label>Terminal panel</label><div class="desc">The side it comes out of. Drag its edge to resize it; <kbd>Ctrl</kbd>+<kbd>`</kbd> or the Terminal button in the status bar shows and hides it.</div></div>
+          <div class="opt" id="sTerminalPanel"><div><label>Terminal panel</label><div class="desc">The side it comes out of. Drag its edge to resize it; <kbd>Ctrl</kbd>+<kbd>`</kbd> or the Terminal button in the status bar shows and hides it.</div></div>
             <div class="seg" id="sPanelSide"><button data-v="left">Left</button><button data-v="bottom">Bottom</button><button data-v="right">Right</button></div></div>
           <div class="opt"><div><label>Details panel</label><div class="desc">Where a diagram shows the details of what you click. Drag its edge to resize it.</div></div>
             <div class="seg" id="sDrawerSide"><button data-v="left">Left</button><button data-v="bottom">Bottom</button><button data-v="right">Right</button></div></div>
@@ -155,7 +155,7 @@ body.dragging iframe{ pointer-events:none }
         <section id="sKeys"><h3>Shortcuts</h3>
           <table>
             <tr><td><kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+<kbd>S</kbd></td><td>Save the file</td></tr>
-            <tr><td><kbd>Ctrl</kbd>+<kbd>`</kbd></td><td>Show or hide the terminal</td></tr>
+            <tr id="sTerminalShortcut"><td><kbd>Ctrl</kbd>+<kbd>`</kbd></td><td>Show or hide the terminal</td></tr>
             <tr><td>Click a proc</td><td>Expand it in place (in a diagram); open its diagram (in the explorer)</td></tr>
             <tr><td><kbd>Shift</kbd>+click</td><td>Select a proc in a diagram without expanding it</td></tr>
             <tr><td><kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+click</td><td>Open a proc in a new tab</td></tr>
@@ -172,12 +172,23 @@ body.dragging iframe{ pointer-events:none }
 (function(){
 'use strict';
 var $ = function(id){ return document.getElementById(id); };
+var embedded = new URLSearchParams(location.search).get('embedded') === '1';
+var terminal = null;
+if (embedded){
+  $('center').classList.add('nopanel');
+  ['panel', 'splitPanel', 'bPanel', 'sTerminalPanel', 'sTerminalShortcut', 'sCompilerTest'].forEach(function(id){ $(id).remove(); });
+} else {
+  $('panel').appendChild($('terminalTemplate').content.cloneNode(true));
+  terminal = $('terminal');
+}
 function store(k, v){
   try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); }
   catch (e) { return null; }
 }
 function loadJSON(k, d){ try { var v = JSON.parse(store(k)); return v == null ? d : v; } catch (e) { return d; } }
 function post(win, msg){ try { win.postMessage(msg, location.origin); } catch (e) {} }
+
+function postTerminal(msg){ if (terminal) post(terminal.contentWindow, msg); }
 
 /* ---------- theme ---------- */
 var themePref = store('vandorf.ide.theme') || 'system';
@@ -212,7 +223,7 @@ $('sClose').onclick = function(){ settings(false); };
 $('settings').onclick = function(e){ if (e.target === this) settings(false); };
 window.addEventListener('keydown', function(e){ if (e.key === 'Escape') settings(false); });
 function segPick(seg, f){ seg.onclick = function(e){ var b = e.target.closest('button'); if (b) f(b.dataset.v); }; }
-segPick($('sPanelSide'), function(v){ setPanelSide(v); });
+if (terminal) segPick($('sPanelSide'), function(v){ setPanelSide(v); });
 /* The diagrams' details panel: every tab's, read by new tabs from storage. */
 segPick($('sDrawerSide'), function(v){
   store('vandorf.ide.drawerSide', v); segOn($('sDrawerSide'), v);
@@ -250,9 +261,9 @@ function showCompiler(){
   var dir = active && active.project != null ? active.project : info && info.project ? info.project.dir : active && active.path ? active.path.replace(/[^/]*$/, '') : '';
   $('sCmd').textContent = compilerCmd() + ' check -C ' + (srcRoot ? srcRoot.replace(/\/$/, '') + (dir ? '/' + dir.replace(/\/$/, '') : '') : dir || '.');
 }
-function sendCompiler(){ post($('terminal').contentWindow, { type: 'term-compiler', cmd: compilerCmd() }); }
+function sendCompiler(){ postTerminal({ type: 'term-compiler', cmd: compilerCmd() }); }
 $('sCompiler').addEventListener('input', function(){ store('vandorf.ide.compiler', this.value.trim() || null); showCompiler(); sendCompiler(); });
-$('sCompilerTest').onclick = function(){ settings(false); togglePanel(true); post($('terminal').contentWindow, { type: 'term-compiler-test' }); };
+if (terminal) $('sCompilerTest').onclick = function(){ settings(false); togglePanel(true); postTerminal({ type: 'term-compiler-test' }); };
 fetch('/api/sources').then(function(r){ return r.json(); }).then(function(r){ if (r.ok){ srcRoot = r.root || ''; showCompiler(); sendCompiler(); } }).catch(function(){});
 
 /* ---------- splitters ---------- */
@@ -275,7 +286,7 @@ drag($('splitSide'), function(e){
   document.body.style.setProperty('--side', sideW + 'px'); store('vandorf.ide.side', sideW);
 });
 /* The panel's edge: its height at the bottom, its width at a side. */
-drag($('splitPanel'), function(e){
+if (terminal) drag($('splitPanel'), function(e){
   var r = $('center').getBoundingClientRect();
   if (panelSide === 'bottom'){
     var h = Math.max(80, Math.min(r.height - 120, r.bottom - e.clientY));
@@ -291,18 +302,21 @@ function setPanelSide(side){
   $('center').classList.toggle('left', panelSide === 'left'); $('center').classList.toggle('right', panelSide === 'right');
   segOn($('sPanelSide'), panelSide); store('vandorf.ide.panelSide', panelSide);
 }
-setPanelSide(store('vandorf.ide.panelSide'));
+if (terminal) setPanelSide(store('vandorf.ide.panelSide'));
 function togglePanel(show){
+  if (!terminal) return;
   var c = $('center'), on = show === undefined ? c.classList.contains('nopanel') : show;
   c.classList.toggle('nopanel', !on); $('bPanel').classList.toggle('on', on);
   store('vandorf.ide.nopanel', on ? '0' : '1');
-  if (on) post($('terminal').contentWindow, { type: 'term-focus' });
+  if (on) postTerminal({ type: 'term-focus' });
 }
-togglePanel(store('vandorf.ide.nopanel') !== '1');
-$('bPanel').onclick = function(){ togglePanel(); };
-window.addEventListener('keydown', function(e){
-  if (e.ctrlKey && e.key === '`'){ e.preventDefault(); togglePanel(); }
-});
+if (terminal){
+  togglePanel(store('vandorf.ide.nopanel') !== '1');
+  $('bPanel').onclick = function(){ togglePanel(); };
+  window.addEventListener('keydown', function(e){
+    if (e.ctrlKey && e.key === '`'){ e.preventDefault(); togglePanel(); }
+  });
+}
 
 /* ---------- project info (for terminal commands and the header) ---------- */
 var tree = null;
@@ -688,12 +702,12 @@ function showWhere(){
     var pj = projectAt(t.project);
     $('where').textContent = (t.project || '.') + '/vandorf.toml';
     $('proj').textContent = pj ? pj.name : '';
-    post($('terminal').contentWindow, { type: 'term-context', dir: t.project, file: null, project: true });
+    postTerminal({ type: 'term-context', dir: t.project, file: null, project: true });
     return;
   }
   $('where').textContent = t ? t.path + (t.proc ? '  ›  ' + t.proc : '') : '';
   $('proj').textContent = info && info.project ? info.project.name : '';
-  post($('terminal').contentWindow, { type: 'term-context', dir: info && info.project ? info.project.dir : (t ? t.path.replace(/[^/]*$/, '') : ''),
+  postTerminal({ type: 'term-context', dir: info && info.project ? info.project.dir : (t ? t.path.replace(/[^/]*$/, '') : ''),
     file: t ? t.path : null, project: !!(info && info.project) });
 }
 
@@ -701,14 +715,14 @@ function showWhere(){
 function run(sub){
   togglePanel(true);
   showWhere();
-  post($('terminal').contentWindow, { type: 'term-vandorf', sub: sub });
+  postTerminal({ type: 'term-vandorf', sub: sub });
 }
 
 /* ---------- messages from panels ---------- */
 window.addEventListener('message', function(e){
   if (e.origin !== location.origin || !e.data || typeof e.data.type !== 'string') return;
   var m = e.data, t = tabByWin(e.source);
-  if (!t && e.source !== $('explorer').contentWindow && e.source !== $('terminal').contentWindow) return;
+  if (!t && e.source !== $('explorer').contentWindow && (!terminal || e.source !== terminal.contentWindow)) return;
   switch (m.type){
   case 'ide-open':
     if (m.proc && !m.path) m.path = fileOfProc(m.proc) || (t && t.path);

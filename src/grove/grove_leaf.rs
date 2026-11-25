@@ -634,6 +634,20 @@ fn sh_quote(x: &str) -> String {
     }
 }
 
+pub fn interior_url(name: Str, url: Str) -> Result<Str, String> {
+    if &*name != "ide" {
+        return Ok(url);
+    }
+    let (base, fragment) = url
+        .split_once('#')
+        .map_or((&*url, ""), |(base, _)| (base, &url[base.len()..]));
+    let (path, query) = base
+        .split_once('?')
+        .map_or((base, ""), |(path, query)| (path, query));
+    let suffix = if query.is_empty() { "" } else { "&" };
+    Ok(format!("{path}?embedded=1{suffix}{query}{fragment}").into())
+}
+
 fn url_encode(x: &str) -> String {
     let mut out = String::new();
     for b in x.bytes() {
