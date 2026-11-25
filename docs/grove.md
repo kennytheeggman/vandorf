@@ -309,10 +309,11 @@ try an alternative in parallel."
 
 ## Not yet
 
-Compare, merge, ship and restack (#26); terminals that survive a restart,
-resume rules for agent CLIs, and idle stops (#27); the MCP server and caps
-on autonomous branching (#28, of which the commands above are a first
-part); and the inbox (#29). Terminals die with grove for now.
+Compare, merging into an idea other than the root, ship, and restacking
+onto a tracked branch (#26); restoring terminals after a restart, resume
+rules for agent CLIs, and idle stops (#27); terminals that keep running
+across a restart (#31); and the inbox (#29). Terminals die with grove for
+now. There's no MCP server: agents work the tree with the commands above.
 
 Writes need the per-run token the page is served with. Terminals and
 interiors, which run commands, are offered only when grove listens on a
