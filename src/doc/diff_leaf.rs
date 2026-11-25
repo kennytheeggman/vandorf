@@ -932,8 +932,13 @@ fn types_json(old: &Program, new: &Program) -> Json {
         od.iter().map(|(k, t)| (k.clone(), fields(t))).collect();
     let nf: BTreeMap<String, Vec<JsonField>> =
         nd.iter().map(|(k, t)| (k.clone(), fields(t))).collect();
+    // An instance of a generic typedef comes and goes with its uses; it's
+    // listed when it changes, as its generic's body did.
+    let use_only =
+        |name: &str| name.contains('<') && !(od.contains_key(name) && nd.contains_key(name));
     let out = by_name(&of, &nf)
         .into_iter()
+        .filter(|(name, _)| !use_only(name))
         .map(|(name, j)| {
             let mut fs = fields_of(&j);
             if let (Some(a), Some(b)) = (od.get(&name), nd.get(&name)) {

@@ -1,12 +1,13 @@
 old → new
 procs: 1 changed
   ~ P  nodes ~1
-types: 1 added, 1 removed, 3 changed
+types: 1 added, 1 removed, 4 changed
+  ~ Box<int>  fields +1
   + Fresh
   - Gone
-  ~ Ids    []int → []string
-  ~ Point  fields +1 ~1, doc
-  ~ Shape  variants +1
+  ~ Ids       []int → []string
+  ~ Point     fields +1 ~1, doc
+  ~ Shape     variants +1
 files: 1 changed
   ~ types.sys
 
@@ -35,7 +36,7 @@ files: 1 changed
     "types": {
       "added": 1,
       "removed": 1,
-      "changed": 3
+      "changed": 4
     },
     "interfaces": {
       "added": 0,
@@ -70,12 +71,26 @@ files: 1 changed
       },
       "regions": [],
       "text": {
-        "old": "proc P(p: Point, s: Shape, i: Ids, g: Gone): int {\n\tfunc F(p: Point): int;\n\tP -> F(p = this.p);\n}",
-        "new": "proc P(p: Point, s: Shape, i: Ids, f: Fresh): int {\n\tfunc F(p: Point): int;\n\tP -> F(p = this.p);\n}"
+        "old": "proc P(p: Point, s: Shape, i: Ids, g: Gone, b: Box<int>): int {\n\tfunc F(p: Point): int;\n\tP -> F(p = this.p);\n}",
+        "new": "proc P(p: Point, s: Shape, i: Ids, f: Fresh, b: Box<int>, c: Box<string>): int {\n\tfunc F(p: Point): int;\n\tP -> F(p = this.p);\n}"
       }
     }
   },
   "types": {
+    "Box<int>": {
+      "status": "changed",
+      "def": "{ v: int, n: int }",
+      "was": {
+        "def": "{ v: int }"
+      },
+      "fields": [
+        {
+          "name": "n",
+          "status": "added",
+          "type": "int"
+        }
+      ]
+    },
     "Fresh": {
       "status": "added",
       "def": "{ b: int }"
@@ -138,10 +153,10 @@ files: 1 changed
             {
               "type": 3,
               "label": "P",
-              "sublabel": "(p: Point, s: Shape, i: Ids, f: Fresh)",
+              "sublabel": "(p: Point, s: Shape, i: Ids, f: Fresh, b: Box<int>, c: Box<string>)",
               "diff": "changed",
               "was": {
-                "sublabel": "(p: Point, s: Shape, i: Ids, g: Gone)"
+                "sublabel": "(p: Point, s: Shape, i: Ids, g: Gone, b: Box<int>)"
               }
             }
           ]
@@ -167,7 +182,7 @@ files: 1 changed
             1,
             0
           ],
-          "valueType": "{ p: Point, s: Shape, i: Ids, f: Fresh }",
+          "valueType": "{ p: Point, s: Shape, i: Ids, f: Fresh, b: Box<int>, c: Box<string> }",
           "call": "F(p: Point)",
           "args": "p = this.p"
         }
