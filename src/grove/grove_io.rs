@@ -653,9 +653,10 @@ pub fn rebase_failures(_n: i64) -> Result<Map<Str, Str>, String> {
         .collect())
 }
 
-/// Deletes a discarded or merged leaf. Keep its metadata until after Git succeeds so
-/// a failed cleanup can be retried, and let Git protect uncommitted changes.
-pub fn delete(repo: Repo, id: Str) -> Result<ResString, String> {
+/// Deletes a discarded or merged leaf, merged meaning in base, its pin's
+/// head ("" for none). Keep its metadata until after Git succeeds so a
+/// failed cleanup can be retried, and let Git protect uncommitted changes.
+pub fn delete(repo: Repo, id: Str, base: Str) -> Result<ResString, String> {
     use super::grove_leaf::{
         meta_path, new_idea, parse_idea, valid_id, worktree_of, worktree_path,
     };
@@ -702,26 +703,25 @@ pub fn delete(repo: Repo, id: Str) -> Result<ResString, String> {
         let worktrees = run_git(&repo.top, &["worktree", "list", "--porcelain"])?;
         let worktree = worktree_of(worktrees.into(), id.clone())?;
         // Merged as the tree shows it: its metadata says so, or its branch
-        // has commits of its own and they're all in the root's head.
+        // has commits of its own and they're all in its pin's head.
         let mut merged = &*idea.status == "merged";
-        if let (false, Some(head)) = (merged, head) {
-            let root = run_git(&repo.top, &["rev-parse", "HEAD"])?;
+        if let (false, Some(head), false) = (merged, head, base.is_empty()) {
             let fork = if idea.fork.is_empty() {
-                &root
+                &*base
             } else {
                 &*idea.fork
             };
-            let in_root = run_git(
+            let in_pin = run_git(
                 &repo.top,
                 &[
                     "for-each-ref",
                     "--merged",
-                    "HEAD",
+                    &base,
                     "--format=%(refname)",
                     &reference,
                 ],
             )?;
-            merged = head != fork && in_root.lines().any(|line| line == reference);
+            merged = head != fork && in_pin.lines().any(|line| line == reference);
         }
         if !merged && !worktree.is_empty() && &*idea.status != "discarded" {
             return Err(format!("{} isn't discarded or merged", idea.name));
