@@ -3,4 +3,4 @@ name = "x"
 [project2]
 
 ---
-unknown field `project2`, expected one of `project`, `go`, `rust`, `bin`, `http`
+unknown field `project2`, expected one of `project`, `go`, `rust`, `react`, `bin`, `http`

@@ -1,0 +1,8 @@
+[project]
+name = "x"
+[react]
+out = "a"
+apibase = "/b"
+
+---
+unknown field `apibase`, expected one of `out`, `api_base`, `post`, `test`

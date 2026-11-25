@@ -49,6 +49,14 @@ const CASES: &[&str] = &[
     // A server's cli.
     "[project]\nname = \"x\"\n[http.w]\naddr = \"a\"\ncli = \"Cli\"\n",
     "[project]\nname = \"x\"\n[http.w]\naddr = \"a\"\ncli = [\"Cli\"]\n",
+    // [react]: may be the only target; out is required.
+    "[project]\nname = \"x\"\n[react]\nout = \"web/src/vandorf\"\napi_base = \"/backend\"\npost = [\"npx tsc --noEmit\"]\ntest = [\"npm test\"]\n[http.w]\naddr = \"a\"\nroutes = { \"POST /a\" = \"A\" }\n",
+    "[project]\nname = \"x\"\n[react]\nout = \"web/src/vandorf\"\n",
+    "[project]\nname = \"x\"\n[react]\n",
+    "[project]\nname = \"x\"\n[react]\nout = \"a\"\napi_base = 8099\n",
+    "[project]\nname = \"x\"\n[react]\nout = \"a\"\napibase = \"/b\"\n",
+    "[project]\nname = \"x\"\n[react]\nout = \"a\"\npost = \"npx tsc\"\n",
+    "react = \"web\"\n[project]\nname = \"x\"\n",
 ];
 
 mod common;

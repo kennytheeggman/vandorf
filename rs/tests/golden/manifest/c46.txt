@@ -1,0 +1,8 @@
+[project]
+name = "x"
+[react]
+out = "a"
+api_base = 8099
+
+---
+invalid type: integer `8099`, expected a string

@@ -14,8 +14,8 @@ fn opt(v: Option<&toml::Value>) -> MaybeStr {
 }
 
 /// Reads vandorf.toml as src/project.rs does: the project's name and sources,
-/// its [go] and [rust] targets, its bins and its servers, with defaults
-/// filled in; an error naming what's wrong otherwise.
+/// its [go], [rust] and [react] targets, its bins and its servers, with
+/// defaults filled in; an error naming what's wrong otherwise.
 pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
     let fail = |e: String| {
         Ok(ResManifest::Err(Diag {
@@ -78,6 +78,18 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
         },
         None => MaybeGo::None,
     };
+    let react = match t.get("react").and_then(|r| r.as_table()) {
+        Some(r) => match r.get("out").and_then(|o| o.as_str()) {
+            Some(out) => MaybeReact::Some(ReactTarget {
+                out: s(out),
+                api_base: r.get("api_base").and_then(|b| b.as_str()).map_or(s(""), s),
+                post: cmds(r, "post"),
+                test: cmds(r, "test"),
+            }),
+            None => return fail("[react]: missing field `out`".into()),
+        },
+        None => MaybeReact::None,
+    };
     let mut http = vec![];
     if let Some(h) = t.get("http").and_then(|h| h.as_table()) {
         for (n, v) in h {
@@ -131,6 +143,7 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
         rust,
         has_go: t.contains_key("go"),
         go,
+        react,
         bins: bins.into_iter().collect(),
         http: http.into_iter().collect(),
     }))
@@ -548,10 +561,17 @@ const RUST: Fields = &[
     ("post", Kind::Strs, false),
     ("test", Kind::Strs, false),
 ];
+const REACT: Fields = &[
+    ("out", Kind::Str, true),
+    ("api_base", Kind::Str, false),
+    ("post", Kind::Strs, false),
+    ("test", Kind::Strs, false),
+];
 const MANIFEST: Fields = &[
     ("project", Kind::Table("Meta", META), true),
     ("go", Kind::Table("GoTarget", GO), false),
     ("rust", Kind::Table("RustTarget", RUST), false),
+    ("react", Kind::Table("ReactTarget", REACT), false),
     ("bin", Kind::Tables("Bin", BIN), false),
     ("http", Kind::Tables("Server", SERVER), false),
 ];
