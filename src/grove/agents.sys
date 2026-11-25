@@ -2,14 +2,17 @@
 // of [http.grove]), which works on the repository directly and then tells
 // a running grove, and the routes that hear it. grove's terminals and
 // interiors get $GROVE_URL and $GROVE_TOKEN, the agents' token, which only
-// the agent routes take: an agent can branch, rename and restore ideas, and
-// open terminals in them, but discarding is left to people, in the tree.
+// the agent routes take: an agent can branch, rename and restore ideas, open
+// terminals in them and run commands there, but discarding is left to
+// people, in the tree.
 //   POST /api/agent/notify {idea, open, run}   a change; with open, a terminal in the idea
+//   POST /api/agent/run {idea, cmd, new}       cmd typed into one of the idea's terminals
 //   GET  /api/ideas/wait?v=                    the count of changes, once it isn't v
 
 // A command line, read: the command, its positional arguments, and its
-// flags (--from, --idea, --run, --no-terminal). err: why it can't run.
-type CliArgs = { cmd: string, args: []string, from: string, has_from: bool, idea: string, has_idea: bool, run: string, terminal: bool, err: string };
+// flags (--from, --idea, --run, --no-terminal, --new as fresh). err: why it
+// can't run.
+type CliArgs = { cmd: string, args: []string, from: string, has_from: bool, idea: string, has_idea: bool, run: string, terminal: bool, fresh: bool, err: string };
 
 // Reads grove's command line: a command first (help for -h, --help or
 // none), then its arguments and flags, as `--flag value` or `--flag=value`;
@@ -27,6 +30,21 @@ func IdeaOfBranch(branch: string): Res<string> = "grove_leaf.rs:idea_of_branch";
 func OkOr(r: Res<string>, d: string): string = "grove_leaf.rs:ok_or";
 // The first positional argument, or "".
 func Arg0(a: CliArgs): string = "grove_leaf.rs:arg0";
+// The command `grove run` types: its one argument as it is (a command line
+// for the shell), or its several each quoted for the shell, joined by
+// spaces.
+func RunCmd(a: CliArgs): string = "grove_leaf.rs:run_cmd";
+// A run's JSON body: {"idea", "cmd", "new"}.
+func RunBody(idea: string, cmd: string, fresh: bool): string = "grove_leaf.rs:run_body";
+// The terminal of an idea's sections to run a command in: the first
+// terminal section's whose terminal is one of mine (opened in the idea's
+// worktree) and idle (its shell at its prompt); 0 if there's none.
+func RunTerminal(xs: []Section, mine: []int, idle: []int): int = "grove_leaf.rs:run_terminal";
+// What `grove run` says it did, from grove's answer: where it ran cmd, and
+// whether in a new terminal; an error if grove couldn't be asked or
+// turned it away, which without $GROVE_URL says grove run needs grove
+// running.
+func RanText(idea: string, cmd: string, answer: Res<string>): Res<string> = "grove_leaf.rs:ran_text";
 // A notification's JSON body: {"idea", "open", "run"}.
 func NotifyBody(idea: string, open: bool, run: string): string = "grove_leaf.rs:notify_body";
 // Reads a bool field, or d if it's missing or not a bool.
@@ -124,6 +142,69 @@ proc OpenTerminal(s: { repo: Repo, id: string, run: string }): Res<string> {
 
 func UnwrapI(r: Res<int>): int = "grove_leaf.rs:unwrap_i";
 
+// Serves POST /api/agent/run {idea, cmd, new}: types cmd into a terminal of
+// the idea (RunIn), and counts a change, as it may have opened one. Answers
+// {idea, opened}.
+proc RunRoute(req: HttpRequest): HttpResponse {
+	RunRoute -> AgentGate(req = this.req);
+	AgentGate switch {
+		Shut(r) -> id(r),
+		else -> ParseJson(text = RunRoute.req.body)
+	};
+	ParseJson switch {
+		Ok(_) -> Grove.Repo(n = 0),
+		Err(e) -> id(ApiErr(msg = "bad request: " + e.msg))
+	};
+	Grove.Repo switch {
+		Ok(r) -> RunIn(s = { repo = r, id = StrOr(j = UnwrapJ(r = ParseJson), key = "idea", d = ""), cmd = StrOr(j = UnwrapJ(r = ParseJson), key = "cmd", d = ""), fresh = BoolOr(j = UnwrapJ(r = ParseJson), key = "new", d = false) }),
+		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+	RunIn switch {
+		Ok(o) -> id(o) as Opened,
+		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+	Opened -> Grove.Changed(n = 0);
+	Grove.Changed -> id(Api(j = Obj([{ key = "ok", value = Bool(true) }, { key = "idea", value = Str(StrOr(j = UnwrapJ(r = ParseJson), key = "idea", d = "")) }, { key = "opened", value = Bool(Opened) }])));
+}
+
+// Runs cmd in a terminal of an idea, typed with a return: into its first
+// terminal section whose terminal grove opened in the idea's worktree and
+// whose shell is at its prompt (RunTerminal), so never into another idea's
+// terminal or into a program running in one (an agent, an editor); else,
+// or with fresh, into a new one (OpenTerminal). Gives whether it opened one.
+proc RunIn(s: { repo: Repo, id: string, cmd: string, fresh: bool }): Res<bool> {
+	RunIn switch {
+		(this.s.cmd == "") -> id(Err(GroveErr(msg = "no command to run"))),
+		else -> Session.Loopback(n = 0)
+	};
+	Session.Loopback switch {
+		(!this) -> id(Err(GroveErr(msg = "terminals are off: grove isn't listening on a loopback address"))),
+		else -> LoadIdea(s = { repo = RunIn.s.repo, id = RunIn.s.id })
+	};
+	LoadIdea switch {
+		Ok(i) -> id(i) as I,
+		Err(e) -> id(Err(e))
+	};
+	I -> IdeaWorktree(s = { repo = RunIn.s.repo, id = RunIn.s.id });
+	IdeaWorktree switch {
+		Ok(dir) -> Grove.OpenedIn(dir = dir),
+		Err(e) -> id(Err(e))
+	};
+	Grove.OpenedIn -> Term.Idle(n = 0);
+	Term.Idle switch {
+		(RunIn.s.fresh || RunTerminal(xs = I.sections, mine = Grove.OpenedIn, idle = this) == 0) -> OpenTerminal(s = { repo = RunIn.s.repo, id = RunIn.s.id, run = RunIn.s.cmd }),
+		else -> Term.Input(id = RunTerminal(xs = I.sections, mine = Grove.OpenedIn, idle = this), data = Typed(run = RunIn.s.cmd))
+	};
+	OpenTerminal switch {
+		Ok(_) -> id(Ok(true)),
+		Err(e) -> id(Err(e))
+	};
+	Term.Input switch {
+		Ok(_) -> id(Ok(false)),
+		Err(e) -> id(Err(GroveErr(msg = "cannot type into the terminal: " + e.msg)))
+	};
+}
+
 // grove's command line, the cli of [http.grove]: `grove <command> ...`.
 // Each command works on the repository directly, in the idea whose worktree
 // it's run in unless told otherwise, then tells grove if it's running
@@ -154,6 +235,7 @@ proc CliRun(s: { repo: Repo, a: CliArgs }): Res<string> {
 		(this.s.a.cmd == "current") -> CliCurrent(repo = this.s.repo),
 		(this.s.a.cmd == "branch") -> CliBranch(s = this.s),
 		(this.s.a.cmd == "rename") -> CliRename(s = this.s),
+		(this.s.a.cmd == "run") -> CliRunIn(s = this.s),
 		else -> CliRestore(s = this.s)
 	};
 }
@@ -247,4 +329,21 @@ proc CliRestore(s: { repo: Repo, a: CliArgs }): Res<string> {
 		Err(e) -> id(Err(e))
 	};
 	Grove.Notify -> id(Ok(ToldText(done = "restored " + UnwrapR2(r = RestoreIdea) + " in " + WorktreePath(common = CliRestore.s.repo.common, id = UnwrapR2(r = RestoreIdea)), notified = this)));
+}
+
+// `grove run [--idea <idea>] [--new] [--] <cmd...>`: asks grove to type cmd
+// into a terminal of the idea here (or --idea's), one whose shell is at its
+// prompt, or a new one (always, with --new). Unlike the other commands, it
+// needs grove running.
+proc CliRunIn(s: { repo: Repo, a: CliArgs }): Res<string> {
+	CliRunIn switch {
+		(this.s.a.has_idea) -> id(Ok(this.s.a.idea)) as Which,
+		else -> Here(repo = this.s.repo)
+	};
+	Here -> id(this) as Which;
+	Which switch {
+		Ok(i) -> Grove.Notify(path = "/api/agent/run", body = RunBody(idea = i, cmd = RunCmd(a = CliRunIn.s.a), fresh = CliRunIn.s.a.fresh)),
+		Err(e) -> id(Err(GroveErr(msg = e.msg + "; pass --idea <idea> to run in one")))
+	};
+	Grove.Notify -> id(RanText(idea = UnwrapR2(r = Which), cmd = RunCmd(a = CliRunIn.s.a), answer = this));
 }

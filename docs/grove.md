@@ -116,8 +116,8 @@ carrying `grove: 1`:
   `focus`.
 - **interior → grove:** `ready`; `title` {title} for its header;
   `attention` {message}, a dot on its header and its idea's node until it's
-  looked at; `run` {cmd}, typed into one of the idea's terminals (opening
-  one if there's none); `keys` {code, alt, shift, ctrl, meta} for the
+  looked at; `run` {cmd}, typed into one of the idea's terminals as
+  `grove run` does (see below); `keys` {code, alt, shift, ctrl, meta} for the
   shortcuts it didn't use.
 
 ## Commands, for agents
@@ -131,13 +131,16 @@ grove current                       # this idea: id, name, branch, worktree
 grove branch "try a cache" --run 'claude "make lookups cached"'
 grove rename "cache, with eviction"
 grove restore <idea>
+grove run -- make test              # in this idea's terminal at its prompt
+grove run --idea <idea> --new "npm run dev"
 grove help
 ```
 
 Each command runs in the idea whose worktree it's in (the repository's own
-is the root), unless `--from` (branch) or `--idea` (rename) names another.
-It makes the change itself, through git and grove's metadata, so it works
-with no grove running. Then it tells grove, through `$GROVE_URL` and
+is the root), unless `--from` (branch) or `--idea` (rename, run) names
+another. It makes the change itself, through git and grove's metadata, so
+it works with no grove running; all but `run`, which types into grove's
+terminals and fails without `$GROVE_URL`. Then it tells grove, through `$GROVE_URL` and
 `$GROVE_TOKEN`. grove sets both in its terminals and in the interiors it
 starts. The page catches up at once and says which ideas are new.
 
@@ -146,6 +149,23 @@ starts. The page catches up at once and says which ideas are new.
   An agent's session can't follow it into another worktree, so the usual
   move is to start a fresh agent there: `--run 'claude "<prompt>"'`. Pass
   `--no-terminal` for just the idea.
+- **run** types a command, and a return, into one of the idea's terminals:
+  its first terminal section whose shell is at its prompt, else a new
+  terminal, kept as one of its sections (the page shows it at once).
+  `--new` always opens one. One argument is a command line for the shell
+  (`grove run 'make test && echo ok'`); several, or the rest after `--`,
+  are quoted as words. Flags go before the command: from its first word
+  on, everything is the command's.
+  - **It never types into a program.** A terminal whose foreground isn't
+    its shell (an agent, an editor, a server, or the terminal `grove run`
+    itself runs in) is passed over, since what's typed would go to that
+    program: to an agent, as its prompt. There's no way to make it type
+    into one.
+  - **Only the idea's own terminals**: one counts only if grove opened it,
+    since it started, in the idea's worktree, so a section's stale id (from
+    before grove restarted) never reaches another idea's terminal.
+  - The page's `run` messages, from interiors, pick a terminal the same
+    way.
 - **Discarding is left to people**, in the tree. `grove discard` refuses,
   and `$GROVE_TOKEN` is a token of its own that only the agent routes take,
   not grove's other writes. An agent can't discard the idea its own
@@ -155,6 +175,8 @@ The routes behind it:
 
 - `POST /api/agent/notify {idea, open, run}`, with the agents' token: counts
   a change, and with `open` opens a terminal in the idea, typing `run`.
+- `POST /api/agent/run {idea, cmd, new}`, with the agents' token: types
+  `cmd` into a terminal of the idea as above, answering `{idea, opened}`.
 - `GET /api/ideas/wait?v=`: the count of changes, as soon as it isn't `v`
   (up to 25 s). The page long-polls it.
 

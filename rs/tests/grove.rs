@@ -241,6 +241,15 @@ fn agents_branch_from_the_command_line() {
     assert!(!ok && out.contains("can't go with --no-terminal"), "{out}");
     let (ok, out) = grove(&wt, &[], &["help"]);
     assert!(ok && out.starts_with("usage: grove [--addr host:port]"), "{out}");
+    // grove run types into grove's terminals, so it needs grove running.
+    let (ok, out) = grove(&wt, &[], &["run", "--", "true"]);
+    assert!(!ok && out.contains("grove run types into grove's terminals, so it needs grove running: no $GROVE_URL"), "{out}");
+    let (ok, out) = grove(&wt, &[], &["run"]);
+    assert!(!ok && out.contains("grove run takes a command, such as grove run -- make test, not 0"), "{out}");
+    let (ok, out) = grove(&wt, &[], &["run", "--new=yes", "true"]);
+    assert!(!ok && out.contains("--new takes no value"), "{out}");
+    let (ok, out) = grove(&wt, &[], &["rename", "x", "--new"]);
+    assert!(!ok && out.contains("grove rename takes no --new"), "{out}");
 
     // With grove running, its terminals carry $GROVE_URL and $GROVE_TOKEN.
     let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
@@ -295,6 +304,69 @@ fn agents_branch_from_the_command_line() {
     assert_eq!((ok, out.as_str()), (true, &*format!("renamed {a} to first, renamed\n")));
     let (ok, out) = grove(&wt, &[("GROVE_URL", &url), ("GROVE_TOKEN", "wrong")], &["rename", "again"]);
     assert!(ok && out.contains("grove turned it away: forbidden"), "{out}");
+
+    // grove run types into the idea's first terminal section whose shell is
+    // at its prompt: b's, from grove branch.
+    let bwt = common.join("grove/worktrees").join(&b);
+    let bmeta = || std::fs::read_to_string(common.join(format!("grove/ideas/{b}.toml"))).unwrap();
+    let terms = |meta: &str| -> Vec<i64> { meta.lines().filter_map(|l| l.strip_prefix("term = ")).map(|n| n.parse().unwrap()).collect() };
+    let b1 = terms(&bmeta())[0];
+    let idle = |id: i64| {
+        let (_, l) = call(port, "GET", "/api/term/list", &token, "");
+        let ids = l.split("\"idle\":[").nth(1).unwrap_or_else(|| panic!("no idle in {l}"));
+        ids[..ids.find(']').unwrap()].split(',').any(|x| x == id.to_string())
+    };
+    let soon = |what: &str, f: &dyn Fn() -> bool| {
+        for _ in 0..100 {
+            if f() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        panic!("not {what} after 10 s");
+    };
+    soon("idle", &|| idle(b1));
+    let (ok, out) = grove(&wt, &env, &["run", "--idea", &b, "echo one > one.txt"]);
+    assert_eq!((ok, out.as_str()), (true, &*format!("grove typed into a terminal of idea {b}: echo one > one.txt\n")));
+    assert_eq!(read_soon(&bwt.join("one.txt")), "one\n");
+    assert_eq!(terms(&bmeta()), [b1]);
+
+    // A terminal running a program isn't typed into: the command goes to a
+    // new terminal, kept in the idea's sections.
+    let (ok, _) = grove(&wt, &env, &["run", "--idea", &b, "sleep 60"]);
+    assert!(ok);
+    soon("busy", &|| !idle(b1));
+    let (ok, out) = grove(&wt, &env, &["run", "--idea", &b, "echo two > two.txt"]);
+    assert_eq!((ok, out.as_str()), (true, &*format!("grove opened a terminal in idea {b}, running: echo two > two.txt\n")));
+    assert_eq!(read_soon(&bwt.join("two.txt")), "two\n");
+    let ts = terms(&bmeta());
+    assert!(ts.len() == 2 && ts[0] == b1, "{ts:?}");
+    // Once the program ends, the first section's terminal is used again.
+    call(port, "POST", &format!("/api/term/input?id={b1}"), &token, "\u{3}");
+    soon("idle again", &|| idle(b1));
+    let (ok, out) = grove(&wt, &env, &["run", "--idea", &b, "echo three > three.txt"]);
+    assert!(ok && out.starts_with("grove typed into"), "{out}");
+    assert_eq!(read_soon(&bwt.join("three.txt")), "three\n");
+
+    // --new always opens one; several arguments are quoted as words.
+    let (ok, out) = grove(&wt, &env, &["run", "--idea", &b, "--new", "--", "sh", "-c", "echo \"$0\" > four.txt", "a b"]);
+    assert!(ok && out.ends_with("running: sh -c 'echo \"$0\" > four.txt' 'a b'\n"), "{out}");
+    assert_eq!(read_soon(&bwt.join("four.txt")), "a b\n");
+    assert_eq!(terms(&bmeta()).len(), 3);
+
+    // Never another idea's terminal: with b's terminal put in a's sections,
+    // running in a (the idea here) opens a terminal of a's own.
+    call(port, "POST", "/api/ideas/layout", &token, &format!(r#"{{"id": "{a}", "sections": [{{"interior": "terminal", "expanded": true, "term": {b1}}}]}}"#));
+    let (ok, out) = grove(&wt, &env, &["run", "echo five > five.txt"]);
+    assert_eq!((ok, out.as_str()), (true, &*format!("grove opened a terminal in idea {a}, running: echo five > five.txt\n")));
+    assert_eq!(read_soon(&wt.join("five.txt")), "five\n");
+    assert!(!bwt.join("five.txt").exists());
+
+    // The run route takes the agents' token only, and an idea with a
+    // worktree.
+    assert_eq!(call(port, "POST", "/api/agent/run", &token, &format!(r#"{{"idea": "{b}", "cmd": "true"}}"#)).0, 403);
+    let (ok, out) = grove(&wt, &env, &["run", "--idea", "nosuch", "true"]);
+    assert!(!ok && out.contains("didn't run: grove turned it away: idea nosuch has no worktree"), "{out}");
 
     // The agents' token writes nothing else: no discarding, no layouts.
     assert_eq!(call(port, "POST", "/api/ideas/discard", &agent, &format!(r#"{{"id": "{b}"}}"#)).0, 403);
