@@ -64,7 +64,8 @@ proc Ty(s: { cx: TyCx, t: TypeExpr }): TyOut {
 		Array(e) -> Ty(s = { cx = Ty.s.cx, t = e }) as Elem,
 		Map(m) -> TyMap(s = { cx = Ty.s.cx, key = m.key, value = m.value }),
 		Struct(fs) -> Fields(s = { cx = Ty.s.cx, fs = fs, i = 0, ok = true, acc = [] }),
-		Enum(vs) -> Variants(s = { cx = Ty.s.cx, vs = vs, i = 0, acc = [] })
+		Enum(vs) -> Variants(s = { cx = Ty.s.cx, vs = vs, i = 0, acc = [] }),
+		Foreign(_) -> id({ cx = { ..Ty.s.cx, errors = Ty.s.cx.errors + [{ msg = "foreign types aren't supported yet", span = Ty.s.t.span }] }, t = None() })
 	};
 	Elem -> id({ cx = this.cx, t = ArrayOf(t = this.t) });
 	Fields -> id({ cx = this.cx, t = StructOf(ms = this.ms) });
@@ -408,7 +409,8 @@ proc CheckBody(s: BodyCheck): { cx: TyCx, used: []string } {
 		Array(e) -> CheckBodies(s = { cx = CheckBody.s.cx, ts = [e], params = CheckBody.s.params, used = CheckBody.s.used, i = 0 }) as Parts,
 		Map(m) -> CheckBodies(s = { cx = CheckBody.s.cx, ts = [m.key, m.value], params = CheckBody.s.params, used = CheckBody.s.used, i = 0 }) as Parts,
 		Struct(fs) -> CheckBodies(s = { cx = CheckBody.s.cx, ts = Exprs(fs = fs), params = CheckBody.s.params, used = CheckBody.s.used, i = 0 }) as Parts,
-		Enum(vs) -> CheckBodies(s = { cx = CheckBody.s.cx, ts = Payloads(vs = vs), params = CheckBody.s.params, used = CheckBody.s.used, i = 0 }) as Parts
+		Enum(vs) -> CheckBodies(s = { cx = CheckBody.s.cx, ts = Payloads(vs = vs), params = CheckBody.s.params, used = CheckBody.s.used, i = 0 }) as Parts,
+		Foreign(_) -> id({ cx = CheckBody.s.cx, used = CheckBody.s.used })
 	};
 	NP switch {
 		Some(msg) -> id({ cx = { ..CheckBody.s.cx, errors = CheckBody.s.cx.errors + [{ msg = msg, span = NameSpan(k = Kind) }] }, used = CheckBody.s.used }),
