@@ -82,7 +82,7 @@ fn ideas_are_branches_with_worktrees() {
     // At first, only the root: the main worktree.
     let tree = req("GET", "/api/ideas", "", "", "").body;
     let name = dir.file_name().unwrap().to_str().unwrap();
-    assert!(tree.starts_with(&format!(r#"{{"ideas":[{{"branch":"main","fork":"","head":"{head}","id":"","name":"{name}","parent":null,"sections":[],"status":"active""#)), "{tree}");
+    assert!(tree.starts_with(&format!(r#"{{"ideas":[{{"agent":null,"behind":false,"branch":"main","fork":"","head":"{head}","id":"","name":"{name}","parent":null,"sections":[],"status":"active""#)), "{tree}");
     assert!(tree.contains(r#""interiors":[{"mode":"builtin","name":"terminal"},{"mode":"per-worktree","name":"ide"}]"#), "{tree}");
 
     // Branching: a branch idea/<id>, a worktree with its base, metadata.
@@ -99,7 +99,7 @@ fn ideas_are_branches_with_worktrees() {
     assert_eq!(lay.body, format!(r#"{{"id":"{a}","ok":true}}"#));
     let b = id_of(&req("POST", "/api/ideas/branch", "", &token, &format!(r#"{{"from": "{a}"}}"#)).body);
     let tree = req("GET", "/api/ideas", "", "", "").body;
-    assert!(tree.contains(&format!(r#""id":"{b}","name":"{b}","parent":"{a}","sections":[{{"expanded":false,"interior":"terminal","term":0}},{{"expanded":true,"interior":"ide","term":0}}],"status":"active""#)), "{tree}");
+    assert!(tree.contains(&format!(r#""id":"{b}","name":"{b}","parent":"{a}","rebasing":false,"sections":[{{"expanded":false,"interior":"terminal","term":0}},{{"expanded":true,"interior":"ide","term":0}}],"status":"active""#)), "{tree}");
     for (body, err) in [
         (r#"{"id": "../x", "sections": []}"#, "invalid idea id: ../x"),
         (r#"{"id": "nobranch", "sections": []}"#, "no such idea: nobranch"),
@@ -113,15 +113,15 @@ fn ideas_are_branches_with_worktrees() {
     // goes, the branch stays, and it can be restored.
     std::fs::write(wt.join("a.txt"), "changed\n").unwrap();
     let busy = req("POST", "/api/ideas/discard", "", &token, &format!(r#"{{"id": "{a}"}}"#));
-    assert!(busy.status == 400 && busy.body.contains("contains modified or untracked files"), "{}", busy.body);
+    assert!(busy.status == 400 && busy.body.contains("nothing was discarded: these have changes that aren't committed: first try"), "{}", busy.body);
     git(&wt, &["checkout", "-q", "a.txt"]);
     assert_eq!(req("POST", "/api/ideas/discard", "", &token, &format!(r#"{{"id": "{a}"}}"#)).status, 200);
     assert!(!wt.exists());
     assert_eq!(git(&dir, &["rev-parse", &format!("idea/{a}")]), head);
     let tree = req("GET", "/api/ideas", "", "", "").body;
-    assert!(tree.contains(&format!(r#""id":"{a}","name":"first try","parent":"","sections":[{{"expanded":false,"interior":"terminal","term":0}},{{"expanded":true,"interior":"ide","term":0}}],"status":"discarded","worktree":"""#)), "{tree}");
-    // Its child still hangs from it.
-    assert!(tree.contains(&format!(r#""parent":"{a}""#)));
+    assert!(tree.contains(&format!(r#""id":"{a}","name":"first try","parent":"","rebasing":false,"sections":[{{"expanded":false,"interior":"terminal","term":0}},{{"expanded":true,"interior":"ide","term":0}}],"status":"discarded","worktree":"""#)), "{tree}");
+    // Its child went with it, and still hangs from it.
+    assert!(tree.contains(&format!(r#""id":"{b}","name":"{b}","parent":"{a}","rebasing":false,"sections":[{{"expanded":false,"interior":"terminal","term":0}},{{"expanded":true,"interior":"ide","term":0}}],"status":"discarded""#)), "{tree}");
     let again = req("POST", "/api/ideas/discard", "", &token, &format!(r#"{{"id": "{a}"}}"#));
     assert!(again.body.contains("has no worktree"), "{}", again.body);
     assert_eq!(req("POST", "/api/ideas/restore", "", &token, &format!(r#"{{"id": "{a}"}}"#)).status, 200);
@@ -138,7 +138,7 @@ fn ideas_are_branches_with_worktrees() {
     // A branch made outside grove is an idea too, from the root.
     git(&dir, &["branch", "idea/byhand"]);
     let tree = req("GET", "/api/ideas", "", "", "").body;
-    assert!(tree.contains(r#""id":"byhand","name":"byhand","parent":"","sections":[],"status":"discarded""#), "{tree}");
+    assert!(tree.contains(r#""id":"byhand","name":"byhand","parent":"","rebasing":false,"sections":[],"status":"discarded""#), "{tree}");
 
     // Interiors from the repository's manifest: they can replace the IDE's
     // entry, not the terminal's, and add their own after.
@@ -433,6 +433,103 @@ fn agents_branch_from_the_command_line() {
     // The agents' token writes nothing else: no discarding, no layouts.
     assert_eq!(call(port, "POST", "/api/ideas/discard", &agent, &format!(r#"{{"id": "{b}"}}"#)).0, 403);
     assert_eq!(call(port, "POST", "/api/ideas/layout", &agent, &format!(r#"{{"id": "{b}", "sections": []}}"#)).0, 403);
+
+    drop(_server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// What /api/ideas says of the idea named name: (status, behind, rebasing,
+/// agent state, parent).
+fn idea_in(port: u16, name: &str) -> (String, bool, bool, String, String) {
+    let tree = call(port, "GET", "/api/ideas", "", "").1;
+    let at = tree.find(&format!(r#""name":"{name}""#)).unwrap_or_else(|| panic!("no {name} in {tree}"));
+    let start = tree[..at].rfind(r#"{"agent":"#).unwrap();
+    let end = at + tree[at..].find(r#""worktree":"#).unwrap();
+    let i = &tree[start..end];
+    let field = |k: &str| i.split(&format!(r#""{k}":"#)).nth(1).map(|v| v.split(|c| c == ',' || c == '}').next().unwrap().trim_matches('"').to_string()).unwrap_or_default();
+    let state = if i.starts_with(r#"{"agent":null"#) { String::new() } else { i.split(r#""state":""#).nth(1).unwrap().split('"').next().unwrap().to_string() };
+    (field("status"), field("behind") == "true", field("rebasing") == "true", state, field("parent"))
+}
+
+#[test]
+fn merging_rebases_the_tree_and_agents_report() {
+    let dir = repo_named("grove-merge-test");
+    let common = dir.join(".git");
+    let make = |name: &str, from: Option<&str>, file: &str, text: &str| -> String {
+        let mut args = vec!["branch", name, "--no-terminal"];
+        if let Some(f) = from { args.extend(["--from", f]); }
+        let (ok, out) = grove(&dir, &[], &args);
+        assert!(ok, "{out}");
+        let id = out["branched idea ".len()..].split(' ').next().unwrap().to_string();
+        let wt = common.join("grove/worktrees").join(&id);
+        std::fs::write(wt.join(file), text).unwrap();
+        git(&wt, &["add", "."]);
+        git(&wt, &["commit", "-qm", name]);
+        id
+    };
+    // A, then B on A; C; and D, which changes A's file its own way.
+    let a = make("A", None, "idea-a.txt", "a\n");
+    let b = make("B", Some(&a), "idea-b.txt", "b\n");
+    let c = make("C", None, "idea-c.txt", "c\n");
+    let d = make("D", None, "idea-a.txt", "d\n");
+    let wt = |id: &str| common.join("grove/worktrees").join(id);
+    let (_server, port, token) = serve(&dir, &[]);
+
+    // An idea with changes not committed can't merge; the agents' token
+    // can't merge at all.
+    std::fs::write(wt(&c).join("wip"), "x").unwrap();
+    let (_, busy) = call(port, "POST", "/api/ideas/merge", &token, &format!(r#"{{"id": "{c}"}}"#));
+    assert!(busy.contains("C has changes that aren't committed"), "{busy}");
+    std::fs::remove_file(wt(&c).join("wip")).unwrap();
+
+    // Merging B, which is on the root's head: the root fast-forwards to it,
+    // B is merged, and the others are rebased onto it; D conflicts, so it's
+    // left as it was and flagged.
+    let (status, merged) = call(port, "POST", "/api/ideas/merge", &token, &format!(r#"{{"id": "{b}"}}"#));
+    assert_eq!(status, 200, "{merged}");
+    assert!(merged.contains("merged B into the root; not rebased onto it, so flagged: D (rebasing onto its parent conflicts)"), "{merged}");
+    assert!(dir.join("idea-b.txt").exists() && dir.join("idea-a.txt").exists());
+    assert!(!wt(&b).exists());
+    assert_eq!(idea_in(port, "B").0, "merged");
+    assert!(wt(&c).join("idea-b.txt").exists() && wt(&c).join("idea-c.txt").exists());
+    assert_eq!(idea_in(port, "C"), ("active".into(), false, false, String::new(), String::new()));
+    assert_eq!(idea_in(port, "D"), ("active".into(), true, false, "attention".into(), String::new()));
+    assert_eq!(git(&wt(&d), &["status", "--porcelain"]), "");
+    let (_, again) = call(port, "POST", "/api/ideas/merge", &token, &format!(r#"{{"id": "{a}"}}"#));
+    assert!(again.contains("A has nothing to merge"), "{again}");
+
+    // Agents report their status, and rebase their own idea.
+    let envs = dir.join("env.txt");
+    type_in_terminal(port, &token, "", &format!("env | grep ^GROVE_ | sort > {}", envs.display()));
+    let text = read_soon(&envs);
+    let var = |k: &str| text.lines().find_map(|l| l.strip_prefix(&format!("{k}="))).unwrap_or_else(|| panic!("no {k} in {text}")).to_string();
+    let (url, agent) = (var("GROVE_URL"), var("GROVE_TOKEN"));
+    let env = [("GROVE_URL", url.as_str()), ("GROVE_TOKEN", agent.as_str())];
+    assert_eq!(call(port, "POST", "/api/ideas/merge", &agent, &format!(r#"{{"id": "{c}"}}"#)).0, 403);
+    let (ok, out) = grove(&wt(&c), &env, &["status", "working", "running", "the", "tests"]);
+    assert_eq!((ok, out.as_str()), (true, ""));
+    assert_eq!(idea_in(port, "C").3, "working");
+    let (ok, out) = grove(&wt(&c), &env, &["status", "busy"]);
+    assert!(!ok && out.contains("grove status takes working, attention, done or clear, not busy"), "{out}");
+    let (ok, out) = grove(&wt(&c), &env, &["merge"]);
+    assert!(!ok && out.contains("merging is left to people"), "{out}");
+    // D's rebase stops on its conflict, to be resolved where it is.
+    let (ok, out) = grove(&wt(&d), &env, &["rebase"]);
+    assert!(!ok && out.contains("the rebase stopped on a conflict"), "{out}");
+    assert_eq!(idea_in(port, "D").2, true);
+    std::fs::write(wt(&d).join("idea-a.txt"), "a and d\n").unwrap();
+    git(&wt(&d), &["add", "idea-a.txt"]);
+    let (ok, out) = grove(&wt(&d), &env, &["rebase", "--continue"]);
+    assert!(ok && out.starts_with(&format!("rebased: {d}")), "{out}");
+    assert_eq!(idea_in(port, "D"), ("active".into(), false, false, String::new(), String::new()));
+
+    // Discarding C takes the idea under it too.
+    let (ok, out) = grove(&wt(&c), &env, &["branch", "E", "--no-terminal"]);
+    assert!(ok, "{out}");
+    let (_, gone) = call(port, "POST", "/api/ideas/discard", &token, &format!(r#"{{"id": "{c}"}}"#));
+    assert!(gone.contains(r#""ok":true"#), "{gone}");
+    assert_eq!(idea_in(port, "C").0, "discarded");
+    assert_eq!(idea_in(port, "E").0, "discarded");
 
     drop(_server);
     let _ = std::fs::remove_dir_all(&dir);

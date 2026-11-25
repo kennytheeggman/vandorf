@@ -111,13 +111,31 @@ fn worktrees(porcelain: &str) -> Vec<Worktree> {
 }
 
 /// Finds the worktree that has branch idea/<id> checked out, in the output of
-/// `git worktree list --porcelain`; "" if none has.
+/// `git worktree list --porcelain`, or else grove's worktree for it
+/// (grove/worktrees/<id>) with a detached HEAD, as while a rebase is
+/// stopped; "" if there's none.
 pub fn worktree_of(porcelain: Str, id: Str) -> Result<Str, String> {
+    let wts = worktrees(&porcelain);
+    Ok(find_wt(&wts, &id).map_or(s(""), |w| w.path.as_str().into()))
+}
+
+/// The worktree with idea/<id> checked out, or else grove's worktree for it
+/// (grove/worktrees/<id>) with a detached HEAD, as while a rebase is stopped.
+fn find_wt<'a>(wts: &'a [Worktree], id: &str) -> Option<&'a Worktree> {
     let want = format!("refs/heads/idea/{id}");
-    Ok(worktrees(&porcelain)
-        .into_iter()
-        .find(|w| w.branch == want)
-        .map_or(s(""), |w| w.path.into()))
+    let tail = format!("/grove/worktrees/{id}");
+    wts.iter().find(|w| w.branch == want).or_else(|| {
+        wts.iter()
+            .find(|w| w.branch.is_empty() && w.path.ends_with(&tail))
+    })
+}
+
+/// The idea whose grove worktree (grove/worktrees/<id>) path is, or "".
+pub fn id_of_path(path: Str) -> Result<Str, String> {
+    Ok(match path.rsplit_once("/grove/worktrees/") {
+        Some((_, id)) if is_valid_id(id) => s(id),
+        _ => s(""),
+    })
 }
 
 fn new(id: &str) -> Idea {
@@ -319,14 +337,33 @@ fn sections_json(xs: &List<Section>) -> Json {
 /// branch (its worktree, head and sections; one whose parent is gone hangs
 /// from the root; one with no worktree is discarded), and the interiors that
 /// can be opened.
+/// An idea is merged when its metadata says so, or when its branch has
+/// commits of its own (its head isn't its fork, or with no fork, the
+/// root's head) and they're all in the
+/// root's head (merged: `git for-each-ref --merged HEAD` lines). It's behind
+/// when it's active and its fork isn't its parent's head. agents: what
+/// agents said of each idea.
 pub fn tree_json(
     repo: Repo,
     worktrees: Str,
     branches: Str,
+    merged: Str,
     root: Idea,
     ideas: List<Idea>,
     interiors: List<Interior>,
+    agents: Map<Str, AgentStatus>,
 ) -> Result<Json, String> {
+    let in_root: BTreeSet<&str> = merged
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("refs/heads/idea/"))
+        .collect();
+    let agent = |id: &str| match agents.get(&s(id)) {
+        Some(a) if !a.state.is_empty() => obj(vec![
+            ("state", Json::Str(a.state.clone())),
+            ("message", Json::Str(a.message.clone())),
+        ]),
+        _ => Json::Null,
+    };
     let wts = self::worktrees(&worktrees);
     let heads: BTreeMap<&str, &str> = branches
         .lines()
@@ -364,28 +401,57 @@ pub fn tree_json(
         ("head", jstr(main.map_or("", |w| &w.head))),
         ("worktree", Json::Str(repo.top.clone())),
         ("sections", sections_json(&root.sections)),
+        ("behind", Json::Bool(false)),
+        ("agent", agent("")),
     ])];
+    let root_head = main.map_or("", |w| &*w.head);
     for i in ideas.iter().filter(|i| known.contains(&*i.id)) {
         let branch = format!("refs/heads/idea/{}", i.id);
-        let wt = wts.iter().find(|w| w.branch == branch);
+        let wt = find_wt(&wts, &i.id);
         let parent = if known.contains(&*i.parent) && i.parent != i.id {
             &*i.parent
         } else {
             ""
         };
+        let head = heads.get(&*i.id).copied().unwrap_or("");
+        // Commits of its own: past its fork, or with no fork known (a branch
+        // made by hand), past the root's head.
+        let own = !head.is_empty()
+            && head
+                != if i.fork.is_empty() {
+                    root_head
+                } else {
+                    &*i.fork
+                };
+        let status = if &*i.status == "merged" || (in_root.contains(&*i.id) && own) {
+            "merged"
+        } else if wt.is_some() {
+            "active"
+        } else {
+            "discarded"
+        };
+        let parent_head = if parent.is_empty() {
+            root_head
+        } else {
+            heads.get(parent).copied().unwrap_or("")
+        };
+        let behind = status == "active" && !parent_head.is_empty() && parent_head != &*i.fork;
         out.push(obj(vec![
             ("id", Json::Str(i.id.clone())),
             ("name", Json::Str(i.name.clone())),
             ("parent", jstr(parent)),
             ("fork", Json::Str(i.fork.clone())),
-            (
-                "status",
-                jstr(if wt.is_some() { "active" } else { "discarded" }),
-            ),
+            ("status", jstr(status)),
             ("branch", jstr(&branch["refs/heads/".len()..])),
-            ("head", jstr(heads.get(&*i.id).copied().unwrap_or(""))),
+            ("head", jstr(head)),
             ("worktree", jstr(wt.map_or("", |w| &w.path))),
             ("sections", sections_json(&i.sections)),
+            ("behind", Json::Bool(behind)),
+            (
+                "rebasing",
+                Json::Bool(wt.is_some_and(|w| w.branch.is_empty())),
+            ),
+            ("agent", agent(&i.id)),
         ]));
     }
     Ok(obj(vec![
@@ -643,9 +709,20 @@ repository's own worktree is the root):
                              into. One argument is a shell command line
                              (grove run 'make test && echo ok'); several are
                              quoted as words. Needs grove running.
+  status <working|attention|done|clear> [message] [--idea <idea>]
+                             tells grove what the agent here is doing, shown
+                             on its node: working (a spinner), attention
+                             (amber), done (green); clear forgets it. Quiet
+                             when grove hears it, for agents' hooks, e.g.
+                             [ -n \"$GROVE_URL\" ] && \"$GROVE_BIN\" status done
+  rebase [--idea <idea>] [--continue]
+                             rebases this idea onto its parent's head. On a
+                             conflict it stops for you to resolve it; then
+                             git add the files and grove rebase --continue.
+                             An idea must be on the root's head to be merged.
   help                       this
 
-Discarding is left to people, in grove's tree. Each command works on the
+Discarding and merging are left to people, in grove's tree. Each command works on the
 repository itself, then tells grove ($GROVE_URL, with $GROVE_TOKEN, both
 set in grove's terminals) so its tree catches up at once.
 
@@ -668,6 +745,7 @@ pub fn parse_cli(argv: List<Str>) -> Result<CliArgs, String> {
         run: s(""),
         terminal: true,
         fresh: false,
+        cont: false,
         err: s(""),
     };
     let mut it = argv.iter().map(|x| x.to_string());
@@ -701,14 +779,14 @@ pub fn parse_cli(argv: List<Str>) -> Result<CliArgs, String> {
             Some((n, v)) => (n.to_string(), Some(v.to_string())),
             None => (flag.to_string(), None),
         };
-        if name == "no-terminal" || name == "new" {
+        if matches!(name.as_str(), "no-terminal" | "new" | "continue") {
             if inline.is_some() {
                 return fail(a, format!("--{name} takes no value"));
             }
-            if name == "new" {
-                a.fresh = true;
-            } else {
-                a.terminal = false;
+            match name.as_str() {
+                "new" => a.fresh = true,
+                "continue" => a.cont = true,
+                _ => a.terminal = false,
             }
             continue;
         }
@@ -730,7 +808,9 @@ pub fn parse_cli(argv: List<Str>) -> Result<CliArgs, String> {
         "rename" => (args.len(), 1, 1, &["idea"]),
         "restore" => (args.len(), 1, 1, &[]),
         "run" => (args.len(), 1, usize::MAX, &["idea", "new"]),
-        "discard" => return Ok(a),
+        "status" => (args.len(), 1, usize::MAX, &["idea"]),
+        "rebase" => (args.len(), 0, 0, &["idea", "continue"]),
+        "discard" | "merge" => return Ok(a),
         c => return fail(a.clone(), format!("unknown command {c}")),
     };
     let used = [
@@ -739,6 +819,7 @@ pub fn parse_cli(argv: List<Str>) -> Result<CliArgs, String> {
         ("run", !a.run.is_empty()),
         ("no-terminal", !a.terminal),
         ("new", a.fresh),
+        ("continue", a.cont),
     ];
     if let Some((f, _)) = used.iter().find(|(f, on)| *on && !flags.contains(f)) {
         return fail(a.clone(), format!("grove {} takes no --{f}", a.cmd));
@@ -750,6 +831,9 @@ pub fn parse_cli(argv: List<Str>) -> Result<CliArgs, String> {
         let want = match (min, max) {
             (0, 0) => "no arguments".to_string(),
             (0, 1) => "at most one argument, the name".to_string(),
+            (1, usize::MAX) if &*a.cmd == "status" => {
+                "a state: working, attention, done or clear".to_string()
+            }
             (1, usize::MAX) => "a command, such as grove run -- make test".to_string(),
             _ => "one argument".to_string(),
         };
@@ -757,6 +841,17 @@ pub fn parse_cli(argv: List<Str>) -> Result<CliArgs, String> {
     }
     if &*a.cmd == "rename" && args[0].is_empty() {
         return fail(a, "a name can't be empty".into());
+    }
+    if &*a.cmd == "status"
+        && !matches!(args[0].as_str(), "working" | "attention" | "done" | "clear")
+    {
+        return fail(
+            a.clone(),
+            format!(
+                "grove status takes working, attention, done or clear, not {}",
+                args[0]
+            ),
+        );
     }
     if &*a.cmd == "run" && args.iter().all(|x| x.trim().is_empty()) {
         return fail(a, "grove run takes a command, not an empty one".into());
@@ -1080,4 +1175,170 @@ pub fn ran_text(idea: Str, cmd: Str, answer: ResString) -> Result<ResString, Str
         }
         ResString::Err(e) => ResString::Err(no_span(format!("didn't run: {}", e.msg))),
     })
+}
+
+/// Prints nothing: what a command that succeeds quietly gives.
+pub fn silent(_n: i64) -> Result<(), String> {
+    Ok(())
+}
+
+/// A status's JSON body: {"idea", "state", "message"}, the state "" for
+/// `clear`.
+pub fn status_body(idea: Str, a: CliArgs) -> Result<Str, String> {
+    let state = match a.args.first().map(|x| &**x) {
+        Some("clear") | None => "",
+        Some(x) => x,
+    };
+    let message = a
+        .args
+        .iter()
+        .skip(1)
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(" ");
+    Ok(format!(
+        "{{\"idea\": {}, \"state\": {}, \"message\": {}}}",
+        json_quote(&idea),
+        json_quote(state),
+        json_quote(&message)
+    )
+    .into())
+}
+
+// ---- An idea's life (lifecycle.sys) ----
+
+/// Ideas in the tree's order, parents before children, from the root: the
+/// active ones only (one whose parent isn't among them hangs from the root).
+pub fn tree_order(xs: List<Idea>) -> Result<List<Idea>, String> {
+    let active: Vec<&Idea> = xs.iter().filter(|i| &*i.status == "active").collect();
+    let ids: BTreeSet<&str> = active.iter().map(|i| &*i.id).collect();
+    let parent = |i: &Idea| -> String {
+        if ids.contains(&*i.parent) && i.parent != i.id {
+            i.parent.to_string()
+        } else {
+            String::new()
+        }
+    };
+    let mut out: Vec<Idea> = vec![];
+    let mut level = vec![String::new()];
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    while !level.is_empty() {
+        let mut next = vec![];
+        for p in &level {
+            let these: Vec<&Idea> = active
+                .iter()
+                .copied()
+                .filter(|i| parent(i) == *p && !seen.contains(&*i.id))
+                .collect();
+            for i in these {
+                seen.insert(i.id.to_string());
+                out.push((*i).clone());
+                next.push(i.id.to_string());
+            }
+        }
+        level = next;
+    }
+    Ok(out.into())
+}
+
+/// An idea and every idea under it, in xs, children before their parents
+/// (the idea itself last); none if xs hasn't it.
+pub fn subtree(xs: List<Idea>, id: Str) -> Result<List<Idea>, String> {
+    fn walk(xs: &List<Idea>, id: &str, seen: &mut BTreeSet<String>, out: &mut Vec<Idea>) {
+        if !seen.insert(id.to_string()) {
+            return;
+        }
+        for c in xs.iter().filter(|c| &*c.parent == id && &*c.id != id) {
+            walk(xs, &c.id, seen, out);
+        }
+        if let Some(i) = xs.iter().find(|i| &*i.id == id) {
+            out.push(i.clone());
+        }
+    }
+    let mut out = vec![];
+    if xs.iter().any(|i| i.id == id) {
+        walk(&xs, &id, &mut BTreeSet::new(), &mut out);
+    }
+    Ok(out.into())
+}
+
+/// The ideas of xs whose parent is id.
+pub fn children_of(xs: List<Idea>, id: Str) -> Result<List<Idea>, String> {
+    Ok(xs
+        .iter()
+        .filter(|i| i.parent == id && i.id != id)
+        .cloned()
+        .collect())
+}
+
+/// Whether state is one an agent can report: working, attention, done, or
+/// "" (none).
+pub fn valid_state(state: Str) -> Result<bool, String> {
+    Ok(matches!(&*state, "working" | "attention" | "done" | ""))
+}
+
+/// What a merge says it did: the idea merged, and the ideas that couldn't be
+/// rebased onto the new root, each with why.
+pub fn merged_text(name: Str, skipped: List<Str>) -> Result<Str, String> {
+    Ok(if skipped.is_empty() {
+        format!("merged {name} into the root; every other idea is on it now")
+    } else {
+        format!(
+            "merged {name} into the root; not rebased onto it, so flagged: {}",
+            skipped
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join("; ")
+        )
+    }
+    .into())
+}
+
+/// An idea's name, or its id if it has none.
+pub fn name_of(i: Idea) -> Result<Str, String> {
+    Ok(if i.name.is_empty() { i.id } else { i.name })
+}
+
+/// The error of r, or "" if it's Ok.
+pub fn unwrap_err(r: ResString) -> Result<Str, String> {
+    Ok(match r {
+        ResString::Ok(_) => s(""),
+        ResString::Err(e) => e.msg,
+    })
+}
+
+pub fn unwrap_idea(r: ResIdea) -> Result<Idea, String> {
+    match r {
+        ResIdea::Ok(i) => Ok(i),
+        ResIdea::Err(e) => Err(e.msg.to_string()),
+    }
+}
+
+pub fn unwrap_ideas(r: ResIdeaList) -> Result<List<Idea>, String> {
+    match r {
+        ResIdeaList::Ok(i) => Ok(i),
+        ResIdeaList::Err(e) => Err(e.msg.to_string()),
+    }
+}
+
+pub fn unwrap_interiors(r: ResInteriorList) -> Result<List<Interior>, String> {
+    match r {
+        ResInteriorList::Ok(i) => Ok(i),
+        ResInteriorList::Err(e) => Err(e.msg.to_string()),
+    }
+}
+
+pub fn join_with(xs: List<Str>, sep: Str) -> Result<Str, String> {
+    Ok(xs
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(&sep)
+        .into())
+}
+
+/// The idea i with another parent.
+pub fn with_parent(i: Idea, parent: Str) -> Result<Idea, String> {
+    Ok(Idea { parent, ..i })
 }

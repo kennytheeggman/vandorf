@@ -2,7 +2,7 @@
 // renaming and laying out ideas. Reads are open; writes pass WriteGate.
 //   GET  /api/ideas                      the repository, its ideas and the interiors
 //   POST /api/ideas/branch {from, name?} a new idea at from's head, its id
-//   POST /api/ideas/discard {id}         removes its worktree, keeps its branch
+//   POST /api/ideas/discard {id}         removes its worktree and its subtree's, keeps their branches
 //   POST /api/ideas/restore {id}         a discarded idea's worktree back
 //   POST /api/ideas/rename {id, name}
 //   POST /api/ideas/layout {id, sections}
@@ -15,7 +15,13 @@ type Writing = enum { Go({ repo: Repo, j: Json }), Stop(HttpResponse) };
 // branch (its worktree, head and sections; one whose parent is gone hangs
 // from the root; one with no worktree is discarded), and the interiors that
 // can be opened.
-func TreeJson(repo: Repo, worktrees: string, branches: string, root: Idea, ideas: []Idea, interiors: []Interior): Json = "grove_leaf.rs:tree_json";
+// An idea is merged when its metadata says so, or when its branch has
+// commits of its own (its head isn't its fork, or with no fork, the
+// root's head) and they're all in the
+// root's head (merged: `git for-each-ref --merged HEAD` lines). It's behind
+// when it's active and its fork isn't its parent's head. agents: what
+// agents said of each idea.
+func TreeJson(repo: Repo, worktrees: string, branches: string, merged: string, root: Idea, ideas: []Idea, interiors: []Interior, agents: map[string]AgentStatus): Json = "grove_leaf.rs:tree_json";
 // Answers with {"ok": true, key: value}, or the error.
 func Answer(r: Res<string>, key: string): HttpResponse = "grove_leaf.rs:answer";
 // a, or d if a is "".
@@ -75,11 +81,16 @@ proc LoadTree(repo: Repo): Res<Json> {
 		Ok(i) -> id(i) as Root,
 		Err(e) -> id(Err(e))
 	};
-	Root -> LoadInteriors(repo = LoadTree.repo);
+	Root -> Grove.Git(dir = LoadTree.repo.top, args = ["for-each-ref", "--merged", "HEAD", "--format=%(refname)", "refs/heads/idea/"]) as Merged;
+	Merged switch {
+		Ok(_) -> LoadInteriors(repo = LoadTree.repo),
+		Err(_) -> LoadInteriors(repo = LoadTree.repo)
+	};
 	LoadInteriors switch {
-		Ok(xs) -> id(Ok(TreeJson(repo = LoadTree.repo, worktrees = UnwrapR2(r = Worktrees), branches = UnwrapR2(r = Branches), root = Root, ideas = Ideas, interiors = xs))),
+		Ok(xs) -> Grove.Statuses(n = 0),
 		Err(e) -> id(Err(e))
 	};
+	Grove.Statuses -> id(Ok(TreeJson(repo = LoadTree.repo, worktrees = UnwrapR2(r = Worktrees), branches = UnwrapR2(r = Branches), merged = OkOr(r = Merged, d = ""), root = Root, ideas = Ideas, interiors = UnwrapInteriors(r = LoadInteriors), agents = this)));
 }
 
 // Serves POST /api/ideas/branch {from, name?}: a new idea branched from
@@ -93,16 +104,18 @@ proc BranchRoute(req: HttpRequest): HttpResponse {
 	BranchIdea -> id(Answer(r = this, key = "id"));
 }
 
-// Serves POST /api/ideas/discard {id}: removes the idea's worktree, its
-// terminals and the interiors started for it, keeping its branch and its
-// metadata so it can be restored.
+// Serves POST /api/ideas/discard {id}: discards the idea and every idea
+// under it (DiscardTree): their worktrees, terminals and the interiors
+// started for them go, their branches and metadata stay, so each can be
+// restored.
 proc DiscardRoute(req: HttpRequest): HttpResponse {
 	DiscardRoute -> GroveWrite(req = this.req);
 	GroveWrite switch {
 		Stop(r) -> id(r),
-		Go(w) -> DiscardIdea(s = { repo = w.repo, id = StrOr(j = w.j, key = "id", d = "") })
+		Go(w) -> DiscardTree(s = { repo = w.repo, id = StrOr(j = w.j, key = "id", d = "") })
 	};
-	DiscardIdea -> id(Answer(r = this, key = "id"));
+	DiscardTree -> Grove.Changed(n = 0);
+	Grove.Changed -> id(Answer(r = DiscardTree, key = "id"));
 }
 
 // Serves POST /api/ideas/restore {id}: gives a discarded idea its worktree
@@ -256,3 +269,4 @@ proc LayoutIdea(s: { repo: Repo, id: string, j: Json }): Res<string> {
 }
 
 func UnwrapSections(r: Res<[]Section>): []Section = "grove_leaf.rs:unwrap_sections";
+func UnwrapInteriors(r: Res<[]Interior>): []Interior = "grove_leaf.rs:unwrap_interiors";

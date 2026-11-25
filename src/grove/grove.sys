@@ -66,6 +66,12 @@ interface Grove {
 	// The ids of the terminals grove opened in dir (by Spawn) since it
 	// started, running or not, sorted.
 	func OpenedIn(dir: string): []int = "grove_io.rs:opened_in";
+	// Keeps what an agent says of an idea (state working, attention or
+	// done; "" forgets it), for as long as grove runs. Gives how many ideas
+	// have a status.
+	func SetStatus(id: string, state: string, message: string): int = "grove_io.rs:set_status";
+	// What agents last said of each idea, by id.
+	func Statuses(n: int): map[string]AgentStatus = "grove_io.rs:statuses";
 }
 
 // Makes an error with no source position.
@@ -80,7 +86,9 @@ func MetaPath(common: string, id: string): string = "grove_leaf.rs:meta_path";
 // common git directory.
 func WorktreePath(common: string, id: string): string = "grove_leaf.rs:worktree_path";
 // Finds the worktree that has branch idea/<id> checked out, in the output of
-// `git worktree list --porcelain`; "" if none has.
+// `git worktree list --porcelain`, or else grove's worktree for it
+// (grove/worktrees/<id>) with a detached HEAD, as while a rebase is
+// stopped; "" if there's none.
 func WorktreeOf(porcelain: string, id: string): string = "grove_leaf.rs:worktree_of";
 // Reads an idea's metadata, filling what's missing (a name is the id, a
 // status is active).

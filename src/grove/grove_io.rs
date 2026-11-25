@@ -573,3 +573,31 @@ pub fn opened_in(dir: Str) -> Result<List<i64>, String> {
     ids.sort();
     Ok(ids.into())
 }
+
+fn statuses_map() -> &'static Mutex<HashMap<String, AgentStatus>> {
+    static ST: OnceLock<Mutex<HashMap<String, AgentStatus>>> = OnceLock::new();
+    ST.get_or_init(Default::default)
+}
+
+/// Keeps what an agent says of an idea (state working, attention or
+/// done; "" forgets it), for as long as grove runs. Gives how many ideas
+/// have a status.
+pub fn set_status(id: Str, state: Str, message: Str) -> Result<i64, String> {
+    let mut m = statuses_map().lock().unwrap();
+    if state.is_empty() {
+        m.remove(&*id);
+    } else {
+        m.insert(id.to_string(), AgentStatus { state, message });
+    }
+    Ok(m.len() as i64)
+}
+
+/// What agents last said of each idea, by id.
+pub fn statuses(_n: i64) -> Result<Map<Str, AgentStatus>, String> {
+    Ok(statuses_map()
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(k, v)| (Str::from(k.as_str()), v.clone()))
+        .collect())
+}

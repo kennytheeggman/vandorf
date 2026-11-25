@@ -8,11 +8,12 @@
 //   POST /api/agent/notify {idea, open, run}   a change; with open, a terminal in the idea
 //   POST /api/agent/run {idea, cmd, new}       cmd typed into one of the idea's terminals
 //   GET  /api/ideas/wait?v=                    the count of changes, once it isn't v
+//   POST /api/agent/status {idea, state, message}   (lifecycle.sys)
 
 // A command line, read: the command, its positional arguments, and its
-// flags (--from, --idea, --run, --no-terminal, --new as fresh). err: why it
-// can't run.
-type CliArgs = { cmd: string, args: []string, from: string, has_from: bool, idea: string, has_idea: bool, run: string, terminal: bool, fresh: bool, err: string };
+// flags (--from, --idea, --run, --no-terminal, --new as fresh, --continue
+// as cont). err: why it can't run.
+type CliArgs = { cmd: string, args: []string, from: string, has_from: bool, idea: string, has_idea: bool, run: string, terminal: bool, fresh: bool, cont: bool, err: string };
 
 // Reads grove's command line: a command first (help for -h, --help or
 // none), then its arguments and flags, as `--flag value` or `--flag=value`;
@@ -21,11 +22,18 @@ type CliArgs = { cmd: string, args: []string, from: string, has_from: bool, idea
 func ParseCli(argv: []string): CliArgs = "grove_leaf.rs:parse_cli";
 // grove's usage, for `grove help`.
 func CliUsage(n: int): string = "grove_leaf.rs:cli_usage";
+// Prints nothing: what a command that succeeds quietly gives.
+func Silent(n: int): void = "grove_leaf.rs:silent";
+// A status's JSON body: {"idea", "state", "message"}, the state "" for
+// `clear`.
+func StatusBody(idea: string, a: CliArgs): string = "grove_leaf.rs:status_body";
 // Fails with msg, which grove prints as its error.
 func CliFail(msg: string): void = "grove_leaf.rs:cli_fail";
 // The id of the idea a branch is checked out for: idea/<id> gives id; an
 // error for any other branch.
 func IdeaOfBranch(branch: string): Res<string> = "grove_leaf.rs:idea_of_branch";
+// The idea whose grove worktree (grove/worktrees/<id>) path is, or "".
+func IdOfPath(path: string): string = "grove_leaf.rs:id_of_path";
 // The value of r, or d if it's an error.
 func OkOr(r: Res<string>, d: string): string = "grove_leaf.rs:ok_or";
 // The first positional argument, or "".
@@ -216,6 +224,7 @@ proc GroveCli(argv: []string): void {
 		(this.err != "") -> CliFail(msg = this.err + " (see grove help)"),
 		(this.cmd == "help") -> Console.Out(text = CliUsage(n = 0)) as Help,
 		(this.cmd == "discard") -> CliFail(msg = "discarding is left to people: discard an idea in grove's tree (right-click its node)") as NoDiscard,
+		(this.cmd == "merge") -> CliFail(msg = "merging is left to people: merge an idea in grove's tree (right-click its node); grove rebase gets it ready") as NoMerge,
 		else -> Grove.Repo(n = 0)
 	};
 	Grove.Repo switch {
@@ -223,7 +232,10 @@ proc GroveCli(argv: []string): void {
 		Err(e) -> CliFail(msg = e.msg) as NoRepo
 	};
 	CliRun switch {
-		Ok(text) -> Console.Out(text = text),
+		Ok(text) -> switch {
+			(text == "") -> Silent(n = 0),
+			else -> Console.Out(text = text)
+		},
 		Err(e) -> CliFail(msg = e.msg) as Failed
 	};
 }
@@ -236,13 +248,16 @@ proc CliRun(s: { repo: Repo, a: CliArgs }): Res<string> {
 		(this.s.a.cmd == "branch") -> CliBranch(s = this.s),
 		(this.s.a.cmd == "rename") -> CliRename(s = this.s),
 		(this.s.a.cmd == "run") -> CliRunIn(s = this.s),
+		(this.s.a.cmd == "status") -> CliStatus(s = this.s),
+		(this.s.a.cmd == "rebase") -> CliRebase(s = this.s),
 		else -> CliRestore(s = this.s)
 	};
 }
 
 // The idea whose worktree the working directory is in: "" for the
-// repository's own, else the one whose branch is checked out there; an
-// error for any other worktree.
+// repository's own, else the one whose branch is checked out there (or,
+// with a detached HEAD, as while a rebase is stopped, whose grove worktree
+// it is); an error for any other worktree.
 proc Here(repo: Repo): Res<string> {
 	Here -> Grove.Toplevel(n = 0);
 	Grove.Toplevel switch {
@@ -254,7 +269,10 @@ proc Here(repo: Repo): Res<string> {
 	};
 	Grove.Git switch {
 		Ok(b) -> id(IdeaOfBranch(branch = b)),
-		Err(_) -> id(Err(GroveErr(msg = "this worktree isn't an idea's: its HEAD is detached")))
+		Err(_) -> switch {
+			(IdOfPath(path = UnwrapR2(r = Grove.Toplevel)) != "") -> id(Ok(IdOfPath(path = UnwrapR2(r = Grove.Toplevel)))),
+			else -> id(Err(GroveErr(msg = "this worktree isn't an idea's: its HEAD is detached")))
+		}
 	};
 }
 
@@ -346,4 +364,49 @@ proc CliRunIn(s: { repo: Repo, a: CliArgs }): Res<string> {
 		Err(e) -> id(Err(GroveErr(msg = e.msg + "; pass --idea <idea> to run in one")))
 	};
 	Grove.Notify -> id(RanText(idea = UnwrapR2(r = Which), cmd = RunCmd(a = CliRunIn.s.a), answer = this));
+}
+
+// `grove status <working|attention|done|clear> [message...] [--idea <idea>]`:
+// tells grove what the agent in this idea (or --idea) is doing, shown on its
+// node. Quiet when grove hears it, so it can run from an agent's hooks.
+proc CliStatus(s: { repo: Repo, a: CliArgs }): Res<string> {
+	CliStatus switch {
+		(this.s.a.has_idea) -> id(Ok(this.s.a.idea)) as Which,
+		else -> Here(repo = this.s.repo)
+	};
+	Here -> id(this) as Which;
+	Which switch {
+		Ok(i) -> Grove.Notify(path = "/api/agent/status", body = StatusBody(idea = i, a = CliStatus.s.a)),
+		Err(e) -> id(Err(GroveErr(msg = e.msg + "; pass --idea <idea> to report on one")))
+	};
+	Grove.Notify switch {
+		Ok(_) -> id(Ok("")),
+		Err(e) -> id(Err(e))
+	};
+}
+
+// `grove rebase [--idea <idea>] [--continue]`: rebases this idea (or --idea)
+// onto its parent's head, in its worktree. On a conflict it stops there to
+// be resolved, then `grove rebase --continue` finishes it. Tells grove, which
+// clears a flag of the idea's status.
+proc CliRebase(s: { repo: Repo, a: CliArgs }): Res<string> {
+	CliRebase switch {
+		(this.s.a.has_idea) -> id(Ok(this.s.a.idea)) as Which,
+		else -> Here(repo = this.s.repo)
+	};
+	Here -> id(this) as Which;
+	Which switch {
+		Ok(i) -> switch {
+			(CliRebase.s.a.cont) -> ContinueRebase(s = { repo = CliRebase.s.repo, id = i }),
+			else -> RebaseOne(s = { repo = CliRebase.s.repo, id = i, keep = true })
+		},
+		Err(e) -> id(Err(GroveErr(msg = e.msg + "; pass --idea <idea> to rebase one")))
+	};
+	ContinueRebase -> id(this) as Done;
+	RebaseOne -> id(this) as Done;
+	Done switch {
+		Ok(what) -> Grove.Notify(path = "/api/agent/status", body = StatusBody(idea = UnwrapR2(r = Which), a = { ..CliRebase.s.a, args = ["clear"] })),
+		Err(e) -> id(Err(e))
+	};
+	Grove.Notify -> id(Ok(ToldText(done = UnwrapR2(r = Done) + ": " + OrStr(a = UnwrapR2(r = Which), d = "the root"), notified = this)));
 }

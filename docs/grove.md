@@ -22,9 +22,11 @@ is set to the commit it was branched at.
 - **Branch** from any idea: the branch button in the sidebar, Alt+Shift+N,
   or right-click a node. The new idea gets its parent's sections, without
   their terminals.
-- **Discard** removes the idea's worktree, stops its terminals and the
-  interiors started for it, and keeps its branch, so it can be **restored**.
-  git refuses to remove a worktree with changes that aren't committed.
+- **Discard** removes the idea's worktree, and those of every idea under
+  it, stops their terminals and the interiors started for them, and keeps
+  their branches, so each can be **restored**. If any of them has changes
+  that aren't committed, nothing is discarded.
+- **Merge** an idea into the root (see [Merging](#merging)).
 - **Rename** any idea, the root too.
 
 Everything is private to the machine. grove keeps its metadata in the
@@ -40,15 +42,53 @@ grove/lock                held while a file is written
 
 The tree is rebuilt from git each time it's read: a branch `idea/<x>` made
 by hand is an idea hanging from the root, an idea whose worktree was removed
-outside grove shows as discarded, and the page catches up every few
-seconds.
+outside grove shows as discarded, one whose own commits are all in the
+root's branch (merged by hand) shows as merged, and the page catches up
+every few seconds.
+
+### Merging
+
+An idea is **based** on its parent when it's built on the parent's latest
+commit (its fork is the parent's head). Merging takes an idea that's on the
+root's head, so it's a fast-forward and can't conflict:
+
+1. The root's branch fast-forwards to the idea. The root's worktree is the
+   repository's own checkout, so its files change too; git refuses if that
+   would overwrite changes there.
+2. The idea is **merged**: its worktree closes, its terminals stop, its
+   branch stays. It leaves the map (the history button shows it), and the
+   root's tooltip lists it.
+3. Its children become the root's.
+4. Every other idea is rebased onto its parent, parents first, so the whole
+   tree is on the new root. An idea that can't be (changes not committed,
+   or a conflict) is left exactly as it was, its rebase undone, and flagged
+   for attention with why.
+
+An idea not on the root's head can't merge until it's rebased: right-click
+it for **Rebase onto <parent>**, which undoes itself on a conflict. An
+agent in the idea can do it with `grove rebase`, which stops on a conflict
+for it to resolve, then `grove rebase --continue`. A rebase only moves the
+idea's own branch, so it's safe for agents; merging and discarding are
+people's.
 
 ## The window
 
-- **The tree** (left): every idea as a small circle, with labels on leaves
-  only; hover any node for its name, branch and head. Click a node to show
-  it; the chevron folds its subtree. The trash button shows discarded ideas.
-  The sidebar can be resized, and hidden (Alt+Shift+B).
+- **The map** (left): the root, the repository's checked-out branch, in the
+  middle, and each idea on a ring by its depth, with edges leading out from
+  the root. There are no labels: hover any node for its name, status,
+  branch and head (the root's says **HEAD**, and which ideas were merged
+  into it). Click an idea to show it: the map turns so its history, from
+  the root, runs straight up. Drag or scroll to pan, pinch or Ctrl+scroll to
+  zoom, and double-click (or the target button) to see the whole tree
+  again. Right-click a node to branch, rename, rebase, merge, discard or
+  restore it. The history button shows merged and discarded ideas. The
+  sidebar can be resized, and hidden (Alt+Shift+B).
+
+  A node shows what the agent in its idea last said (`grove status`): a
+  spinner while it's **working**, amber with a pulse when it needs
+  **attention** (also when a rebase stopped or couldn't be made), green
+  when it's **done**. A dashed edge means the idea isn't on its parent's
+  latest commit.
 - **Sections** (right): the shown idea's interiors, stacked, each with a
   header like VS Code's sidebar views. Click a header to collapse or expand
   it (several can be open at once, sharing the height), drag headers to
@@ -134,6 +174,8 @@ grove rename "cache, with eviction"
 grove restore <idea>
 grove run -- make test              # in this idea's terminal at its prompt
 grove run --idea <idea> --new "npm run dev"
+grove status working "running the tests"   # shown on this idea's node
+grove rebase                        # onto its parent's latest commit
 grove help
 ```
 
@@ -167,10 +209,43 @@ starts. The page catches up at once and says which ideas are new.
     before grove restarted) never reaches another idea's terminal.
   - The page's `run` messages, from interiors, pick a terminal the same
     way.
-- **Discarding is left to people**, in the tree. `grove discard` refuses,
-  and `$GROVE_TOKEN` is a token of its own that only the agent routes take,
-  not grove's other writes. An agent can't discard the idea its own
-  terminal lives in.
+- **status** `working`, `attention` or `done`, with an optional message,
+  tells grove what the agent in this idea is doing; `clear` forgets it. The
+  idea's node shows it (see [The window](#the-window)) and its tooltip
+  shows the message. It's quiet when grove hears it, so it can run from an
+  agent's hooks, and like `run` it needs grove running. grove keeps
+  statuses until it stops.
+- **rebase** moves this idea onto its parent's latest commit, replaying
+  its own commits there. On a conflict it stops for the agent (or you) to
+  resolve it in the worktree, `git add` the files, and run
+  `grove rebase --continue`. Afterwards the idea's attention flag clears.
+- **Discarding and merging are left to people**, in the tree. `grove
+  discard` and `grove merge` refuse, and `$GROVE_TOKEN` is a token of its
+  own that only the agent routes take, not grove's other writes. An agent
+  can't discard the idea its own terminal lives in.
+
+### Status from agents' hooks
+
+grove has nothing specific to any agent: `grove status` is a plain command.
+An agent tool with hooks can call it at the right moments, guarded by
+`$GROVE_URL` so it does nothing outside grove. For Claude Code, in its
+settings (`~/.claude/settings.json` for every repository):
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "[ -z \"$GROVE_URL\" ] || \"$GROVE_BIN\" status working || true" }] }],
+    "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "[ -z \"$GROVE_URL\" ] || \"$GROVE_BIN\" status working || true" }] }],
+    "Notification": [{ "hooks": [{ "type": "command", "command": "[ -z \"$GROVE_URL\" ] || \"$GROVE_BIN\" status attention \"Claude is waiting for you\" || true" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "[ -z \"$GROVE_URL\" ] || \"$GROVE_BIN\" status done || true" }] }]
+  }
+}
+```
+
+Working when a turn starts and after each tool (so it's working again once
+you've answered a permission prompt), attention when it waits for you, done
+when it stops. `$GROVE_BIN` rather than `grove`, since an agent's tool
+shells may reset `PATH`. Any other tool's hooks can do the same.
 
 ### Finding grove
 
