@@ -352,6 +352,7 @@ pub fn tree_json(
     ideas: List<Idea>,
     interiors: List<Interior>,
     agents: Map<Str, AgentStatus>,
+    failures: Map<Str, Str>,
 ) -> Result<Json, String> {
     let in_root: BTreeSet<&str> = merged
         .lines()
@@ -362,6 +363,7 @@ pub fn tree_json(
             ("state", Json::Str(a.state.clone())),
             ("message", Json::Str(a.message.clone())),
             ("seen", Json::Bool(a.seen)),
+            ("report", Json::Num(a.report)),
         ]),
         _ => Json::Null,
     };
@@ -451,6 +453,14 @@ pub fn tree_json(
             (
                 "rebasing",
                 Json::Bool(wt.is_some_and(|w| w.branch.is_empty())),
+            ),
+            (
+                "rebaseFailure",
+                jstr(if behind {
+                    failures.get(&i.id).map_or("", |msg| &**msg)
+                } else {
+                    ""
+                }),
             ),
             ("agent", agent(&i.id)),
         ]));
@@ -950,6 +960,11 @@ pub fn run_terminal(xs: List<Section>, mine: List<i64>, idle: List<i64>) -> Resu
         .unwrap_or(0))
 }
 
+/// Tells the server a failed rebase has been retried.
+pub fn rebase_notice(idea: Str) -> Result<Str, String> {
+    Ok(format!(r#"{{"idea": {}, "rebase": true}}"#, json_quote(&idea)).into())
+}
+
 /// A notification's JSON body: {"idea", "open", "run"}.
 pub fn notify_body(idea: Str, open: bool, run: Str) -> Result<Str, String> {
     Ok(format!(
@@ -1270,6 +1285,14 @@ pub fn children_of(xs: List<Idea>, id: Str) -> Result<List<Idea>, String> {
         .filter(|i| i.parent == id && i.id != id)
         .cloned()
         .collect())
+}
+
+pub fn seen_report(j: Json) -> Result<i64, String> {
+    Ok(match field(&j, "report") {
+        Some(Json::Num(n)) if *n > 0 => *n,
+        None => 0,
+        _ => -1,
+    })
 }
 
 /// Whether state is one an agent can report: working, attention, done, or

@@ -41,6 +41,9 @@ interface Grove {
 	// renamed into place, holding grove's lock (grove/lock in the common git
 	// directory) while it does.
 	func Store(common: string, path: string, text: string): Res<string> = "grove_io.rs:store";
+	// Deletes a discarded leaf. Keep its metadata until after Git succeeds so
+	// a failed cleanup can be retried, and let Git protect uncommitted changes.
+	func Delete(repo: Repo, id: string): Res<string> = "grove_io.rs:delete";
 	// Makes the agents' token, once per run: what grove's terminals and
 	// interiors get as $GROVE_TOKEN. It's a token of its own, not the
 	// session's, and only the agent routes take it (AgentGate).
@@ -70,10 +73,14 @@ interface Grove {
 	// done; "" forgets it), unseen, for as long as grove runs. Gives how many ideas
 	// have a status.
 	func SetStatus(id: string, state: string, message: string): int = "grove_io.rs:set_status";
-	// Marks an idea's done status seen; whether it was done and unseen.
-	func SeeStatus(id: string): bool = "grove_io.rs:see_status";
+	// Marks an idea's done or attention status seen; whether it changed.
+	func SeeStatus(id: string, report: int): bool = "grove_io.rs:see_status";
 	// What agents last said of each idea, by id.
 	func Statuses(n: int): map[string]AgentStatus = "grove_io.rs:statuses";
+	// A failed rebase's message, cleared by a successful retry or by entering
+	// a stopped rebase (whose state comes from Git).
+	func SetRebaseFailure(id: string, message: string): int = "grove_io.rs:set_rebase_failure";
+	func RebaseFailures(n: int): map[string]string = "grove_io.rs:rebase_failures";
 }
 
 // Makes an error with no source position.

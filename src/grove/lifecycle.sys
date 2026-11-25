@@ -5,7 +5,7 @@
 //   POST /api/ideas/merge {id}                  fast-forwards the root to it, then restacks
 //   POST /api/ideas/rebase {id}                 onto its parent's head
 //   POST /api/agent/status {idea, state, message}   working, attention, done, or "" to clear
-//   POST /api/ideas/seen {id}                   a person has seen the idea's done status
+//   POST /api/ideas/seen {id}                   a person has seen the idea's done or attention status
 //
 // An idea is based on its parent when its fork (the parent's commit it's
 // built on) is the parent's head. Merging needs the idea built on the
@@ -15,9 +15,9 @@
 // it was, its rebase undone, and flagged for attention.
 
 // What an agent last said of its idea: state is working, attention or done.
-// seen: whether a person has shown the idea since it said done, so the
-// done ideas no one has looked at yet stand out; any new status unsets it.
-type AgentStatus = { state: string, message: string, seen: bool };
+// seen: whether a person has shown the idea since it reported done or attention.
+// Any new status unsets it.
+type AgentStatus = { state: string, message: string, seen: bool, report: int };
 
 // Ideas in the tree's order, parents before children, from the root: the
 // active ones only (one whose parent isn't among them hangs from the root).
@@ -70,8 +70,12 @@ proc ParentHead(s: { repo: Repo, parent: string }): Res<string> {
 proc RebaseIdea(s: { repo: Repo, idea: Idea, keep: bool }): Res<string> {
 	RebaseIdea -> IdeaWorktree(s = { repo = this.s.repo, id = this.s.idea.id });
 	IdeaWorktree switch {
-		Ok(_) -> ParentHead(s = { repo = RebaseIdea.s.repo, parent = RebaseIdea.s.idea.parent }),
+		Ok(dir) -> Grove.Git(dir = dir, args = ["symbolic-ref", "--quiet", "HEAD"]) as Attached,
 		Err(_) -> id(Ok("not active"))
+	};
+	Attached switch {
+		Ok(_) -> ParentHead(s = { repo = RebaseIdea.s.repo, parent = RebaseIdea.s.idea.parent }),
+		Err(_) -> id(Ok("rebase in progress"))
 	};
 	ParentHead switch {
 		Ok(h) -> switch {
@@ -110,10 +114,11 @@ proc RebaseIdea(s: { repo: Repo, idea: Idea, keep: bool }): Res<string> {
 	Rebase switch {
 		Ok(_) -> SetFork(s = { repo = RebaseIdea.s.repo, idea = RebaseIdea.s.idea, dir = UnwrapR2(r = IdeaWorktree), head = UnwrapR2(r = ParentHead) }),
 		Err(_) -> switch {
-			(RebaseIdea.s.keep) -> id(Err(GroveErr(msg = "the rebase stopped on a conflict in " + UnwrapR2(r = IdeaWorktree) + ": resolve it, git add the files, and run grove rebase --continue (or git rebase --abort to give up)"))),
+			(RebaseIdea.s.keep) -> Grove.Notify(path = "/api/agent/notify", body = RebaseNotice(idea = RebaseIdea.s.idea.id)) as Stopped,
 			else -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["rebase", "--abort"]) as Abort
 		}
 	};
+	Stopped -> id(Err(GroveErr(msg = "the rebase stopped on a conflict in " + UnwrapR2(r = IdeaWorktree) + ": resolve it, git add the files, and run grove rebase --continue (or git rebase --abort to give up)")));
 	Abort -> id(Err(GroveErr(msg = "rebasing onto its parent conflicts")));
 	SetFork switch {
 		Ok(_) -> id(Ok("rebased")),
@@ -156,13 +161,15 @@ proc Restack(s: { repo: Repo, xs: []Idea, i: int, skipped: []string }): []string
 	};
 	RebaseIdea switch {
 		Ok(r) -> switch {
+			(r == "rebase in progress") -> Restack(s = { ..Restack.s, i = Restack.s.i + 1, skipped = Restack.s.skipped + [NameOf(i = Restack.s.xs[Restack.s.i]) + " (rebase in progress)"] }) as Stopped,
 			(r == "already in its parent") -> Reparent(s = { repo = Restack.s.repo, xs = ChildrenOf(xs = Restack.s.xs, id = Restack.s.xs[Restack.s.i].id), to = UnwrapIdea(r = LoadIdea).parent, i = 0 }) as Lift,
-			else -> Restack(s = { ..Restack.s, i = Restack.s.i + 1 }) as Next
+			else -> Grove.SetRebaseFailure(id = Restack.s.xs[Restack.s.i].id, message = "") as Cleared
 		},
-		Err(e) -> Grove.SetStatus(id = Restack.s.xs[Restack.s.i].id, state = "attention", message = "not rebased onto its parent: " + e.msg)
+		Err(e) -> Grove.SetRebaseFailure(id = Restack.s.xs[Restack.s.i].id, message = "Not rebased onto its parent: " + e.msg) as Failure
 	};
 	Lift -> Restack(s = { ..Restack.s, i = Restack.s.i + 1 }) as Lifted;
-	Grove.SetStatus -> Restack(s = { ..Restack.s, i = Restack.s.i + 1, skipped = Restack.s.skipped + [NameOf(i = Restack.s.xs[Restack.s.i]) + " (" + UnwrapErr(r = RebaseIdea) + ")"] }) as Flagged;
+	Cleared -> Restack(s = { ..Restack.s, i = Restack.s.i + 1 }) as Next;
+	Failure -> Restack(s = { ..Restack.s, i = Restack.s.i + 1, skipped = Restack.s.skipped + [NameOf(i = Restack.s.xs[Restack.s.i]) + " (" + UnwrapErr(r = RebaseIdea) + ")"] }) as Flagged;
 }
 
 // The idea i with another parent.
@@ -263,8 +270,8 @@ proc MergeIdea(s: { repo: Repo, id: string }): Res<string> {
 }
 
 // Rebases one idea onto its parent's head (RebaseIdea), undoing it on a
-// conflict, or with keep leaving it stopped there. Clears a flag of its
-// status once it's rebased. Gives what it did.
+// conflict, or with keep leaving it stopped there. Clears the rebase
+// warning once it succeeds. Gives what it did.
 proc RebaseOne(s: { repo: Repo, id: string, keep: bool }): Res<string> {
 	RebaseOne switch {
 		(this.s.id == "") -> id(Err(GroveErr(msg = "the root has no parent to rebase onto"))),
@@ -275,10 +282,16 @@ proc RebaseOne(s: { repo: Repo, id: string, keep: bool }): Res<string> {
 		Err(e) -> id(Err(e))
 	};
 	RebaseIdea switch {
-		Ok(_) -> Grove.SetStatus(id = RebaseOne.s.id, state = "", message = ""),
-		Err(e) -> id(Err(e))
+		Ok(r) -> switch {
+			(r == "rebase in progress") -> id(Err(GroveErr(msg = "finish or abort the stopped rebase first"))),
+			else -> Grove.SetRebaseFailure(id = RebaseOne.s.id, message = "")
+		},
+		Err(e) -> switch {
+			(RebaseOne.s.keep) -> id(Err(e)),
+			else -> Grove.SetRebaseFailure(id = RebaseOne.s.id, message = e.msg)
+		}
 	};
-	Grove.SetStatus -> id(RebaseIdea);
+	Grove.SetRebaseFailure -> id(RebaseIdea);
 }
 
 // Finishes a rebase stopped on a conflict, once it's resolved, in an idea's
@@ -419,20 +432,22 @@ proc StatusRoute(req: HttpRequest): HttpResponse {
 	Grove.Changed -> id(Answer(r = Ok(StrOr(j = UnwrapJ(r = ParseJson), key = "idea", d = "")), key = "idea"));
 }
 
-// Serves POST /api/ideas/seen {id}: a person showed the idea, so its done
-// status, if it has one, is seen (in grove, so for every page and across
+func SeenReport(j: Json): int = "grove_leaf.rs:seen_report";
+
+// Serves POST /api/ideas/seen {id, report?}: showing an idea marks its agent's done
+// or attention status seen (in grove, so for every page and across
 // reloads, until the agent says something new). Counts a change only when
-// it was unseen.
+// it was unseen. A report number, if supplied, must match the latest report.
 proc SeenRoute(req: HttpRequest): HttpResponse {
 	SeenRoute -> GroveWrite(req = this.req);
 	GroveWrite switch {
 		Stop(r) -> id(r),
-		Go(w) -> id(StrOr(j = w.j, key = "id", d = "")) as Which
+		Go(w) -> id({ id = StrOr(j = w.j, key = "id", d = ""), report = SeenReport(j = w.j) }) as Which
 	};
-	Which -> Grove.SeeStatus(id = this);
+	Which -> Grove.SeeStatus(id = this.id, report = this.report);
 	Grove.SeeStatus switch {
 		(this) -> Grove.Changed(n = 0),
-		else -> id(Answer(r = Ok(Which), key = "id")) as Same
+		else -> id(Answer(r = Ok(Which.id), key = "id")) as Same
 	};
-	Grove.Changed -> id(Answer(r = Ok(Which), key = "id"));
+	Grove.Changed -> id(Answer(r = Ok(Which.id), key = "id"));
 }
