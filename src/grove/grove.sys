@@ -41,7 +41,7 @@ interface Grove {
 	// renamed into place, holding grove's lock (grove/lock in the common git
 	// directory) while it does.
 	func Store(common: string, path: string, text: string): Res<string> = "grove_io.rs:store";
-	// Deletes a discarded leaf. Keep its metadata until after Git succeeds so
+	// Deletes a discarded or merged leaf. Keep its metadata until after Git succeeds so
 	// a failed cleanup can be retried, and let Git protect uncommitted changes.
 	func Delete(repo: Repo, id: string): Res<string> = "grove_io.rs:delete";
 	// Makes the agents' token, once per run: what grove's terminals and

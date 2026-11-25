@@ -653,7 +653,7 @@ pub fn rebase_failures(_n: i64) -> Result<Map<Str, Str>, String> {
         .collect())
 }
 
-/// Deletes a discarded leaf. Keep its metadata until after Git succeeds so
+/// Deletes a discarded or merged leaf. Keep its metadata until after Git succeeds so
 /// a failed cleanup can be retried, and let Git protect uncommitted changes.
 pub fn delete(repo: Repo, id: Str) -> Result<ResString, String> {
     use super::grove_leaf::{
@@ -664,7 +664,7 @@ pub fn delete(repo: Repo, id: Str) -> Result<ResString, String> {
 
     let remove = || -> Result<(), String> {
         if !valid_id(id.clone())? {
-            return Err("Choose a valid discarded idea to delete".to_string());
+            return Err("Choose a valid discarded or merged idea to delete".to_string());
         }
         let _held = lock(&repo.common)?;
         let read_idea = |id: Str| -> Result<Option<Idea>, String> {
@@ -701,17 +701,17 @@ pub fn delete(repo: Repo, id: Str) -> Result<ResString, String> {
         };
         let worktrees = run_git(&repo.top, &["worktree", "list", "--porcelain"])?;
         let worktree = worktree_of(worktrees.into(), id.clone())?;
-        if &*idea.status == "merged" || (!worktree.is_empty() && &*idea.status != "discarded") {
-            return Err(format!("{} isn't discarded", idea.name));
-        }
-        if let Some(head) = head {
+        // Merged as the tree shows it: its metadata says so, or its branch
+        // has commits of its own and they're all in the root's head.
+        let mut merged = &*idea.status == "merged";
+        if let (false, Some(head)) = (merged, head) {
             let root = run_git(&repo.top, &["rev-parse", "HEAD"])?;
             let fork = if idea.fork.is_empty() {
                 &root
             } else {
                 &*idea.fork
             };
-            let merged = run_git(
+            let in_root = run_git(
                 &repo.top,
                 &[
                     "for-each-ref",
@@ -721,9 +721,10 @@ pub fn delete(repo: Repo, id: Str) -> Result<ResString, String> {
                     &reference,
                 ],
             )?;
-            if head != fork && merged.lines().any(|line| line == reference) {
-                return Err(format!("{} is merged into the root", idea.name));
-            }
+            merged = head != fork && in_root.lines().any(|line| line == reference);
+        }
+        if !merged && !worktree.is_empty() && &*idea.status != "discarded" {
+            return Err(format!("{} isn't discarded or merged", idea.name));
         }
         let dir = Path::new(&*repo.common).join("grove/ideas");
         let entries = match fs::read_dir(&dir) {

@@ -575,8 +575,8 @@ function menu(x, y, i){
     else add('Merge into the root (rebase first)', null, 'off');
   }
   if (i.id !== '' && i.worktree){ m.appendChild(el('hr')); add('Discard' + (under(i.id).length ? ' with the ideas under it' : '') + '…', function(){ discard(i); }, 'bad'); }
-  if (i.status === 'discarded'){
-    add('Restore', function(){ restore(i); });
+  if (i.status === 'discarded') add('Restore', function(){ restore(i); });
+  if (i.status === 'discarded' || i.status === 'merged'){
     if ((kids()[i.id] || []).length) add('Delete child ideas first', null, 'off');
     else add('Delete permanently…', function(){ deleteIdea(i); }, 'bad');
   }

@@ -35,8 +35,8 @@ is set to the commit it was branched at.
   it, stops their terminals and the interiors started for them, and keeps
   their branches, so each can be **restored**. If any of them has changes
   that aren't committed, nothing is discarded.
-- **Delete permanently** is in a discarded node's right-click menu in the
-  history view. It removes the branch, remaining worktree and sessions, and
+- **Delete permanently** is in a discarded or merged node's right-click
+  menu in the history view. It removes the branch, remaining worktree and sessions, and
   idea metadata. Delete any child ideas first. Git protects uncommitted
   changes in a remaining worktree.
 - **Merge** an idea into the root (see [Merging](#merging)).

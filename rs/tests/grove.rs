@@ -600,10 +600,9 @@ fn merging_rebases_the_tree_and_agents_report() {
     assert_eq!(read_terminal().0, 200);
     let delete = |who, id| call(port, "POST", "/api/ideas/delete", who, &format!(r#"{{"id": "{id}"}}"#));
     assert_eq!(delete(&agent, e).0, 403);
-    assert!(delete(&token, &d).1.contains("isn't discarded"));
-    assert!(delete(&token, &b).1.contains("isn't discarded"));
+    assert!(delete(&token, &d).1.contains("isn't discarded or merged"));
     assert!(delete(&token, &c).1.contains("Delete the ideas under C first"));
-    for id in [e, &c] {
+    for id in [e, &c, &b] {
         let (_, deleted) = delete(&token, id);
         assert!(deleted.contains(r#""ok":true"#), "{deleted}");
         assert_eq!(git(&dir, &["branch", "--list", &format!("idea/{id}")]), "");
@@ -681,6 +680,15 @@ fn merging_leaves_ideas_merged_by_hand_alone() {
     assert_eq!(idea_in(port, "P"), ("active".into(), false, false, String::new(), String::new()));
     assert_eq!(git(&dir, &["rev-list", "--count", &format!("HEAD..idea/{p}")]), "1");
     assert_eq!(std::fs::read_to_string(wt(&p).join("idea-p.txt")).unwrap(), "edited\n");
+
+    // H, merged by hand, can be deleted though its metadata says active and
+    // its worktree is still there; P, active, can't.
+    let delete = |id: &str| call(port, "POST", "/api/ideas/delete", &token, &format!(r#"{{"id": "{id}"}}"#)).1;
+    assert!(delete(&p).contains("isn't discarded or merged"));
+    let deleted = delete(&h);
+    assert!(deleted.contains(r#""ok":true"#), "{deleted}");
+    assert_eq!(git(&dir, &["branch", "--list", &format!("idea/{h}")]), "");
+    assert!(!wt(&h).exists() && !common.join(format!("grove/ideas/{h}.toml")).exists());
     drop(_server);
     let _ = std::fs::remove_dir_all(&dir);
 }
