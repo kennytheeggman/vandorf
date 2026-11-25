@@ -633,6 +633,16 @@ repository's own worktree is the root):
   rename <name> [--idea <idea>]
                              renames this idea (or --idea)
   restore <idea>             gives a discarded idea its worktree back
+  run [--idea <idea>] [--new] [--] <cmd...>
+                             types cmd into a terminal of this idea (or
+                             --idea's): its first terminal section whose
+                             shell is at its prompt, else a new terminal,
+                             kept in its sections; --new always opens one.
+                             A terminal running a program (an agent, an
+                             editor, this command itself) is never typed
+                             into. One argument is a shell command line
+                             (grove run 'make test && echo ok'); several are
+                             quoted as words. Needs grove running.
   help                       this
 
 Discarding is left to people, in grove's tree. Each command works on the
@@ -657,6 +667,7 @@ pub fn parse_cli(argv: List<Str>) -> Result<CliArgs, String> {
         has_idea: false,
         run: s(""),
         terminal: true,
+        fresh: false,
         err: s(""),
     };
     let mut it = argv.iter().map(|x| x.to_string());
@@ -674,7 +685,11 @@ pub fn parse_cli(argv: List<Str>) -> Result<CliArgs, String> {
             a.cmd = s("help");
             return Ok(a);
         }
-        if x == "--" {
+        // `grove run`'s command is the rest, from its first word on.
+        if x == "--" || (&*a.cmd == "run" && !args.is_empty()) {
+            if x != "--" {
+                args.push(x);
+            }
             args.extend(it.by_ref());
             break;
         }
@@ -686,11 +701,15 @@ pub fn parse_cli(argv: List<Str>) -> Result<CliArgs, String> {
             Some((n, v)) => (n.to_string(), Some(v.to_string())),
             None => (flag.to_string(), None),
         };
-        if name == "no-terminal" {
+        if name == "no-terminal" || name == "new" {
             if inline.is_some() {
-                return fail(a, "--no-terminal takes no value".into());
+                return fail(a, format!("--{name} takes no value"));
             }
-            a.terminal = false;
+            if name == "new" {
+                a.fresh = true;
+            } else {
+                a.terminal = false;
+            }
             continue;
         }
         if !matches!(name.as_str(), "from" | "idea" | "run") {
@@ -710,6 +729,7 @@ pub fn parse_cli(argv: List<Str>) -> Result<CliArgs, String> {
         "branch" => (args.len(), 0, 1, &["from", "run", "no-terminal"]),
         "rename" => (args.len(), 1, 1, &["idea"]),
         "restore" => (args.len(), 1, 1, &[]),
+        "run" => (args.len(), 1, usize::MAX, &["idea", "new"]),
         "discard" => return Ok(a),
         c => return fail(a.clone(), format!("unknown command {c}")),
     };
@@ -718,6 +738,7 @@ pub fn parse_cli(argv: List<Str>) -> Result<CliArgs, String> {
         ("idea", a.has_idea),
         ("run", !a.run.is_empty()),
         ("no-terminal", !a.terminal),
+        ("new", a.fresh),
     ];
     if let Some((f, _)) = used.iter().find(|(f, on)| *on && !flags.contains(f)) {
         return fail(a.clone(), format!("grove {} takes no --{f}", a.cmd));
@@ -729,12 +750,16 @@ pub fn parse_cli(argv: List<Str>) -> Result<CliArgs, String> {
         let want = match (min, max) {
             (0, 0) => "no arguments".to_string(),
             (0, 1) => "at most one argument, the name".to_string(),
+            (1, usize::MAX) => "a command, such as grove run -- make test".to_string(),
             _ => "one argument".to_string(),
         };
         return fail(a.clone(), format!("grove {} takes {want}, not {n}", a.cmd));
     }
     if &*a.cmd == "rename" && args[0].is_empty() {
         return fail(a, "a name can't be empty".into());
+    }
+    if &*a.cmd == "run" && args.iter().all(|x| x.trim().is_empty()) {
+        return fail(a, "grove run takes a command, not an empty one".into());
     }
     a.args = args.into_iter().map(Str::from).collect();
     Ok(a)
@@ -789,6 +814,44 @@ fn json_quote(x: &str) -> String {
     }
     o.push('"');
     o
+}
+
+/// The command `grove run` types: its one argument as it is (a command line
+/// for the shell), or its several each quoted for the shell, joined by
+/// spaces.
+pub fn run_cmd(a: CliArgs) -> Result<Str, String> {
+    Ok(match a.args.len() {
+        1 => a.args[0].clone(),
+        _ => a
+            .args
+            .iter()
+            .map(|x| sh_quote(x))
+            .collect::<Vec<_>>()
+            .join(" ")
+            .into(),
+    })
+}
+
+/// A run's JSON body: {"idea", "cmd", "new"}.
+pub fn run_body(idea: Str, cmd: Str, fresh: bool) -> Result<Str, String> {
+    Ok(format!(
+        "{{\"idea\": {}, \"cmd\": {}, \"new\": {fresh}}}",
+        json_quote(&idea),
+        json_quote(&cmd)
+    )
+    .into())
+}
+
+/// The terminal of an idea's sections to run a command in: the first
+/// terminal section's whose terminal is one of mine (opened in the idea's
+/// worktree) and idle (its shell at its prompt); 0 if there's none.
+pub fn run_terminal(xs: List<Section>, mine: List<i64>, idle: List<i64>) -> Result<i64, String> {
+    Ok(xs
+        .iter()
+        .filter(|x| &*x.interior == "terminal" && x.term != 0)
+        .map(|x| x.term)
+        .find(|t| mine.contains(t) && idle.contains(t))
+        .unwrap_or(0))
 }
 
 /// A notification's JSON body: {"idea", "open", "run"}.
@@ -988,5 +1051,33 @@ pub fn told_text(done: Str, notified: ResString) -> Result<Str, String> {
     Ok(match notified {
         ResString::Ok(_) => done,
         ResString::Err(e) => format!("{done}\n{}", not_told(&e)).into(),
+    })
+}
+
+/// What `grove run` says it did, from grove's answer: where it ran cmd, and
+/// whether in a new terminal; an error if grove couldn't be asked or
+/// turned it away, which without $GROVE_URL says grove run needs grove
+/// running.
+pub fn ran_text(idea: Str, cmd: Str, answer: ResString) -> Result<ResString, String> {
+    let at = if idea.is_empty() {
+        "the root".to_string()
+    } else {
+        format!("idea {idea}")
+    };
+    Ok(match answer {
+        // grove's answers are compact JSON.
+        ResString::Ok(b) if b.contains("\"opened\":true") => {
+            ResString::Ok(format!("grove opened a terminal in {at}, running: {cmd}").into())
+        }
+        ResString::Ok(_) => {
+            ResString::Ok(format!("grove typed into a terminal of {at}: {cmd}").into())
+        }
+        ResString::Err(e) if e.msg.starts_with("no $GROVE_URL") => {
+            ResString::Err(no_span(format!(
+                "grove run types into grove's terminals, so it needs grove running: {}",
+                e.msg
+            )))
+        }
+        ResString::Err(e) => ResString::Err(no_span(format!("didn't run: {}", e.msg))),
     })
 }

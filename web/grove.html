@@ -160,6 +160,7 @@ function refresh(){
       var want = decodeURIComponent((location.hash.match(/idea=([^&]*)/) || [])[1] || store('cur') || '');
       show(want in byId ? want : '');
     } else { drawTree(); drawFoot(); if (!viewOf(cur)) show(cur); }
+    adopt();
   }).catch(function(e){ toast(String(e.message || e)); });
 }
 
@@ -373,7 +374,7 @@ function toggle(s){
 }
 function close(s){
   var v = s.v;
-  if (s.interior === 'terminal' && s.term) api('/api/term/kill?id=' + s.term, {}).catch(function(){});
+  if (s.interior === 'terminal' && s.term){ dropped[s.term] = true; api('/api/term/kill?id=' + s.term, {}).catch(function(){}); }
   s.el.remove(); v.secs.splice(v.secs.indexOf(s), 1);
   layout(v); save(v);
 }
@@ -457,13 +458,42 @@ function clearAttention(s){
   s.el.classList.remove('att');
   if (!s.v.secs.some(function(x){ return x.el.classList.contains('att'); })){ delete attention[s.v.id]; drawTree(); }
 }
-/* Runs a command in one of the idea's terminal sections, opening one if
-   there's none. */
+/* Runs a command in one of the idea's terminals, as `grove run` does: the
+   first terminal section whose shell is at its prompt, else a new one. A
+   terminal running a program (an agent, an editor) isn't typed into. */
 function run(v, cmd){
-  var t = v.secs.filter(function(s){ return s.interior === 'terminal'; })[0];
-  if (!t) t = addSection(v, 'terminal', true, 0);
-  if (!t.expanded) toggle(t);
-  if (t.ready) tell(t, { type: 'run', cmd: cmd }); else t.queue.push(cmd);
+  api('/api/term/list').then(function(l){ return l.idle || []; }, function(){ return []; }).then(function(idle){
+    var t = v.secs.filter(function(s){ return s.interior === 'terminal' && s.ready && idle.indexOf(s.term) >= 0; })[0];
+    if (!t) t = addSection(v, 'terminal', true, 0);
+    if (!t.expanded) toggle(t);
+    if (t.ready) tell(t, { type: 'run', cmd: cmd }); else t.queue.push(cmd);
+  });
+}
+/* Shows the terminals an agent opened in a shown idea (`grove run`, which
+   keeps them in its sections) as sections of its view: running ones no
+   section has, and none of those closed here. */
+var dropped = {};                     // terminal id -> true, once no section's
+function adopt(){
+  var want = [];
+  views.forEach(function(v){
+    var i = byId[v.id];
+    if (v.gone || !i) return;
+    (i.sections || []).forEach(function(x){
+      if (x.interior !== 'terminal' || !x.term || dropped[x.term]) return;
+      if (v.secs.some(function(s){ return s.term === x.term; })) return;
+      want.push({ v: v, x: x });
+    });
+  });
+  if (!want.length) return;
+  api('/api/term/list').then(function(l){
+    var moved = [];
+    want.forEach(function(w){
+      if (l.ids.indexOf(w.x.term) < 0 || w.v.secs.some(function(s){ return s.term === w.x.term; })) return;
+      addSection(w.v, 'terminal', w.x.expanded, w.x.term, true);
+      if (moved.indexOf(w.v) < 0) moved.push(w.v);
+    });
+    moved.forEach(function(v){ layout(v); save(v); });
+  }).catch(function(){});
 }
 window.addEventListener('message', function(e){
   var m = e.data;
@@ -473,7 +503,7 @@ window.addEventListener('message', function(e){
   switch (m.type){
   case 'ready': sendContext(s); tell(s, { type: 'visible', visible: s.expanded }); break;
   case 'term':
-    if (s.term !== m.id){ s.term = m.id; save(s.v); }
+    if (s.term !== m.id){ if (s.term) dropped[s.term] = true; s.term = m.id; save(s.v); }
     s.ready = true;
     s.queue.splice(0).forEach(function(c){ tell(s, { type: 'run', cmd: c }); });
     break;

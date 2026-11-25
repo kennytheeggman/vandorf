@@ -436,7 +436,7 @@ fn agent_env() -> Vec<(String, String)> {
 /// grove is serving) and $GROVE_TOKEN (the agents' token) once grove is
 /// serving, returning the terminal's id.
 pub fn spawn(cwd: Str) -> Result<ResInt, String> {
-    super::ide_io::spawn_with(&cwd, &agent_env())
+    super::ide_io::spawn_with(&cwd, &agent_env()).inspect(|r| opened_one(r, &cwd))
 }
 
 fn changes() -> &'static (Mutex<i64>, std::sync::Condvar) {
@@ -546,4 +546,30 @@ fn post(path: &str, body: &str) -> Result<String, String> {
         .filter(|e| !e.is_empty())
         .unwrap_or_else(|| format!("status {status}"));
     Err(format!("grove turned it away: {why}"))
+}
+
+/// The worktree each terminal grove opened (Spawn) was opened in, by id.
+fn opened() -> &'static Mutex<HashMap<i64, String>> {
+    static OPENED: OnceLock<Mutex<HashMap<i64, String>>> = OnceLock::new();
+    OPENED.get_or_init(Default::default)
+}
+
+fn opened_one(r: &ResInt, cwd: &str) {
+    if let ResInt::Ok(id) = r {
+        opened().lock().unwrap().insert(*id, cwd.to_string());
+    }
+}
+
+/// The ids of the terminals grove opened in dir (by Spawn) since it
+/// started, running or not, sorted.
+pub fn opened_in(dir: Str) -> Result<List<i64>, String> {
+    let mut ids: Vec<i64> = opened()
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, d)| **d == *dir)
+        .map(|(k, _)| *k)
+        .collect();
+    ids.sort();
+    Ok(ids.into())
 }

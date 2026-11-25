@@ -44,6 +44,10 @@ interface Term {
 	// user's startup files for zsh and bash.
 	func Spawn(cwd: string): Res<int> = "ide_io.rs:term_spawn";
 	func List(n: int): []int = "ide_io.rs:term_list";
+	// The terminals whose shell is at its prompt: still running, with no
+	// program of its own in the foreground (where that can't be told, on
+	// Windows, every running one).
+	func Idle(n: int): []int = "ide_io.rs:term_idle";
 	// Reads a terminal's output from stream offset `from`, waiting up to 20 s
 	// for some. Only whole UTF-8 characters: `next` is where the next read
 	// starts.

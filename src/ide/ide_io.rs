@@ -213,6 +213,8 @@ struct Term {
     master: Mutex<Option<Box<dyn MasterPty + Send>>>,
     writer: Mutex<Box<dyn Write + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
+    /// The shell's process id, to tell whether it's in the foreground.
+    pid: Option<u32>,
     out: Mutex<TermOut>,
     ready: Condvar,
 }
@@ -402,6 +404,7 @@ fn spawn(cwd: &str, env: &[(String, String)]) -> Result<Arc<Term>, String> {
         master: Mutex::new(Some(pty.master)),
         writer: Mutex::new(writer),
         killer: Mutex::new(child.clone_killer()),
+        pid: child.process_id(),
         out: Mutex::new(TermOut::default()),
         ready: Condvar::new(),
     });
@@ -469,6 +472,44 @@ pub fn term_list(_n: i64) -> Result<List<i64>, String> {
     let mut ids: Vec<i64> = terms().lock().unwrap().0.keys().copied().collect();
     ids.sort();
     Ok(ids.into())
+}
+
+/// The terminals whose shell is at its prompt: still running, with no
+/// program of its own in the foreground (where that can't be told, on
+/// Windows, every running one).
+pub fn term_idle(_n: i64) -> Result<List<i64>, String> {
+    let all: Vec<(i64, Arc<Term>)> = terms()
+        .lock()
+        .unwrap()
+        .0
+        .iter()
+        .map(|(k, t)| (*k, t.clone()))
+        .collect();
+    let mut ids: Vec<i64> = all
+        .into_iter()
+        .filter(|(_, t)| idle(t))
+        .map(|(k, _)| k)
+        .collect();
+    ids.sort();
+    Ok(ids.into())
+}
+
+fn idle(t: &Term) -> bool {
+    let master = t.master.lock().unwrap();
+    let Some(m) = master.as_ref() else {
+        return false;
+    };
+    #[cfg(unix)]
+    {
+        // The shell leads its own session, so its group is its pid; a job
+        // it runs in the foreground has a group of its own.
+        m.process_group_leader().map(|g| g as u32) == t.pid && t.pid.is_some()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = m;
+        true
+    }
 }
 
 /// Reads a terminal's output from stream offset `from`, waiting up to 20 s

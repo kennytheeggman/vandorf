@@ -45,14 +45,16 @@ proc TermNewRoute(req: HttpRequest): HttpResponse {
 	};
 }
 
-// Serves GET /api/term/list: the ids of the running terminals.
+// Serves GET /api/term/list: the ids of the terminals (ids), and of those
+// whose shell is at its prompt (idle).
 proc TermListRoute(req: HttpRequest): HttpResponse {
 	TermListRoute -> TermGate(req = this.req);
 	TermGate switch {
 		Shut(r) -> id(r),
 		else -> Term.List(n = 0)
 	};
-	Term.List -> id(Api(j = Obj([{ key = "ok", value = Bool(true) }, { key = "ids", value = Arr(Ints(xs = this)) }])));
+	Term.List -> Term.Idle(n = 0);
+	Term.Idle -> id(Api(j = Obj([{ key = "ok", value = Bool(true) }, { key = "ids", value = Arr(Ints(xs = Term.List)) }, { key = "idle", value = Arr(Ints(xs = this)) }])));
 }
 
 // Serves GET /api/term/read?id=&from=: the terminal's output from `from`,

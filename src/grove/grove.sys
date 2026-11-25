@@ -63,6 +63,9 @@ interface Grove {
 	// answer's body. An error if there's no $GROVE_URL, or grove can't be
 	// reached in a few seconds, or it turns the request away.
 	func Notify(path: string, body: string): Res<string> = "grove_io.rs:notify";
+	// The ids of the terminals grove opened in dir (by Spawn) since it
+	// started, running or not, sorted.
+	func OpenedIn(dir: string): []int = "grove_io.rs:opened_in";
 }
 
 // Makes an error with no source position.
