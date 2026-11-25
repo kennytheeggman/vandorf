@@ -59,11 +59,11 @@ body{
 .seg button.on{background:var(--accent); border-color:var(--accent); color:var(--accent-tx)}
 .panel{display:none}
 .panel.on{display:block}
-input#path{
+input#path, input#diffFile{
   width:100%; padding:9px 10px; border-radius:0; border:1px solid var(--in-bd); background:var(--in-bg);
   color:var(--in-tx); font-size:13px;
 }
-textarea#srcText{
+textarea#srcText, textarea#diffText{
   width:100%; height:150px; resize:vertical; background:var(--in-bg); color:var(--in-tx);
   border:1px solid var(--in-bd); border-radius:0; padding:10px;
   font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
@@ -247,6 +247,46 @@ html.embed #fg{top:0}
 #etip .row + .row{margin-top:3px}
 .eg.hot .e{stroke-width:3.8; filter:drop-shadow(0 0 3px rgba(31,111,235,.75))}
 .eg.hot .elabel rect{stroke:var(--accent); stroke-width:1.8}
+/* A diff document (vcc diff --json): what was added is green, what was
+   removed red and ghosted where it was, what changed amber. */
+:root{--d-add:#16a34a; --d-rem:#dc2626; --d-chg:#d97706}
+html.dark{--d-add:#4ade80; --d-rem:#f87171; --d-chg:#fbbf24}
+.node.d-added > rect, .node.d-added > circle.ring{stroke:var(--d-add)!important; stroke-width:2.8}
+.node.d-changed > rect, .node.d-changed > circle.ring{stroke:var(--d-chg)!important; stroke-width:2.8}
+.node.d-removed{opacity:.42}
+.node.d-removed > rect, .node.d-removed > circle.ring{stroke:var(--d-rem)!important; stroke-width:2.2; stroke-dasharray:5 4}
+.eg.d-added .e{stroke:var(--d-add)}
+.eg.d-changed .e{stroke:var(--d-chg)}
+.eg.d-removed{opacity:.42}
+.eg.d-removed .e{stroke:var(--d-rem); stroke-dasharray:4 4}
+.eg.d-added .elabel rect{stroke:var(--d-add)}
+.eg.d-changed .elabel rect{stroke:var(--d-chg)}
+.eg.d-removed .elabel rect{stroke:var(--d-rem)}
+.split-hd{font-size:13px; font-weight:700; fill:var(--mut)}
+#diffctl{
+  position:absolute; top:14px; left:328px; z-index:47; display:flex; align-items:center; gap:4px;
+  background:var(--surf-bg); border:1px solid var(--surf-bd); padding:6px 8px; box-shadow:0 10px 30px rgba(0,0,0,.25);
+}
+html.embed #diffctl{left:14px}
+#diffctl .dlab{font-size:12px; color:var(--surf-mut); margin-right:6px; max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+#diffctl button{
+  padding:5px 9px; border:1px solid var(--btn-bd); background:var(--btn-bg); color:var(--btn-tx);
+  font-size:12px; font-weight:600; cursor:pointer; border-radius:0;
+}
+#diffctl button.on{background:var(--accent); border-color:var(--accent); color:var(--accent-tx)}
+#diffctl button.gap{margin-left:8px}
+#tdiff{
+  position:absolute; top:0; right:0; bottom:0; width:42%; z-index:46; overflow:auto; padding:64px 14px 14px;
+  background:var(--surf-bg); color:var(--surf-tx); border-left:1px solid var(--surf-bd);
+}
+#tdiff h3{font-size:13px; margin:0 0 8px}
+#tdiff .note{font-size:12px; color:var(--surf-mut); margin:0 0 10px}
+#tdiff pre{margin:0 0 12px; font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; white-space:pre-wrap; word-break:break-word}
+#tdiff pre span{display:block; padding:0 6px; min-height:1.5em}
+#tdiff pre .l-add{background:rgba(22,163,74,.16)}
+#tdiff pre .l-rem{background:rgba(220,38,38,.16)}
+#tdiff pre.err{color:var(--d-rem)}
+main.tdiff-on #zoomctl{right:calc(42% + 18px)}
 </style>
 </head>
 <body>
@@ -276,6 +316,15 @@ html.embed #fg{top:0}
       <button id="zPlus" class="zbtn" title="Zoom in">+</button>
       <button id="zFit" class="zbtn" title="Fit to window">&#128470;</button>
     </div>
+    <div id="diffctl" class="hidden">
+      <span class="dlab" id="dLab"></span>
+      <button id="dOverlay" class="on" title="Both revisions in one diagram">Overlay</button>
+      <button id="dOld" title="The old revision, in the same places">Old</button>
+      <button id="dNew" title="The new revision">New</button>
+      <button id="dSplit" title="The old revision beside the new">Side by side</button>
+      <button id="dText" class="gap" title="The proc's text diff beside the diagram">Text</button>
+    </div>
+    <aside id="tdiff" class="hidden"></aside>
   </main>
 
   <div id="settings" class="settings hidden">
@@ -283,10 +332,15 @@ html.embed #fg{top:0}
     <div class="seg">
       <button id="modeFile" class="on">File</button>
       <button id="modeText">Text</button>
+      <button id="modeDiff">Diff</button>
     </div>
     <div class="panel on" id="panelFile">
       <input id="path" list="srcList" placeholder="test/fixtures/test1.sys" spellcheck="false">
       <datalist id="srcList"></datalist>
+    </div>
+    <div class="panel" id="panelDiff">
+      <input type="file" id="diffFile" accept=".json,application/json">
+      <textarea id="diffText" placeholder="or paste the output of vcc diff --json" spellcheck="false"></textarea>
     </div>
     <div class="panel" id="panelText">
       <textarea id="srcText" placeholder="interface Foo {&#10;  func Call(s: string): int;&#10;}&#10;&#10;proc Bar(s: string): string {&#10;  Bar -&gt; ...&#10;}"></textarea>
@@ -369,13 +423,14 @@ document.addEventListener('pointerdown', function(){ post({ type: 'vandorf-viz-f
 
 /* ---------- mode switching ---------- */
 function setMode(m){
-  document.getElementById('modeFile').classList.toggle('on', m === 'file');
-  document.getElementById('modeText').classList.toggle('on', m === 'text');
-  document.getElementById('panelFile').classList.toggle('on', m === 'file');
-  document.getElementById('panelText').classList.toggle('on', m === 'text');
+  ['File', 'Text', 'Diff'].forEach(function(x){
+    document.getElementById('mode' + x).classList.toggle('on', m === x.toLowerCase());
+    document.getElementById('panel' + x).classList.toggle('on', m === x.toLowerCase());
+  });
 }
 document.getElementById('modeFile').addEventListener('click', function(){ setMode('file'); });
 document.getElementById('modeText').addEventListener('click', function(){ setMode('text'); });
+document.getElementById('modeDiff').addEventListener('click', function(){ setMode('diff'); });
 
 pathInput.addEventListener('keydown', function(e){ if (e.key === 'Enter') compile(); });
 document.getElementById('compile').addEventListener('click', compile);
@@ -416,6 +471,7 @@ document.getElementById('refresh').addEventListener('click', function(){ locatio
 /* ---------- compile ---------- */
 function compile(){
   setErr(null);
+  if (document.getElementById('panelDiff').classList.contains('on')){ loadDiff(); return; }
   var fileMode = document.getElementById('panelFile').classList.contains('on');
   var body;
   if (fileMode){
@@ -436,6 +492,98 @@ function compile(){
     })
     .catch(function(e){ setErr('Network error: ' + e); setStatus(''); });
 }
+
+// Shows a diff document (vcc diff --json), from the file chosen or the text
+// pasted.
+function loadDiff(){
+  var f = document.getElementById('diffFile').files[0], text = document.getElementById('diffText').value.trim();
+  function show(t){
+    var d;
+    try { d = JSON.parse(t); } catch (e){ setErr('Not JSON: ' + e.message); setStatus(''); return; }
+    if (!isDiffDoc(d)){ setErr('Not a diff document: make one with vcc diff --json.'); setStatus(''); return; }
+    setStatus(d.old.label + ' \u2192 ' + d.new.label);
+    renderDoc(d);
+  }
+  if (f){
+    var r = new FileReader();
+    r.onload = function(){ show(String(r.result)); };
+    r.onerror = function(){ setErr('Cannot read ' + f.name + '.'); };
+    r.readAsText(f);
+  } else if (text) show(text);
+  else setErr('Choose the output of vcc diff --json, or paste it.');
+}
+
+/* =====================================================================
+   DIFF (pure: no DOM): a diff document's two revisions, from its grids
+   ===================================================================== */
+/* DIFF-BEGIN */
+// A diff document: the visualizer document's grids, the changes marked,
+// with both sides and what changed.
+function isDiffDoc(d){ return !!(d && d.grids && d.old && d.new && d.counts); }
+// A grid as one side had it. What the other side added stays in its cell,
+// hidden (_hide), so the two sides line up cell for cell; what changed shows
+// that side's values.
+function sideGrid(g, side){
+  var hide = side === 'old' ? 'added' : 'removed';
+  function as(x){
+    if (x.diff === hide) return Object.assign({}, x, { _hide: true });
+    if (side === 'old' && x.diff === 'changed' && x.was){
+      var y = Object.assign({}, x);
+      Object.keys(x.was).forEach(function(k){ if (x.was[k] === null) delete y[k]; else y[k] = x.was[k]; });
+      return y;
+    }
+    return x;
+  }
+  return {
+    rows: (g.rows || []).map(function(r){ return { nodes: (r.nodes || []).map(as) }; }),
+    edges: (g.edges || []).map(as)
+  };
+}
+// The document as one side had it: each grid by sideGrid.
+function sideDoc(d, side){
+  var gs = {};
+  Object.keys(d.grids).forEach(function(k){ gs[k] = sideGrid(d.grids[k], side); });
+  return Object.assign({}, d, { grids: gs });
+}
+// The lines of texts a and b, each kept (' '), removed ('-') or added ('+'),
+// along their longest common subsequence; removals before additions.
+function lineDiff(a, b){
+  var x = a === '' ? [] : a.split('\n'), y = b === '' ? [] : b.split('\n'), n = x.length, m = y.length;
+  // lcs[i][j]: the length of the longest common subsequence of x[i..] and y[j..].
+  var lcs = [], i, j;
+  for (i = n; i >= 0; i--){
+    lcs[i] = [];
+    for (j = m; j >= 0; j--)
+      lcs[i][j] = i === n || j === m ? 0 : x[i] === y[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  }
+  var out = [];
+  for (i = 0, j = 0; i < n || j < m;){
+    if (i < n && j < m && x[i] === y[j]){ out.push({ op: ' ', text: x[i] }); i++; j++; }
+    else if (i < n && (j === m || lcs[i + 1][j] >= lcs[i][j + 1])){ out.push({ op: '-', text: x[i] }); i++; }
+    else { out.push({ op: '+', text: y[j] }); j++; }
+  }
+  return out;
+}
+// The class marking a node or edge of a diff: d-added, d-removed, d-changed.
+function diffCls(x){ return x && x.diff ? ' d-' + x.diff : ''; }
+// What a node's or edge's tooltip says of its change, given the diff's
+// sides: added, removed, or what changed and what it was.
+function diffNote(x, d){
+  if (!x || !x.diff || !d) return '';
+  if (x.diff === 'added') return '\nadded in ' + d.new.label;
+  if (x.diff === 'removed') return '\nremoved: only in ' + d.old.label;
+  var w = x.was || {};
+  return '\nchanged since ' + d.old.label + Object.keys(w).map(function(k){
+    return '\n  ' + k + ' was ' + (w[k] === null ? 'none' : typeof w[k] === 'string' ? w[k] : JSON.stringify(w[k]));
+  }).join('');
+}
+// A proc's mark in a diff: + added, − removed, ~ changed, ! doesn't check,
+// a space if unchanged.
+function diffMark(d, name){
+  var e = d && d.procs && d.procs[name];
+  return !e ? '\u2007' : ({ added: '+', removed: '\u2212', unchecked: '!' })[e.status] || '~';
+}
+/* DIFF-END */
 
 /* =====================================================================
    LAYOUT (pure: no DOM; needs measure(), DOC, expanded and blkOpen)
@@ -1207,13 +1355,13 @@ function edgeType(v){ return EDGE_META[v] || EDGE_META[0]; }
 
 /* ---------- rendering ---------- */
 function renderDoc(doc, proc){
-  DOC = doc || { grids: {} };
+  DOC = setDiff(doc) || { grids: {} };
   if (!DOC.grids) DOC.grids = {};
   RESOLVED = {}; IFACE_USE = {};
   buildProcMenu();
   var names = Object.keys(DOC.grids).sort();
   if (!names.length){
-    stageEl.innerHTML = '<div class="notice">Compiled, but the document has no procedure grids.</div>';
+    stageEl.innerHTML = '<div class="notice">' + (DIFF ? diffEmpty() : 'Compiled, but the document has no procedure grids.') + '</div>';
     procSel.value = '';
     rendered = false;
     return;
@@ -1232,16 +1380,22 @@ function renderDoc(doc, proc){
 
 function buildProcMenu(){
   procMenu.innerHTML = '';
-  Object.keys(DOC.grids || {}).sort().forEach(function(n){
+  var names = Object.keys(DOC.grids || {});
+  // A diff's procs that don't check have no grid: they show as text.
+  if (DIFF) Object.keys(DIFF.procs || {}).forEach(function(n){ if (names.indexOf(n) < 0) names.push(n); });
+  names.sort().forEach(function(n){
     var li = document.createElement('li');
-    li.textContent = n;
+    li.textContent = DIFF ? diffMark(DIFF, n) + ' ' + n : n;
     li.setAttribute('data-g', n);
     procMenu.appendChild(li);
   });
 }
 
 function selectProc(name){
-  if (!getGrid(name)) return;
+  if (!getGrid(name)){
+    if (DIFF && DIFF.procs && DIFF.procs[name]) showTextOnly(name);
+    return;
+  }
   procSel.value = name;
   closeMenu();
   if (name === currentProc && rendered) return;
@@ -1267,8 +1421,104 @@ function rerenderProc(){
 
 function draw(){
   INFO = {};
-  stageEl.innerHTML = renderSvg(currentProc);
+  if (DIFF && dview === 'split'){
+    // Only the new side's nodes take clicks, so INFO is the new side's.
+    DOC = DOCS.old;
+    var a = renderSvg(currentProc);
+    INFO = {};
+    DOC = DOCS.new;
+    stageEl.innerHTML = splitSvg(a, renderSvg(currentProc));
+  } else {
+    stageEl.innerHTML = renderSvg(currentProc);
+  }
   applySelection();
+  showTextDiff();
+}
+
+/* ---------- diff documents: two revisions of a project in one diagram ---------- */
+var DIFF = null;     // the diff document shown, if it is one
+var DOCS = null;     // its views: overlay (itself), old and new (sideDoc)
+var dview = storeGet('vandorf.viz.diffview') || 'overlay', dtext = false;
+var diffctl = document.getElementById('diffctl'), tdiffEl = document.getElementById('tdiff');
+var DVIEWS = ['overlay', 'old', 'new', 'split'];
+if (DVIEWS.indexOf(dview) < 0) dview = 'overlay';
+
+// Takes a document to show: a diff document's view of itself, or the
+// document as it is.
+function setDiff(doc){
+  DIFF = isDiffDoc(doc) ? doc : null;
+  DOCS = DIFF ? { overlay: DIFF, old: sideDoc(DIFF, 'old'), new: sideDoc(DIFF, 'new') } : null;
+  diffctl.classList.toggle('hidden', !DIFF);
+  if (DIFF) document.getElementById('dLab').textContent = DIFF.old.label + ' \u2192 ' + DIFF.new.label;
+  markView();
+  return DIFF ? DOCS[dview === 'split' ? 'new' : dview] : doc;
+}
+function markView(){
+  DVIEWS.forEach(function(v){ document.getElementById('d' + v.charAt(0).toUpperCase() + v.slice(1)).classList.toggle('on', dview === v); });
+  document.getElementById('dText').classList.toggle('on', dtext);
+}
+function setDiffView(v){
+  dview = v;
+  storeSet('vandorf.viz.diffview', v);
+  markView();
+  if (!DIFF) return;
+  DOC = DOCS[v === 'split' ? 'new' : v];
+  if (getGrid(currentProc)){ draw(); fitView(); }
+}
+DVIEWS.forEach(function(v){
+  document.getElementById('d' + v.charAt(0).toUpperCase() + v.slice(1)).addEventListener('click', function(){ setDiffView(v); });
+});
+document.getElementById('dText').addEventListener('click', function(){ dtext = !dtext; markView(); showTextDiff(); });
+
+// The old side's diagram beside the new side's, each under its label, in
+// one svg; only the new side takes clicks.
+function splitSvg(a, b){
+  function size(svg){ var m = /width="([\d.]+)" height="([\d.]+)"/.exec(svg); return m ? [+m[1], +m[2]] : [300, 200]; }
+  var sa = size(a), sb = size(b), hd = 30, gap = 64, w = sa[0] + gap + sb[0], h = hd + Math.max(sa[1], sb[1]);
+  function place(svg, x, extra){ return svg.replace('<svg ', '<svg x="' + x + '" y="' + hd + '"' + extra + ' '); }
+  return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' +
+    '<text class="split-hd" x="' + (sa[0] / 2) + '" y="20" text-anchor="middle">' + esc(DIFF.old.label) + '</text>' +
+    '<text class="split-hd" x="' + (sa[0] + gap + sb[0] / 2) + '" y="20" text-anchor="middle">' + esc(DIFF.new.label) + '</text>' +
+    place(a, 0, ' style="pointer-events:none"') + place(b, sa[0] + gap, '') + '</svg>';
+}
+
+// Why a diff document has no grids: a side that doesn't check, or no procs.
+function diffEmpty(){
+  var s = ['old', 'new'].filter(function(k){ return !DIFF[k].checks; }).map(function(k){
+    return esc(DIFF[k].label) + ' doesn\u2019t check, so its procs can\u2019t be compared; compare the files\u2019 text instead.<pre>' + esc(DIFF[k].error || '') + '</pre>';
+  }).join('');
+  return s || 'Neither revision has procs.';
+}
+
+// Shows a diff's proc that doesn't check on a side, so has no grid: its
+// errors and its text diff.
+function showTextOnly(name){
+  currentProc = name;
+  procSel.value = name;
+  closeMenu();
+  rendered = false;
+  stageEl.innerHTML = '<div class="notice">' + esc(name) + ' doesn\u2019t check on a side, so there\u2019s no diagram to compare: its text is beside.</div>';
+  dtext = true;
+  markView();
+  showTextDiff();
+}
+
+// The shown proc's text in each revision as a line diff, beside the
+// diagram, with the errors of a side it doesn't check on.
+function showTextDiff(){
+  main.classList.toggle('tdiff-on', !!(DIFF && dtext));
+  if (!DIFF || !dtext){ tdiffEl.classList.add('hidden'); return; }
+  tdiffEl.classList.remove('hidden');
+  var e = (DIFF.procs || {})[currentProc], h = '<h3>' + esc(currentProc) + '</h3>';
+  if (!e){ tdiffEl.innerHTML = h + '<p class="note">Unchanged since ' + esc(DIFF.old.label) + '.</p>'; return; }
+  var t = e.text || {}, errs = e.errors || {};
+  ['old', 'new'].forEach(function(k){
+    if (errs[k]) h += '<p class="note">Doesn\u2019t check in ' + esc(DIFF[k].label) + ':</p><pre class="err">' + esc(errs[k]) + '</pre>';
+  });
+  h += '<p class="note">' + esc(DIFF.old.label) + ' \u2192 ' + esc(DIFF.new.label) + '</p><pre>' + lineDiff(t.old || '', t.new || '').map(function(l){
+    return '<span class="' + (l.op === '+' ? 'l-add' : l.op === '-' ? 'l-rem' : 'l-same') + '">' + esc(l.op + ' ' + l.text) + '</span>';
+  }).join('') + '</pre>';
+  tdiffEl.innerHTML = h;
 }
 
 /* -------- svg drawing -------- */
@@ -1366,6 +1616,8 @@ function diamondSVG(L, k, n, p){
 
 function nodeSVG(L, k, n){
   var p = L.pos[k];
+  // The other side's node, in a diff's view of one side: its cell stays empty.
+  if (n._hide) return '';
   if (p.lay) return panelSVG(L, k, n);
   if (p.hidden) return '';
   if (isSig(n)) return sigSVG(L, k, n);
@@ -1374,6 +1626,7 @@ function nodeSVG(L, k, n){
   if (n.type === 1 && !p.grid) cls += ' nogrid';
   var iq = ifaceName(n);
   if (iq) cls += ' node-iface';
+  cls += diffCls(n);
   var id = 'n:' + p.path, attr = '';
   if (n.type !== 2){
     INFO[id] = nodeInfo(L, k, n);
@@ -1383,7 +1636,7 @@ function nodeSVG(L, k, n){
   }
   if (isId(n)){
     var r0 = ID_D / 2;
-    return '<g class="node node-id"' + attr + '><title>' + (n.label === 'id' ? 'id: ends the proc with the value it receives' : esc(n.label) + ': id(..) as ' + esc(n.label) + ', passes on the value it receives') + '</title>' +
+    return '<g class="node node-id' + diffCls(n) + '"' + attr + '><title>' + (n.label === 'id' ? 'id: ends the proc with the value it receives' : esc(n.label) + ': id(..) as ' + esc(n.label) + ', passes on the value it receives') + esc(diffNote(n, DIFF)) + '</title>' +
       // The padding around the circle is clickable too.
       '<rect class="pad" x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '"></rect>' +
       '<circle class="ring" cx="' + p.cx + '" cy="' + (p.y + p.h / 2) + '" r="' + (r0 - 1) + '"></circle>' +
@@ -1398,6 +1651,7 @@ function nodeSVG(L, k, n){
   if (docText(n)) full += '\n' + n.doc;
   if (n.branch) full += n.branch === 'detached' ? '\ndetached: runs on its own, nothing waits for it' : '\nspawned: runs alongside the others, the join waits for it';
   if (n.type === 1) full += p.grid ? '\nclick: expand · shift-click: select · ctrl/⌘-click: open' : '\n(no grid found)';
+  full += diffNote(n, DIFF);
   s += '<title>' + esc(full) + '</title>';
   // Badge at the left; the name is centered in the room right of it, above
   // the signature and the doc.
@@ -1426,8 +1680,8 @@ function sigSVG(L, k, n){
   INFO[id] = nodeInfo(L, k, n);
   INFO[id].path = p.path;
   INFO[id].canExpand = false;
-  var s = '<g class="node node-sig" data-sel="' + esc(id) + '">';
-  s += '<title>' + esc('signature of ' + (n.label || '') + (n.sublabel || '') + (docText(n) ? '\n' + n.doc : '') + '\nits output is its parameters, by name: this.<param> on its edge, ' + (n.label || '') + '.<param> after') + '</title>';
+  var s = '<g class="node node-sig' + diffCls(n) + '" data-sel="' + esc(id) + '">';
+  s += '<title>' + esc('signature of ' + (n.label || '') + (n.sublabel || '') + (docText(n) ? '\n' + n.doc : '') + '\nits output is its parameters, by name: this.<param> on its edge, ' + (n.label || '') + '.<param> after' + diffNote(n, DIFF)) + '</title>';
   var sh = subH(n, p.path, p.w);
   s += '<rect x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '"></rect>';
   var tw = p.w - 28;
@@ -1447,12 +1701,12 @@ function panelSVG(L, k, n){
   INFO[id] = nodeInfo(L, k, n);
   INFO[id].path = p.path;
   INFO[id].expanded = true;
-  var s = '<g class="node node-proc" data-selbox="' + esc(id) + '">';
+  var s = '<g class="node node-proc' + diffCls(n) + '" data-selbox="' + esc(id) + '">';
   s += '<rect class="wpanel" x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '"></rect>';
   var b = 2, hw = p.w - 2 * b, ht = PANEL_HD - b, r = 4;
   var title = n.label === name ? name : (n.label + ' — ' + name);
   s += '<g class="panel-hd" data-sel="' + esc(id) + '">' +
-       '<title>' + esc('procedure: ' + title + (docText(n) ? '\n' + n.doc : '') + '\nctrl/⌘-click: open') + '</title>' +
+       '<title>' + esc('procedure: ' + title + (docText(n) ? '\n' + n.doc : '') + '\nctrl/⌘-click: open' + diffNote(n, DIFF)) + '</title>' +
        '<path class="panel-bg" d="M' + (p.x + b + r) + ' ' + (p.y + b) + ' L' + (p.x + b + hw - r) + ' ' + (p.y + b) + ' A' + r + ' ' + r + ' 0 0 1 ' + (p.x + b + hw) + ' ' + (p.y + b + r) + ' L' + (p.x + b + hw) + ' ' + (p.y + ht) + ' L' + (p.x + b) + ' ' + (p.y + ht) + ' L' + (p.x + b) + ' ' + (p.y + b + r) + ' A' + r + ' ' + r + ' 0 0 1 ' + (p.x + b + r) + ' ' + (p.y + b) + ' Z"></path>' +
        badgeSVG(p.x + 10, p.y + (PANEL_HD - 15) / 2 + 1, n) +
        '<text class="pt" x="' + (p.x + 33) + '" y="' + (p.y + PANEL_HD / 2 + 5) + '">' + esc(truncate(title, 12, Math.max(40, p.w - 96), 700)) + '</text>' +
@@ -1505,7 +1759,7 @@ function edgeSVG(L, e, i){
     ? ' data-sw="' + esc('s:' + L.prefix + rc(e.source[0], e.source[1])) + '"' : '';
   // The group carries what the edge passes (valueType and call) for the
   // hover tooltip.
-  var gopen = '<g class="eg" data-sel="' + esc(id) + '"' + sw + ' data-when="' + esc(e.label || '') + '" data-call="' + esc(callText(e, t)) + '">';
+  var gopen = '<g class="eg' + diffCls(e) + '" data-sel="' + esc(id) + '"' + sw + ' data-when="' + esc(e.label || '') + '" data-call="' + esc(callText(e, t)) + '"' + (e.diff ? ' data-diff="' + esc(diffNote(e, DIFF).replace(/^\n/, '')) + '"' : '') + '>';
   var out = gopen +
     '<path class="e ' + cls + '" d="' + d + '" marker-end="url(#' + ah + ')" data-type="' + type + '"></path>';
   if (!R.back){
@@ -1560,7 +1814,10 @@ function fanHead(pts, off, cls, pairs){
 
 function renderLayout(L){
   var s = stripSVG(L), labs = '';
-  (L.grid.edges || []).forEach(function(e, i){ var x = edgeSVG(L, e, i); s += x[0]; labs += x[1]; });
+  (L.grid.edges || []).forEach(function(e, i){
+    if (e._hide) return;
+    var x = edgeSVG(L, e, i); s += x[0]; labs += x[1];
+  });
   (L.grid.rows || []).forEach(function(row, r){
     (row.nodes || []).forEach(function(n, c){ s += nodeSVG(L, rc(r, c), n); });
   });
@@ -1893,7 +2150,7 @@ function hideTip(){
   etip.style.display = 'none';
   if (hotEdge){ setHot(hotEdge, false); hotEdge = null; }
 }
-function hasTip(g){ return !!(g && (g.dataset.when || g.dataset.call)); }
+function hasTip(g){ return !!(g && (g.dataset.when || g.dataset.call || g.dataset.diff)); }
 // Light up an edge group and fill the tooltip with what it passes.
 function heat(g){
   if (hotEdge && g.getAttribute('data-sel') === hotEdge.getAttribute('data-sel')) return;
@@ -1902,6 +2159,7 @@ function heat(g){
   var rows = [];
   if (g.dataset.when) rows.push('<div class="row"><span class="k">when</span><code>' + hlHTML(g.dataset.when) + '</code></div>');
   if (g.dataset.call) rows.push('<div class="row"><span class="k">call</span><code>' + hlHTML(g.dataset.call) + '</code></div>');
+  if (g.dataset.diff) rows.push('<div class="row"><span class="k">diff</span>' + esc(g.dataset.diff).replace(/\n/g, '<br>') + '</div>');
   etip.innerHTML = rows.join('');
   etip.style.display = rows.length ? 'block' : 'none';
 }

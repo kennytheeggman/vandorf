@@ -71,7 +71,15 @@ Other pages:
   a tab.
 - `/workbench`: an editor beside the generated Go and Rust, for trying
   things out.
-- `/viz`: the diagram on its own, for a `.sys` file given by path.
+- `/viz`: the diagram on its own, for a `.sys` file given by path, or for
+  a diff document (Settings → Diff: choose or paste the output of
+  `vcc diff --json`). A diff shows what was added in green, what was removed
+  in red, faded where it was, and what changed in amber, with what it was in
+  the tooltip. **Overlay** draws both revisions in one diagram, **Old** and
+  **New** one of them (in the same places, so they line up), **Side by side**
+  the old beside the new. **Text** shows the proc's text diff beside the
+  diagram; a proc that doesn't check on a side has only that, with its
+  errors.
 
 Writes and terminals need the per-run token the pages are served with, so
 other sites can't drive them. On a loopback address the IDE also requires a

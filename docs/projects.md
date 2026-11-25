@@ -314,7 +314,8 @@ it always would.
 
 ### The diff document
 
-`vcc diff --json` prints the diff document, an object of:
+`vcc diff --json` prints the diff document, which the IDE's `/viz` page
+draws ([The IDE](ide.md)). It's an object of:
 
 - `old`, `new`: each side's `label`, whether it `checks`, and if not, its
   `error`.
