@@ -1,0 +1,138 @@
+{
+  "grids": {
+    "Count": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Count",
+              "sublabel": "(inv: Inventory, extra: [][]float, in: int)",
+              "doc": "Counts the items by id, the grid's rows and the extra rows, plus in."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "id"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ inv: Inventory, extra: [][]float, in: int }",
+          "call": "id1(value: int)",
+          "args": "this.inv.by_id.len + this.inv.grid.len + this.extra.len + this.in"
+        }
+      ]
+    },
+    "Echo": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Echo",
+              "sublabel": "(inv: Inventory)",
+              "doc": "Gives the inventory back as it came."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "id"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ inv: Inventory }",
+          "call": "id1(value: Inventory)",
+          "args": "this.inv"
+        }
+      ]
+    },
+    "Pick": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Pick",
+              "sublabel": "(t: Tree, note: Opt<string>)",
+              "doc": "The tree's label, or the note's."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "id"
+            },
+            {
+              "type": 0,
+              "label": "id"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "label": "{ t = _, note = Some(s) }",
+          "valueType": "{ t: Tree, note: Opt<string> }",
+          "call": "id1(value: Opt<string>)",
+          "args": "Some(s)"
+        },
+        {
+          "type": 1,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            1
+          ],
+          "label": "else",
+          "valueType": "{ t: Tree, note: Opt<string> }",
+          "call": "id2(value: Opt<string>)",
+          "args": "Some(this.t.label)"
+        }
+      ]
+    }
+  }
+}
