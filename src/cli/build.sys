@@ -138,6 +138,7 @@ proc GoServerSpecs(s: { c: Checked, g: GoTarget, names: []string, i: int, acc: [
 	// <go.out>/../cmd/<name>, relative to go.out.
 	func GoServerPath(c: Checked, g: GoTarget, name: string): string = "cli_leaf.rs:go_server_path";
 	func SetupName(d: ServerDecl): string = "cli_leaf.rs:setup_name";
+	func CliName(d: ServerDecl): string = "cli_leaf.rs:cli_name";
 	GoServerSpecs switch {
 		(this.s.i == this.s.names.len) -> id(Ok(this.s.acc)),
 		else -> Routes(s = { name = this.s.names[this.s.i], routes = this.s.c.project.manifest.http[this.s.names[this.s.i]].raw, keys = this.s.c.project.manifest.http[this.s.names[this.s.i]].raw.keys, other = this.s.c.project.manifest.http[this.s.names[this.s.i]].routes, j = 0, acc = [] }) as Raws
@@ -151,7 +152,7 @@ proc GoServerSpecs(s: { c: Checked, g: GoTarget, names: []string, i: int, acc: [
 		Err(e) -> id(Err(e))
 	};
 	GoStatics switch {
-		Ok(statics) -> GoServerSpecs(s = { ..GoServerSpecs.s, i = GoServerSpecs.s.i + 1, acc = GoServerSpecs.s.acc + [{ name = GoServerSpecs.s.names[GoServerSpecs.s.i], addr = GoServerSpecs.s.c.project.manifest.http[GoServerSpecs.s.names[GoServerSpecs.s.i]].addr, setup = SetupName(d = GoServerSpecs.s.c.project.manifest.http[GoServerSpecs.s.names[GoServerSpecs.s.i]]), routes = UnwrapRoutes(r = Routes), raw = UnwrapRoutes(r = Raws), statics = statics, path = GoServerPath(c = GoServerSpecs.s.c, g = GoServerSpecs.s.g, name = GoServerSpecs.s.names[GoServerSpecs.s.i]) }] }),
+		Ok(statics) -> GoServerSpecs(s = { ..GoServerSpecs.s, i = GoServerSpecs.s.i + 1, acc = GoServerSpecs.s.acc + [{ name = GoServerSpecs.s.names[GoServerSpecs.s.i], addr = GoServerSpecs.s.c.project.manifest.http[GoServerSpecs.s.names[GoServerSpecs.s.i]].addr, setup = SetupName(d = GoServerSpecs.s.c.project.manifest.http[GoServerSpecs.s.names[GoServerSpecs.s.i]]), cli = CliName(d = GoServerSpecs.s.c.project.manifest.http[GoServerSpecs.s.names[GoServerSpecs.s.i]]), routes = UnwrapRoutes(r = Routes), raw = UnwrapRoutes(r = Raws), statics = statics, path = GoServerPath(c = GoServerSpecs.s.c, g = GoServerSpecs.s.g, name = GoServerSpecs.s.names[GoServerSpecs.s.i]) }] }),
 		Err(e) -> id(Err(e))
 	};
 }
@@ -205,7 +206,7 @@ proc RustBuild(s: { c: Checked, only: string }): string {
 			{ path = JoinP(a = OutDir(c = RustBuild.s.c), b = "procs.rs"), text = this.procs, kind = "code" }
 		] })
 	};
-	Mains -> ServerFiles(s = { specs = UnwrapSpecs(r = Servers), module_dir = ModuleDir(target = UnwrapR(r = R), out = OutDir(c = RustBuild.s.c), croot = Crate), krate = CrateName, out = OutDir(c = RustBuild.s.c), i = 0, acc = this });
+	Mains -> ServerFiles(s = { prog = Rebased(c = RustBuild.s.c), specs = UnwrapSpecs(r = Servers), module_dir = ModuleDir(target = UnwrapR(r = R), out = OutDir(c = RustBuild.s.c), croot = Crate), krate = CrateName, out = OutDir(c = RustBuild.s.c), i = 0, acc = this });
 	ServerFiles -> Guard(s = { files = this, i = 0 });
 	Guard -> WriteAll(s = { files = ServerFiles, i = 0 });
 	WriteAll -> Tools.Rustfmt(files = OutPaths(files = ServerFiles));
@@ -370,11 +371,11 @@ func HttpFile(out: string, text: string): []OutFile = "cli_leaf.rs:http_file";
 func UnwrapSpecs(r: Res<[]ServerSpec>): []ServerSpec = "cli_leaf.rs:unwrap_specs";
 
 // Generates each server's Rust main in turn, after the bins.
-proc ServerFiles(s: { specs: []ServerSpec, module_dir: MaybeStr, krate: string, out: string, i: int, acc: []OutFile }): []OutFile {
+proc ServerFiles(s: { prog: Program, specs: []ServerSpec, module_dir: MaybeStr, krate: string, out: string, i: int, acc: []OutFile }): []OutFile {
 	func FailFiles(msg: string): []OutFile = "cli_leaf.rs:fail_files";
 	ServerFiles switch {
 		(this.s.i == this.s.specs.len) -> id(this.s.acc),
-		else -> RustServer(s = { srv = this.s.specs[this.s.i], module_dir = this.s.module_dir, krate = this.s.krate })
+		else -> RustServer(s = { prog = this.s.prog, srv = this.s.specs[this.s.i], module_dir = this.s.module_dir, krate = this.s.krate })
 	};
 	RustServer switch {
 		{ dir = _, file = _, text = _, err = Some(e) } -> FailFiles(msg = e),
@@ -389,6 +390,7 @@ proc ServerFiles(s: { specs: []ServerSpec, module_dir: MaybeStr, krate: string, 
 proc ServerSpecs(s: { m: Manifest, root: string, out: string, module_dir: MaybeStr, names: []string, i: int, acc: []ServerSpec }): Res<[]ServerSpec> {
 	func ServerPath(d: ServerDecl, name: string): string = "cli_leaf.rs:server_path";
 	func SetupName(d: ServerDecl): string = "cli_leaf.rs:setup_name";
+	func CliName(d: ServerDecl): string = "cli_leaf.rs:cli_name";
 	// Finds the directory of a file under the crate's src/ (path, relative to
 	// src/): src/ is found by going up from out once per segment of module_dir.
 	func FileDir(out: string, module_dir: MaybeStr, path: string): string = "cli_leaf.rs:file_dir";
@@ -405,7 +407,7 @@ proc ServerSpecs(s: { m: Manifest, root: string, out: string, module_dir: MaybeS
 		Err(e) -> id(Err(e))
 	};
 	Statics switch {
-		Ok(statics) -> ServerSpecs(s = { ..ServerSpecs.s, i = ServerSpecs.s.i + 1, acc = ServerSpecs.s.acc + [{ name = ServerSpecs.s.names[ServerSpecs.s.i], addr = ServerSpecs.s.m.http[ServerSpecs.s.names[ServerSpecs.s.i]].addr, setup = SetupName(d = ServerSpecs.s.m.http[ServerSpecs.s.names[ServerSpecs.s.i]]), routes = UnwrapRoutes(r = Routes), raw = UnwrapRoutes(r = Raws), statics = statics, path = ServerPath(d = ServerSpecs.s.m.http[ServerSpecs.s.names[ServerSpecs.s.i]], name = ServerSpecs.s.names[ServerSpecs.s.i]) }] }),
+		Ok(statics) -> ServerSpecs(s = { ..ServerSpecs.s, i = ServerSpecs.s.i + 1, acc = ServerSpecs.s.acc + [{ name = ServerSpecs.s.names[ServerSpecs.s.i], addr = ServerSpecs.s.m.http[ServerSpecs.s.names[ServerSpecs.s.i]].addr, setup = SetupName(d = ServerSpecs.s.m.http[ServerSpecs.s.names[ServerSpecs.s.i]]), cli = CliName(d = ServerSpecs.s.m.http[ServerSpecs.s.names[ServerSpecs.s.i]]), routes = UnwrapRoutes(r = Routes), raw = UnwrapRoutes(r = Raws), statics = statics, path = ServerPath(d = ServerSpecs.s.m.http[ServerSpecs.s.names[ServerSpecs.s.i]], name = ServerSpecs.s.names[ServerSpecs.s.i]) }] }),
 		Err(e) -> id(Err(e))
 	};
 }

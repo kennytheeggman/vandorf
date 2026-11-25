@@ -53,6 +53,7 @@ entry = "Main"             # default "Main"
 [http.api]                 # an HTTP server per backend
 addr = "127.0.0.1:8099"
 # setup = "Setup"
+# cli = "Cli"              # `api <command> ...` runs proc Cli instead of serving
 routes = { "POST /api/measure" = "Measure", "GET /api/hello" = "Hello" }
 # raw = { "GET /health" = "Health" }
 static = { "/" = "web/index.html" }
@@ -201,6 +202,13 @@ listening. Its result is the server's context: every route and raw proc must
 take a parameter `ctx` of exactly its type, which the server fills (a
 request's `ctx` is ignored). The context is read-only; state that changes
 between requests belongs behind an interface.
+
+**Commands**: a server with `cli` is a command line too. When its first
+argument is a command rather than a flag (or is `-h` or `--help`), it runs
+that top-level proc on the arguments instead of serving. The proc takes a
+single `[]string` and gives nothing (`void`); it fails to exit 1 with its
+error. With no arguments, or `--addr`, the server serves as usual. grove
+uses this for `grove branch` and the other commands it gives agents.
 
 - **Go**: `http_vandorf.go` in the code package (the JSON codec, a
   `net/http` server and an `HTTPHandle<Name>` per server, standard library

@@ -2697,6 +2697,16 @@ pub fn route_docs(srv: ServerSpec) -> Result<List<Line>, String> {
             .into(),
         ));
     }
+    if !srv.cli.is_empty() {
+        out.push(Line::L("//!".into()));
+        out.push(Line::L(
+            format!(
+                "//! Given a command (an argument that isn't a flag, or -h or --help), runs proc {} on the arguments instead.",
+                srv.cli
+            )
+            .into(),
+        ));
+    }
     Ok(out.into())
 }
 
@@ -2782,10 +2792,43 @@ pub fn own_prefix(srv: ServerSpec) -> Result<Str, String> {
     })
 }
 
-/// Writes a server's main call: run, or run_setup if it has a setup.
-pub fn run_call(srv: ServerSpec, http: Str) -> Result<Str, String> {
+/// Finds a server's cli proc: a top-level proc taking a single []string and
+/// giving nothing. Err says why `cli` can't be one.
+pub(crate) fn cli_entry(prog: &Program, server: &str, cli: &str) -> Result<i64, String> {
+    let nodes = &prog.nodes;
+    let Some(pid) = prog.top.iter().copied().find(|&p| {
+        nodes[p as usize].qual.last().is_some_and(|q| &**q == cli)
+            && matches!(nodes[p as usize].kind, NodeKind::Proc(_))
+    }) else {
+        return Err(format!(
+            "server {server}'s cli is {cli}, but there is no top-level proc {cli}"
+        ));
+    };
+    let params = params_of(nodes, pid);
+    let argv = params.len() == 1
+        && matches!(unfold(&params[0].ty, &prog.types), Type::Array(e) if matches!(unfold(e, &prog.types), Type::Prim(p) if &**p == "string"));
+    let void = matches!(unfold(&ret_of(nodes, pid), &prog.types), Type::Prim(p) if &**p == "void");
+    if !argv || !void {
+        return Err(format!(
+            "server {server}'s cli {cli} must take a single []string, the arguments, and give nothing (void)"
+        ));
+    }
+    Ok(pid)
+}
+
+/// Writes a server's main, through lib (the module's path in the library
+/// crate): run, or run_setup if it has a setup; first, with a cli, running
+/// that proc when the first argument is a command (not a flag) or -h or
+/// --help. Or why the cli can't be one: a top-level proc taking a single
+/// []string and giving nothing.
+pub fn server_main(
+    prog: Program,
+    srv: ServerSpec,
+    lib: Str,
+) -> Result<RustHttpSetupCallsOut, String> {
     let ident = server_ident(srv.name.clone())?;
-    Ok(if srv.setup.is_empty() {
+    let http = format!("{lib}::http");
+    let run = if srv.setup.is_empty() {
         format!(
             "{http}::run({}, {http}::handle_{ident}, STATICS);",
             q(&srv.addr)
@@ -2795,8 +2838,44 @@ pub fn run_call(srv: ServerSpec, http: Str) -> Result<Str, String> {
             "{http}::run_setup({}, {http}::setup_{ident}, {http}::handle_{ident}, STATICS);",
             q(&srv.addr)
         )
+    };
+    let mut w: Vec<String> = vec![];
+    if srv.cli.is_empty() {
+        w.extend(["fn main() {".into(), run, "}".into()]);
+    } else {
+        let pid = match cli_entry(&prog, &srv.name, &srv.cli) {
+            Ok(p) => p,
+            Err(e) => {
+                return Ok(RustHttpSetupCallsOut {
+                    lines: List::default(),
+                    err: MaybeStr::Some(e.into()),
+                });
+            }
+        };
+        let types = format!("{lib}::types");
+        w.extend([
+            "fn main() -> std::process::ExitCode {".into(),
+            format!("// A command, not a flag, runs proc {}.", srv.cli),
+            "let args: Vec<String> = std::env::args().skip(1).collect();".into(),
+            "if args.first().is_some_and(|a| !a.starts_with('-') || a == \"-h\" || a == \"--help\") {".into(),
+            format!("let argv: {types}::List<{types}::Str> = args.iter().map(|a| {types}::Str::from(a.as_str())).collect();"),
+            format!("return match {lib}::run_{}(argv) {{", sn(&prog.nodes, pid)),
+            "Ok(()) => std::process::ExitCode::SUCCESS,".into(),
+            "Err(e) => {".into(),
+            format!("eprintln!(\"error: {{}}\", {lib}::describe_error(&e));"),
+            "std::process::ExitCode::FAILURE".into(),
+            "}".into(),
+            "};".into(),
+            "}".into(),
+            run,
+            "std::process::ExitCode::SUCCESS".into(),
+            "}".into(),
+        ]);
     }
-    .into())
+    Ok(RustHttpSetupCallsOut {
+        lines: w.into_iter().map(|l| Line::L(l.into())).collect(),
+        err: MaybeStr::None,
+    })
 }
 
 /// Writes, for each server with a setup proc: its context, setup_<server> to

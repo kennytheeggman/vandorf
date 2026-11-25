@@ -46,6 +46,9 @@ const CASES: &[&str] = &[
     "[project]\nname = \"x\"\n[rust]\nout = \"a\"\npost = \"cargo build\"\n",
     "[project]\nname = \"x\"\n[rust]\nout = \"a\"\ntest = [1]\n",
     "[project]\nname = \"x\"\n[go]\nout = \"a\"\ntest = \"go test\"\n",
+    // A server's cli.
+    "[project]\nname = \"x\"\n[http.w]\naddr = \"a\"\ncli = \"Cli\"\n",
+    "[project]\nname = \"x\"\n[http.w]\naddr = \"a\"\ncli = [\"Cli\"]\n",
 ];
 
 mod common;

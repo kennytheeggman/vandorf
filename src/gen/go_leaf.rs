@@ -2805,8 +2805,10 @@ pub fn go_http_files(
 }
 
 /// Writes each server's package main: its static files, then HTTPRun (or
-/// HTTPRunSetup) with its handler.
+/// HTTPRunSetup) with its handler; first, with a cli, running that proc when
+/// the first argument is a command (not a flag) or -h or --help.
 pub fn go_server_mains(
+    prog: Program,
     package: Str,
     import_base: MaybeStr,
     servers: List<GoServerSpec>,
@@ -2828,6 +2830,19 @@ pub fn go_server_mains(
             package.to_string()
         };
         let ident = go_server_ident(&srv.name);
+        let cli = if srv.cli.is_empty() {
+            None
+        } else {
+            match super::gen_leaf::cli_entry(&prog, &srv.name, &srv.cli) {
+                Ok(pid) => Some(pid),
+                Err(e) => {
+                    return Ok(GoOut {
+                        files: List::default(),
+                        err: MaybeStr::Some(e.into()),
+                    });
+                }
+            }
+        };
         let mut doc = vec![format!(
             "// Command {} serves http server {} on {} (or --addr host:port):",
             srv.name, srv.name, srv.addr
@@ -2854,7 +2869,17 @@ pub fn go_server_mains(
                 srv.setup
             ));
         }
-        let head = header("main", &[(import.to_string(), alias.clone())]).replacen(
+        let mut imports = vec![];
+        if cli.is_some() {
+            doc.push("//".into());
+            doc.push(format!(
+                "// Given a command (an argument that isn't a flag, or -h or --help), runs proc {} on the arguments instead.",
+                srv.cli
+            ));
+            imports = plain(&["context", "fmt", "os", "strings"]);
+        }
+        imports.push((import.to_string(), alias.clone()));
+        let head = header("main", &imports).replacen(
             "package main",
             &format!("{}\npackage main", doc.join("\n")),
             1,
@@ -2876,6 +2901,19 @@ pub fn go_server_mains(
         }
         w.push("".into());
         w.push("func main() {".into());
+        if let Some(pid) = cli {
+            w.push(format!("// A command, not a flag, runs proc {}.", srv.cli));
+            w.push("if len(os.Args) > 1 && (!strings.HasPrefix(os.Args[1], \"-\") || os.Args[1] == \"-h\" || os.Args[1] == \"--help\") {".into());
+            w.push(format!(
+                "if err := {alias}.Run{}(context.Background(), os.Args[1:]); err != nil {{",
+                gn(&prog.nodes, pid)
+            ));
+            w.push("fmt.Fprintln(os.Stderr, \"error:\", err)".into());
+            w.push("os.Exit(1)".into());
+            w.push("}".into());
+            w.push("return".into());
+            w.push("}".into());
+        }
         if srv.setup.is_empty() {
             w.push(format!(
                 "{alias}.HTTPRun({}, {alias}.HTTPHandle{ident}, statics)",
