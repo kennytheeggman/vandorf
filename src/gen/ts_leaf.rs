@@ -637,6 +637,8 @@ export function $useCall<A, T>(call: (args: A, opts: $c.CallOptions) => Promise<
     void run(args);
     return cancel;
   }, [key, run, cancel]);
+  // Unmounting cancels a run started through run, too.
+  React.useEffect(() => cancel, [cancel]);
   return { data: state.data, error: state.error, loading: state.loading, run };
 }
 
