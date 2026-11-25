@@ -121,14 +121,19 @@ body.drawer-bottom #drawer .grip{ left:0; right:0; top:-3px; bottom:auto; width:
 var TOKEN = '__VANDORF_TOKEN__';
 var $ = function(id){ return document.getElementById(id); };
 var embedded = window.parent !== window;
+var host = embedded && new URLSearchParams(location.search).has('popout') ? window.parent.opener || window.parent : window.parent;
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]; }); }
 function store(k, v){ try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
-function up(m){ if (embedded) window.parent.postMessage(m, location.origin); }
+function up(m){ if (embedded) host.postMessage(m, location.origin); }
+function focusTab(){ up({ type: 'ide-focus' }); }
+window.addEventListener('focus', focusTab);
+document.addEventListener('pointerdown', focusTab, true);
 function toViz(m){ try { $('viz').contentWindow.postMessage(m, location.origin); } catch (e) {} }
 
 var S = {
   path: null, proc: null, mode: 'diagram', theme: null, active: true,
   saved: '', dirty: false, res: null, good: null, vizReady: false, pendingLine: null,
+  loaded: false, pendingBuffer: null,
 };
 
 /* ---------- editor ---------- */
@@ -142,10 +147,11 @@ if (window.CodeMirror && CodeMirror.defineSimpleMode){
     { regex: /\b(?:int|float|bool|string|void)\b/, token: 'type' },
   ]});
   cm = CodeMirror.fromTextArea($('src'), {
-    mode: 'vandorf', lineNumbers: true, indentWithTabs: true, tabSize: 4, indentUnit: 4,
+    mode: 'vandorf', lineNumbers: true, indentWithTabs: true, tabSize: 4, indentUnit: 4, readOnly: true,
     extraKeys: { 'Ctrl-S': save, 'Cmd-S': save },
   });
 }
+$('src').readOnly = true;
 var editor = {
   get: function(){ return cm ? cm.getValue() : $('src').value; },
   set: function(s){
@@ -298,7 +304,7 @@ function setDirty(d){
   S.dirty = d; $('crumb').classList.toggle('dirty', d);
 }
 function save(){
-  if (!S.path) return;
+  if (!S.loaded) return;
   var text = editor.get();
   status('Saving…');
   fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Vandorf-Token': TOKEN },
@@ -306,7 +312,7 @@ function save(){
     .then(function(r){ return r.json(); })
     .then(function(res){
       if (!res.ok){ status('Save failed: ' + res.error, 'bad'); return; }
-      S.saved = text; setDirty(false);
+      S.saved = text; setDirty(editor.get() !== text);
       status('Saved ' + S.path, 'ok');
       up({ type: 'ide-saved', path: S.path, text: text });
     })
@@ -648,6 +654,7 @@ window.addEventListener('message', function(e){
   if (e.origin !== location.origin || !e.data || typeof e.data.type !== 'string') return;
   var m = e.data;
   if (e.source === $('viz').contentWindow){
+    if (m.type === 'vandorf-viz-focus') focusTab();
     if (m.type === 'vandorf-viz-ready'){ S.vizReady = true; if (S.theme) toViz({ type: 'vandorf-theme', theme: S.theme }); toViz({ type: 'vandorf-ifaces', on: showIfaces }); pushDoc(); }
     if (m.type === 'vandorf-open-proc') up({ type: 'ide-open', proc: m.proc, newTab: true, mode: 'diagram' });
     if (m.type === 'vandorf-select'){
@@ -659,6 +666,7 @@ window.addEventListener('message', function(e){
     if (m.type === 'vandorf-proc-shown' && m.proc && m.proc !== S.proc){ S.proc = m.proc; up({ type: 'ide-tab-state', proc: m.proc }); }
     return;
   }
+  if (!embedded || e.source !== host) return;
   switch (m.type){
   case 'ide-init':
     init(m.path, m.proc, m.mode, m.line, m.buffer);
@@ -672,8 +680,14 @@ window.addEventListener('message', function(e){
     if (m.line != null){ S.pendingLine = m.line; if (S.mode === 'text') { editor.jump(m.line); S.pendingLine = null; } else setMode('text'); }
     break;
   case 'ide-buffer':
+    var saved = m.saved != null ? m.saved : !m.dirty ? m.text : null;
+    if (!S.loaded){
+      var prior = S.pendingBuffer;
+      S.pendingBuffer = { text: m.text, saved: saved != null ? saved : prior && prior.saved };
+      break;
+    }
     if (m.text !== editor.get()){ editor.set(m.text); clearTimeout(timer); timer = setTimeout(compile, 300); }
-    if (!m.dirty) S.saved = m.text;
+    if (saved != null) S.saved = saved;
     setDirty(m.dirty);
     break;
   case 'ide-activate':
@@ -695,9 +709,15 @@ function init(path, proc, mode, line, buffer){
   if (line != null) S.pendingLine = line;
   fetch('/api/source?path=' + encodeURIComponent(path)).then(function(r){ return r.json(); }).then(function(res){
     if (!res.ok){ status(res.error, 'bad'); return; }
-    S.saved = res.source;
-    editor.set(buffer != null ? buffer : res.source);
-    setDirty(buffer != null && buffer !== res.source);
+    var pending = S.pendingBuffer;
+    S.pendingBuffer = null;
+    S.saved = pending && pending.saved != null ? pending.saved : res.source;
+    var text = pending ? pending.text : buffer != null ? buffer : res.source;
+    editor.set(text);
+    setDirty(text !== S.saved);
+    S.loaded = true;
+    $('src').readOnly = false;
+    if (cm) cm.setOption('readOnly', false);
     if (S.mode === 'text' && S.pendingLine != null){ setTimeout(function(){ editor.jump(S.pendingLine); S.pendingLine = null; }, 0); }
     compile();
   }).catch(function(e){ status('Cannot load ' + path + ': ' + e, 'bad'); });
