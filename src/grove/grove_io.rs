@@ -580,16 +580,34 @@ fn statuses_map() -> &'static Mutex<HashMap<String, AgentStatus>> {
 }
 
 /// Keeps what an agent says of an idea (state working, attention or
-/// done; "" forgets it), for as long as grove runs. Gives how many ideas
+/// done; "" forgets it), unseen, for as long as grove runs. Gives how many ideas
 /// have a status.
 pub fn set_status(id: Str, state: Str, message: Str) -> Result<i64, String> {
     let mut m = statuses_map().lock().unwrap();
     if state.is_empty() {
         m.remove(&*id);
     } else {
-        m.insert(id.to_string(), AgentStatus { state, message });
+        m.insert(
+            id.to_string(),
+            AgentStatus {
+                state,
+                message,
+                seen: false,
+            },
+        );
     }
     Ok(m.len() as i64)
+}
+
+/// Marks an idea's done status seen; whether it was done and unseen.
+pub fn see_status(id: Str) -> Result<bool, String> {
+    Ok(match statuses_map().lock().unwrap().get_mut(&*id) {
+        Some(a) if &*a.state == "done" && !a.seen => {
+            a.seen = true;
+            true
+        }
+        _ => false,
+    })
 }
 
 /// What agents last said of each idea, by id.

@@ -67,9 +67,11 @@ interface Grove {
 	// started, running or not, sorted.
 	func OpenedIn(dir: string): []int = "grove_io.rs:opened_in";
 	// Keeps what an agent says of an idea (state working, attention or
-	// done; "" forgets it), for as long as grove runs. Gives how many ideas
+	// done; "" forgets it), unseen, for as long as grove runs. Gives how many ideas
 	// have a status.
 	func SetStatus(id: string, state: string, message: string): int = "grove_io.rs:set_status";
+	// Marks an idea's done status seen; whether it was done and unseen.
+	func SeeStatus(id: string): bool = "grove_io.rs:see_status";
 	// What agents last said of each idea, by id.
 	func Statuses(n: int): map[string]AgentStatus = "grove_io.rs:statuses";
 }

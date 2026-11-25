@@ -361,6 +361,7 @@ pub fn tree_json(
         Some(a) if !a.state.is_empty() => obj(vec![
             ("state", Json::Str(a.state.clone())),
             ("message", Json::Str(a.message.clone())),
+            ("seen", Json::Bool(a.seen)),
         ]),
         _ => Json::Null,
     };

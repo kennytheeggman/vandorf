@@ -5,6 +5,7 @@
 //   POST /api/ideas/merge {id}                  fast-forwards the root to it, then restacks
 //   POST /api/ideas/rebase {id}                 onto its parent's head
 //   POST /api/agent/status {idea, state, message}   working, attention, done, or "" to clear
+//   POST /api/ideas/seen {id}                   a person has seen the idea's done status
 //
 // An idea is based on its parent when its fork (the parent's commit it's
 // built on) is the parent's head. Merging needs the idea built on the
@@ -14,7 +15,9 @@
 // it was, its rebase undone, and flagged for attention.
 
 // What an agent last said of its idea: state is working, attention or done.
-type AgentStatus = { state: string, message: string };
+// seen: whether a person has shown the idea since it said done, so the
+// done ideas no one has looked at yet stand out; any new status unsets it.
+type AgentStatus = { state: string, message: string, seen: bool };
 
 // Ideas in the tree's order, parents before children, from the root: the
 // active ones only (one whose parent isn't among them hangs from the root).
@@ -378,4 +381,22 @@ proc StatusRoute(req: HttpRequest): HttpResponse {
 	};
 	Grove.SetStatus -> Grove.Changed(n = 0);
 	Grove.Changed -> id(Answer(r = Ok(StrOr(j = UnwrapJ(r = ParseJson), key = "idea", d = "")), key = "idea"));
+}
+
+// Serves POST /api/ideas/seen {id}: a person showed the idea, so its done
+// status, if it has one, is seen (in grove, so for every page and across
+// reloads, until the agent says something new). Counts a change only when
+// it was unseen.
+proc SeenRoute(req: HttpRequest): HttpResponse {
+	SeenRoute -> GroveWrite(req = this.req);
+	GroveWrite switch {
+		Stop(r) -> id(r),
+		Go(w) -> id(StrOr(j = w.j, key = "id", d = "")) as Which
+	};
+	Which -> Grove.SeeStatus(id = this);
+	Grove.SeeStatus switch {
+		(this) -> Grove.Changed(n = 0),
+		else -> id(Answer(r = Ok(Which), key = "id")) as Same
+	};
+	Grove.Changed -> id(Answer(r = Ok(Which), key = "id"));
 }

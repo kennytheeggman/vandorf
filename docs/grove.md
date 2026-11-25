@@ -96,8 +96,12 @@ people's.
   A node shows what the agent in its idea last said (`grove status`): a
   spinner while it's **working**, amber with a pulse when it needs
   **attention** (also when a rebase stopped or couldn't be made), green
-  when it's **done**. A dashed edge means the idea isn't on its parent's
-  latest commit.
+  when it's **done**, and a quieter blue once it's done and someone has
+  shown it, so the done ideas no one has looked at yet stand out. grove
+  keeps that it's been seen, for every window and across reloads, until
+  the agent reports again (a new done is green again). The root, the
+  checked-out branch, is the larger blue node with a ring. A dashed edge
+  means the idea isn't on its parent's latest commit.
 - **Sections** (right): the shown idea's interiors, stacked, each with a
   header like VS Code's sidebar views. Click a header to collapse or expand
   it (several can be open at once, sharing the height), drag headers to

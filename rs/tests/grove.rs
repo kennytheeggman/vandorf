@@ -509,6 +509,26 @@ fn merging_rebases_the_tree_and_agents_report() {
     let (ok, out) = grove(&wt(&c), &env, &["status", "working", "running", "the", "tests"]);
     assert_eq!((ok, out.as_str()), (true, ""));
     assert_eq!(idea_in(port, "C").3, "working");
+    // A done status is unseen until a person shows the idea (the session's
+    // token, not the agents'), and unseen again when the agent reports anew.
+    let seen = |name: &str| {
+        let tree = call(port, "GET", "/api/ideas", "", "").1;
+        let at = tree.find(&format!(r#""name":"{name}""#)).unwrap();
+        let start = tree[..at].rfind(r#"{"agent":"#).unwrap();
+        tree[start..at].contains(r#""seen":true"#)
+    };
+    assert!(!seen("C"));
+    assert_eq!(grove(&wt(&c), &env, &["status", "done"]).0, true);
+    assert_eq!((idea_in(port, "C").3.as_str(), seen("C")), ("done", false));
+    assert_eq!(call(port, "POST", "/api/ideas/seen", &agent, &format!(r#"{{"id": "{c}"}}"#)).0, 403);
+    assert_eq!(call(port, "POST", "/api/ideas/seen", &token, &format!(r#"{{"id": "{c}"}}"#)).0, 200);
+    assert_eq!((idea_in(port, "C").3.as_str(), seen("C")), ("done", true));
+    assert_eq!(grove(&wt(&c), &env, &["status", "done"]).0, true);
+    assert!(!seen("C"));
+    // Only a done status can be seen.
+    assert_eq!(grove(&wt(&c), &env, &["status", "working"]).0, true);
+    assert_eq!(call(port, "POST", "/api/ideas/seen", &token, &format!(r#"{{"id": "{c}"}}"#)).0, 200);
+    assert!(!seen("C"));
     let (ok, out) = grove(&wt(&c), &env, &["status", "busy"]);
     assert!(!ok && out.contains("grove status takes working, attention, done or clear, not busy"), "{out}");
     let (ok, out) = grove(&wt(&c), &env, &["merge"]);
