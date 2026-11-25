@@ -97,6 +97,36 @@ pub fn ok_json(_n: i64) -> Result<HttpResponse, String> {
     api(obj(vec![("ok", Json::Bool(true))]))
 }
 
+/// Gives the TypeScript files as JSON (artifacts: types, code), or the
+/// error.
+pub fn ts_output_json(o: TsOut) -> Result<Json, String> {
+    if let MaybeStr::Some(e) = o.err {
+        return error_json(e);
+    }
+    let files = |kind: &str| {
+        obj(o
+            .files
+            .iter()
+            .filter(|f| &*f.kind == kind)
+            .map(|f| (&*f.name, Json::Str(f.text.clone())))
+            .collect())
+    };
+    let artifact = |kind: &str| {
+        obj(vec![
+            ("kind", jstr(kind)),
+            ("dir", jstr("")),
+            ("files", files(kind)),
+        ])
+    };
+    Ok(obj(vec![
+        ("ok", Json::Bool(true)),
+        (
+            "artifacts",
+            Json::Arr(vec![artifact("types"), artifact("code")].into()),
+        ),
+    ]))
+}
+
 pub fn error_json(msg: Str) -> Result<Json, String> {
     Ok(obj(vec![
         ("ok", Json::Bool(false)),

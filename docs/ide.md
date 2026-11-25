@@ -69,8 +69,8 @@ Other pages:
 
 - `/viewer?path=sys/calc.sys&proc=Calc`: one proc's diagram and text, as in
   a tab.
-- `/workbench`: an editor beside the generated Go and Rust, for trying
-  things out.
+- `/workbench`: an editor beside the generated Go, Rust and TypeScript
+  (`[react]`'s, for a project that has one), for trying things out.
 - `/viz`: the diagram on its own, for a `.sys` file given by path.
 
 Writes and terminals need the per-run token the pages are served with, so
