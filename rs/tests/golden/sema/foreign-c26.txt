@@ -1,0 +1,7 @@
+type Conn = "db.go:*Conn", "db.rs:Conn";
+func Open(): Conn; func Count(c: Conn): int; func Two(a: Conn, b: Conn): int; func Clone(c: Conn): Conn;
+func Bump(c: Conn); func Xs(): []int; func Get(i: int, c: Conn): int; func OpenAt(i: int): Conn;
+proc Q(c: Conn, k: int): int { func O(): Conn; Q -> O(); O switch { (Q.k > 0) -> Q(c = this, k = Q.k - 1), else -> Count(c = Q.c) }; }
+proc P(n: int): int { P -> Open(); Open -> Q(c = this, k = 2); }
+---
+error: a loop back to Q keeps the foreign values it was given, so c must be Q.c again @330..334

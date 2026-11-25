@@ -1,0 +1,15 @@
+type Conn = "db.go:*Conn", "db.rs:Conn";
+func Open(): Conn; func Count(c: Conn): int; func Two(a: Conn, b: Conn): int; func Clone(c: Conn): Conn;
+func Bump(c: Conn); func Xs(): []int; func Get(i: int, c: Conn): int; func OpenAt(i: int): Conn;
+proc Q(c: Conn, k: int): int { Q switch { (this.k > 0) -> Q(c = Q.c, k = this.k - 1), else -> Count(c = Q.c) }; }
+proc P(n: int): int { P -> Open(); Open -> Q(c = this, k = 2); }
+---
+#8 edge #9: switch [(this.k > 0)] ((this.k:int@286..292 > 0 :int)) -> call #9(c:Conn=#9.c:Conn@307..310, k:int=(this.k:int@316..322 - 1 :int)) @301..302 text="c = Q.c, k = this.k - 1"; [else] else -> call #1(c:Conn=#9.c:Conn@347..350) @337..342 text="c = Q.c"
+#8 spawned={}
+#8 region 0: parent=-1 entry=9 elem=void nodes=[9, 1] sink=-1
+#8 region_of={1: 0, 9: 0} opens={}
+#10 edge #0: call #8(c:Conn=this:Conn@406..410, k:int=2) @400..401 text="c = this, k = 2"
+#10 edge #11: call #0() @384..388 text=""
+#10 spawned={}
+#10 region 0: parent=-1 entry=11 elem=void nodes=[11, 0, 8] sink=-1
+#10 region_of={0: 0, 8: 0, 11: 0} opens={}

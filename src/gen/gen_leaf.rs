@@ -1626,7 +1626,9 @@ pub fn node_head(g: RGen, pid: i64, n: i64, run: Str) -> Result<List<Line>, Stri
             .into(),
         ),
     ];
-    let is_id = matches!(nodes[n as usize].kind, NodeKind::Id(_));
+    // An id takes its value itself (id_run); a signature node keeps its
+    // foreign parameters where they are.
+    let is_id = matches!(nodes[n as usize].kind, NodeKind::Id(_) | NodeKind::Sig(_));
     let ways = lend_ways(nodes, &g.prog.types, pid, n)?;
     let lent: Vec<String> = foreign_params(nodes, &g.prog.types, n)
         .iter()

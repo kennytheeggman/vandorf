@@ -231,7 +231,8 @@ type MaybeDiag = enum { None, Some(Diag) };
 proc AddEdge(s: { at: { env: Env, p: Proc, g: Graph, i: int }, src: int, e: SEdge }): Res<Graph> {
 	// Finds a foreign value an edge lends where it can't: twice to one call (in
 	// two arguments, or one and a call inside another), to a detached spawn
-	// branch, which nothing waits for, or to two branches, which run at once.
+	// branch, which nothing waits for, or to two branches, which run at once;
+	// or a loop back to the signature node that changes a foreign parameter.
 	// `this` is src's output.
 	func EdgeLends(src: int, e: SEdge, nodes: []NodeDecl, defs: []TypeDef): MaybeDiag = "sema_leaf.rs:edge_lends";
 	AddEdge switch {

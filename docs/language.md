@@ -327,7 +327,8 @@ proc Report(url: string): int {
   for each's elements can't take one from outside the region (they run at
   once). A joined branch and a collected node can't give one.
 - A proc may take and give foreign values, but it can't give back one it was
-  given (it only borrows it).
+  given (it only borrows it), and a loop back to it (`-> P(..)`) passes its
+  foreign parameters on unchanged (`c = P.c`).
 - **Not at entry points**: nothing outside the program can make or take
   one, so a bin's entry proc, an HTTP route's or raw route's proc, and a
   server's setup (every route's `ctx`) can't take or give one. `vcc check`

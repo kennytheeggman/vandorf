@@ -340,7 +340,8 @@ fn calls_in(e: &Expr, out: &mut Vec<Call>) {
 
 /// Finds a foreign value an edge lends where it can't: twice to one call (in
 /// two arguments, or one and a call inside another), to a detached spawn
-/// branch, which nothing waits for, or to two branches, which run at once.
+/// branch, which nothing waits for, or to two branches, which run at once;
+/// or a loop back to the signature node that changes a foreign parameter.
 /// `this` is src's output.
 pub fn edge_lends(
     src: i64,
@@ -376,6 +377,39 @@ pub fn edge_lends(
     }
     for c in conds.iter() {
         calls_in(c, &mut calls);
+    }
+    // A loop back to the signature node keeps the foreign values the proc was
+    // given: it can only pass each parameter on as it is.
+    for c in calls_of(&e) {
+        let NodeKind::Sig(_) = &nodes[c.target as usize].kind else {
+            continue;
+        };
+        for a in c
+            .args
+            .iter()
+            .filter(|a| foreign_name(&a.param, &defs).is_some())
+        {
+            let same = matches!(&a.value, Expr::Ref(r)
+                if r.fields.len() == 1 && r.fields[0] == a.name
+                    && match r.root { Root::This => src == c.target, Root::Node(n) => n == c.target, Root::Bind => false });
+            if !same {
+                let span = match &a.value {
+                    Expr::Ref(r) => r.span.clone(),
+                    _ => c.span.clone(),
+                };
+                return Ok(MaybeDiag::Some(Diag {
+                    msg: format!(
+                        "a loop back to {} keeps the foreign values it was given, so {} must be {}.{} again",
+                        name(c.target),
+                        a.name,
+                        name(c.target),
+                        a.name
+                    )
+                    .into(),
+                    span,
+                }));
+            }
+        }
     }
     for c in &calls {
         let reads = reads_of(c);

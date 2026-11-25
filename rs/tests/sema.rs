@@ -464,6 +464,10 @@ const FOREIGN_CASES: &[(&str, &str)] = &[
     // one.
     ("type G<T> = \"g.go:T\";", "Open -> Count(c = this);"),
     ("type B = \"b.rs:*T\", \"b.go:a::B\", \"b.py:any.thing\";", "Open -> Count(c = this);"),
+    // A loop keeps the foreign values its proc was given; a recursive call
+    // may lend others.
+    ("proc Q(c: Conn, k: int): int { Q switch { (this.k > 0) -> Q(c = Q.c, k = this.k - 1), else -> Count(c = Q.c) }; }", "Open -> Q(c = this, k = 2);"),
+    ("proc Q(c: Conn, k: int): int { func O(): Conn; Q -> O(); O switch { (Q.k > 0) -> Q(c = this, k = Q.k - 1), else -> Count(c = Q.c) }; }", "Open -> Q(c = this, k = 2);"),
 ];
 
 #[test]
