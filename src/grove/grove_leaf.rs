@@ -637,7 +637,11 @@ repository's own worktree is the root):
 
 Discarding is left to people, in grove's tree. Each command works on the
 repository itself, then tells grove ($GROVE_URL, with $GROVE_TOKEN, both
-set in grove's terminals) so its tree catches up at once.";
+set in grove's terminals) so its tree catches up at once.
+
+grove's terminals have grove's directory first on PATH (put back after zsh's
+and bash's startup files), and $GROVE_BIN, grove's own executable: scripts
+and agents can run \"$GROVE_BIN\" branch ... wherever PATH has been reset.";
 
 /// Reads grove's command line: a command first (help for -h, --help or
 /// none), then its arguments and flags, as `--flag value` or `--flag=value`;

@@ -357,10 +357,10 @@ fn start(cmd: &str, dir: &str, port: i64) -> Result<Served, String> {
 
 /// Gives the URL of the process kept as key, first starting cmd with the
 /// shell in dir if none is running, with grove's own directory first on the
-/// PATH (where `ide` is built) and $GROVE_URL and $GROVE_TOKEN set, as in
-/// grove's terminals: http://127.0.0.1:<port> once it accepts
-/// connections when port isn't 0, else the first http:// or https:// URL it
-/// prints. Waits up to 30 s.
+/// PATH (where `ide` is built) and $GROVE_BIN, $GROVE_URL and $GROVE_TOKEN
+/// set, as in grove's terminals: http://127.0.0.1:<port> once it accepts
+/// connections when port isn't 0, else the first http:// or https:// URL
+/// it prints. Waits up to 30 s.
 pub fn ensure(key: Str, cmd: Str, dir: Str, port: i64) -> Result<ResString, String> {
     let mut all = served().lock().unwrap();
     if let Some(p) = all.get_mut(&*key) {
@@ -412,24 +412,29 @@ pub fn agent_token(_n: i64) -> Result<Str, String> {
     })))
 }
 
-/// $GROVE_URL and $GROVE_TOKEN for what grove starts, once it's serving.
+/// For what grove starts: $GROVE_BIN, and $GROVE_URL and $GROVE_TOKEN once
+/// it's serving.
 fn agent_env() -> Vec<(String, String)> {
+    let mut env: Vec<(String, String)> = std::env::current_exe()
+        .ok()
+        .map(|e| ("GROVE_BIN".into(), e.to_string_lossy().into_owned()))
+        .into_iter()
+        .collect();
     let addr = crate::vcc::http::addr();
-    if addr.is_empty() {
-        return vec![];
-    }
-    vec![
-        ("GROVE_URL".into(), format!("http://{addr}")),
-        (
+    if !addr.is_empty() {
+        env.push(("GROVE_URL".into(), format!("http://{addr}")));
+        env.push((
             "GROVE_TOKEN".into(),
             agent_token(0).unwrap_or_default().to_string(),
-        ),
-    ]
+        ));
+    }
+    env
 }
 
 /// Starts the user's shell on a pty in cwd, as Term.Spawn does, with
-/// $GROVE_URL (where grove is serving) and $GROVE_TOKEN (the agents'
-/// token) set once grove is serving, returning the terminal's id.
+/// $GROVE_BIN (grove's own executable, absolute) set, and $GROVE_URL (where
+/// grove is serving) and $GROVE_TOKEN (the agents' token) once grove is
+/// serving, returning the terminal's id.
 pub fn spawn(cwd: Str) -> Result<ResInt, String> {
     super::ide_io::spawn_with(&cwd, &agent_env())
 }

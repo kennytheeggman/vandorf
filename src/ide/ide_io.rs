@@ -234,13 +234,16 @@ fn get(id: i64) -> Option<Arc<Term>> {
     terms().lock().unwrap().0.get(&id).cloned()
 }
 
-/// `PATH` with this executable's directory first.
-pub fn path_with_self() -> std::ffi::OsString {
-    let mut dirs: Vec<PathBuf> = std::env::current_exe()
+/// This executable's directory.
+fn self_dir() -> Option<PathBuf> {
+    std::env::current_exe()
         .ok()
         .and_then(|e| e.parent().map(Path::to_path_buf))
-        .into_iter()
-        .collect();
+}
+
+/// `PATH` with this executable's directory first.
+pub fn path_with_self() -> std::ffi::OsString {
+    let mut dirs: Vec<PathBuf> = self_dir().into_iter().collect();
     dirs.extend(
         std::env::var_os("PATH")
             .map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
@@ -264,6 +267,110 @@ fn shell() -> CommandBuilder {
     )
 }
 
+// A shell's startup files may set PATH outright (`export PATH=...` in a
+// .zshrc), dropping the directory we put first, so `grove` and `ide` aren't
+// found. For zsh and bash, the terminal starts with startup files of ours
+// that run the user's own and then put $VANDORF_PATH_FIRST back in front,
+// once, before the first prompt; other shells get the PATH as it's set.
+// The user's files are never changed.
+
+/// zsh's: ZDOTDIR points here, so zsh reads this .zshenv first. It restores
+/// the user's ZDOTDIR at once (so zsh goes on to the user's .zprofile,
+/// .zshrc and .zlogin, and nothing started later sees ours), sources the
+/// user's .zshenv, and adds a precmd hook that runs once, after every
+/// startup file.
+const ZSHENV: &str = r#"# vandorf's, for its terminals: see src/ide/ide_io.rs.
+if [[ -n ${VANDORF_USER_ZDOTDIR+x} ]]; then
+  ZDOTDIR=$VANDORF_USER_ZDOTDIR
+else
+  unset ZDOTDIR
+fi
+unset VANDORF_USER_ZDOTDIR
+typeset -g _vandorf_first=$VANDORF_PATH_FIRST
+unset VANDORF_PATH_FIRST
+if [[ -r ${ZDOTDIR:-$HOME}/.zshenv ]]; then
+  source ${ZDOTDIR:-$HOME}/.zshenv
+fi
+if [[ -n $_vandorf_first ]]; then
+  _vandorf_path() {
+    path=("$_vandorf_first" ${path:#${(b)_vandorf_first}})
+    precmd_functions=(${precmd_functions:#_vandorf_path})
+    unset _vandorf_first
+    unfunction _vandorf_path
+  }
+  typeset -ga precmd_functions
+  precmd_functions+=(_vandorf_path)
+else
+  unset _vandorf_first
+fi
+"#;
+
+/// bash's, as its --rcfile in place of ~/.bashrc: sources that, then puts
+/// the directory first.
+const BASHRC: &str = r#"# vandorf's, for its terminals: see src/ide/ide_io.rs.
+if [ -r ~/.bashrc ]; then . ~/.bashrc; fi
+if [ -n "$VANDORF_PATH_FIRST" ]; then
+  _vandorf_p=":$PATH:"
+  _vandorf_p=${_vandorf_p//":$VANDORF_PATH_FIRST:"/:}
+  _vandorf_p=${_vandorf_p#:}
+  _vandorf_p=${_vandorf_p%:}
+  PATH="$VANDORF_PATH_FIRST${_vandorf_p:+:$_vandorf_p}"
+  unset _vandorf_p
+fi
+unset VANDORF_PATH_FIRST
+"#;
+
+/// A directory of our own, made once per run and only the user's, holding
+/// zsh/.zshenv and bashrc; None if it can't be made.
+fn shim_dir() -> Option<&'static Path> {
+    static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+    DIR.get_or_init(|| {
+        let mut b = [0u8; 8];
+        getrandom::fill(&mut b).ok()?;
+        let tag: String = b.iter().map(|x| format!("{x:02x}")).collect();
+        let dir = std::env::temp_dir().join(format!("vandorf-shell-{tag}"));
+        let mut mk = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut mk, 0o700);
+        mk.create(&dir).ok()?;
+        mk.create(dir.join("zsh")).ok()?;
+        std::fs::write(dir.join("zsh/.zshenv"), ZSHENV).ok()?;
+        std::fs::write(dir.join("bashrc"), BASHRC).ok()?;
+        Some(dir)
+    })
+    .as_deref()
+}
+
+/// Has the shell put this executable's directory back first on PATH after
+/// the user's startup files, for zsh and bash.
+fn keep_self_first(cmd: &mut CommandBuilder) {
+    if cfg!(windows) {
+        return;
+    }
+    let (Some(first), Some(dir)) = (self_dir(), shim_dir()) else {
+        return;
+    };
+    let prog = cmd.get_argv()[0].clone();
+    let name = Path::new(&prog)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    match name.as_str() {
+        "zsh" => {
+            if let Some(z) = std::env::var_os("ZDOTDIR") {
+                cmd.env("VANDORF_USER_ZDOTDIR", z);
+            }
+            cmd.env("ZDOTDIR", dir.join("zsh"));
+        }
+        "bash" => {
+            cmd.arg("--rcfile");
+            cmd.arg(dir.join("bashrc"));
+        }
+        _ => return,
+    }
+    cmd.env("VANDORF_PATH_FIRST", first);
+}
+
 fn spawn(cwd: &str, env: &[(String, String)]) -> Result<Arc<Term>, String> {
     let pty = native_pty_system()
         .openpty(PtySize::default())
@@ -273,6 +380,7 @@ fn spawn(cwd: &str, env: &[(String, String)]) -> Result<Arc<Term>, String> {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("PATH", path_with_self());
+    keep_self_first(&mut cmd);
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -328,6 +436,8 @@ fn spawn(cwd: &str, env: &[(String, String)]) -> Result<Arc<Term>, String> {
 }
 
 /// Starts the user's shell on a pty in cwd, returning the terminal's id.
+/// Its PATH has this executable's directory first, put back after the
+/// user's startup files for zsh and bash.
 pub fn term_spawn(cwd: Str) -> Result<ResInt, String> {
     spawn_with(&cwd, &[])
 }

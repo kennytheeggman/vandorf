@@ -40,6 +40,8 @@ interface Files {
 
 interface Term {
 	// Starts the user's shell on a pty in cwd, returning the terminal's id.
+	// Its PATH has this executable's directory first, put back after the
+	// user's startup files for zsh and bash.
 	func Spawn(cwd: string): Res<int> = "ide_io.rs:term_spawn";
 	func List(n: int): []int = "ide_io.rs:term_list";
 	// Reads a terminal's output from stream offset `from`, waiting up to 20 s

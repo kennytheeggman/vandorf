@@ -32,10 +32,10 @@ interface Interiors {
 	func FreePort(n: int): int = "grove_io.rs:free_port";
 	// Gives the URL of the process kept as key, first starting cmd with the
 	// shell in dir if none is running, with grove's own directory first on the
-	// PATH (where `ide` is built) and $GROVE_URL and $GROVE_TOKEN set, as in
-	// grove's terminals: http://127.0.0.1:<port> once it accepts
-	// connections when port isn't 0, else the first http:// or https:// URL it
-	// prints. Waits up to 30 s.
+	// PATH (where `ide` is built) and $GROVE_BIN, $GROVE_URL and $GROVE_TOKEN
+	// set, as in grove's terminals: http://127.0.0.1:<port> once it accepts
+	// connections when port isn't 0, else the first http:// or https:// URL
+	// it prints. Waits up to 30 s.
 	func Ensure(key: string, cmd: string, dir: string, port: int): Res<string> = "grove_io.rs:ensure";
 	// Stops the processes started for a worktree (kept as <name>@<worktree>),
 	// giving how many there were.

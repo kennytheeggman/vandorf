@@ -70,7 +70,8 @@ back is instant.
 An interior renders one worktree in an iframe. Two are built in:
 
 - **terminal**: a shell on a pty in the idea's worktree, served by grove
-  itself.
+  itself, with grove's directory first on the `PATH` (see
+  [Finding grove](#finding-grove)).
 - **ide**: vandorf's IDE on the idea's worktree, one process per idea
   (`ide --addr 127.0.0.1:{port}`). Interiors are started with grove's own
   directory first on the `PATH`, so this finds the `ide` built next to
@@ -151,6 +152,31 @@ starts. The page catches up at once and says which ideas are new.
   not grove's other writes. An agent can't discard the idea its own
   terminal lives in.
 
+### Finding grove
+
+grove's terminals start with grove's own directory first on the `PATH`, so
+`grove` and `ide` are found there. Startup files that set `PATH` outright
+(`export PATH=/usr/bin:/bin:...` in a `.zshrc`) would drop it, so for zsh
+and bash grove puts it back once the user's startup files have run:
+
+- **zsh** starts with `ZDOTDIR` pointing at a `.zshenv` of grove's (in a
+  directory of its own under the temporary directory, made once per run).
+  It restores the user's `ZDOTDIR` (or unsets it) at once, sources the
+  user's `.zshenv`, and adds a `precmd` hook; zsh then reads the user's
+  own `.zprofile`, `.zshrc` and `.zlogin` as usual. The hook runs once,
+  before the first prompt, putting grove's directory first and removing
+  itself, so a `PATH` changed later is left alone.
+- **bash** starts with `--rcfile` set to a file of grove's that sources
+  `~/.bashrc` and then puts grove's directory first.
+- **Other shells** get the `PATH` as grove sets it, which their startup
+  files may change.
+
+The user's files are never changed. Whatever the shell, grove's terminals
+and interiors also carry `$GROVE_BIN`, grove's executable as an absolute
+path. Scripts and agents that may run where `PATH` has been reset again
+(a subshell that reads the user's startup files, say) can run
+`"$GROVE_BIN" branch ...`.
+
 The routes behind it:
 
 - `POST /api/agent/notify {idea, open, run}`, with the agents' token: counts
@@ -159,9 +185,9 @@ The routes behind it:
   (up to 25 s). The page long-polls it.
 
 To have Claude use these on its own, tell it in a `CLAUDE.md`, for example:
-"If `$GROVE_URL` is set, you're in a grove idea: see `grove help`, and
-branch with `grove branch <name> --run 'claude \"<prompt>\"'` to try an
-alternative in parallel."
+"If `$GROVE_URL` is set, you're in a grove idea: see `"$GROVE_BIN" help`,
+and branch with `"$GROVE_BIN" branch <name> --run 'claude \"<prompt>\"'` to
+try an alternative in parallel."
 
 ## Not yet
 

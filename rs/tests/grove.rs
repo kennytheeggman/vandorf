@@ -218,6 +218,91 @@ impl Drop for Server {
     }
 }
 
+/// Starts grove serving dir on a free port, with env, giving it (stopped
+/// when dropped), the port and the session's token. Waits up to 10 s for it.
+fn serve(dir: &Path, env: &[(&str, &Path)]) -> (Server, u16, String) {
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let server = Server(
+        Command::new(env!("CARGO_BIN_EXE_grove"))
+            .args(["--addr", &format!("127.0.0.1:{port}")])
+            .current_dir(dir)
+            .env_remove("GROVE_REPO")
+            .envs(env.iter().copied())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let mut page = String::new();
+    for _ in 0..100 {
+        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            page = call(port, "GET", "/", "", "").1;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let i = page.find("var TOKEN = '").unwrap_or_else(|| panic!("grove didn't serve on {port}")) + 13;
+    let token = page[i..i + 32].to_string();
+    (server, port, token)
+}
+
+/// Opens one of grove's terminals in an idea ("" for the root) and types a
+/// line there.
+fn type_in_terminal(port: u16, token: &str, idea: &str, line: &str) {
+    let (_, term) = call(port, "POST", &format!("/api/term?idea={idea}"), token, "");
+    let tid: String = term.split("\"id\":").nth(1).unwrap_or_else(|| panic!("no terminal: {term}")).chars().take_while(|c| c.is_ascii_digit()).collect();
+    call(port, "POST", &format!("/api/term/input?id={tid}"), token, &format!("{line}\r"));
+}
+
+#[test]
+fn terminals_find_grove_when_startup_files_reset_path() {
+    // A user whose startup files set PATH outright, as `export PATH=...` in
+    // a .zshrc does. zsh's and bash's terminals still have grove's directory
+    // first once they're at a prompt, after those files ran; every shell's
+    // have $GROVE_BIN; and the user's ZDOTDIR is theirs again.
+    let grove = dunce::canonicalize(env!("CARGO_BIN_EXE_grove")).unwrap();
+    let grove_dir = grove.parent().unwrap().to_str().unwrap().to_string();
+    let mut ran = 0;
+    for shell in ["/bin/zsh", "/bin/bash"] {
+        if !Path::new(shell).exists() {
+            eprintln!("no {shell}: skipped");
+            continue;
+        }
+        let name = Path::new(shell).file_name().unwrap().to_str().unwrap();
+        let dir = repo_named(&format!("grove-path-test-{name}"));
+        let home = dir.join("home");
+        std::fs::create_dir(&home).unwrap();
+        for rc in [".zshenv", ".zshrc", ".bashrc"] {
+            std::fs::write(home.join(rc), format!("export PATH=/usr/bin:/bin\necho {rc} >> {}\n", home.join("ran").display())).unwrap();
+        }
+        let (server, port, token) = {
+            let shell = Path::new(shell);
+            serve(&dir, &[("SHELL", shell), ("HOME", home.as_path()), ("ZDOTDIR", home.as_path())])
+        };
+        let out = dir.join("out.txt");
+        type_in_terminal(port, &token, "", &format!(
+            r#"printf '%s\n' "$PATH" "$(command -v grove)" "$GROVE_BIN" "${{ZDOTDIR-unset}}" "${{VANDORF_PATH_FIRST-unset}}" > {}"#,
+            out.display()
+        ));
+        let text = read_soon(&out);
+        drop(server);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 5, "{shell}: {text}");
+        let rcs = std::fs::read_to_string(home.join("ran")).unwrap_or_default();
+        let want_rcs = if name == "zsh" { ".zshenv\n.zshrc\n" } else { ".bashrc\n" };
+        assert_eq!(rcs, want_rcs, "{shell}: the user's startup files run");
+        assert_eq!(lines[0], format!("{grove_dir}:/usr/bin:/bin"), "{shell}: PATH");
+        assert_eq!(dunce::canonicalize(lines[1]).ok(), Some(grove.clone()), "{shell}: command -v grove gave {}", lines[1]);
+        assert_eq!(dunce::canonicalize(lines[2]).ok(), Some(grove.clone()), "{shell}: $GROVE_BIN is {}", lines[2]);
+        assert_eq!(lines[3], home.to_str().unwrap(), "{shell}: the user's ZDOTDIR");
+        assert_eq!(lines[4], "unset", "{shell}: VANDORF_PATH_FIRST");
+        let _ = std::fs::remove_dir_all(&dir);
+        ran += 1;
+    }
+    assert!(ran > 0, "neither zsh nor bash to test with");
+}
+
 #[test]
 fn agents_branch_from_the_command_line() {
     let dir = repo_named("grove-cli-test");
@@ -243,32 +328,9 @@ fn agents_branch_from_the_command_line() {
     assert!(ok && out.starts_with("usage: grove [--addr host:port]"), "{out}");
 
     // With grove running, its terminals carry $GROVE_URL and $GROVE_TOKEN.
-    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
-    let _server = Server(
-        Command::new(env!("CARGO_BIN_EXE_grove"))
-            .args(["--addr", &format!("127.0.0.1:{port}")])
-            .current_dir(&dir)
-            .env_remove("GROVE_REPO")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .unwrap(),
-    );
-    let mut page = String::new();
-    for _ in 0..100 {
-        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-            page = call(port, "GET", "/", "", "").1;
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-    let i = page.find("var TOKEN = '").unwrap() + 13;
-    let token = page[i..i + 32].to_string();
-    let (_, term) = call(port, "POST", &format!("/api/term?idea={a}"), &token, "");
-    let tid: String = term.split("\"id\":").nth(1).unwrap_or_else(|| panic!("no terminal: {term}")).chars().take_while(|c| c.is_ascii_digit()).collect();
+    let (_server, port, token) = serve(&dir, &[]);
     let envs = dir.join("env.txt");
-    call(port, "POST", &format!("/api/term/input?id={tid}"), &token, &format!("env | grep ^GROVE_ | sort > {}\r", envs.display()));
+    type_in_terminal(port, &token, &a, &format!("env | grep ^GROVE_ | sort > {}", envs.display()));
     let text = read_soon(&envs);
     let var = |k: &str| text.lines().find_map(|l| l.strip_prefix(&format!("{k}="))).unwrap_or_else(|| panic!("no {k} in {text}")).to_string();
     let (url, agent) = (var("GROVE_URL"), var("GROVE_TOKEN"));

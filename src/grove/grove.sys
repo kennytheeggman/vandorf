@@ -46,8 +46,9 @@ interface Grove {
 	// session's, and only the agent routes take it (AgentGate).
 	func AgentToken(n: int): string = "grove_io.rs:agent_token";
 	// Starts the user's shell on a pty in cwd, as Term.Spawn does, with
-	// $GROVE_URL (where grove is serving) and $GROVE_TOKEN (the agents'
-	// token) set once grove is serving, returning the terminal's id.
+	// $GROVE_BIN (grove's own executable, absolute) set, and $GROVE_URL (where
+	// grove is serving) and $GROVE_TOKEN (the agents' token) once grove is
+	// serving, returning the terminal's id.
 	func Spawn(cwd: string): Res<int> = "grove_io.rs:spawn";
 	// Counts a change to the tree, waking whoever waits on one; gives the new
 	// count.
