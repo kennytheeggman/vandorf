@@ -324,10 +324,11 @@ draws ([The IDE](ide.md)). It's an object of:
   `added`, `removed` and `changed` (and procs `unchecked`).
 - `procs`: each proc that changed or doesn't check, by qualified name: its
   `status`; `counts` of the nodes, edges and regions added, removed and
-  changed; the for each `regions` that changed (each by the node that
-  opens it, `at` its row and column in the grid, with its `nodes`, `sink`
-  and `elem`, and `was` for what they were); its declaration's `text` on each
-  side; and for one that doesn't check, its `errors` by side.
+  changed; the for each `regions` added, removed or changed (each by the
+  node that opens it, its `opener`, `at` that node's row and column in the
+  grid, its `diff`, its `nodes`, `sink` and `elem`, and `was` for what
+  changed); its declaration's `text` on each side; and for one that doesn't
+  check, its `errors` by side.
 - `types`, `interfaces`, `funcs`: each that changed, by name, with its
   `status`, what it is now, and under `was` what changed; a typedef's
   `fields` or `variants`, and an interface's `funcs`.
