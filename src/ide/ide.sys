@@ -53,6 +53,13 @@ interface Term {
 	// starts.
 	func Read(id: int, from: int): TermChunk = "ide_io.rs:term_read";
 	func Input(id: int, data: string): Res<string> = "ide_io.rs:term_input";
+	// Waits, up to 10 s, until a terminal's shell reads its input a key at a
+	// time: its line editor (zsh's zle, bash's readline) has started, so a
+	// line typed now reaches it whole. Until then the pty is in canonical
+	// mode, where macOS drops a line longer than 1024 bytes (MAX_CANON).
+	// Gives whether it is reading so; false on the timeout, once the shell
+	// has exited, or where that can't be told (Windows), at once.
+	func Ready(id: int): bool = "ide_io.rs:term_ready";
 	func Resize(id: int, cols: int, rows: int): Res<string> = "ide_io.rs:term_resize";
 	func Kill(id: int): bool = "ide_io.rs:term_kill";
 }

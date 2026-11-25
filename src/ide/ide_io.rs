@@ -566,6 +566,57 @@ pub fn term_input(id: i64, data: Str) -> Result<ResString, String> {
     })
 }
 
+/// How long Ready waits for a new terminal's shell to start reading its line.
+const READY_WAIT: Duration = Duration::from_secs(10);
+
+/// Waits, up to 10 s, until a terminal's shell reads its input a key at a
+/// time: its line editor (zsh's zle, bash's readline) has started, so a
+/// line typed now reaches it whole. Until then the pty is in canonical
+/// mode, where macOS drops a line longer than 1024 bytes (MAX_CANON).
+/// Gives whether it is reading so; false on the timeout, once the shell
+/// has exited, or where that can't be told (Windows), at once.
+pub fn term_ready(id: i64) -> Result<bool, String> {
+    let Some(t) = get(id) else {
+        return Ok(false);
+    };
+    let until = std::time::Instant::now() + READY_WAIT;
+    loop {
+        match line_mode(&t) {
+            Some(false) => return Ok(true),
+            None => return Ok(false),
+            Some(true) => {}
+        }
+        if std::time::Instant::now() >= until {
+            return Ok(false);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Whether a terminal's pty is in canonical (line) mode; None once the
+/// shell has exited, or where it can't be told.
+fn line_mode(t: &Term) -> Option<bool> {
+    let master = t.master.lock().unwrap();
+    let m = master.as_ref()?;
+    #[cfg(unix)]
+    {
+        let fd = m.as_raw_fd()?;
+        let mut tio = std::mem::MaybeUninit::<libc::termios>::uninit();
+        // SAFETY: fd is the master's, open while we hold its lock, and
+        // tcgetattr fills tio when it returns 0.
+        if unsafe { libc::tcgetattr(fd, tio.as_mut_ptr()) } != 0 {
+            return None;
+        }
+        let tio = unsafe { tio.assume_init() };
+        Some(tio.c_lflag & libc::ICANON != 0)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = m;
+        None
+    }
+}
+
 pub fn term_resize(id: i64, cols: i64, rows: i64) -> Result<ResString, String> {
     let Some(t) = get(id) else {
         return Ok(err_str("no such terminal".into()));

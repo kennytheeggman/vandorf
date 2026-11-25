@@ -124,8 +124,10 @@ proc NotifyRoute(req: HttpRequest): HttpResponse {
 }
 
 // Opens a terminal in an idea's worktree, with grove's agent variables,
-// typing run into it if it isn't "", and keeps it in the idea's sections
-// (WithTerminal), so the page shows it there. Gives the idea's id.
+// typing run into it if it isn't "" once its shell's line editor reads
+// (Term.Ready: typed sooner, a long run is lost), and keeps it in the
+// idea's sections (WithTerminal), so the page shows it there. Gives the
+// idea's id.
 proc OpenTerminal(s: { repo: Repo, id: string, run: string }): Res<string> {
 	OpenTerminal -> Session.Loopback(n = 0);
 	Session.Loopback switch {
@@ -142,9 +144,14 @@ proc OpenTerminal(s: { repo: Repo, id: string, run: string }): Res<string> {
 		Err(e) -> id(Err(e))
 	};
 	Grove.Spawn switch {
-		Ok(n) -> Term.Input(id = n, data = Typed(run = OpenTerminal.s.run)),
+		Ok(n) -> switch {
+			(OpenTerminal.s.run == "") -> id(false) as Settled,
+			else -> Term.Ready(id = n)
+		},
 		Err(e) -> id(Err(GroveErr(msg = "cannot open a terminal: " + e.msg)))
 	};
+	Term.Ready -> id(this) as Settled;
+	Settled -> Term.Input(id = UnwrapI(r = Grove.Spawn), data = Typed(run = OpenTerminal.s.run));
 	Term.Input -> SaveIdea(s = { repo = OpenTerminal.s.repo, idea = { ..I, sections = WithTerminal(xs = I.sections, term = UnwrapI(r = Grove.Spawn)) } });
 }
 

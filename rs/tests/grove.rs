@@ -416,6 +416,14 @@ fn agents_branch_from_the_command_line() {
     assert_eq!(read_soon(&bwt.join("four.txt")), "a b\n");
     assert_eq!(terms(&bmeta()).len(), 3);
 
+    // A command longer than a line the pty takes before the shell's line
+    // editor starts (1024 bytes on macOS) still runs whole in a new terminal.
+    let long = "x".repeat(1500);
+    let (ok, out) = grove(&wt, &env, &["run", "--idea", &b, "--new", &format!("echo {long} > long.txt")]);
+    assert!(ok && out.starts_with("grove opened a terminal"), "{out}");
+    assert_eq!(read_soon(&bwt.join("long.txt")), format!("{long}\n"));
+    assert_eq!(terms(&bmeta()).len(), 4);
+
     // Never another idea's terminal: with b's terminal put in a's sections,
     // running in a (the idea here) opens a terminal of a's own.
     call(port, "POST", "/api/ideas/layout", &token, &format!(r#"{{"id": "{a}", "sections": [{{"interior": "terminal", "expanded": true, "term": {b1}}}]}}"#));
