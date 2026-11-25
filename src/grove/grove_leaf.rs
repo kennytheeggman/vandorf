@@ -400,7 +400,7 @@ pub fn tree_json(
             ("behind", Json::Bool(false)),
             (
                 "branch",
-                jstr(if &*p.kind == "branch" { &*p.r#ref } else { "" }),
+                jstr(if &*p.kind == "branch" { &p.r#ref } else { "" }),
             ),
             ("fork", jstr("")),
             ("head", jstr(pin_head(&p.id))),
@@ -1730,7 +1730,7 @@ fn lines_of<'a>(
         .collect();
     parents
         .iter()
-        .map(|(id, p)| (*id, (*p, pin_above(&parents, *id))))
+        .map(|(id, p)| (*id, (*p, pin_above(&parents, id))))
         .collect()
 }
 
