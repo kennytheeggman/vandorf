@@ -140,7 +140,7 @@ fn diff_compares_revisions() {
     git(&dir, &["checkout", "-q", "--", "proj/sys/b.sys"]);
     let empty = git(&dir, &["commit-tree", "4b825dc642cb6eb9a060e54bf8d69288fbee4904", "-m", "empty"]);
     let (ok, out, _) = vcc(&proj, &["diff", &empty]);
-    assert!(ok && out.contains(&format!("{} ({}) doesn't check", empty, short(&empty))) && out.contains("there's no proj/vandorf.toml"), "{out}");
+    assert!(ok && out.contains(&format!("\n{} doesn't check", short(&empty))) && out.contains("there's no proj/vandorf.toml"), "{out}");
 
     // Mistakes.
     let (ok, _, err) = vcc(&proj, &["diff", "nope"]);

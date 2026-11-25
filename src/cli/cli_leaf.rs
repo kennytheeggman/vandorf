@@ -300,6 +300,18 @@ pub fn unwrap_p(r: ResProject) -> Result<Project, String> {
     }
 }
 
+/// Names a side read from a commit: `rev (abc1234)`, or just `abc1234` when
+/// rev is the commit's id or the start of it.
+pub fn rev_label(rev: Str, commit: Str) -> Result<Str, String> {
+    let short: String = commit.chars().take(7).collect();
+    Ok(if !rev.is_empty() && commit.starts_with(&*rev) {
+        short
+    } else {
+        format!("{rev} ({short})")
+    }
+    .into())
+}
+
 pub fn unwrap_base(r: ResGitBase) -> Result<GitBase, String> {
     match r {
         ResGitBase::Ok(b) => Ok(b),

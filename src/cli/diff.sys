@@ -69,9 +69,14 @@ proc DiffSides(s: { p: GitProject, revs: []string }): Res<DiffPair> {
 	WorkSide -> id(Ok({ old = UnwrapSide(r = Old), new = this }));
 }
 
-// Loads and checks the project as it is in commit rev, for a diff, named
-// `label (abc1234)`. A rev that doesn't name a commit is an error; a commit
-// whose project doesn't load is a side that doesn't check, saying why.
+// Names a side read from a commit: `rev (abc1234)`, or just `abc1234` when
+// rev is the commit's id or the start of it.
+func RevLabel(rev: string, commit: string): string = "cli_leaf.rs:rev_label";
+
+// Loads and checks the project as it is in commit rev, for a diff, named by
+// label and the commit. A rev that doesn't name a commit is an error; a
+// commit whose project doesn't load is a side that doesn't check, saying
+// why.
 proc RevSide(s: { p: GitProject, rev: string, label: string }): Res<DiffSide> {
 	RevSide -> CommitOf(s = { dir = this.s.p.top, rev = this.s.rev });
 	CommitOf switch {
@@ -79,8 +84,8 @@ proc RevSide(s: { p: GitProject, rev: string, label: string }): Res<DiffSide> {
 		Err(e) -> id(Err(e))
 	};
 	ProjectAt switch {
-		Ok(src) -> CheckSide(s = { label = RevSide.s.label + " (" + ShortId(commit = UnwrapR2(r = CommitOf)) + ")", paths = src.paths, srcs = src.srcs }),
-		Err(e) -> NoSide(s = { label = RevSide.s.label + " (" + ShortId(commit = UnwrapR2(r = CommitOf)) + ")", error = e.msg, paths = [], srcs = [] })
+		Ok(src) -> CheckSide(s = { label = RevLabel(rev = RevSide.s.label, commit = UnwrapR2(r = CommitOf)), paths = src.paths, srcs = src.srcs }),
+		Err(e) -> NoSide(s = { label = RevLabel(rev = RevSide.s.label, commit = UnwrapR2(r = CommitOf)), error = e.msg, paths = [], srcs = [] })
 	};
 	CheckSide -> id(Ok(this));
 	NoSide -> id(Ok(this));
