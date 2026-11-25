@@ -561,33 +561,66 @@ fn merging_rebases_the_tree_and_agents_report() {
 fn merging_leaves_ideas_merged_by_hand_alone() {
     let dir = repo_named("grove-handmerge-test");
     let common = dir.join(".git");
-    let make = |name: &str, file: &str, text: &str| -> String {
-        let (ok, out) = grove(&dir, &[], &["branch", name, "--no-terminal"]);
+    let wt = |id: &str| common.join("grove/worktrees").join(id);
+    let commit = |id: &str, file: &str, text: &str, msg: &str| {
+        std::fs::write(wt(id).join(file), text).unwrap();
+        git(&wt(id), &["add", "."]);
+        git(&wt(id), &["commit", "-qm", msg]);
+    };
+    let make = |name: &str, from: Option<&str>, file: &str, text: &str| -> String {
+        let mut args = vec!["branch", name, "--no-terminal"];
+        if let Some(f) = from { args.extend(["--from", f]); }
+        let (ok, out) = grove(&dir, &[], &args);
         assert!(ok, "{out}");
         let id = out["branched idea ".len()..].split(' ').next().unwrap().to_string();
-        let wt = common.join("grove/worktrees").join(&id);
-        std::fs::write(wt.join(file), text).unwrap();
-        git(&wt, &["add", "."]);
-        git(&wt, &["commit", "-qm", name]);
+        commit(&id, file, text, name);
         id
     };
+    let head = |r: &str| git(&dir, &["rev-parse", r]);
     // E is merged into the root with git, not grove, so its metadata still
-    // says active; then the root changes E's file further.
-    let e = make("E", "idea-e.txt", "e\n");
-    git(&dir, &["merge", "--ff-only", "-q", &format!("idea/{e}")]);
-    std::fs::write(dir.join("idea-e.txt"), "e, edited\n").unwrap();
-    git(&dir, &["commit", "-qam", "edit E"]);
-    let e_head = git(&dir, &["rev-parse", &format!("idea/{e}")]);
-    let f = make("F", "idea-f.txt", "f\n");
+    // says active, and G, on E, isn't; H too, but with no fork known (a
+    // branch made by hand); and P only up to its first commit. Then the root
+    // changes their files further.
+    let e = make("E", None, "idea-e.txt", "e\n");
+    let g = make("G", Some(&e), "idea-g.txt", "g\n");
+    let h = make("H", None, "idea-h.txt", "h\n");
+    let meta = common.join("grove/ideas").join(format!("{h}.toml"));
+    let text = std::fs::read_to_string(&meta).unwrap();
+    let fork_line = text.lines().find(|l| l.starts_with("fork = ")).unwrap().to_string();
+    std::fs::write(&meta, text.replace(&fork_line, "fork = \"\"")).unwrap();
+    let p = make("P", None, "idea-p.txt", "p\n");
+    commit(&p, "idea-p2.txt", "p2\n", "P2");
+    for r in [format!("idea/{e}"), format!("idea/{h}"), format!("idea/{p}~1")] {
+        git(&dir, &["merge", "-q", "--no-edit", &r]);
+    }
+    for f in ["idea-e.txt", "idea-h.txt", "idea-p.txt"] {
+        std::fs::write(dir.join(f), "edited\n").unwrap();
+    }
+    git(&dir, &["commit", "-qam", "edit them"]);
+    let (e_head, h_head) = (head(&format!("idea/{e}")), head(&format!("idea/{h}")));
+    let f = make("F", None, "idea-f.txt", "f\n");
     let (_server, port, token) = serve(&dir, &[]);
     assert_eq!(idea_in(port, "E").0, "merged");
+    assert_eq!(idea_in(port, "H").0, "merged");
+    assert_eq!(idea_in(port, "P").0, "active");
 
-    // Merging F restacks the tree, but E's commit is in the root already:
-    // replaying it would make a new commit off the root, and E an active
-    // idea again.
+    // Merging F restacks the tree, but E's and H's commits are in the root
+    // already: replaying them would make new commits off the root, and them
+    // active ideas again. G goes to the root, as if E had been merged with
+    // grove, and P replays only the commit the root hasn't.
     let (status, merged) = call(port, "POST", "/api/ideas/merge", &token, &format!(r#"{{"id": "{f}"}}"#));
     assert_eq!(status, 200, "{merged}");
     assert!(merged.contains("merged F into the root; every other idea is on it now"), "{merged}");
-    assert_eq!(git(&dir, &["rev-parse", &format!("idea/{e}")]), e_head);
+    assert_eq!(head(&format!("idea/{e}")), e_head);
     assert_eq!(idea_in(port, "E").0, "merged");
+    assert_eq!(head(&format!("idea/{h}")), h_head);
+    assert_eq!(idea_in(port, "H").0, "merged");
+    assert_eq!(idea_in(port, "G"), ("active".into(), false, false, String::new(), String::new()));
+    assert_eq!(std::fs::read_to_string(wt(&g).join("idea-e.txt")).unwrap(), "edited\n");
+    assert!(wt(&g).join("idea-f.txt").exists() && wt(&g).join("idea-g.txt").exists());
+    assert_eq!(idea_in(port, "P"), ("active".into(), false, false, String::new(), String::new()));
+    assert_eq!(git(&dir, &["rev-list", "--count", &format!("HEAD..idea/{p}")]), "1");
+    assert_eq!(std::fs::read_to_string(wt(&p).join("idea-p.txt")).unwrap(), "edited\n");
+    drop(_server);
+    let _ = std::fs::remove_dir_all(&dir);
 }

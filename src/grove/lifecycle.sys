@@ -60,12 +60,13 @@ proc ParentHead(s: { repo: Repo, parent: string }): Res<string> {
 }
 
 // Rebases an idea onto its parent's head, in its worktree: the commits it
-// has since its fork, replayed there. An idea with no worktree is left
-// alone, as is one whose commits are all in its parent already. Fails,
-// leaving the idea as it was, if its worktree has changes that aren't
-// committed; on a conflict, undoes the rebase and fails, or
-// with keep leaves it stopped there to resolve (`grove rebase --continue`).
-// Afterwards its fork is where it meets its parent. Gives what it did.
+// has since its fork, replayed there, less any its parent has already (some
+// merged by hand). An idea with no worktree is left alone, as is one whose
+// commits are all in its parent already. Fails, leaving the idea as it was,
+// if its worktree has changes that aren't committed; on a conflict, undoes
+// the rebase and fails, or with keep leaves it stopped there to resolve
+// (`grove rebase --continue`). Afterwards its fork is where it meets its
+// parent. Gives what it did.
 proc RebaseIdea(s: { repo: Repo, idea: Idea, keep: bool }): Res<string> {
 	RebaseIdea -> IdeaWorktree(s = { repo = this.s.repo, id = this.s.idea.id });
 	IdeaWorktree switch {
@@ -75,28 +76,33 @@ proc RebaseIdea(s: { repo: Repo, idea: Idea, keep: bool }): Res<string> {
 	ParentHead switch {
 		Ok(h) -> switch {
 			(h == RebaseIdea.s.idea.fork) -> id(Ok("up to date")),
-			else -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["rev-list", "--count", "HEAD", "^" + h]) as Ahead
+			else -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["rev-parse", "HEAD"]) as Head
 		},
 		Err(e) -> id(Err(e))
 	};
-	// An idea whose commits of its own are all in its parent already (merged
-	// some other way, such as git merge by hand) is left alone: rebasing it
-	// would replay them as new commits, off its parent again.
-	Ahead switch {
-		Ok(n) -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["rev-list", "--count", "HEAD", "^" + OrStr(a = RebaseIdea.s.idea.fork, d = UnwrapR2(r = ParentHead))]) as Own,
+	Head switch {
+		Ok(_) -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["merge-base", "HEAD", UnwrapR2(r = ParentHead)]) as Base,
 		Err(e) -> id(Err(e))
 	};
-	Own switch {
-		Ok(n) -> switch {
-			(UnwrapR2(r = Ahead) == "0" && n != "0") -> id(Ok("already in its parent")),
-			else -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["status", "--porcelain"]) as Dirty
+	// Where it meets its parent: its head, when its parent has all of it. One
+	// with commits of its own (its head isn't its fork, or with no fork, its
+	// parent's head) that are all in its parent already, merged some other
+	// way such as git merge by hand, is left alone: rebasing it would replay
+	// them as new commits, off its parent again. Otherwise, past its fork, it
+	// replays only what its parent hasn't.
+	Base switch {
+		Ok(b) -> switch {
+			(b == UnwrapR2(r = Head) && b != OrStr(a = RebaseIdea.s.idea.fork, d = UnwrapR2(r = ParentHead))) -> id(Ok("already in its parent")),
+			else -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["merge-base", "--is-ancestor", OrStr(a = RebaseIdea.s.idea.fork, d = b), b]) as Past
 		},
 		Err(e) -> id(Err(e))
 	};
+	Past -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["status", "--porcelain"]) as Dirty;
 	Dirty switch {
 		Ok(out) -> switch {
 			(out != "") -> id(Err(GroveErr(msg = "it has changes that aren't committed"))),
 			(RebaseIdea.s.idea.fork == "") -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["rebase", "--quiet", UnwrapR2(r = ParentHead)]) as Rebase,
+			(OkOr(r = Past, d = "no") == "") -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["rebase", "--quiet", "--onto", UnwrapR2(r = ParentHead), UnwrapR2(r = Base)]) as Rebase,
 			else -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["rebase", "--quiet", "--onto", UnwrapR2(r = ParentHead), RebaseIdea.s.idea.fork]) as Rebase
 		},
 		Err(e) -> id(Err(e))
@@ -135,16 +141,27 @@ proc SetFork(s: { repo: Repo, idea: Idea, dir: string, head: string }): Res<stri
 
 // Rebases each idea onto its parent in turn (xs in the tree's order, so a
 // parent is rebased before its children), flagging each one that can't be
-// for attention. Gives the ones that couldn't, each with why.
+// for attention. One that's in its parent already (merged by hand) gives
+// its children to its parent, as merging it would have; each idea is
+// loaded afresh, so they're rebased onto it (one that can't be loaded is
+// passed over: it's gone). Gives the ones that couldn't, each with why.
 proc Restack(s: { repo: Repo, xs: []Idea, i: int, skipped: []string }): []string {
 	Restack switch {
 		(this.s.i == this.s.xs.len) -> id(this.s.skipped),
-		else -> RebaseIdea(s = { repo = this.s.repo, idea = this.s.xs[this.s.i], keep = false })
+		else -> LoadIdea(s = { repo = this.s.repo, id = this.s.xs[this.s.i].id })
+	};
+	LoadIdea switch {
+		Ok(i) -> RebaseIdea(s = { repo = Restack.s.repo, idea = i, keep = false }),
+		Err(_) -> Restack(s = { ..Restack.s, i = Restack.s.i + 1 }) as Unread
 	};
 	RebaseIdea switch {
-		Ok(_) -> Restack(s = { ..Restack.s, i = Restack.s.i + 1 }) as Next,
+		Ok(r) -> switch {
+			(r == "already in its parent") -> Reparent(s = { repo = Restack.s.repo, xs = ChildrenOf(xs = Restack.s.xs, id = Restack.s.xs[Restack.s.i].id), to = UnwrapIdea(r = LoadIdea).parent, i = 0 }) as Lift,
+			else -> Restack(s = { ..Restack.s, i = Restack.s.i + 1 }) as Next
+		},
 		Err(e) -> Grove.SetStatus(id = Restack.s.xs[Restack.s.i].id, state = "attention", message = "not rebased onto its parent: " + e.msg)
 	};
+	Lift -> Restack(s = { ..Restack.s, i = Restack.s.i + 1 }) as Lifted;
 	Grove.SetStatus -> Restack(s = { ..Restack.s, i = Restack.s.i + 1, skipped = Restack.s.skipped + [NameOf(i = Restack.s.xs[Restack.s.i]) + " (" + UnwrapErr(r = RebaseIdea) + ")"] }) as Flagged;
 }
 

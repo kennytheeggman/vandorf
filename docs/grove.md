@@ -73,7 +73,9 @@ root's head, so it's a fast-forward and can't conflict:
    or a conflict) is left exactly as it was, its rebase undone, and flagged
    for attention with why. An idea whose commits are all in its parent
    already (merged some other way, such as with git by hand) is left alone
-   too: it's merged, and replaying its commits would only copy them.
+   too: it's merged, and replaying its commits would only copy them. Its
+   children go to its parent, as if grove had merged it. An idea merged
+   only partly that way replays just the commits its parent hasn't.
 
 An idea not on the root's head can't merge until it's rebased: right-click
 it for **Rebase onto <parent>**, which undoes itself on a conflict. An
