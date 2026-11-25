@@ -69,7 +69,11 @@ body{ background:var(--app) }
 #tip .t-git{ color:var(--mut); font:11px var(--mono); margin-top:4px }
 
 /* ---- The interior: stacked sections ---- */
-#main{ flex:1; min-width:0; position:relative; background:var(--bg) }
+#main{ flex:1; min-width:0; display:flex; flex-direction:column; background:var(--bg) }
+/* The shown idea's name, over its sections. */
+#title{ flex:none; height:26px; line-height:25px; padding:0 10px; background:var(--bar); border-bottom:1px solid var(--line);
+  font-size:12px; font-weight:600; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+#views{ flex:1; min-height:0; position:relative }
 .idea{ position:absolute; inset:0; display:flex; flex-direction:column; visibility:hidden }
 .idea.on{ visibility:visible }
 .sec{ display:flex; flex-direction:column; min-height:0; flex:none; border-bottom:1px solid var(--line) }
@@ -134,7 +138,7 @@ body.dragging iframe{ pointer-events:none }
     <div id="foot"></div>
   </aside>
   <div id="sash"></div>
-  <main id="main"></main>
+  <main id="main"><div id="title"></div><div id="views"></div></main>
   <button id="showSide" title="Show the tree (Alt+Shift+B)">›</button>
 </div>
 <div id="tip"></div>
@@ -430,6 +434,7 @@ function moveTip(e){
 function hideTip(){ var t = $('tip'); t.classList.remove('on'); t.style.display = 'none'; }
 function drawFoot(){
   var i = byId[cur], f = $('foot'); f.innerHTML = '';
+  $('title').textContent = i ? i.name : ''; $('title').title = i ? i.name : '';
   if (!i) return;
   f.appendChild(el('b', '', i.name));
   var c = el('code', '', (i.branch || 'detached') + (i.head ? ' @ ' + i.head.slice(0, 8) : ''));
@@ -554,7 +559,7 @@ function drop(v){
 function makeView(id){
   var i = byId[id];
   var v = { id: id, el: el('div', 'idea'), secs: [], picker: el('div', 'picker') };
-  $('main').appendChild(v.el);
+  $('views').appendChild(v.el);
   views.push(v);
   if (!i || (i.id !== '' && !i.worktree)){
     var merged = i && i.status === 'merged';

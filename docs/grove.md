@@ -106,7 +106,8 @@ people's.
   the agent reports again (a new done is green again). The root, the
   checked-out branch, is the larger blue node with a ring. A dashed edge
   means the idea isn't on its parent's latest commit.
-- **Sections** (right): the shown idea's interiors, stacked, each with a
+- **Sections** (right): under a slim bar with the shown idea's name (the
+  root's for the root), the shown idea's interiors, stacked, each with a
   header like VS Code's sidebar views. Click a header to collapse or expand
   it (several can be open at once, sharing the height), drag headers to
   reorder them, and close one with its ×. To open another, collapse every
