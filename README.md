@@ -19,7 +19,8 @@ What it's for:
   implementation, and `vcc build` checks each one against it.
 - **One program, two backends.** The same `.sys` builds a Go package and a
   Rust module with the same types, behaviour, executables and HTTP
-  servers.
+  servers. A `[react]` target adds TypeScript for the browser: the same
+  types, a typed client of the servers and React hooks.
 
 vcc, the compiler, is itself written in vandorf (`src/`) and builds itself.
 

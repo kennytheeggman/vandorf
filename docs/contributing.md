@@ -27,7 +27,7 @@ cd rs && cargo test
 | `parse.rs` | Every `.sys` file in `src/` and the demo parses; the corpus's ASTs; syntax errors and where they point. |
 | `sema.rs` | Typedefs, declarations, how types show and accept each other, and each program's graph or errors. |
 | `doc.rs` | Diagram layouts. |
-| `gen.rs` | Generated Rust and Go: types, procs, servers. |
+| `gen.rs` | Generated Rust and Go (types, procs, servers) and TypeScript (types, clients, hooks). |
 | `report.rs` | How diagnostics are rendered. |
 | `manifest.rs` | Which manifests are accepted, and the errors for the rest. |
 | `cli.rs` | The command line on small projects: namespaces, errors naming their file, finding projects, implementation paths. |
@@ -79,7 +79,8 @@ To add a test program, add a `.sys.txt` to `rs/tests/corpus/` and bless.
   word for word, or `vcc build` fails. A comment about a group of
   declarations takes a blank line after it, so it's no one's doc.
 - **Go and Rust behave the same.** A language feature lands in both
-  backends, with golden files for both.
+  backends, with golden files for both. The TypeScript client speaks the
+  servers' JSON, so a change to it lands in `gen/ts.sys` too.
 
 ## Commits
 
