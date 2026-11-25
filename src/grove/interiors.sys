@@ -84,6 +84,8 @@ proc ReadManifests(s: { paths: []string, i: int, acc: []Interior }): Res<[]Inter
 	};
 }
 
+func InteriorUrl(name: string, url: string): string = "grove_leaf.rs:interior_url";
+
 // Opens an interior for an idea, starting its process if it isn't running
 // (one for every idea if it's shared, one per worktree otherwise). Gives the
 // URL to show it at.
@@ -120,7 +122,7 @@ proc OpenInterior(s: { repo: Repo, idea: string, name: string }): Res<string> {
 	};
 	Run -> Interiors.Ensure(key = this.key, cmd = FillIn(template = It.start, vars = Vars + ["port": Itoa(i = this.port)], quote = "sh"), dir = this.dir, port = this.port);
 	Interiors.Ensure switch {
-		Ok(url) -> id(Ok(FillIn(template = It.open, vars = Vars + ["url": url], quote = "url"))),
+		Ok(url) -> id(Ok(InteriorUrl(name = It.name, url = FillIn(template = It.open, vars = Vars + ["url": url], quote = "url")))),
 		Err(e) -> id(Err(GroveErr(msg = "cannot start " + It.name + ": " + e.msg)))
 	};
 }
