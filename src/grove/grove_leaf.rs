@@ -612,3 +612,377 @@ pub fn vars(worktree: Str, idea: Str, base: Str, repo: Str) -> Result<Map<Str, S
     .into_iter()
     .collect())
 }
+
+// ---- grove for agents (agents.sys) ----
+
+const USAGE: &str =
+    "usage: grove [--addr host:port]     serve the idea tree (default 127.0.0.1:8090)
+       grove <command> [args]
+
+Commands work in the idea whose worktree they're run in (\"this idea\"; the
+repository's own worktree is the root):
+
+  list                       the ideas as a tree; * marks this idea
+  current                    this idea: its id, name, branch and worktree
+  branch [name] [--from <idea>] [--run <cmd>] [--no-terminal]
+                             a new idea branched from this one (or --from's;
+                             --from \"\" is the root), at its head, with a
+                             worktree of its own. grove opens a terminal in
+                             it and types --run's command there, such as
+                             --run 'claude \"try a cache\"'.
+  rename <name> [--idea <idea>]
+                             renames this idea (or --idea)
+  restore <idea>             gives a discarded idea its worktree back
+  help                       this
+
+Discarding is left to people, in grove's tree. Each command works on the
+repository itself, then tells grove ($GROVE_URL, with $GROVE_TOKEN, both
+set in grove's terminals) so its tree catches up at once.";
+
+/// Reads grove's command line: a command first (help for -h, --help or
+/// none), then its arguments and flags, as `--flag value` or `--flag=value`;
+/// err says what's wrong, for an unknown command or flag or the wrong number
+/// of arguments.
+pub fn parse_cli(argv: List<Str>) -> Result<CliArgs, String> {
+    let mut a = CliArgs {
+        cmd: s("help"),
+        args: List::default(),
+        from: s(""),
+        has_from: false,
+        idea: s(""),
+        has_idea: false,
+        run: s(""),
+        terminal: true,
+        err: s(""),
+    };
+    let mut it = argv.iter().map(|x| x.to_string());
+    match it.next().as_deref() {
+        None | Some("-h" | "--help" | "help") => return Ok(a),
+        Some(c) => a.cmd = s(c),
+    }
+    let mut args = vec![];
+    let fail = |mut a: CliArgs, msg: String| {
+        a.err = msg.into();
+        Ok(a)
+    };
+    while let Some(x) = it.next() {
+        if x == "-h" || x == "--help" {
+            a.cmd = s("help");
+            return Ok(a);
+        }
+        if x == "--" {
+            args.extend(it.by_ref());
+            break;
+        }
+        let Some(flag) = x.strip_prefix("--") else {
+            args.push(x);
+            continue;
+        };
+        let (name, inline) = match flag.split_once('=') {
+            Some((n, v)) => (n.to_string(), Some(v.to_string())),
+            None => (flag.to_string(), None),
+        };
+        if name == "no-terminal" {
+            if inline.is_some() {
+                return fail(a, "--no-terminal takes no value".into());
+            }
+            a.terminal = false;
+            continue;
+        }
+        if !matches!(name.as_str(), "from" | "idea" | "run") {
+            return fail(a, format!("unknown flag --{name}"));
+        }
+        let Some(v) = inline.or_else(|| it.next()) else {
+            return fail(a, format!("--{name} needs a value"));
+        };
+        match name.as_str() {
+            "from" => (a.from, a.has_from) = (v.into(), true),
+            "idea" => (a.idea, a.has_idea) = (v.into(), true),
+            _ => a.run = v.into(),
+        }
+    }
+    let (n, min, max, flags): (usize, usize, usize, &[&str]) = match &*a.cmd {
+        "list" | "current" => (args.len(), 0, 0, &[]),
+        "branch" => (args.len(), 0, 1, &["from", "run", "no-terminal"]),
+        "rename" => (args.len(), 1, 1, &["idea"]),
+        "restore" => (args.len(), 1, 1, &[]),
+        "discard" => return Ok(a),
+        c => return fail(a.clone(), format!("unknown command {c}")),
+    };
+    let used = [
+        ("from", a.has_from),
+        ("idea", a.has_idea),
+        ("run", !a.run.is_empty()),
+        ("no-terminal", !a.terminal),
+    ];
+    if let Some((f, _)) = used.iter().find(|(f, on)| *on && !flags.contains(f)) {
+        return fail(a.clone(), format!("grove {} takes no --{f}", a.cmd));
+    }
+    if !a.terminal && !a.run.is_empty() {
+        return fail(a, "--run types its command into the new idea's terminal, so it can't go with --no-terminal".into());
+    }
+    if n < min || n > max {
+        let want = match (min, max) {
+            (0, 0) => "no arguments".to_string(),
+            (0, 1) => "at most one argument, the name".to_string(),
+            _ => "one argument".to_string(),
+        };
+        return fail(a.clone(), format!("grove {} takes {want}, not {n}", a.cmd));
+    }
+    if &*a.cmd == "rename" && args[0].is_empty() {
+        return fail(a, "a name can't be empty".into());
+    }
+    a.args = args.into_iter().map(Str::from).collect();
+    Ok(a)
+}
+
+/// grove's usage, for `grove help`.
+pub fn cli_usage(_n: i64) -> Result<Str, String> {
+    Ok(s(USAGE))
+}
+
+/// Fails with msg, which grove prints as its error.
+pub fn cli_fail(msg: Str) -> Result<(), String> {
+    Err(msg.to_string())
+}
+
+/// The id of the idea a branch is checked out for: idea/<id> gives id; an
+/// error for any other branch.
+pub fn idea_of_branch(branch: Str) -> Result<ResString, String> {
+    Ok(match branch.strip_prefix("idea/") {
+        Some(id) if is_valid_id(id) => ResString::Ok(s(id)),
+        _ => ResString::Err(no_span(format!(
+            "this worktree isn't an idea's: it has {branch} checked out"
+        ))),
+    })
+}
+
+/// The value of r, or d if it's an error.
+pub fn ok_or(r: ResString, d: Str) -> Result<Str, String> {
+    Ok(match r {
+        ResString::Ok(x) => x,
+        ResString::Err(_) => d,
+    })
+}
+
+/// The first positional argument, or "".
+pub fn arg0(a: CliArgs) -> Result<Str, String> {
+    Ok(a.args.first().cloned().unwrap_or_default())
+}
+
+fn json_quote(x: &str) -> String {
+    let mut o = String::from("\"");
+    for c in x.chars() {
+        match c {
+            '"' => o.push_str("\\\""),
+            '\\' => o.push_str("\\\\"),
+            '\n' => o.push_str("\\n"),
+            '\r' => o.push_str("\\r"),
+            '\t' => o.push_str("\\t"),
+            c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
+            c => o.push(c),
+        }
+    }
+    o.push('"');
+    o
+}
+
+/// A notification's JSON body: {"idea", "open", "run"}.
+pub fn notify_body(idea: Str, open: bool, run: Str) -> Result<Str, String> {
+    Ok(format!(
+        "{{\"idea\": {}, \"open\": {open}, \"run\": {}}}",
+        json_quote(&idea),
+        json_quote(&run)
+    )
+    .into())
+}
+
+/// Reads a bool field, or d if it's missing or not a bool.
+pub fn bool_or(j: Json, key: Str, d: bool) -> Result<bool, String> {
+    Ok(match field(&j, &key) {
+        Some(Json::Bool(b)) => *b,
+        _ => d,
+    })
+}
+
+/// What's typed into a new terminal for run: run and a return, or nothing.
+pub fn typed(run: Str) -> Result<Str, String> {
+    Ok(if run.is_empty() {
+        s("")
+    } else {
+        format!("{run}\r").into()
+    })
+}
+
+/// An idea's sections with a terminal kept in them: its first terminal
+/// section with none running gets it, expanded; else a new expanded terminal
+/// section is added last.
+pub fn with_terminal(xs: List<Section>, term: i64) -> Result<List<Section>, String> {
+    let mut v: Vec<Section> = xs.iter().cloned().collect();
+    match v
+        .iter_mut()
+        .find(|x| &*x.interior == "terminal" && x.term == 0)
+    {
+        Some(x) => {
+            x.term = term;
+            x.expanded = true;
+        }
+        None => v.push(Section {
+            interior: s("terminal"),
+            expanded: true,
+            term,
+        }),
+    }
+    Ok(v.into())
+}
+
+pub fn unwrap_i(r: ResInt) -> Result<i64, String> {
+    match r {
+        ResInt::Ok(n) => Ok(n),
+        ResInt::Err(e) => Err(e.msg.to_string()),
+    }
+}
+
+fn jfield(j: &Json, key: &str) -> String {
+    match field(j, key) {
+        Some(Json::Str(x)) => x.to_string(),
+        _ => String::new(),
+    }
+}
+
+fn tree_ideas(tree: &Json) -> Vec<&Json> {
+    match field(tree, "ideas") {
+        Some(Json::Arr(xs)) => xs.iter().collect(),
+        _ => vec![],
+    }
+}
+
+/// The tree (TreeJson) as text, an idea a line, indented under its parent,
+/// with * on here's (none if here is "-").
+pub fn tree_text(tree: Json, here: Str) -> Result<Str, String> {
+    let ideas = tree_ideas(&tree);
+    let mut kids: BTreeMap<String, Vec<&Json>> = BTreeMap::new();
+    for i in ideas.iter().filter(|i| !jfield(i, "id").is_empty()) {
+        kids.entry(jfield(i, "parent")).or_default().push(i);
+    }
+    let mut out = vec![];
+    fn walk(
+        i: &Json,
+        depth: usize,
+        here: &str,
+        kids: &BTreeMap<String, Vec<&Json>>,
+        out: &mut Vec<String>,
+    ) {
+        let id = jfield(i, "id");
+        let mark = if id == here { "*" } else { " " };
+        let shown = if id.is_empty() {
+            "(root)".to_string()
+        } else {
+            id.clone()
+        };
+        let gone = if jfield(i, "status") == "discarded" {
+            "  [discarded]"
+        } else {
+            ""
+        };
+        out.push(format!(
+            "{mark} {}{shown:<10}  {}{gone}",
+            "  ".repeat(depth),
+            jfield(i, "name")
+        ));
+        for k in kids.get(&id).into_iter().flatten() {
+            walk(k, depth + 1, here, kids, out);
+        }
+    }
+    if let Some(root) = ideas.iter().find(|i| jfield(i, "id").is_empty()) {
+        walk(root, 0, &here, &kids, &mut out);
+    }
+    Ok(out.join("\n").into())
+}
+
+/// An idea of the tree (TreeJson) as text: its id, name, branch, worktree
+/// and parent; an error if the tree hasn't it.
+pub fn idea_text(tree: Json, id: Str) -> Result<ResString, String> {
+    let ideas = tree_ideas(&tree);
+    let Some(i) = ideas.iter().find(|i| jfield(i, "id") == *id) else {
+        return Ok(ResString::Err(no_span(format!(
+            "idea {id} isn't in the tree: it has no branch idea/{id}"
+        ))));
+    };
+    let parent = match field(i, "parent") {
+        Some(Json::Str(p)) if p.is_empty() => "(root)".to_string(),
+        Some(Json::Str(p)) => p.to_string(),
+        _ => "none".to_string(),
+    };
+    Ok(ResString::Ok(
+        format!(
+            "id:       {}\nname:     {}\nbranch:   {}\nworktree: {}\nparent:   {parent}\nstatus:   {}",
+            if id.is_empty() { "(root)" } else { &id },
+            jfield(i, "name"),
+            jfield(i, "branch"),
+            jfield(i, "worktree"),
+            jfield(i, "status")
+        )
+        .into(),
+    ))
+}
+
+fn not_told(e: &Diag) -> String {
+    format!(
+        "grove wasn't told ({}); its tree catches up within a few seconds",
+        e.msg
+    )
+}
+
+/// What `grove branch` says it did: the new idea, where its worktree is, and
+/// whether grove opened a terminal in it (notified: grove's answer, or why it
+/// couldn't be told).
+pub fn branched_text(
+    id: Str,
+    name: Str,
+    from: Str,
+    worktree: Str,
+    open: bool,
+    run: Str,
+    notified: ResString,
+) -> Result<Str, String> {
+    let from = if from.is_empty() { s("the root") } else { from };
+    let mut out = vec![format!(
+        "branched idea {id}{} from {from}",
+        if name.is_empty() {
+            String::new()
+        } else {
+            format!(" ({name})")
+        }
+    )];
+    out.push(format!("worktree: {worktree}"));
+    match (&notified, open) {
+        (ResString::Ok(_), true) if run.is_empty() => {
+            out.push("grove opened a terminal in it".into())
+        }
+        (ResString::Ok(_), true) => {
+            out.push(format!("grove opened a terminal in it, running: {run}"))
+        }
+        (ResString::Ok(_), false) => {}
+        (ResString::Err(e), _) => {
+            out.push(not_told(e));
+            if open {
+                out.push(if run.is_empty() {
+                    "no terminal was opened in it".to_string()
+                } else {
+                    format!("no terminal was opened in it, so this didn't run: {run}")
+                });
+            }
+        }
+    }
+    Ok(out.join("\n").into())
+}
+
+/// What a command says after a change, and whether grove was told:
+/// done, then a note if notified is an error.
+pub fn told_text(done: Str, notified: ResString) -> Result<Str, String> {
+    Ok(match notified {
+        ResString::Ok(_) => done,
+        ResString::Err(e) => format!("{done}\n{}", not_told(&e)).into(),
+    })
+}

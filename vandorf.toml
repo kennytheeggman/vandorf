@@ -30,6 +30,8 @@ raw = { "GET /" = "PageRoute", "GET /project" = "PageRoute", "GET /explorer" = "
 # grove, the idea tree (#17), on the git repository it's started in:
 #   (cd rs && cargo build --release) && rs/target/release/grove
 # Each route runs its own proc (src/grove); the terminal routes are the IDE's.
+# With a command (grove branch, grove help, ...) it runs GroveCli instead.
 [http.grove]
 addr = "127.0.0.1:8090"
-raw = { "GET /" = "GrovePageRoute", "GET /terminal" = "GrovePageRoute", "GET /ui.css" = "CssRoute", "GET /api/ideas" = "IdeasRoute", "POST /api/ideas/branch" = "BranchRoute", "POST /api/ideas/discard" = "DiscardRoute", "POST /api/ideas/restore" = "RestoreRoute", "POST /api/ideas/rename" = "RenameRoute", "POST /api/ideas/layout" = "LayoutRoute", "POST /api/interior/open" = "OpenRoute", "POST /api/term" = "GroveTermRoute", "GET /api/term/list" = "TermListRoute", "GET /api/term/read" = "TermReadRoute", "POST /api/term/input" = "TermInputRoute", "POST /api/term/resize" = "TermResizeRoute", "POST /api/term/kill" = "TermKillRoute" }
+cli = "GroveCli"
+raw = { "GET /" = "GrovePageRoute", "GET /api/ideas/wait" = "WaitRoute", "POST /api/agent/notify" = "NotifyRoute", "GET /terminal" = "GrovePageRoute", "GET /ui.css" = "CssRoute", "GET /api/ideas" = "IdeasRoute", "POST /api/ideas/branch" = "BranchRoute", "POST /api/ideas/discard" = "DiscardRoute", "POST /api/ideas/restore" = "RestoreRoute", "POST /api/ideas/rename" = "RenameRoute", "POST /api/ideas/layout" = "LayoutRoute", "POST /api/interior/open" = "OpenRoute", "POST /api/term" = "GroveTermRoute", "GET /api/term/list" = "TermListRoute", "GET /api/term/read" = "TermReadRoute", "POST /api/term/input" = "TermInputRoute", "POST /api/term/resize" = "TermResizeRoute", "POST /api/term/kill" = "TermKillRoute" }

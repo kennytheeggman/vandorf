@@ -1,0 +1,250 @@
+// grove for agents: the command line (`grove branch` and the rest, the cli
+// of [http.grove]), which works on the repository directly and then tells
+// a running grove, and the routes that hear it. grove's terminals and
+// interiors get $GROVE_URL and $GROVE_TOKEN, the agents' token, which only
+// the agent routes take: an agent can branch, rename and restore ideas, and
+// open terminals in them, but discarding is left to people, in the tree.
+//   POST /api/agent/notify {idea, open, run}   a change; with open, a terminal in the idea
+//   GET  /api/ideas/wait?v=                    the count of changes, once it isn't v
+
+// A command line, read: the command, its positional arguments, and its
+// flags (--from, --idea, --run, --no-terminal). err: why it can't run.
+type CliArgs = { cmd: string, args: []string, from: string, has_from: bool, idea: string, has_idea: bool, run: string, terminal: bool, err: string };
+
+// Reads grove's command line: a command first (help for -h, --help or
+// none), then its arguments and flags, as `--flag value` or `--flag=value`;
+// err says what's wrong, for an unknown command or flag or the wrong number
+// of arguments.
+func ParseCli(argv: []string): CliArgs = "grove_leaf.rs:parse_cli";
+// grove's usage, for `grove help`.
+func CliUsage(n: int): string = "grove_leaf.rs:cli_usage";
+// Fails with msg, which grove prints as its error.
+func CliFail(msg: string): void = "grove_leaf.rs:cli_fail";
+// The id of the idea a branch is checked out for: idea/<id> gives id; an
+// error for any other branch.
+func IdeaOfBranch(branch: string): Res<string> = "grove_leaf.rs:idea_of_branch";
+// The value of r, or d if it's an error.
+func OkOr(r: Res<string>, d: string): string = "grove_leaf.rs:ok_or";
+// The first positional argument, or "".
+func Arg0(a: CliArgs): string = "grove_leaf.rs:arg0";
+// A notification's JSON body: {"idea", "open", "run"}.
+func NotifyBody(idea: string, open: bool, run: string): string = "grove_leaf.rs:notify_body";
+// Reads a bool field, or d if it's missing or not a bool.
+func BoolOr(j: Json, key: string, d: bool): bool = "grove_leaf.rs:bool_or";
+// What's typed into a new terminal for run: run and a return, or nothing.
+func Typed(run: string): string = "grove_leaf.rs:typed";
+// An idea's sections with a terminal kept in them: its first terminal
+// section with none running gets it, expanded; else a new expanded terminal
+// section is added last.
+func WithTerminal(xs: []Section, term: int): []Section = "grove_leaf.rs:with_terminal";
+// The tree (TreeJson) as text, an idea a line, indented under its parent,
+// with * on here's (none if here is "-").
+func TreeText(tree: Json, here: string): string = "grove_leaf.rs:tree_text";
+// An idea of the tree (TreeJson) as text: its id, name, branch, worktree
+// and parent; an error if the tree hasn't it.
+func IdeaText(tree: Json, id: string): Res<string> = "grove_leaf.rs:idea_text";
+// What `grove branch` says it did: the new idea, where its worktree is, and
+// whether grove opened a terminal in it (notified: grove's answer, or why it
+// couldn't be told).
+func BranchedText(id: string, name: string, from: string, worktree: string, open: bool, run: string, notified: Res<string>): string = "grove_leaf.rs:branched_text";
+// What a command says after a change, and whether grove was told:
+// done, then a note if notified is an error.
+func ToldText(done: string, notified: Res<string>): string = "grove_leaf.rs:told_text";
+
+// Lets an agent's request through only with the agents' token (the one in
+// $GROVE_TOKEN), and on a loopback address a loopback Host; a 403
+// otherwise. The session's token doesn't pass, nor does this one pass
+// WriteGate.
+proc AgentGate(req: HttpRequest): Gate {
+	AgentGate -> Grove.AgentToken(n = 0);
+	Grove.AgentToken -> Session.Loopback(n = 0);
+	Session.Loopback switch {
+		(Authorized(headers = AgentGate.req.headers, token = Grove.AgentToken, loopback = this)) -> id(Open()),
+		else -> id(Shut(Forbidden(n = 0)))
+	};
+}
+
+// Serves GET /api/ideas/wait?v=: waits a while for the count of changes to
+// the tree to differ from v, and gives it, so the page catches up as soon
+// as an agent tells grove of one. Without v it answers at once.
+proc WaitRoute(req: HttpRequest): HttpResponse {
+	WaitRoute -> Grove.Wait(v = QueryInt(s = { q = this.req.query, k = "v" }));
+	Grove.Wait -> id(Api(j = Obj([{ key = "ok", value = Bool(true) }, { key = "v", value = Num(this) }])));
+}
+
+// Serves POST /api/agent/notify {idea, open, run}: counts a change to the
+// tree, made by `grove` on the command line; with open, first opens a
+// terminal in the idea (OpenTerminal), typing run into it.
+proc NotifyRoute(req: HttpRequest): HttpResponse {
+	NotifyRoute -> AgentGate(req = this.req);
+	AgentGate switch {
+		Shut(r) -> id(r),
+		else -> ParseJson(text = NotifyRoute.req.body)
+	};
+	ParseJson switch {
+		Ok(_) -> Grove.Repo(n = 0),
+		Err(e) -> id(ApiErr(msg = "bad request: " + e.msg))
+	};
+	Grove.Repo switch {
+		Ok(r) -> switch {
+			(BoolOr(j = UnwrapJ(r = ParseJson), key = "open", d = false)) -> OpenTerminal(s = { repo = r, id = StrOr(j = UnwrapJ(r = ParseJson), key = "idea", d = ""), run = StrOr(j = UnwrapJ(r = ParseJson), key = "run", d = "") }),
+			else -> id(Ok(StrOr(j = UnwrapJ(r = ParseJson), key = "idea", d = ""))) as Told
+		},
+		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+	OpenTerminal -> id(this) as Told;
+	Told -> Grove.Changed(n = 0);
+	Grove.Changed -> id(Answer(r = Told, key = "idea"));
+}
+
+// Opens a terminal in an idea's worktree, with grove's agent variables,
+// typing run into it if it isn't "", and keeps it in the idea's sections
+// (WithTerminal), so the page shows it there. Gives the idea's id.
+proc OpenTerminal(s: { repo: Repo, id: string, run: string }): Res<string> {
+	OpenTerminal -> Session.Loopback(n = 0);
+	Session.Loopback switch {
+		(!this) -> id(Err(GroveErr(msg = "terminals are off: grove isn't listening on a loopback address"))),
+		else -> LoadIdea(s = { repo = OpenTerminal.s.repo, id = OpenTerminal.s.id })
+	};
+	LoadIdea switch {
+		Ok(i) -> id(i) as I,
+		Err(e) -> id(Err(e))
+	};
+	I -> IdeaWorktree(s = { repo = OpenTerminal.s.repo, id = OpenTerminal.s.id });
+	IdeaWorktree switch {
+		Ok(dir) -> Grove.Spawn(cwd = dir),
+		Err(e) -> id(Err(e))
+	};
+	Grove.Spawn switch {
+		Ok(n) -> Term.Input(id = n, data = Typed(run = OpenTerminal.s.run)),
+		Err(e) -> id(Err(GroveErr(msg = "cannot open a terminal: " + e.msg)))
+	};
+	Term.Input -> SaveIdea(s = { repo = OpenTerminal.s.repo, idea = { ..I, sections = WithTerminal(xs = I.sections, term = UnwrapI(r = Grove.Spawn)) } });
+}
+
+func UnwrapI(r: Res<int>): int = "grove_leaf.rs:unwrap_i";
+
+// grove's command line, the cli of [http.grove]: `grove <command> ...`.
+// Each command works on the repository directly, in the idea whose worktree
+// it's run in unless told otherwise, then tells grove if it's running
+// ($GROVE_URL), so the tree catches up at once. Discarding is left to
+// people.
+proc GroveCli(argv: []string): void {
+	GroveCli -> id(ParseCli(argv = this.argv)) as A;
+	A switch {
+		(this.err != "") -> CliFail(msg = this.err + " (see grove help)"),
+		(this.cmd == "help") -> Console.Out(text = CliUsage(n = 0)) as Help,
+		(this.cmd == "discard") -> CliFail(msg = "discarding is left to people: discard an idea in grove's tree (right-click its node)") as NoDiscard,
+		else -> Grove.Repo(n = 0)
+	};
+	Grove.Repo switch {
+		Ok(r) -> CliRun(s = { repo = r, a = A }),
+		Err(e) -> CliFail(msg = e.msg) as NoRepo
+	};
+	CliRun switch {
+		Ok(text) -> Console.Out(text = text),
+		Err(e) -> CliFail(msg = e.msg) as Failed
+	};
+}
+
+// Runs one of grove's commands, giving what it prints.
+proc CliRun(s: { repo: Repo, a: CliArgs }): Res<string> {
+	CliRun switch {
+		(this.s.a.cmd == "list") -> CliList(repo = this.s.repo),
+		(this.s.a.cmd == "current") -> CliCurrent(repo = this.s.repo),
+		(this.s.a.cmd == "branch") -> CliBranch(s = this.s),
+		(this.s.a.cmd == "rename") -> CliRename(s = this.s),
+		else -> CliRestore(s = this.s)
+	};
+}
+
+// The idea whose worktree the working directory is in: "" for the
+// repository's own, else the one whose branch is checked out there; an
+// error for any other worktree.
+proc Here(repo: Repo): Res<string> {
+	Here -> Grove.Toplevel(n = 0);
+	Grove.Toplevel switch {
+		Ok(top) -> switch {
+			(top == Here.repo.top) -> id(Ok("")),
+			else -> Grove.Git(dir = top, args = ["symbolic-ref", "--short", "-q", "HEAD"])
+		},
+		Err(e) -> id(Err(e))
+	};
+	Grove.Git switch {
+		Ok(b) -> id(IdeaOfBranch(branch = b)),
+		Err(_) -> id(Err(GroveErr(msg = "this worktree isn't an idea's: its HEAD is detached")))
+	};
+}
+
+// `grove list`: the ideas, as a tree, with * on the one here.
+proc CliList(repo: Repo): Res<string> {
+	CliList -> Here(repo = this.repo);
+	Here -> LoadTree(repo = CliList.repo);
+	LoadTree switch {
+		Ok(j) -> id(Ok(TreeText(tree = j, here = OkOr(r = Here, d = "-")))),
+		Err(e) -> id(Err(e))
+	};
+}
+
+// `grove current`: the idea here.
+proc CliCurrent(repo: Repo): Res<string> {
+	CliCurrent -> Here(repo = this.repo);
+	Here switch {
+		Ok(_) -> LoadTree(repo = CliCurrent.repo),
+		Err(e) -> id(Err(e))
+	};
+	LoadTree switch {
+		Ok(j) -> id(IdeaText(tree = j, id = UnwrapR2(r = Here))),
+		Err(e) -> id(Err(e))
+	};
+}
+
+// `grove branch [name] [--from <idea>] [--run <cmd>] [--no-terminal]`: a
+// new idea branched from the one here (or --from), then grove told, opening
+// a terminal in it unless --no-terminal, with --run typed there.
+proc CliBranch(s: { repo: Repo, a: CliArgs }): Res<string> {
+	CliBranch switch {
+		(this.s.a.has_from) -> id(Ok(this.s.a.from)) as From,
+		else -> Here(repo = this.s.repo)
+	};
+	Here -> id(this) as From;
+	From switch {
+		Ok(f) -> BranchIdea(s = { repo = CliBranch.s.repo, from = f, name = Arg0(a = CliBranch.s.a) }),
+		Err(e) -> id(Err(GroveErr(msg = e.msg + "; pass --from <idea> to branch from one")))
+	};
+	BranchIdea switch {
+		Ok(nid) -> Grove.Notify(path = "/api/agent/notify", body = NotifyBody(idea = nid, open = CliBranch.s.a.terminal, run = CliBranch.s.a.run)),
+		Err(e) -> id(Err(e))
+	};
+	Grove.Notify -> id(Ok(BranchedText(id = UnwrapR2(r = BranchIdea), name = Arg0(a = CliBranch.s.a), from = UnwrapR2(r = From), worktree = WorktreePath(common = CliBranch.s.repo.common, id = UnwrapR2(r = BranchIdea)), open = CliBranch.s.a.terminal, run = CliBranch.s.a.run, notified = this)));
+}
+
+// `grove rename <name> [--idea <idea>]`: renames the idea here (or --idea),
+// then tells grove.
+proc CliRename(s: { repo: Repo, a: CliArgs }): Res<string> {
+	CliRename switch {
+		(this.s.a.has_idea) -> id(Ok(this.s.a.idea)) as Which,
+		else -> Here(repo = this.s.repo)
+	};
+	Here -> id(this) as Which;
+	Which switch {
+		Ok(i) -> RenameIdea(s = { repo = CliRename.s.repo, id = i, name = Arg0(a = CliRename.s.a) }),
+		Err(e) -> id(Err(GroveErr(msg = e.msg + "; pass --idea <idea> to rename one")))
+	};
+	RenameIdea switch {
+		Ok(i) -> Grove.Notify(path = "/api/agent/notify", body = NotifyBody(idea = i, open = false, run = "")),
+		Err(e) -> id(Err(e))
+	};
+	Grove.Notify -> id(Ok(ToldText(done = "renamed " + OrStr(a = UnwrapR2(r = RenameIdea), d = "the repository") + " to " + Arg0(a = CliRename.s.a), notified = this)));
+}
+
+// `grove restore <idea>`: gives a discarded idea its worktree back, then
+// tells grove.
+proc CliRestore(s: { repo: Repo, a: CliArgs }): Res<string> {
+	CliRestore -> RestoreIdea(s = { repo = this.s.repo, id = Arg0(a = this.s.a) });
+	RestoreIdea switch {
+		Ok(i) -> Grove.Notify(path = "/api/agent/notify", body = NotifyBody(idea = i, open = false, run = "")),
+		Err(e) -> id(Err(e))
+	};
+	Grove.Notify -> id(Ok(ToldText(done = "restored " + UnwrapR2(r = RestoreIdea) + " in " + WorktreePath(common = CliRestore.s.repo.common, id = UnwrapR2(r = RestoreIdea)), notified = this)));
+}

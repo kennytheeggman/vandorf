@@ -44,32 +44,41 @@ proc GroveWrite(req: HttpRequest): Writing {
 proc IdeasRoute(req: HttpRequest): HttpResponse {
 	IdeasRoute -> Grove.Repo(n = 0);
 	Grove.Repo switch {
-		Ok(r) -> id(r) as R,
+		Ok(r) -> LoadTree(repo = r),
 		Err(e) -> id(ApiErr(msg = e.msg))
 	};
-	R -> Grove.Git(dir = this.top, args = ["worktree", "list", "--porcelain"]) as Worktrees;
-	Worktrees switch {
-		Ok(_) -> Grove.Git(dir = R.top, args = ["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/idea/"]) as Branches,
+	LoadTree switch {
+		Ok(j) -> id(Api(j = j)),
 		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+}
+
+// Loads the tree's JSON (TreeJson): the repository, the root and its ideas,
+// and the interiors that can be opened.
+proc LoadTree(repo: Repo): Res<Json> {
+	LoadTree -> Grove.Git(dir = this.repo.top, args = ["worktree", "list", "--porcelain"]) as Worktrees;
+	Worktrees switch {
+		Ok(_) -> Grove.Git(dir = LoadTree.repo.top, args = ["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/idea/"]) as Branches,
+		Err(e) -> id(Err(e))
 	};
 	Branches switch {
-		Ok(_) -> Grove.List(dir = JoinP(a = R.common, b = "grove/ideas")),
-		Err(e) -> id(ApiErr(msg = e.msg))
+		Ok(_) -> Grove.List(dir = JoinP(a = LoadTree.repo.common, b = "grove/ideas")),
+		Err(e) -> id(Err(e))
 	};
-	Grove.List -> LoadIdeas(s = { repo = R, ids = IdsOf(files = this, branches = UnwrapR2(r = Branches)), i = 0, acc = [] });
+	Grove.List -> LoadIdeas(s = { repo = LoadTree.repo, ids = IdsOf(files = this, branches = UnwrapR2(r = Branches)), i = 0, acc = [] });
 	LoadIdeas switch {
 		Ok(xs) -> id(xs) as Ideas,
-		Err(e) -> id(ApiErr(msg = e.msg))
+		Err(e) -> id(Err(e))
 	};
-	Ideas -> LoadIdea(s = { repo = R, id = "" });
+	Ideas -> LoadIdea(s = { repo = LoadTree.repo, id = "" });
 	LoadIdea switch {
 		Ok(i) -> id(i) as Root,
-		Err(e) -> id(ApiErr(msg = e.msg))
+		Err(e) -> id(Err(e))
 	};
-	Root -> LoadInteriors(repo = R);
+	Root -> LoadInteriors(repo = LoadTree.repo);
 	LoadInteriors switch {
-		Ok(xs) -> id(Api(j = TreeJson(repo = R, worktrees = UnwrapR2(r = Worktrees), branches = UnwrapR2(r = Branches), root = Root, ideas = Ideas, interiors = xs))),
-		Err(e) -> id(ApiErr(msg = e.msg))
+		Ok(xs) -> id(Ok(TreeJson(repo = LoadTree.repo, worktrees = UnwrapR2(r = Worktrees), branches = UnwrapR2(r = Branches), root = Root, ideas = Ideas, interiors = xs))),
+		Err(e) -> id(Err(e))
 	};
 }
 

@@ -120,11 +120,55 @@ carrying `grove: 1`:
   one if there's none); `keys` {code, alt, shift, ctrl, meta} for the
   shortcuts it didn't use.
 
+## Commands, for agents
+
+`grove` with a command works on the repository from the command line, so
+an agent (Claude, say) in one of grove's terminals can grow the tree itself:
+
+```
+grove list                          # the ideas as a tree; * marks this one
+grove current                       # this idea: id, name, branch, worktree
+grove branch "try a cache" --run 'claude "make lookups cached"'
+grove rename "cache, with eviction"
+grove restore <idea>
+grove help
+```
+
+Each command runs in the idea whose worktree it's in (the repository's own
+is the root), unless `--from` (branch) or `--idea` (rename) names another.
+It makes the change itself, through git and grove's metadata, so it works
+with no grove running. Then it tells grove, through `$GROVE_URL` and
+`$GROVE_TOKEN`. grove sets both in its terminals and in the interiors it
+starts. The page catches up at once and says which ideas are new.
+
+- **branch** makes a new idea from this one's head. grove opens a terminal
+  in it, kept as one of its sections, and types `--run`'s command there.
+  An agent's session can't follow it into another worktree, so the usual
+  move is to start a fresh agent there: `--run 'claude "<prompt>"'`. Pass
+  `--no-terminal` for just the idea.
+- **Discarding is left to people**, in the tree. `grove discard` refuses,
+  and `$GROVE_TOKEN` is a token of its own that only the agent routes take,
+  not grove's other writes. An agent can't discard the idea its own
+  terminal lives in.
+
+The routes behind it:
+
+- `POST /api/agent/notify {idea, open, run}`, with the agents' token: counts
+  a change, and with `open` opens a terminal in the idea, typing `run`.
+- `GET /api/ideas/wait?v=`: the count of changes, as soon as it isn't `v`
+  (up to 25 s). The page long-polls it.
+
+To have Claude use these on its own, tell it in a `CLAUDE.md`, for example:
+"If `$GROVE_URL` is set, you're in a grove idea: see `grove help`, and
+branch with `grove branch <name> --run 'claude \"<prompt>\"'` to try an
+alternative in parallel."
+
 ## Not yet
 
 Compare, merge, ship and restack (#26); terminals that survive a restart,
-resume rules for agent CLIs, and idle stops (#27); the MCP server (#28); and
-the inbox (#29). Terminals die with grove for now.
+resume rules for agent CLIs, and idle stops (#27); the MCP server and caps
+on autonomous branching (#28, of which the commands above are a first
+part); and the inbox (#29). Terminals die with grove for now.
 
 Writes need the per-run token the page is served with. Terminals and
 interiors, which run commands, are offered only when grove listens on a

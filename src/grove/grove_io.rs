@@ -283,6 +283,7 @@ fn start(cmd: &str, dir: &str, port: i64) -> Result<Served, String> {
     let mut child = c
         .current_dir(dir)
         .env("PATH", super::ide_io::path_with_self())
+        .envs(agent_env())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -356,7 +357,8 @@ fn start(cmd: &str, dir: &str, port: i64) -> Result<Served, String> {
 
 /// Gives the URL of the process kept as key, first starting cmd with the
 /// shell in dir if none is running, with grove's own directory first on the
-/// PATH (where `ide` is built): http://127.0.0.1:<port> once it accepts
+/// PATH (where `ide` is built) and $GROVE_URL and $GROVE_TOKEN set, as in
+/// grove's terminals: http://127.0.0.1:<port> once it accepts
 /// connections when port isn't 0, else the first http:// or https:// URL it
 /// prints. Waits up to 30 s.
 pub fn ensure(key: Str, cmd: Str, dir: Str, port: i64) -> Result<ResString, String> {
@@ -394,4 +396,149 @@ pub fn stop(worktree: Str) -> Result<i64, String> {
         }
     }
     Ok(keys.len() as i64)
+}
+
+// ---- grove for agents (agents.sys) ----
+
+/// Makes the agents' token, once per run: what grove's terminals and
+/// interiors get as $GROVE_TOKEN. It's a token of its own, not the
+/// session's, and only the agent routes take it (AgentGate).
+pub fn agent_token(_n: i64) -> Result<Str, String> {
+    static TOKEN: OnceLock<String> = OnceLock::new();
+    Ok(s(TOKEN.get_or_init(|| {
+        let mut b = [0u8; 16];
+        let _ = getrandom::fill(&mut b);
+        b.iter().map(|x| format!("{x:02x}")).collect()
+    })))
+}
+
+/// $GROVE_URL and $GROVE_TOKEN for what grove starts, once it's serving.
+fn agent_env() -> Vec<(String, String)> {
+    let addr = crate::vcc::http::addr();
+    if addr.is_empty() {
+        return vec![];
+    }
+    vec![
+        ("GROVE_URL".into(), format!("http://{addr}")),
+        (
+            "GROVE_TOKEN".into(),
+            agent_token(0).unwrap_or_default().to_string(),
+        ),
+    ]
+}
+
+/// Starts the user's shell on a pty in cwd, as Term.Spawn does, with
+/// $GROVE_URL (where grove is serving) and $GROVE_TOKEN (the agents'
+/// token) set once grove is serving, returning the terminal's id.
+pub fn spawn(cwd: Str) -> Result<ResInt, String> {
+    super::ide_io::spawn_with(&cwd, &agent_env())
+}
+
+fn changes() -> &'static (Mutex<i64>, std::sync::Condvar) {
+    static CHANGES: OnceLock<(Mutex<i64>, std::sync::Condvar)> = OnceLock::new();
+    CHANGES.get_or_init(|| (Mutex::new(0), std::sync::Condvar::new()))
+}
+
+/// Counts a change to the tree, waking whoever waits on one; gives the new
+/// count.
+pub fn changed(_n: i64) -> Result<i64, String> {
+    let (m, cv) = changes();
+    let mut n = m.lock().unwrap();
+    *n += 1;
+    cv.notify_all();
+    Ok(*n)
+}
+
+/// Waits up to 25 s for the count of changes to the tree to differ from v,
+/// giving it then (at once if it already does).
+pub fn wait(v: i64) -> Result<i64, String> {
+    let (m, cv) = changes();
+    let n = m.lock().unwrap();
+    let (n, _) = cv
+        .wait_timeout_while(n, Duration::from_secs(25), |n| *n == v)
+        .unwrap();
+    Ok(*n)
+}
+
+/// The canonical top of the worktree the working directory is in.
+pub fn toplevel(_n: i64) -> Result<ResString, String> {
+    Ok(
+        match run_git(
+            ".",
+            &["rev-parse", "--path-format=absolute", "--show-toplevel"],
+        ) {
+            Ok(top) => ResString::Ok(
+                slash(&dunce::canonicalize(&top).unwrap_or_else(|_| top.clone().into())).into(),
+            ),
+            Err(e) => err_str(format!("not in a git worktree: {e}")),
+        },
+    )
+}
+
+/// Tells the grove serving this repository about a change: POSTs body (a
+/// JSON object) to path on $GROVE_URL with $GROVE_TOKEN, giving its
+/// answer's body. An error if there's no $GROVE_URL, or grove can't be
+/// reached in a few seconds, or it turns the request away.
+pub fn notify(path: Str, body: Str) -> Result<ResString, String> {
+    Ok(match post(&path, &body) {
+        Ok(b) => ResString::Ok(b.into()),
+        Err(e) => err_str(e),
+    })
+}
+
+fn post(path: &str, body: &str) -> Result<String, String> {
+    use std::io::Write;
+    use std::net::{TcpStream, ToSocketAddrs};
+    let url = std::env::var("GROVE_URL").unwrap_or_default();
+    if url.is_empty() {
+        return Err("no $GROVE_URL: not run in one of grove's terminals".into());
+    }
+    let token = std::env::var("GROVE_TOKEN").unwrap_or_default();
+    let host = url
+        .strip_prefix("http://")
+        .ok_or_else(|| format!("$GROVE_URL isn't an http:// URL: {url}"))?
+        .trim_end_matches('/');
+    let addr = host
+        .to_socket_addrs()
+        .map_err(|e| format!("cannot find {host}: {e}"))?
+        .next()
+        .ok_or_else(|| format!("cannot find {host}"))?;
+    let wait = Duration::from_secs(5);
+    let mut c = TcpStream::connect_timeout(&addr, wait)
+        .map_err(|e| format!("cannot reach grove at {url}: {e}"))?;
+    let _ = c.set_read_timeout(Some(wait));
+    let _ = c.set_write_timeout(Some(wait));
+    let req = format!(
+        "POST {path} HTTP/1.1\r\nHost: {host}\r\nX-Vandorf-Token: {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    c.write_all(req.as_bytes())
+        .map_err(|e| format!("cannot reach grove at {url}: {e}"))?;
+    let mut raw = vec![];
+    c.read_to_end(&mut raw)
+        .map_err(|e| format!("no answer from grove at {url}: {e}"))?;
+    let raw = String::from_utf8_lossy(&raw);
+    let (head, rest) = raw.split_once("\r\n\r\n").unwrap_or((&raw, ""));
+    let status = head
+        .split(' ')
+        .nth(1)
+        .and_then(|c| c.parse::<u16>().ok())
+        .unwrap_or(0);
+    if status == 200 {
+        return Ok(rest.to_string());
+    }
+    let why = rest
+        .split("\"error\":")
+        .nth(1)
+        .map(|e| {
+            e.trim()
+                .trim_start_matches('"')
+                .split('"')
+                .next()
+                .unwrap_or("")
+                .to_string()
+        })
+        .filter(|e| !e.is_empty())
+        .unwrap_or_else(|| format!("status {status}"));
+    Err(format!("grove turned it away: {why}"))
 }

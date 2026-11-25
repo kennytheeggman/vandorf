@@ -39,7 +39,11 @@ fn git(dir: &Path, args: &[&str]) -> String {
 
 /// A repository with one commit, in a fresh directory.
 fn repo() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("grove-test-{}", std::process::id()));
+    repo_named("grove-test")
+}
+
+fn repo_named(tag: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let dir = dunce::canonicalize(&dir).unwrap();
@@ -154,5 +158,148 @@ fn ideas_are_branches_with_worktrees() {
     let open = req("POST", "/api/interior/open", "", &token, r#"{"idea": "", "interior": "terminal"}"#);
     assert_eq!(open.status, 400);
 
+    // The agent routes take the agents' token, not the session's; the wait
+    // answers at once without a count.
+    assert_eq!(req("POST", "/api/agent/notify", "", &token, r#"{"idea": ""}"#).status, 403);
+    assert_eq!(req("POST", "/api/agent/notify", "", "", r#"{"idea": ""}"#).status, 403);
+    assert!(req("GET", "/api/ideas/wait", "", "", "").body.starts_with(r#"{"ok":true,"v":"#));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Runs the grove executable with args in dir, with env, giving whether it
+/// succeeded and what it printed (stdout, then stderr).
+fn grove(dir: &Path, env: &[(&str, &str)], args: &[&str]) -> (bool, String) {
+    let out = Command::new(env!("CARGO_BIN_EXE_grove"))
+        .args(args)
+        .current_dir(dir)
+        .env_remove("GROVE_URL")
+        .env_remove("GROVE_TOKEN")
+        .env_remove("GROVE_REPO")
+        .envs(env.iter().copied())
+        .output()
+        .unwrap();
+    (out.status.success(), String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr))
+}
+
+/// Waits up to 15 s for a file to have something in it.
+fn read_soon(path: &Path) -> String {
+    for _ in 0..150 {
+        if let Ok(s) = std::fs::read_to_string(path) {
+            if s.ends_with('\n') {
+                return s;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    panic!("nothing in {} after 15 s", path.display());
+}
+
+/// A plain HTTP request to a running grove.
+fn call(port: u16, method: &str, path: &str, token: &str, body: &str) -> (u16, String) {
+    use std::io::{Read, Write};
+    let mut c = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    c.set_read_timeout(Some(std::time::Duration::from_secs(30))).unwrap();
+    write!(c, "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nX-Vandorf-Token: {token}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+    let mut raw = String::new();
+    c.read_to_string(&mut raw).unwrap();
+    let status = raw.split(' ').nth(1).unwrap().parse().unwrap();
+    (status, raw.split_once("\r\n\r\n").map_or("", |x| x.1).to_string())
+}
+
+/// A grove server, stopped when dropped, so a failing check doesn't leave it
+/// (and its terminals) running.
+struct Server(std::process::Child);
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[test]
+fn agents_branch_from_the_command_line() {
+    let dir = repo_named("grove-cli-test");
+    let common = dir.join(".git");
+
+    // Without a grove running: the commands work on the repository, and say
+    // grove wasn't told. Discarding is left to people.
+    let (ok, out) = grove(&dir, &[], &["branch", "first", "--no-terminal"]);
+    assert!(ok && out.starts_with("branched idea ") && out.contains(" (first) from the root\n") && out.contains("grove wasn't told (no $GROVE_URL"), "{out}");
+    let a = out["branched idea ".len()..].split(' ').next().unwrap().to_string();
+    let wt = common.join("grove/worktrees").join(&a);
+    let (ok, out) = grove(&wt, &[], &["current"]);
+    assert!(ok && out.starts_with(&format!("id:       {a}\nname:     first\nbranch:   idea/{a}\n")), "{out}");
+    let (ok, out) = grove(&wt, &[], &["list"]);
+    assert!(ok && out.contains(&format!("*   {a}")), "{out}");
+    let (ok, out) = grove(&wt, &[], &["discard"]);
+    assert!(!ok && out.contains("discarding is left to people"), "{out}");
+    let (ok, out) = grove(&wt, &[], &["bogus"]);
+    assert_eq!((ok, out.as_str()), (false, "error: unknown command bogus (see grove help)\n"));
+    let (ok, out) = grove(&wt, &[], &["branch", "--run", "x", "--no-terminal"]);
+    assert!(!ok && out.contains("can't go with --no-terminal"), "{out}");
+    let (ok, out) = grove(&wt, &[], &["help"]);
+    assert!(ok && out.starts_with("usage: grove [--addr host:port]"), "{out}");
+
+    // With grove running, its terminals carry $GROVE_URL and $GROVE_TOKEN.
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let _server = Server(
+        Command::new(env!("CARGO_BIN_EXE_grove"))
+            .args(["--addr", &format!("127.0.0.1:{port}")])
+            .current_dir(&dir)
+            .env_remove("GROVE_REPO")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let mut page = String::new();
+    for _ in 0..100 {
+        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            page = call(port, "GET", "/", "", "").1;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let i = page.find("var TOKEN = '").unwrap() + 13;
+    let token = page[i..i + 32].to_string();
+    let (_, term) = call(port, "POST", &format!("/api/term?idea={a}"), &token, "");
+    let tid: String = term.split("\"id\":").nth(1).unwrap_or_else(|| panic!("no terminal: {term}")).chars().take_while(|c| c.is_ascii_digit()).collect();
+    let envs = dir.join("env.txt");
+    call(port, "POST", &format!("/api/term/input?id={tid}"), &token, &format!("env | grep ^GROVE_ | sort > {}\r", envs.display()));
+    let text = read_soon(&envs);
+    let var = |k: &str| text.lines().find_map(|l| l.strip_prefix(&format!("{k}="))).unwrap_or_else(|| panic!("no {k} in {text}")).to_string();
+    let (url, agent) = (var("GROVE_URL"), var("GROVE_TOKEN"));
+    assert_eq!(url, format!("http://127.0.0.1:{port}"));
+    assert_ne!(agent, token);
+
+    // grove branch tells grove, which opens a terminal in the new idea,
+    // types --run there, and keeps it in the idea's sections.
+    let (_, v0) = call(port, "GET", "/api/ideas/wait", "", "");
+    let env = [("GROVE_URL", url.as_str()), ("GROVE_TOKEN", agent.as_str())];
+    let (ok, out) = grove(&wt, &env, &["branch", "second", "--run", "echo ran > ran.txt"]);
+    assert!(ok && out.contains(&format!(" (second) from {a}\n")) && out.ends_with("grove opened a terminal in it, running: echo ran > ran.txt\n"), "{out}");
+    let b = out["branched idea ".len()..].split(' ').next().unwrap().to_string();
+    assert_eq!(read_soon(&common.join("grove/worktrees").join(&b).join("ran.txt")), "ran\n");
+    let meta = std::fs::read_to_string(common.join(format!("grove/ideas/{b}.toml"))).unwrap();
+    assert!(meta.contains(&format!("parent = \"{a}\"")) && meta.contains("interior = \"terminal\"\nexpanded = true\nterm = "), "{meta}");
+    let v0: i64 = v0.split("\"v\":").nth(1).unwrap().chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap();
+    let (_, v1) = call(port, "GET", &format!("/api/ideas/wait?v={v0}"), "", "");
+    assert!(v1.contains(&format!("\"v\":{}", v0 + 1)), "{v1}");
+
+    // Renaming tells grove; a wrong token is turned away, though the rename
+    // is made.
+    let (ok, out) = grove(&wt, &env, &["rename", "first, renamed"]);
+    assert_eq!((ok, out.as_str()), (true, &*format!("renamed {a} to first, renamed\n")));
+    let (ok, out) = grove(&wt, &[("GROVE_URL", &url), ("GROVE_TOKEN", "wrong")], &["rename", "again"]);
+    assert!(ok && out.contains("grove turned it away: forbidden"), "{out}");
+
+    // The agents' token writes nothing else: no discarding, no layouts.
+    assert_eq!(call(port, "POST", "/api/ideas/discard", &agent, &format!(r#"{{"id": "{b}"}}"#)).0, 403);
+    assert_eq!(call(port, "POST", "/api/ideas/layout", &agent, &format!(r#"{{"id": "{b}", "sections": []}}"#)).0, 403);
+
+    drop(_server);
     let _ = std::fs::remove_dir_all(&dir);
 }

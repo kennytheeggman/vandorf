@@ -524,6 +524,19 @@ $('bGone').onclick = function(){ showGone = !showGone; store('gone', showGone ? 
 /* People and agents run git too: catch up with it now and then. */
 refresh();
 setInterval(function(){ if (!document.hidden) refresh(); }, 5000);
+/* `grove branch` and the other commands tell grove of their changes: catch
+   up at once, and say which ideas are new. */
+function watch(v){
+  fetch('/api/ideas/wait?v=' + v).then(function(r){ return r.json(); }).then(function(j){
+    if (v < 0 || j.v === v) return watch(j.v);
+    var had = byId;
+    refresh().then(function(){
+      if ('' in had) ideas.forEach(function(i){ if (!(i.id in had)) toast('New idea: ' + i.name + (byId[i.parent] ? ', from ' + byId[i.parent].name : ''), true); });
+    });
+    watch(j.v);
+  }).catch(function(){ setTimeout(function(){ watch(-1); }, 5000); });
+}
+watch(-1);
 addEventListener('focus', refresh);
 })();
 </script>

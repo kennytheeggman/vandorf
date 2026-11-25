@@ -264,7 +264,7 @@ fn shell() -> CommandBuilder {
     )
 }
 
-fn spawn(cwd: &str) -> Result<Arc<Term>, String> {
+fn spawn(cwd: &str, env: &[(String, String)]) -> Result<Arc<Term>, String> {
     let pty = native_pty_system()
         .openpty(PtySize::default())
         .map_err(|e| format!("cannot open a pty: {e}"))?;
@@ -273,6 +273,9 @@ fn spawn(cwd: &str) -> Result<Arc<Term>, String> {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("PATH", path_with_self());
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
     let mut child = pty
         .slave
         .spawn_command(cmd)
@@ -326,7 +329,13 @@ fn spawn(cwd: &str) -> Result<Arc<Term>, String> {
 
 /// Starts the user's shell on a pty in cwd, returning the terminal's id.
 pub fn term_spawn(cwd: Str) -> Result<ResInt, String> {
-    let t = match spawn(&cwd) {
+    spawn_with(&cwd, &[])
+}
+
+/// Starts the user's shell on a pty in cwd with env set besides its own,
+/// returning the terminal's id.
+pub(crate) fn spawn_with(cwd: &str, env: &[(String, String)]) -> Result<ResInt, String> {
+    let t = match spawn(cwd, env) {
         Ok(t) => t,
         Err(msg) => {
             return Ok(ResInt::Err(Diag {

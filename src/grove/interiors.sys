@@ -32,7 +32,8 @@ interface Interiors {
 	func FreePort(n: int): int = "grove_io.rs:free_port";
 	// Gives the URL of the process kept as key, first starting cmd with the
 	// shell in dir if none is running, with grove's own directory first on the
-	// PATH (where `ide` is built): http://127.0.0.1:<port> once it accepts
+	// PATH (where `ide` is built) and $GROVE_URL and $GROVE_TOKEN set, as in
+	// grove's terminals: http://127.0.0.1:<port> once it accepts
 	// connections when port isn't 0, else the first http:// or https:// URL it
 	// prints. Waits up to 30 s.
 	func Ensure(key: string, cmd: string, dir: string, port: int): Res<string> = "grove_io.rs:ensure";
@@ -141,7 +142,8 @@ proc OpenRoute(req: HttpRequest): HttpResponse {
 }
 
 // Serves POST /api/term?idea=: starts a terminal in the idea's worktree (the
-// main worktree with no idea), and gives its id. The other terminal routes
+// main worktree with no idea), with grove's agent variables, and gives its
+// id. The other terminal routes
 // are the IDE's (term.sys).
 proc GroveTermRoute(req: HttpRequest): HttpResponse {
 	GroveTermRoute -> TermGate(req = this.req);
@@ -157,10 +159,10 @@ proc GroveTermRoute(req: HttpRequest): HttpResponse {
 		Err(e) -> id(ApiErr(msg = e.msg))
 	};
 	IdeaWorktree switch {
-		Ok(dir) -> Term.Spawn(cwd = dir),
+		Ok(dir) -> Grove.Spawn(cwd = dir),
 		Err(e) -> id(ApiErr(msg = e.msg))
 	};
-	Term.Spawn switch {
+	Grove.Spawn switch {
 		Ok(n) -> id(Api(j = Obj([{ key = "ok", value = Bool(true) }, { key = "id", value = Num(n) }]))),
 		Err(e) -> id(ApiErr(msg = e.msg))
 	};

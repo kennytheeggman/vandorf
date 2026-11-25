@@ -41,6 +41,27 @@ interface Grove {
 	// renamed into place, holding grove's lock (grove/lock in the common git
 	// directory) while it does.
 	func Store(common: string, path: string, text: string): Res<string> = "grove_io.rs:store";
+	// Makes the agents' token, once per run: what grove's terminals and
+	// interiors get as $GROVE_TOKEN. It's a token of its own, not the
+	// session's, and only the agent routes take it (AgentGate).
+	func AgentToken(n: int): string = "grove_io.rs:agent_token";
+	// Starts the user's shell on a pty in cwd, as Term.Spawn does, with
+	// $GROVE_URL (where grove is serving) and $GROVE_TOKEN (the agents'
+	// token) set once grove is serving, returning the terminal's id.
+	func Spawn(cwd: string): Res<int> = "grove_io.rs:spawn";
+	// Counts a change to the tree, waking whoever waits on one; gives the new
+	// count.
+	func Changed(n: int): int = "grove_io.rs:changed";
+	// Waits up to 25 s for the count of changes to the tree to differ from v,
+	// giving it then (at once if it already does).
+	func Wait(v: int): int = "grove_io.rs:wait";
+	// The canonical top of the worktree the working directory is in.
+	func Toplevel(n: int): Res<string> = "grove_io.rs:toplevel";
+	// Tells the grove serving this repository about a change: POSTs body (a
+	// JSON object) to path on $GROVE_URL with $GROVE_TOKEN, giving its
+	// answer's body. An error if there's no $GROVE_URL, or grove can't be
+	// reached in a few seconds, or it turns the request away.
+	func Notify(path: string, body: string): Res<string> = "grove_io.rs:notify";
 }
 
 // Makes an error with no source position.
