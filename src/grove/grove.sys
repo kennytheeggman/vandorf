@@ -1,0 +1,178 @@
+// grove, the idea tree (#17): the ideas of one git repository, each a
+// branch idea/<id> with its own worktree, in a tree in the sidebar (the
+// exterior), and the idea being shown as stacked sections of interiors (the
+// interior): a terminal, an editor, anything a manifest can start. Served as
+// [http.grove] in vandorf.toml: each path is a raw route to its own proc.
+//
+// The root of the tree is the repository's main worktree, id "". grove keeps
+// its metadata in the common git directory (`git rev-parse
+// --git-common-dir`), under grove/: an idea's in ideas/<id>.toml, the root's
+// in root.toml, and ideas' worktrees in worktrees/<id>. Nothing is committed
+// or pushed. Writes, terminals and the session token are the IDE's (ide.sys):
+// WriteGate, TermGate and Session.Token.
+
+// The repository grove serves: its main worktree and its common git
+// directory, both absolute.
+type Repo = { top: string, common: string };
+
+// One of an idea's stacked sections: the interior it shows, whether it's
+// expanded, and for a terminal its id while it runs (0 for none).
+type Section = { interior: string, expanded: bool, term: int };
+
+// An idea's metadata, as stored. parent: the idea it was branched from, ""
+// for the repository itself. fork: the commit it was branched at. status:
+// active or discarded. sections: its interiors, in order.
+type Idea = { id: string, name: string, parent: string, fork: string, status: string, sections: []Section };
+
+interface Grove {
+	// Finds the repository grove serves, from $GROVE_REPO or else the working
+	// directory, worked out once: its main worktree and its common git
+	// directory, absolute.
+	func Repo(n: int): Res<Repo> = "grove_io.rs:repo";
+	// Runs git in dir with args, giving its output without trailing
+	// whitespace, or its error output as the error.
+	func Git(dir: string, args: []string): Res<string> = "grove_io.rs:git";
+	// Makes a new idea id: eight random hex digits.
+	func NewId(n: int): string = "grove_io.rs:new_id";
+	// Lists the names of the files in dir, sorted; none if there's no such
+	// directory.
+	func List(dir: string): []string = "grove_io.rs:list";
+	// Writes text to path, making its directory, through a temporary file
+	// renamed into place, holding grove's lock (grove/lock in the common git
+	// directory) while it does.
+	func Store(common: string, path: string, text: string): Res<string> = "grove_io.rs:store";
+	// Makes the agents' token, once per run: what grove's terminals and
+	// interiors get as $GROVE_TOKEN. It's a token of its own, not the
+	// session's, and only the agent routes take it (AgentGate).
+	func AgentToken(n: int): string = "grove_io.rs:agent_token";
+	// Starts the user's shell on a pty in cwd, as Term.Spawn does, with
+	// $GROVE_BIN (grove's own executable, absolute) set, and $GROVE_URL (where
+	// grove is serving) and $GROVE_TOKEN (the agents' token) once grove is
+	// serving, returning the terminal's id.
+	func Spawn(cwd: string): Res<int> = "grove_io.rs:spawn";
+	// Counts a change to the tree, waking whoever waits on one; gives the new
+	// count.
+	func Changed(n: int): int = "grove_io.rs:changed";
+	// Waits up to 25 s for the count of changes to the tree to differ from v,
+	// giving it then (at once if it already does).
+	func Wait(v: int): int = "grove_io.rs:wait";
+	// The canonical top of the worktree the working directory is in.
+	func Toplevel(n: int): Res<string> = "grove_io.rs:toplevel";
+	// Tells the grove serving this repository about a change: POSTs body (a
+	// JSON object) to path on $GROVE_URL with $GROVE_TOKEN, giving its
+	// answer's body. An error if there's no $GROVE_URL, or grove can't be
+	// reached in a few seconds, or it turns the request away.
+	func Notify(path: string, body: string): Res<string> = "grove_io.rs:notify";
+	// The ids of the terminals grove opened in dir (by Spawn) since it
+	// started, running or not, sorted.
+	func OpenedIn(dir: string): []int = "grove_io.rs:opened_in";
+	// Keeps what an agent says of an idea (state working, attention or
+	// done; "" forgets it), unseen, for as long as grove runs. Gives how many ideas
+	// have a status.
+	func SetStatus(id: string, state: string, message: string): int = "grove_io.rs:set_status";
+	// Marks an idea's done status seen; whether it was done and unseen.
+	func SeeStatus(id: string): bool = "grove_io.rs:see_status";
+	// What agents last said of each idea, by id.
+	func Statuses(n: int): map[string]AgentStatus = "grove_io.rs:statuses";
+}
+
+// Makes an error with no source position.
+func GroveErr(msg: string): Diag = "grove_leaf.rs:grove_err";
+// Whether id is a usable idea id: letters, digits, '-', '_' and '.', not
+// starting with '.', at most 64 of them.
+func ValidId(id: string): bool = "grove_leaf.rs:valid_id";
+// The path of an idea's metadata: grove/ideas/<id>.toml in the common git
+// directory, or grove/root.toml for the root ("").
+func MetaPath(common: string, id: string): string = "grove_leaf.rs:meta_path";
+// The path grove gives a new idea's worktree: grove/worktrees/<id> in the
+// common git directory.
+func WorktreePath(common: string, id: string): string = "grove_leaf.rs:worktree_path";
+// Finds the worktree that has branch idea/<id> checked out, in the output of
+// `git worktree list --porcelain`, or else grove's worktree for it
+// (grove/worktrees/<id>) with a detached HEAD, as while a rebase is
+// stopped; "" if there's none.
+func WorktreeOf(porcelain: string, id: string): string = "grove_leaf.rs:worktree_of";
+// Reads an idea's metadata, filling what's missing (a name is the id, a
+// status is active).
+func ParseIdea(text: string, id: string): Res<Idea> = "grove_leaf.rs:parse_idea";
+// Writes an idea's metadata as TOML.
+func IdeaToml(i: Idea): string = "grove_leaf.rs:idea_toml";
+// The metadata of an idea that has none stored: named after its id, branched
+// from the root, active, with no sections.
+func NewIdea(id: string): Idea = "grove_leaf.rs:new_idea";
+// The ids of the ideas: those with metadata (file names <id>.toml) and those
+// with a branch (lines "refs/heads/idea/<id> <commit>" from `git
+// for-each-ref`), sorted, each once, leaving out ones that aren't valid.
+func IdsOf(files: []string, branches: string): []string = "grove_leaf.rs:ids_of";
+// Reads a string field, or d if it's missing or not a string.
+func StrOr(j: Json, key: string, d: string): string = "grove_leaf.rs:str_or";
+// Reads the "sections" array of a request: each an object with "interior",
+// and optionally "expanded" and "term".
+func ParseSections(j: Json): Res<[]Section> = "grove_leaf.rs:parse_sections";
+// Sections for a new idea branched from one with these: the same interiors,
+// expanded as they were, with no terminals yet.
+func FreshSections(xs: []Section): []Section = "grove_leaf.rs:fresh_sections";
+
+
+// Maps a path to the grove page served there: "grove" for /, "grove-term"
+// for /terminal, "" for any other.
+func GrovePage(path: string): string = "grove_leaf.rs:grove_page";
+
+// Serves GET / and /terminal: the grove page for the path, carrying the
+// session token.
+proc GrovePageRoute(req: HttpRequest): HttpResponse {
+	GrovePageRoute -> Session.Token(n = 0);
+	Session.Token -> Pages.Get(name = GrovePage(path = GrovePageRoute.req.path));
+	Pages.Get -> id(PageResponse(text = this, token = Session.Token));
+}
+
+// Gives the worktree an idea lives in: the repository's main worktree for
+// the root (""), else the one with its branch checked out; an error if it
+// has none (it's discarded, or its worktree was removed outside grove).
+proc IdeaWorktree(s: { repo: Repo, id: string }): Res<string> {
+	IdeaWorktree switch {
+		(this.s.id == "") -> id(Ok(this.s.repo.top)),
+		(!ValidId(id = this.s.id)) -> id(Err(GroveErr(msg = "invalid idea id: " + this.s.id))),
+		else -> Grove.Git(dir = this.s.repo.top, args = ["worktree", "list", "--porcelain"])
+	};
+	Grove.Git switch {
+		Ok(out) -> switch {
+			(WorktreeOf(porcelain = out, id = IdeaWorktree.s.id) == "") -> id(Err(GroveErr(msg = "idea " + IdeaWorktree.s.id + " has no worktree"))),
+			else -> id(Ok(WorktreeOf(porcelain = out, id = IdeaWorktree.s.id)))
+		},
+		Err(e) -> id(Err(e))
+	};
+}
+
+// Loads an idea's metadata, or the default for one that has none stored.
+proc LoadIdea(s: { repo: Repo, id: string }): Res<Idea> {
+	LoadIdea switch {
+		(this.s.id != "" && !ValidId(id = this.s.id)) -> id(Err(GroveErr(msg = "invalid idea id: " + this.s.id))),
+		else -> Files.Read(path = MetaPath(common = this.s.repo.common, id = this.s.id))
+	};
+	Files.Read switch {
+		Ok(text) -> id(ParseIdea(text = text, id = LoadIdea.s.id)),
+		Err(_) -> id(Ok(NewIdea(id = LoadIdea.s.id)))
+	};
+}
+
+// Stores an idea's metadata, giving its id.
+proc SaveIdea(s: { repo: Repo, idea: Idea }): Res<string> {
+	SaveIdea -> Grove.Store(common = this.s.repo.common, path = MetaPath(common = this.s.repo.common, id = this.s.idea.id), text = IdeaToml(i = this.s.idea));
+	Grove.Store switch {
+		Ok(_) -> id(Ok(SaveIdea.s.idea.id)),
+		Err(e) -> id(Err(GroveErr(msg = "cannot save idea " + SaveIdea.s.idea.id + ": " + e.msg)))
+	};
+}
+
+// Loads each idea's metadata in turn.
+proc LoadIdeas(s: { repo: Repo, ids: []string, i: int, acc: []Idea }): Res<[]Idea> {
+	LoadIdeas switch {
+		(this.s.i == this.s.ids.len) -> id(Ok(this.s.acc)),
+		else -> LoadIdea(s = { repo = this.s.repo, id = this.s.ids[this.s.i] })
+	};
+	LoadIdea switch {
+		Ok(idea) -> LoadIdeas(s = { ..LoadIdeas.s, i = LoadIdeas.s.i + 1, acc = LoadIdeas.s.acc + [idea] }),
+		Err(e) -> id(Err(e))
+	};
+}

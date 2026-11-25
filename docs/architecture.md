@@ -9,14 +9,15 @@ own Rust into `rs/`, and builds itself.
 
 ```
 vandorf.toml        vcc's own project: sources in src/, Rust into rs/src/vcc,
-                    the vcc executable and the IDE's HTTP server ([http.ide])
+                    the vcc executable, the IDE's HTTP server ([http.ide])
+                    and grove's ([http.grove])
 src/                the compiler, in .sys, with its *_leaf.rs and I/O .rs
 rs/                 the crate vcc generates into
   src/lib.rs          mounts the generated module
   src/vcc/            generated: types.rs, procs.rs, http.rs, mod.rs
   src/bin/            generated: vcc.rs and ide.rs
   tests/              vcc's tests, their corpus and golden files
-web/                the IDE's pages, embedded in the ide executable
+web/                the IDE's and grove's pages, embedded in their executables
 examples/demo/      a project built for Go and Rust
 docs/
 ```
@@ -55,6 +56,7 @@ source ─▶ lex ─▶ parse ─▶ sema ─┬─▶ doc ─▶ the visualize
 | Codegen | `gen/` | The type table shared by both backends (`table.sys`): one name per struct or enum shape. Then Rust (`rust.sys`, `rust_procs.sys`, `rust_http.sys`) and Go (`go.sys`): types, a state machine per proc, servers and mains. |
 | Commands | `main.sys`, `cli/` | The command line, projects and manifests (`project.sys`), and `check`, `doc`, `build` and `test` (`build.sys`), with the check of each implementation's signature and doc against its declaration. |
 | IDE | `ide/` | The IDE's HTTP routes, each a raw route to its own proc: pages, the file tree, compiles (with a cache of checked programs), saves and terminals. |
+| grove | `grove/` | The idea tree's routes: ideas from git and their metadata, branching, discarding and layouts (`ideas.sys`), interiors and their processes (`interiors.sys`); it shares the IDE's session, gates and terminals. |
 
 ### Parsing
 

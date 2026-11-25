@@ -63,6 +63,8 @@ pub fn page(name: Str) -> Result<Str, String> {
         "viz" => include_str!("../../web/visualizer.html"),
         "project" => include_str!("../../web/project.html"),
         "ui.css" => include_str!("../../web/ui.css"),
+        "grove" => include_str!("../../web/grove.html"),
+        "grove-term" => include_str!("../../web/grove_terminal.html"),
         _ => "",
     }))
 }
@@ -211,6 +213,8 @@ struct Term {
     master: Mutex<Option<Box<dyn MasterPty + Send>>>,
     writer: Mutex<Box<dyn Write + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
+    /// The shell's process id, to tell whether it's in the foreground.
+    pid: Option<u32>,
     out: Mutex<TermOut>,
     ready: Condvar,
 }
@@ -232,13 +236,16 @@ fn get(id: i64) -> Option<Arc<Term>> {
     terms().lock().unwrap().0.get(&id).cloned()
 }
 
-/// `PATH` with this executable's directory first.
-fn path_with_self() -> std::ffi::OsString {
-    let mut dirs: Vec<PathBuf> = std::env::current_exe()
+/// This executable's directory.
+fn self_dir() -> Option<PathBuf> {
+    std::env::current_exe()
         .ok()
         .and_then(|e| e.parent().map(Path::to_path_buf))
-        .into_iter()
-        .collect();
+}
+
+/// `PATH` with this executable's directory first.
+pub fn path_with_self() -> std::ffi::OsString {
+    let mut dirs: Vec<PathBuf> = self_dir().into_iter().collect();
     dirs.extend(
         std::env::var_os("PATH")
             .map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
@@ -262,7 +269,111 @@ fn shell() -> CommandBuilder {
     )
 }
 
-fn spawn(cwd: &str) -> Result<Arc<Term>, String> {
+// A shell's startup files may set PATH outright (`export PATH=...` in a
+// .zshrc), dropping the directory we put first, so `grove` and `ide` aren't
+// found. For zsh and bash, the terminal starts with startup files of ours
+// that run the user's own and then put $VANDORF_PATH_FIRST back in front,
+// once, before the first prompt; other shells get the PATH as it's set.
+// The user's files are never changed.
+
+/// zsh's: ZDOTDIR points here, so zsh reads this .zshenv first. It restores
+/// the user's ZDOTDIR at once (so zsh goes on to the user's .zprofile,
+/// .zshrc and .zlogin, and nothing started later sees ours), sources the
+/// user's .zshenv, and adds a precmd hook that runs once, after every
+/// startup file.
+const ZSHENV: &str = r#"# vandorf's, for its terminals: see src/ide/ide_io.rs.
+if [[ -n ${VANDORF_USER_ZDOTDIR+x} ]]; then
+  ZDOTDIR=$VANDORF_USER_ZDOTDIR
+else
+  unset ZDOTDIR
+fi
+unset VANDORF_USER_ZDOTDIR
+typeset -g _vandorf_first=$VANDORF_PATH_FIRST
+unset VANDORF_PATH_FIRST
+if [[ -r ${ZDOTDIR:-$HOME}/.zshenv ]]; then
+  source ${ZDOTDIR:-$HOME}/.zshenv
+fi
+if [[ -n $_vandorf_first ]]; then
+  _vandorf_path() {
+    path=("$_vandorf_first" ${path:#${(b)_vandorf_first}})
+    precmd_functions=(${precmd_functions:#_vandorf_path})
+    unset _vandorf_first
+    unfunction _vandorf_path
+  }
+  typeset -ga precmd_functions
+  precmd_functions+=(_vandorf_path)
+else
+  unset _vandorf_first
+fi
+"#;
+
+/// bash's, as its --rcfile in place of ~/.bashrc: sources that, then puts
+/// the directory first.
+const BASHRC: &str = r#"# vandorf's, for its terminals: see src/ide/ide_io.rs.
+if [ -r ~/.bashrc ]; then . ~/.bashrc; fi
+if [ -n "$VANDORF_PATH_FIRST" ]; then
+  _vandorf_p=":$PATH:"
+  _vandorf_p=${_vandorf_p//":$VANDORF_PATH_FIRST:"/:}
+  _vandorf_p=${_vandorf_p#:}
+  _vandorf_p=${_vandorf_p%:}
+  PATH="$VANDORF_PATH_FIRST${_vandorf_p:+:$_vandorf_p}"
+  unset _vandorf_p
+fi
+unset VANDORF_PATH_FIRST
+"#;
+
+/// A directory of our own, made once per run and only the user's, holding
+/// zsh/.zshenv and bashrc; None if it can't be made.
+fn shim_dir() -> Option<&'static Path> {
+    static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+    DIR.get_or_init(|| {
+        let mut b = [0u8; 8];
+        getrandom::fill(&mut b).ok()?;
+        let tag: String = b.iter().map(|x| format!("{x:02x}")).collect();
+        let dir = std::env::temp_dir().join(format!("vandorf-shell-{tag}"));
+        let mut mk = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut mk, 0o700);
+        mk.create(&dir).ok()?;
+        mk.create(dir.join("zsh")).ok()?;
+        std::fs::write(dir.join("zsh/.zshenv"), ZSHENV).ok()?;
+        std::fs::write(dir.join("bashrc"), BASHRC).ok()?;
+        Some(dir)
+    })
+    .as_deref()
+}
+
+/// Has the shell put this executable's directory back first on PATH after
+/// the user's startup files, for zsh and bash.
+fn keep_self_first(cmd: &mut CommandBuilder) {
+    if cfg!(windows) {
+        return;
+    }
+    let (Some(first), Some(dir)) = (self_dir(), shim_dir()) else {
+        return;
+    };
+    let prog = cmd.get_argv()[0].clone();
+    let name = Path::new(&prog)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    match name.as_str() {
+        "zsh" => {
+            if let Some(z) = std::env::var_os("ZDOTDIR") {
+                cmd.env("VANDORF_USER_ZDOTDIR", z);
+            }
+            cmd.env("ZDOTDIR", dir.join("zsh"));
+        }
+        "bash" => {
+            cmd.arg("--rcfile");
+            cmd.arg(dir.join("bashrc"));
+        }
+        _ => return,
+    }
+    cmd.env("VANDORF_PATH_FIRST", first);
+}
+
+fn spawn(cwd: &str, env: &[(String, String)]) -> Result<Arc<Term>, String> {
     let pty = native_pty_system()
         .openpty(PtySize::default())
         .map_err(|e| format!("cannot open a pty: {e}"))?;
@@ -271,6 +382,10 @@ fn spawn(cwd: &str) -> Result<Arc<Term>, String> {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("PATH", path_with_self());
+    keep_self_first(&mut cmd);
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
     let mut child = pty
         .slave
         .spawn_command(cmd)
@@ -289,6 +404,7 @@ fn spawn(cwd: &str) -> Result<Arc<Term>, String> {
         master: Mutex::new(Some(pty.master)),
         writer: Mutex::new(writer),
         killer: Mutex::new(child.clone_killer()),
+        pid: child.process_id(),
         out: Mutex::new(TermOut::default()),
         ready: Condvar::new(),
     });
@@ -323,8 +439,16 @@ fn spawn(cwd: &str) -> Result<Arc<Term>, String> {
 }
 
 /// Starts the user's shell on a pty in cwd, returning the terminal's id.
+/// Its PATH has this executable's directory first, put back after the
+/// user's startup files for zsh and bash.
 pub fn term_spawn(cwd: Str) -> Result<ResInt, String> {
-    let t = match spawn(&cwd) {
+    spawn_with(&cwd, &[])
+}
+
+/// Starts the user's shell on a pty in cwd with env set besides its own,
+/// returning the terminal's id.
+pub(crate) fn spawn_with(cwd: &str, env: &[(String, String)]) -> Result<ResInt, String> {
+    let t = match spawn(cwd, env) {
         Ok(t) => t,
         Err(msg) => {
             return Ok(ResInt::Err(Diag {
@@ -348,6 +472,44 @@ pub fn term_list(_n: i64) -> Result<List<i64>, String> {
     let mut ids: Vec<i64> = terms().lock().unwrap().0.keys().copied().collect();
     ids.sort();
     Ok(ids.into())
+}
+
+/// The terminals whose shell is at its prompt: still running, with no
+/// program of its own in the foreground (where that can't be told, on
+/// Windows, every running one).
+pub fn term_idle(_n: i64) -> Result<List<i64>, String> {
+    let all: Vec<(i64, Arc<Term>)> = terms()
+        .lock()
+        .unwrap()
+        .0
+        .iter()
+        .map(|(k, t)| (*k, t.clone()))
+        .collect();
+    let mut ids: Vec<i64> = all
+        .into_iter()
+        .filter(|(_, t)| idle(t))
+        .map(|(k, _)| k)
+        .collect();
+    ids.sort();
+    Ok(ids.into())
+}
+
+fn idle(t: &Term) -> bool {
+    let master = t.master.lock().unwrap();
+    let Some(m) = master.as_ref() else {
+        return false;
+    };
+    #[cfg(unix)]
+    {
+        // The shell leads its own session, so its group is its pid; a job
+        // it runs in the foreground has a group of its own.
+        m.process_group_leader().map(|g| g as u32) == t.pid && t.pid.is_some()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = m;
+        true
+    }
 }
 
 /// Reads a terminal's output from stream offset `from`, waiting up to 20 s
@@ -402,6 +564,57 @@ pub fn term_input(id: i64, data: Str) -> Result<ResString, String> {
         Ok(()) => ResString::Ok(s("")),
         Err(e) => err_str(format!("terminal closed: {e}")),
     })
+}
+
+/// How long Ready waits for a new terminal's shell to start reading its line.
+const READY_WAIT: Duration = Duration::from_secs(10);
+
+/// Waits, up to 10 s, until a terminal's shell reads its input a key at a
+/// time: its line editor (zsh's zle, bash's readline) has started, so a
+/// line typed now reaches it whole. Until then the pty is in canonical
+/// mode, where macOS drops a line longer than 1024 bytes (MAX_CANON).
+/// Gives whether it is reading so; false on the timeout, once the shell
+/// has exited, or where that can't be told (Windows), at once.
+pub fn term_ready(id: i64) -> Result<bool, String> {
+    let Some(t) = get(id) else {
+        return Ok(false);
+    };
+    let until = std::time::Instant::now() + READY_WAIT;
+    loop {
+        match line_mode(&t) {
+            Some(false) => return Ok(true),
+            None => return Ok(false),
+            Some(true) => {}
+        }
+        if std::time::Instant::now() >= until {
+            return Ok(false);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Whether a terminal's pty is in canonical (line) mode; None once the
+/// shell has exited, or where it can't be told.
+fn line_mode(t: &Term) -> Option<bool> {
+    let master = t.master.lock().unwrap();
+    let m = master.as_ref()?;
+    #[cfg(unix)]
+    {
+        let fd = m.as_raw_fd()?;
+        let mut tio = std::mem::MaybeUninit::<libc::termios>::uninit();
+        // SAFETY: fd is the master's, open while we hold its lock, and
+        // tcgetattr fills tio when it returns 0.
+        if unsafe { libc::tcgetattr(fd, tio.as_mut_ptr()) } != 0 {
+            return None;
+        }
+        let tio = unsafe { tio.assume_init() };
+        Some(tio.c_lflag & libc::ICANON != 0)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = m;
+        None
+    }
 }
 
 pub fn term_resize(id: i64, cols: i64, rows: i64) -> Result<ResString, String> {

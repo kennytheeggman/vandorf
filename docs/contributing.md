@@ -32,6 +32,7 @@ cd rs && cargo test
 | `manifest.rs` | Which manifests are accepted, and the errors for the rest. |
 | `cli.rs` | The command line on small projects: namespaces, errors naming their file, finding projects, implementation paths. |
 | `ide.rs` | The IDE's routes and their guards. |
+| `grove.rs` | grove's routes on a repository made for the test: ideas, branching, layouts, discarding, manifests and guards; and the `grove` commands against a running grove. |
 
 Also check the **fixed point** after any change to `src/`: vcc rebuilds
 itself identically.

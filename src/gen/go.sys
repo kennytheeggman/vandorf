@@ -42,9 +42,9 @@ type GoMainSpec = { name: string, entry: string, path: string };
 // A server's static file: its URL path, the file as the manifest names it,
 // its content type and its contents.
 type GoStatic = { url: string, file: string, ctype: string, text: string };
-// An HTTP server (as rust_http's ServerSpec; setup "" for none): path is
-// its main package's directory, relative to the output.
-type GoServerSpec = { name: string, addr: string, setup: string, routes: []Route, raw: []Route, statics: []GoStatic, path: string };
+// An HTTP server (as rust_http's ServerSpec; setup and cli "" for none):
+// path is its main package's directory, relative to the output.
+type GoServerSpec = { name: string, addr: string, setup: string, cli: string, routes: []Route, raw: []Route, statics: []GoStatic, path: string };
 type GoGenIn = { prog: Program, package: string, import_base: MaybeStr, types_dir: string, mains: []GoMainSpec, servers: []GoServerSpec };
 // dir: relative to the output directory. kind: types, code or main.
 type GoFile = { dir: string, name: string, text: string, kind: string };
@@ -604,8 +604,9 @@ func GoMainFiles(prog: Program, t: Table, package: string, import_base: MaybeStr
 // type, and a handler per server (src/codegen/go_http.rs).
 func GoHttpFiles(prog: Program, t: Table, package: string, setup: GoSetup, servers: []GoServerSpec): GoOut = "go_leaf.rs:go_http_files";
 // Writes each server's package main: its static files, then HTTPRun (or
-// HTTPRunSetup) with its handler.
-func GoServerMains(package: string, import_base: MaybeStr, servers: []GoServerSpec): GoOut = "go_leaf.rs:go_server_mains";
+// HTTPRunSetup) with its handler; first, with a cli, running that proc when
+// the first argument is a command (not a flag) or -h or --help.
+func GoServerMains(prog: Program, package: string, import_base: MaybeStr, servers: []GoServerSpec): GoOut = "go_leaf.rs:go_server_mains";
 
 // Generates a program's Go: the types package, a file per top-level proc,
 // the inputs, stubs and runtime, the servers' handlers, and the bins' and
@@ -638,7 +639,7 @@ proc GoGenerate(s: GoGenIn): GoOut {
 	};
 	Mains switch {
 		(IsSomeS(m = this.err)) -> id(this),
-		else -> id(GoServerMains(package = GoGenerate.s.package, import_base = GoGenerate.s.import_base, servers = GoGenerate.s.servers)) as Servers
+		else -> id(GoServerMains(prog = GoGenerate.s.prog, package = GoGenerate.s.package, import_base = GoGenerate.s.import_base, servers = GoGenerate.s.servers)) as Servers
 	};
 	Servers switch {
 		(IsSomeS(m = this.err)) -> id(this),

@@ -1,0 +1,438 @@
+// An idea's life after branching: merging it into the root, rebasing ideas
+// onto their parents, discarding a whole subtree, and the status agents
+// report. Merging and discarding are people's (WriteGate); agents rebase
+// their own idea and report their status (`grove rebase`, `grove status`).
+//   POST /api/ideas/merge {id}                  fast-forwards the root to it, then restacks
+//   POST /api/ideas/rebase {id}                 onto its parent's head
+//   POST /api/agent/status {idea, state, message}   working, attention, done, or "" to clear
+//   POST /api/ideas/seen {id}                   a person has seen the idea's done status
+//
+// An idea is based on its parent when its fork (the parent's commit it's
+// built on) is the parent's head. Merging needs the idea built on the
+// root's head, so it's a fast-forward and can't conflict; the root then
+// moves on, so every other idea is rebased onto its parent in turn, parents
+// first. One that can't be (uncommitted changes, or a conflict) is left as
+// it was, its rebase undone, and flagged for attention.
+
+// What an agent last said of its idea: state is working, attention or done.
+// seen: whether a person has shown the idea since it said done, so the
+// done ideas no one has looked at yet stand out; any new status unsets it.
+type AgentStatus = { state: string, message: string, seen: bool };
+
+// Ideas in the tree's order, parents before children, from the root: the
+// active ones only (one whose parent isn't among them hangs from the root).
+func TreeOrder(xs: []Idea): []Idea = "grove_leaf.rs:tree_order";
+// An idea and every idea under it, in xs, children before their parents
+// (the idea itself last); none if xs hasn't it.
+func Subtree(xs: []Idea, id: string): []Idea = "grove_leaf.rs:subtree";
+// The ideas of xs whose parent is id.
+func ChildrenOf(xs: []Idea, id: string): []Idea = "grove_leaf.rs:children_of";
+// Whether state is one an agent can report: working, attention, done, or
+// "" (none).
+func ValidState(state: string): bool = "grove_leaf.rs:valid_state";
+// What a merge says it did: the idea merged, and the ideas that couldn't be
+// rebased onto the new root, each with why.
+func MergedText(name: string, skipped: []string): string = "grove_leaf.rs:merged_text";
+// An idea's name, or its id if it has none.
+func NameOf(i: Idea): string = "grove_leaf.rs:name_of";
+
+// Every idea with metadata or a branch, loaded.
+proc AllIdeas(repo: Repo): Res<[]Idea> {
+	AllIdeas -> Grove.Git(dir = this.repo.top, args = ["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/idea/"]);
+	Grove.Git switch {
+		Ok(b) -> Grove.List(dir = JoinP(a = AllIdeas.repo.common, b = "grove/ideas")),
+		Err(e) -> id(Err(e))
+	};
+	Grove.List -> LoadIdeas(s = { repo = AllIdeas.repo, ids = IdsOf(files = this, branches = UnwrapR2(r = Grove.Git)), i = 0, acc = [] });
+}
+
+// The head of an idea's parent: the root's for "" (or a parent with no
+// branch), else its branch's.
+proc ParentHead(s: { repo: Repo, parent: string }): Res<string> {
+	ParentHead switch {
+		(this.s.parent == "") -> Grove.Git(dir = this.s.repo.top, args = ["rev-parse", "HEAD"]) as Root,
+		else -> Grove.Git(dir = this.s.repo.top, args = ["rev-parse", "--verify", "--quiet", "refs/heads/idea/" + this.s.parent]) as Branch
+	};
+	Branch switch {
+		Ok(h) -> id(Ok(h)),
+		Err(_) -> Grove.Git(dir = ParentHead.s.repo.top, args = ["rev-parse", "HEAD"]) as Root
+	};
+}
+
+// Rebases an idea onto its parent's head, in its worktree: the commits it
+// has since its fork, replayed there, less any its parent has already (some
+// merged by hand). An idea with no worktree is left alone, as is one whose
+// commits are all in its parent already. Fails, leaving the idea as it was,
+// if its worktree has changes that aren't committed; on a conflict, undoes
+// the rebase and fails, or with keep leaves it stopped there to resolve
+// (`grove rebase --continue`). Afterwards its fork is where it meets its
+// parent. Gives what it did.
+proc RebaseIdea(s: { repo: Repo, idea: Idea, keep: bool }): Res<string> {
+	RebaseIdea -> IdeaWorktree(s = { repo = this.s.repo, id = this.s.idea.id });
+	IdeaWorktree switch {
+		Ok(_) -> ParentHead(s = { repo = RebaseIdea.s.repo, parent = RebaseIdea.s.idea.parent }),
+		Err(_) -> id(Ok("not active"))
+	};
+	ParentHead switch {
+		Ok(h) -> switch {
+			(h == RebaseIdea.s.idea.fork) -> id(Ok("up to date")),
+			else -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["rev-parse", "HEAD"]) as Head
+		},
+		Err(e) -> id(Err(e))
+	};
+	Head switch {
+		Ok(_) -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["merge-base", "HEAD", UnwrapR2(r = ParentHead)]) as Base,
+		Err(e) -> id(Err(e))
+	};
+	// Where it meets its parent: its head, when its parent has all of it. One
+	// with commits of its own (its head isn't its fork, or with no fork, its
+	// parent's head) that are all in its parent already, merged some other
+	// way such as git merge by hand, is left alone: rebasing it would replay
+	// them as new commits, off its parent again. Otherwise, past its fork, it
+	// replays only what its parent hasn't.
+	Base switch {
+		Ok(b) -> switch {
+			(b == UnwrapR2(r = Head) && b != OrStr(a = RebaseIdea.s.idea.fork, d = UnwrapR2(r = ParentHead))) -> id(Ok("already in its parent")),
+			else -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["merge-base", "--is-ancestor", OrStr(a = RebaseIdea.s.idea.fork, d = b), b]) as Past
+		},
+		Err(e) -> id(Err(e))
+	};
+	Past -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["status", "--porcelain"]) as Dirty;
+	Dirty switch {
+		Ok(out) -> switch {
+			(out != "") -> id(Err(GroveErr(msg = "it has changes that aren't committed"))),
+			(RebaseIdea.s.idea.fork == "") -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["rebase", "--quiet", UnwrapR2(r = ParentHead)]) as Rebase,
+			(OkOr(r = Past, d = "no") == "") -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["rebase", "--quiet", "--onto", UnwrapR2(r = ParentHead), UnwrapR2(r = Base)]) as Rebase,
+			else -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["rebase", "--quiet", "--onto", UnwrapR2(r = ParentHead), RebaseIdea.s.idea.fork]) as Rebase
+		},
+		Err(e) -> id(Err(e))
+	};
+	Rebase switch {
+		Ok(_) -> SetFork(s = { repo = RebaseIdea.s.repo, idea = RebaseIdea.s.idea, dir = UnwrapR2(r = IdeaWorktree), head = UnwrapR2(r = ParentHead) }),
+		Err(_) -> switch {
+			(RebaseIdea.s.keep) -> id(Err(GroveErr(msg = "the rebase stopped on a conflict in " + UnwrapR2(r = IdeaWorktree) + ": resolve it, git add the files, and run grove rebase --continue (or git rebase --abort to give up)"))),
+			else -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["rebase", "--abort"]) as Abort
+		}
+	};
+	Abort -> id(Err(GroveErr(msg = "rebasing onto its parent conflicts")));
+	SetFork switch {
+		Ok(_) -> id(Ok("rebased")),
+		Err(e) -> id(Err(e))
+	};
+}
+
+// Records where an idea meets its parent's head, after a rebase: the fork
+// in its metadata and its base (refs/worktree/base).
+proc SetFork(s: { repo: Repo, idea: Idea, dir: string, head: string }): Res<string> {
+	SetFork -> Grove.Git(dir = this.s.dir, args = ["merge-base", this.s.head, "HEAD"]);
+	Grove.Git switch {
+		Ok(base) -> Grove.Git(dir = SetFork.s.dir, args = ["update-ref", "refs/worktree/base", base]) as SetBase,
+		Err(e) -> id(Err(e))
+	};
+	SetBase switch {
+		Ok(_) -> LoadIdea(s = { repo = SetFork.s.repo, id = SetFork.s.idea.id }),
+		Err(e) -> id(Err(e))
+	};
+	LoadIdea switch {
+		Ok(i) -> SaveIdea(s = { repo = SetFork.s.repo, idea = { ..i, fork = UnwrapR2(r = Grove.Git) } }),
+		Err(e) -> id(Err(e))
+	};
+}
+
+// Rebases each idea onto its parent in turn (xs in the tree's order, so a
+// parent is rebased before its children), flagging each one that can't be
+// for attention. One that's in its parent already (merged by hand) gives
+// its children to its parent, as merging it would have; each idea is
+// loaded afresh, so they're rebased onto it (one that can't be loaded is
+// passed over: it's gone). Gives the ones that couldn't, each with why.
+proc Restack(s: { repo: Repo, xs: []Idea, i: int, skipped: []string }): []string {
+	Restack switch {
+		(this.s.i == this.s.xs.len) -> id(this.s.skipped),
+		else -> LoadIdea(s = { repo = this.s.repo, id = this.s.xs[this.s.i].id })
+	};
+	LoadIdea switch {
+		Ok(i) -> RebaseIdea(s = { repo = Restack.s.repo, idea = i, keep = false }),
+		Err(_) -> Restack(s = { ..Restack.s, i = Restack.s.i + 1 }) as Unread
+	};
+	RebaseIdea switch {
+		Ok(r) -> switch {
+			(r == "already in its parent") -> Reparent(s = { repo = Restack.s.repo, xs = ChildrenOf(xs = Restack.s.xs, id = Restack.s.xs[Restack.s.i].id), to = UnwrapIdea(r = LoadIdea).parent, i = 0 }) as Lift,
+			else -> Restack(s = { ..Restack.s, i = Restack.s.i + 1 }) as Next
+		},
+		Err(e) -> Grove.SetStatus(id = Restack.s.xs[Restack.s.i].id, state = "attention", message = "not rebased onto its parent: " + e.msg)
+	};
+	Lift -> Restack(s = { ..Restack.s, i = Restack.s.i + 1 }) as Lifted;
+	Grove.SetStatus -> Restack(s = { ..Restack.s, i = Restack.s.i + 1, skipped = Restack.s.skipped + [NameOf(i = Restack.s.xs[Restack.s.i]) + " (" + UnwrapErr(r = RebaseIdea) + ")"] }) as Flagged;
+}
+
+// The idea i with another parent.
+func WithParent(i: Idea, parent: string): Idea = "grove_leaf.rs:with_parent";
+// The error of r, or "" if it's Ok.
+func UnwrapErr(r: Res<string>): string = "grove_leaf.rs:unwrap_err";
+
+// Gives an idea's children to another parent: each idea of xs.
+proc Reparent(s: { repo: Repo, xs: []Idea, to: string, i: int }): Res<string> {
+	Reparent switch {
+		(this.s.i == this.s.xs.len) -> id(Ok(this.s.to)),
+		else -> SaveIdea(s = { repo = this.s.repo, idea = WithParent(i = this.s.xs[this.s.i], parent = this.s.to) })
+	};
+	SaveIdea switch {
+		Ok(_) -> Reparent(s = { ..Reparent.s, i = Reparent.s.i + 1 }),
+		Err(e) -> id(Err(e))
+	};
+}
+
+// Takes an idea out of the working tree after a merge: removes its worktree,
+// stops what grove started for it, and marks it merged. Its branch stays.
+proc Retire(s: { repo: Repo, idea: Idea, dir: string }): Res<string> {
+	Retire -> Grove.Git(dir = this.s.repo.top, args = ["worktree", "remove", this.s.dir]);
+	Grove.Git switch {
+		Ok(_) -> Interiors.Stop(worktree = Retire.s.dir),
+		Err(e) -> id(Err(GroveErr(msg = "merged, but its worktree stays: " + e.msg)))
+	};
+	Interiors.Stop for each (Retire.s.idea.sections) -> Term.Kill(id = this.term) as Killed;
+	Killed collect each (Killed) -> Grove.SetStatus(id = Retire.s.idea.id, state = "", message = "");
+	Grove.SetStatus -> SaveIdea(s = { repo = Retire.s.repo, idea = { ..Retire.s.idea, status = "merged", sections = FreshSections(xs = Retire.s.idea.sections) } });
+}
+
+// Merges an idea into the root: the root's branch fast-forwards to it (it
+// must be built on the root's head, with nothing uncommitted), it's retired
+// as merged, its children become the root's, and every other idea is
+// rebased onto its parent (Restack). Gives what it did.
+proc MergeIdea(s: { repo: Repo, id: string }): Res<string> {
+	MergeIdea switch {
+		(this.s.id == "") -> id(Err(GroveErr(msg = "the root is where ideas are merged"))),
+		else -> LoadIdea(s = this.s)
+	};
+	LoadIdea switch {
+		Ok(i) -> id(i) as I,
+		Err(e) -> id(Err(e))
+	};
+	I -> IdeaWorktree(s = MergeIdea.s);
+	IdeaWorktree switch {
+		Ok(dir) -> Grove.Git(dir = dir, args = ["status", "--porcelain"]) as Dirty,
+		Err(_) -> id(Err(GroveErr(msg = NameOf(i = I) + " isn't active: restore it to merge it")))
+	};
+	Dirty switch {
+		Ok(out) -> switch {
+			(out != "") -> id(Err(GroveErr(msg = NameOf(i = I) + " has changes that aren't committed: commit them (or discard them) first"))),
+			else -> Grove.Git(dir = MergeIdea.s.repo.top, args = ["rev-parse", "HEAD"]) as RootHead
+		},
+		Err(e) -> id(Err(e))
+	};
+	RootHead switch {
+		Ok(h) -> Grove.Git(dir = MergeIdea.s.repo.top, args = ["rev-parse", "refs/heads/idea/" + MergeIdea.s.id]) as Head,
+		Err(e) -> id(Err(e))
+	};
+	Head switch {
+		Ok(h) -> switch {
+			(h == UnwrapR2(r = RootHead)) -> id(Err(GroveErr(msg = NameOf(i = I) + " has nothing to merge: it's at the root's head"))),
+			else -> Grove.Git(dir = MergeIdea.s.repo.top, args = ["merge-base", "--is-ancestor", UnwrapR2(r = RootHead), h]) as Based
+		},
+		Err(e) -> id(Err(e))
+	};
+	Based switch {
+		Ok(_) -> Grove.Git(dir = MergeIdea.s.repo.top, args = ["merge", "--ff-only", "--quiet", "refs/heads/idea/" + MergeIdea.s.id]) as Merge,
+		Err(_) -> Grove.Git(dir = MergeIdea.s.repo.top, args = ["merge-base", "--is-ancestor", UnwrapR2(r = Head), UnwrapR2(r = RootHead)]) as InRoot
+	};
+	InRoot switch {
+		Ok(_) -> id(Err(GroveErr(msg = NameOf(i = I) + " has nothing to merge: it's in the root already"))),
+		Err(_) -> id(Err(GroveErr(msg = NameOf(i = I) + " isn't built on the root's head: rebase it onto its parent first")))
+	};
+	Merge switch {
+		Ok(_) -> Retire(s = { repo = MergeIdea.s.repo, idea = I, dir = UnwrapR2(r = IdeaWorktree) }),
+		Err(e) -> id(Err(GroveErr(msg = "cannot merge " + NameOf(i = I) + " into the root: " + e.msg)))
+	};
+	Retire switch {
+		Ok(_) -> AllIdeas(repo = MergeIdea.s.repo) as Before,
+		Err(e) -> id(Err(e))
+	};
+	Before switch {
+		Ok(xs) -> Reparent(s = { repo = MergeIdea.s.repo, xs = ChildrenOf(xs = xs, id = MergeIdea.s.id), to = "", i = 0 }),
+		Err(e) -> id(Err(e))
+	};
+	Reparent switch {
+		Ok(_) -> AllIdeas(repo = MergeIdea.s.repo) as After,
+		Err(e) -> id(Err(e))
+	};
+	After switch {
+		Ok(xs) -> Restack(s = { repo = MergeIdea.s.repo, xs = TreeOrder(xs = xs), i = 0, skipped = [] }),
+		Err(e) -> id(Err(e))
+	};
+	Restack -> id(Ok(MergedText(name = NameOf(i = I), skipped = this)));
+}
+
+// Rebases one idea onto its parent's head (RebaseIdea), undoing it on a
+// conflict, or with keep leaving it stopped there. Clears a flag of its
+// status once it's rebased. Gives what it did.
+proc RebaseOne(s: { repo: Repo, id: string, keep: bool }): Res<string> {
+	RebaseOne switch {
+		(this.s.id == "") -> id(Err(GroveErr(msg = "the root has no parent to rebase onto"))),
+		else -> LoadIdea(s = { repo = this.s.repo, id = this.s.id })
+	};
+	LoadIdea switch {
+		Ok(i) -> RebaseIdea(s = { repo = RebaseOne.s.repo, idea = i, keep = RebaseOne.s.keep }),
+		Err(e) -> id(Err(e))
+	};
+	RebaseIdea switch {
+		Ok(_) -> Grove.SetStatus(id = RebaseOne.s.id, state = "", message = ""),
+		Err(e) -> id(Err(e))
+	};
+	Grove.SetStatus -> id(RebaseIdea);
+}
+
+// Finishes a rebase stopped on a conflict, once it's resolved, in an idea's
+// worktree, and records its fork. Gives what it did.
+proc ContinueRebase(s: { repo: Repo, id: string }): Res<string> {
+	ContinueRebase -> LoadIdea(s = this.s);
+	LoadIdea switch {
+		Ok(i) -> IdeaWorktree(s = ContinueRebase.s),
+		Err(e) -> id(Err(e))
+	};
+	IdeaWorktree switch {
+		Ok(dir) -> Grove.Git(dir = dir, args = ["-c", "core.editor=true", "rebase", "--continue"]) as Cont,
+		Err(e) -> id(Err(e))
+	};
+	Cont switch {
+		Ok(_) -> ParentHead(s = { repo = ContinueRebase.s.repo, parent = UnwrapIdea(r = LoadIdea).parent }),
+		Err(e) -> id(Err(GroveErr(msg = "the rebase can't go on yet: " + e.msg)))
+	};
+	ParentHead switch {
+		Ok(h) -> SetFork(s = { repo = ContinueRebase.s.repo, idea = UnwrapIdea(r = LoadIdea), dir = UnwrapR2(r = IdeaWorktree), head = h }),
+		Err(e) -> id(Err(e))
+	};
+	SetFork switch {
+		Ok(_) -> id(Ok("rebased")),
+		Err(e) -> id(Err(e))
+	};
+}
+
+func UnwrapIdea(r: Res<Idea>): Idea = "grove_leaf.rs:unwrap_idea";
+
+// Discards an idea and every idea under it (DiscardIdea each, children
+// first). Refuses if any of them has changes that aren't committed, naming
+// them, so none is discarded. Gives its id.
+proc DiscardTree(s: { repo: Repo, id: string }): Res<string> {
+	DiscardTree switch {
+		(this.s.id == "") -> id(Err(GroveErr(msg = "the repository itself can't be discarded"))),
+		else -> IdeaWorktree(s = this.s)
+	};
+	IdeaWorktree switch {
+		Ok(_) -> AllIdeas(repo = DiscardTree.s.repo),
+		Err(e) -> id(Err(GroveErr(msg = "cannot discard " + DiscardTree.s.id + ": " + e.msg)))
+	};
+	AllIdeas switch {
+		Ok(xs) -> DirtyOnes(s = { repo = DiscardTree.s.repo, xs = Subtree(xs = xs, id = DiscardTree.s.id), i = 0, acc = [] }),
+		Err(e) -> id(Err(e))
+	};
+	DirtyOnes switch {
+		(this.len > 0) -> id(Err(GroveErr(msg = "nothing was discarded: these have changes that aren't committed: " + JoinWith(xs = this, sep = ", ")))),
+		else -> DiscardEach(s = { repo = DiscardTree.s.repo, xs = Subtree(xs = UnwrapIdeas(r = AllIdeas), id = DiscardTree.s.id), i = 0 })
+	};
+	DiscardEach switch {
+		Ok(_) -> id(Ok(DiscardTree.s.id)),
+		Err(e) -> id(Err(e))
+	};
+}
+
+func UnwrapIdeas(r: Res<[]Idea>): []Idea = "grove_leaf.rs:unwrap_ideas";
+func JoinWith(xs: []string, sep: string): string = "grove_leaf.rs:join_with";
+
+// The names of the ideas of xs whose worktree has changes that aren't
+// committed.
+proc DirtyOnes(s: { repo: Repo, xs: []Idea, i: int, acc: []string }): []string {
+	DirtyOnes switch {
+		(this.s.i == this.s.xs.len) -> id(this.s.acc),
+		else -> IdeaWorktree(s = { repo = this.s.repo, id = this.s.xs[this.s.i].id })
+	};
+	IdeaWorktree switch {
+		Ok(dir) -> Grove.Git(dir = dir, args = ["status", "--porcelain"]),
+		Err(_) -> DirtyOnes(s = { ..DirtyOnes.s, i = DirtyOnes.s.i + 1 }) as Skip
+	};
+	Grove.Git switch {
+		Ok(out) -> switch {
+			(out != "") -> DirtyOnes(s = { ..DirtyOnes.s, i = DirtyOnes.s.i + 1, acc = DirtyOnes.s.acc + [NameOf(i = DirtyOnes.s.xs[DirtyOnes.s.i])] }) as Dirty,
+			else -> DirtyOnes(s = { ..DirtyOnes.s, i = DirtyOnes.s.i + 1 }) as Clean
+		},
+		Err(_) -> DirtyOnes(s = { ..DirtyOnes.s, i = DirtyOnes.s.i + 1 }) as Unknown
+	};
+}
+
+// Discards each idea of xs that's active (DiscardIdea), clearing its
+// status.
+proc DiscardEach(s: { repo: Repo, xs: []Idea, i: int }): Res<string> {
+	DiscardEach switch {
+		(this.s.i == this.s.xs.len) -> id(Ok("")),
+		else -> IdeaWorktree(s = { repo = this.s.repo, id = this.s.xs[this.s.i].id })
+	};
+	IdeaWorktree switch {
+		Ok(_) -> DiscardIdea(s = { repo = DiscardEach.s.repo, id = DiscardEach.s.xs[DiscardEach.s.i].id }),
+		Err(_) -> DiscardEach(s = { ..DiscardEach.s, i = DiscardEach.s.i + 1 }) as Skip
+	};
+	DiscardIdea switch {
+		Ok(_) -> Grove.SetStatus(id = DiscardEach.s.xs[DiscardEach.s.i].id, state = "", message = ""),
+		Err(e) -> id(Err(e))
+	};
+	Grove.SetStatus -> DiscardEach(s = { ..DiscardEach.s, i = DiscardEach.s.i + 1 }) as Next;
+}
+
+// Serves POST /api/ideas/merge {id}: merges the idea into the root
+// (MergeIdea). People only.
+proc MergeRoute(req: HttpRequest): HttpResponse {
+	MergeRoute -> GroveWrite(req = this.req);
+	GroveWrite switch {
+		Stop(r) -> id(r),
+		Go(w) -> MergeIdea(s = { repo = w.repo, id = StrOr(j = w.j, key = "id", d = "") })
+	};
+	MergeIdea -> Grove.Changed(n = 0);
+	Grove.Changed -> id(Answer(r = MergeIdea, key = "summary"));
+}
+
+// Serves POST /api/ideas/rebase {id}: rebases the idea onto its parent's
+// head, undoing it on a conflict (RebaseOne).
+proc RebaseRoute(req: HttpRequest): HttpResponse {
+	RebaseRoute -> GroveWrite(req = this.req);
+	GroveWrite switch {
+		Stop(r) -> id(r),
+		Go(w) -> RebaseOne(s = { repo = w.repo, id = StrOr(j = w.j, key = "id", d = ""), keep = false })
+	};
+	RebaseOne -> Grove.Changed(n = 0);
+	Grove.Changed -> id(Answer(r = RebaseOne, key = "done"));
+}
+
+// Serves POST /api/agent/status {idea, state, message}: what an agent says
+// of its idea, shown on its node: working, attention, done, or "" to clear.
+proc StatusRoute(req: HttpRequest): HttpResponse {
+	StatusRoute -> AgentGate(req = this.req);
+	AgentGate switch {
+		Shut(r) -> id(r),
+		else -> ParseJson(text = StatusRoute.req.body)
+	};
+	ParseJson switch {
+		Ok(j) -> switch {
+			(!ValidState(state = StrOr(j = j, key = "state", d = "?"))) -> id(ApiErr(msg = "state must be working, attention, done or \"\"")),
+			else -> Grove.SetStatus(id = StrOr(j = j, key = "idea", d = ""), state = StrOr(j = j, key = "state", d = ""), message = StrOr(j = j, key = "message", d = ""))
+		},
+		Err(e) -> id(ApiErr(msg = "bad request: " + e.msg))
+	};
+	Grove.SetStatus -> Grove.Changed(n = 0);
+	Grove.Changed -> id(Answer(r = Ok(StrOr(j = UnwrapJ(r = ParseJson), key = "idea", d = "")), key = "idea"));
+}
+
+// Serves POST /api/ideas/seen {id}: a person showed the idea, so its done
+// status, if it has one, is seen (in grove, so for every page and across
+// reloads, until the agent says something new). Counts a change only when
+// it was unseen.
+proc SeenRoute(req: HttpRequest): HttpResponse {
+	SeenRoute -> GroveWrite(req = this.req);
+	GroveWrite switch {
+		Stop(r) -> id(r),
+		Go(w) -> id(StrOr(j = w.j, key = "id", d = "")) as Which
+	};
+	Which -> Grove.SeeStatus(id = this);
+	Grove.SeeStatus switch {
+		(this) -> Grove.Changed(n = 0),
+		else -> id(Answer(r = Ok(Which), key = "id")) as Same
+	};
+	Grove.Changed -> id(Answer(r = Ok(Which), key = "id"));
+}

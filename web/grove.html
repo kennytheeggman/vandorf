@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>grove</title>
+<link rel="stylesheet" href="/ui.css">
+<style>
+/* grove: the idea tree (the exterior, left) and the shown idea's interiors
+   as stacked sections (the interior, right). */
+body{ background:var(--app) }
+:root{ --seen:color-mix(in srgb, var(--accent) 55%, var(--mut)) }
+#app{ display:flex; height:100% }
+
+/* ---- The exterior: the idea tree ---- */
+#side{ width:var(--side-w, 320px); min-width:200px; max-width:60vw; display:flex; flex-direction:column; background:var(--bar); border-right:1px solid var(--line); flex:none }
+#side.hidden{ display:none }
+#sash{ width:4px; margin-left:-2px; margin-right:-2px; cursor:col-resize; z-index:2; flex:none }
+#sash:hover, #sash.drag{ background:var(--accent) }
+#side.hidden + #sash{ display:none }
+/* The tree is a map: the root in the middle, ideas on rings around it,
+   no labels (every node has a tooltip). Drag or scroll to pan, pinch or
+   Ctrl+scroll to zoom, double-click to come back to the root. */
+#tree{ flex:1; position:relative; overflow:hidden; cursor:grab; touch-action:none; user-select:none }
+#tree.panning{ cursor:grabbing }
+#map{ position:absolute; inset:0; width:100%; height:100%; display:block }
+.e{ fill:none; stroke:var(--mut); stroke-opacity:.42; stroke-width:1.4; stroke-linecap:round }
+.e.path{ stroke:var(--accent); stroke-opacity:.9; stroke-width:2 }
+.e.behind{ stroke-dasharray:2 4 }
+.e.gone{ stroke-opacity:.18 }
+.n{ cursor:pointer }
+.n .hit{ fill:transparent }
+.n .dot{ fill:var(--bar); stroke:var(--mut); stroke-width:1.6; transition:fill .25s, stroke .25s, opacity .25s }
+.n .halo, .n .spin, .n .crown{ transform-box:fill-box; transform-origin:center }
+.n .halo{ fill:var(--accent); opacity:0; transition:opacity .25s }
+.n .spin{ fill:none; stroke:var(--accent); stroke-width:1.8; stroke-linecap:round; stroke-dasharray:13 44; opacity:0; transition:opacity .25s }
+.n .crown{ fill:none; stroke:var(--ink); stroke-width:1; opacity:.55; transition:transform .25s cubic-bezier(.2,.8,.2,1), stroke .25s, opacity .25s }
+.n:hover .dot{ stroke:var(--ink) }
+.n.on .dot{ fill:var(--accent); stroke:var(--accent) }
+.n.on .halo{ opacity:.18 }
+.n.root .dot{ fill:var(--accent); stroke:var(--accent) }
+.n.root:hover .crown, .n.root.on .crown{ stroke:var(--accent); opacity:1; transform:scale(1.25) }
+.n.done .dot{ fill:var(--ok); stroke:var(--ok) }
+/* Done, and someone has shown it since: a quieter blue, so the done ideas
+   no one has looked at yet stay green. */
+.n.seen .dot{ fill:var(--seen); stroke:var(--seen) }
+.n.att .dot{ fill:var(--dirty); stroke:var(--dirty) }
+.n.att .halo{ fill:var(--dirty); animation:pulse 1.8s cubic-bezier(.2,.6,.3,1) infinite }
+.n.working .spin{ opacity:1; animation:spin 1.1s linear infinite }
+.n.gone .dot{ fill:var(--bar); stroke-dasharray:2 2; opacity:.45 }
+.n.merged .dot{ fill:var(--bar); stroke:var(--ok); opacity:.7 }
+@keyframes spin{ to{ transform:rotate(360deg) } }
+@keyframes pulse{ 0%{ opacity:.5; transform:scale(.55) } 100%{ opacity:0; transform:scale(1.7) } }
+@media (prefers-reduced-motion: reduce){ .n.working .spin{ animation-duration:4s } .n.att .halo{ animation:none; opacity:.25 } }
+#foot{ border-top:1px solid var(--line); padding:6px 10px; font-size:12px; color:var(--mut); flex:none; overflow:hidden }
+#foot b{ color:var(--ink); font-weight:600; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+#foot code{ font:11px var(--mono) }
+#tip{ position:fixed; z-index:20; pointer-events:none; background:var(--bg); color:var(--ink); border:1px solid var(--line);
+  box-shadow:0 8px 24px var(--shadow); padding:7px 10px; font-size:12px; max-width:300px; display:none; border-radius:6px;
+  opacity:0; transform:translateY(2px); transition:opacity .12s, transform .12s }
+#tip.on{ opacity:1; transform:none }
+#tip .t-name{ font-weight:600; display:flex; align-items:center; gap:6px }
+#tip .pill{ font:600 10px/1 var(--mono); letter-spacing:.06em; padding:3px 5px; border-radius:3px; background:var(--accent); color:var(--accent-ink) }
+#tip .t-state{ margin-top:3px; display:flex; align-items:center; gap:6px }
+#tip .t-state i{ width:7px; height:7px; border-radius:50%; flex:none; background:var(--mut) }
+#tip .t-state.working i{ background:var(--accent) } #tip .t-state.att i{ background:var(--dirty) } #tip .t-state.done i{ background:var(--ok) } #tip .t-state.seen i{ background:var(--seen) }
+#tip .t-state.merged i{ background:none; border:1.5px solid var(--ok) } #tip .t-state.gone i{ background:none; border:1.5px dashed var(--mut) }
+#tip .t-msg{ color:var(--ink); margin-top:2px; white-space:pre-wrap }
+#tip .t-git{ color:var(--mut); font:11px var(--mono); margin-top:4px }
+
+/* ---- The interior: stacked sections ---- */
+#main{ flex:1; min-width:0; display:flex; flex-direction:column; background:var(--bg) }
+/* The shown idea's name, over its sections. */
+#title{ flex:none; height:26px; line-height:25px; padding:0 10px; background:var(--bar); border-bottom:1px solid var(--line);
+  font-size:12px; font-weight:600; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+#views{ flex:1; min-height:0; position:relative }
+.idea{ position:absolute; inset:0; display:flex; flex-direction:column; visibility:hidden }
+.idea.on{ visibility:visible }
+.sec{ display:flex; flex-direction:column; min-height:0; flex:none; border-bottom:1px solid var(--line) }
+.sec.open{ flex:1 1 0; min-height:60px }
+.sec .hd{ display:flex; align-items:center; gap:6px; height:26px; padding:0 4px 0 6px; background:var(--bar); cursor:pointer; user-select:none; flex:none;
+  font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--mut) }
+.sec .hd:hover{ color:var(--ink) }
+.sec .hd .chev{ width:12px; height:12px; flex:none; display:flex; align-items:center; justify-content:center }
+.sec .hd .chev svg{ width:10px; height:10px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; transform:rotate(-90deg); transition:transform .1s }
+.sec.open .hd .chev svg{ transform:none }
+.sec .hd .sub{ text-transform:none; letter-spacing:0; font-weight:400; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0 }
+.sec .hd .att{ width:7px; height:7px; border-radius:50%; background:var(--dirty); display:none; flex:none }
+.sec.att .hd .att{ display:block }
+.sec .hd .sp{ flex:1 }
+.sec .hd .x{ width:20px; height:20px; padding:0; font-size:14px; color:var(--mut); visibility:hidden }
+.sec .hd:hover .x{ visibility:visible }
+.sec .hd .x:hover{ background:var(--line); color:var(--ink) }
+.sec.over-top{ box-shadow:inset 0 2px var(--accent) }
+.sec.over-bottom{ box-shadow:inset 0 -2px var(--accent) }
+.sec.dragging{ opacity:.5 }
+.sec .bd{ flex:1; min-height:0; display:none; position:relative }
+.sec.open .bd{ display:block }
+.sec iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; background:var(--bg) }
+.sec .msg{ padding:14px; color:var(--mut); white-space:pre-wrap; font:12px/1.5 var(--mono) }
+.sec .msg.bad{ color:var(--err) }
+body.dragging iframe{ pointer-events:none }
+/* Opening one: collapse every section, then pick below them. */
+.picker{ padding:8px 12px; color:var(--mut); font-size:12px; flex:none }
+.picker a{ color:var(--accent); cursor:pointer; text-decoration:none }
+.picker a:hover{ text-decoration:underline }
+.picker .none{ font-style:italic }
+.blank{ padding:24px; color:var(--mut) }
+.blank button{ margin-top:8px }
+
+/* ---- Menus and toasts ---- */
+#menu{ position:fixed; z-index:30; background:var(--bg); border:1px solid var(--line); box-shadow:0 6px 18px var(--shadow); padding:4px 0; display:none; min-width:160px }
+#menu div{ padding:4px 12px; cursor:pointer; white-space:nowrap }
+#menu div:hover{ background:var(--hover) }
+#menu div.bad{ color:var(--err) }
+#menu div.off{ color:var(--mut); cursor:default }
+#menu div.off:hover{ background:none }
+#menu hr{ border:0; border-top:1px solid var(--line); margin:4px 0 }
+#toasts{ position:fixed; right:12px; bottom:12px; z-index:40; display:flex; flex-direction:column; gap:6px; max-width:420px }
+.toast{ background:var(--bg); border:1px solid var(--line); border-left:3px solid var(--err); box-shadow:0 4px 14px var(--shadow); padding:8px 10px; font-size:12px; white-space:pre-wrap }
+.toast.info{ border-left-color:var(--accent) }
+#showSide{ position:fixed; left:0; top:50%; z-index:5; height:40px; width:14px; padding:0; background:var(--bar); border:1px solid var(--line); border-left:0; display:none }
+#side.hidden ~ #showSide{ display:flex }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <div class="bar">
+      <span class="ttl" id="repoName">ideas</span>
+      <span class="sp"></span>
+      <button class="icon" id="bBranch" title="Branch a new idea from this one (Alt+Shift+N)"><svg viewBox="0 0 16 16"><circle cx="4.5" cy="3.5" r="1.6"/><circle cx="4.5" cy="12.5" r="1.6"/><circle cx="11.5" cy="6.5" r="1.6"/><path d="M4.5 5.1v5.8M11.5 8.1c0 2.4-4.2 1.6-6.4 3.1"/></svg></button>
+      <button class="icon" id="bHome" title="Back to the root (double-click the map)"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><circle cx="8" cy="8" r="5.5"/></svg></button>
+      <button class="icon" id="bGone" title="Show merged and discarded ideas"><svg viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/></svg></button>
+      <button class="icon" id="bHide" title="Hide the tree (Alt+Shift+B)"><svg viewBox="0 0 16 16"><path d="M10 3.5L5.5 8l4.5 4.5"/></svg></button>
+    </div>
+    <div id="tree"></div>
+    <div id="foot"></div>
+  </aside>
+  <div id="sash"></div>
+  <main id="main"><div id="title"></div><div id="views"></div></main>
+  <button id="showSide" title="Show the tree (Alt+Shift+B)">›</button>
+</div>
+<div id="tip"></div>
+<div id="menu"></div>
+<div id="toasts"></div>
+<script>
+(function(){
+'use strict';
+var TOKEN = '__VANDORF_TOKEN__';
+var $ = function(id){ return document.getElementById(id); };
+/* Ideas' views kept alive, hidden, so switching back is instant. */
+var KEEP = 4;
+
+function api(path, body){
+  var opts = { headers: { 'X-Vandorf-Token': TOKEN } };
+  if (body !== undefined){ opts.method = 'POST'; opts.body = JSON.stringify(body); opts.headers['Content-Type'] = 'application/json'; }
+  return fetch(path, opts).then(function(r){ return r.json(); }).then(function(j){
+    if (!j.ok) throw new Error(j.error || 'request failed');
+    return j;
+  });
+}
+function store(k, v){ try { if (v === undefined) return localStorage.getItem('grove.' + k); localStorage.setItem('grove.' + k, v); } catch (e) { return null; } }
+function toast(msg, info){
+  var d = document.createElement('div'); d.className = 'toast' + (info ? ' info' : ''); d.textContent = msg;
+  $('toasts').appendChild(d); setTimeout(function(){ d.remove(); }, info ? 3000 : 8000);
+}
+function el(tag, cls, text){ var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+var CHEV = '<svg viewBox="0 0 16 16"><path d="M4 6l4 4 4-4"/></svg>';
+
+/* ---- Theme ---- */
+var mq = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
+function theme(){ return mq && mq.matches ? 'dark' : 'light'; }
+if (mq && mq.addEventListener) mq.addEventListener('change', function(){ views.forEach(function(v){ v.secs.forEach(sendContext); }); });
+
+/* ---- State ---- */
+var repo = null, ideas = [], byId = {}, interiors = [];
+var cur = null;                       // the id shown
+var views = [];                       // { id, el, secs, saveT }, most recent first
+var showGone = store('gone') === '1';
+var attention = {};                   // idea id -> true
+
+function refresh(){
+  return api('/api/ideas').then(function(j){
+    repo = j.repo; ideas = j.ideas; interiors = j.interiors;
+    byId = {}; ideas.forEach(function(i){ byId[i.id] = i; });
+    $('repoName').textContent = repo.name;
+    document.title = repo.name + ' · grove';
+    if (cur === null || !(cur in byId)){
+      var want = decodeURIComponent((location.hash.match(/idea=([^&]*)/) || [])[1] || store('cur') || '');
+      show(want in byId ? want : '');
+    } else {
+      // The shown idea finishing while it's looked at is seen too.
+      if (document.hasFocus() && document.visibilityState === 'visible') see(cur);
+      drawTree(); drawFoot(); if (!viewOf(cur)) show(cur);
+    }
+    adopt();
+  }).catch(function(e){ toast(String(e.message || e)); });
+}
+
+/* ---- The tree: a map of ideas, the root in the middle ----
+   Each idea sits on a ring by its depth, in a wedge as wide as the leaves
+   under it. The shown idea's history (the root, its ancestors, it) is
+   straightened onto one bearing and the map turned so it points up. */
+var NS = 'http://www.w3.org/2000/svg';
+var RING = 62;                        // px between rings, at zoom 1
+var cam = { x: 0, y: 0, k: 1 };       // pan from the pane's center, and zoom
+var rot = 0;                          // the map's turn, radians
+var pos = {};                         // id -> { a, r }, as drawn
+var goal = null;                      // the layout being moved to
+var els = {};                         // id -> { g, e, kind }
+var focused;                          // the idea the map last turned to
+var anim = 0;
+var still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+function svg(tag, attrs){ var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); return e; }
+var map = svg('svg', { id: 'map' }), world = svg('g', {}), gEdges = svg('g', {}), gNodes = svg('g', {});
+world.appendChild(gEdges); world.appendChild(gNodes); map.appendChild(world); $('tree').appendChild(map);
+
+function parentOf(i){ return i.parent === null ? null : (i.parent in byId ? i.parent : ''); }
+function kids(){
+  var k = {};
+  ideas.forEach(function(i){ var p = parentOf(i); if (p !== null) (k[p] = k[p] || []).push(i); });
+  return k;
+}
+/* The ideas drawn: the root and active ones; merged and discarded ones
+   when asked for (or shown, or with a drawn idea under them). */
+function treeOf(){
+  var k = kids(), seen = {};
+  function vis(i){ return i.status === 'active' || showGone || i.id === cur || (k[i.id] || []).some(vis); }
+  function build(i, depth){
+    seen[i.id] = 1;
+    var n = { i: i, depth: depth, kids: [] };
+    (k[i.id] || []).forEach(function(c){ if (!seen[c.id] && vis(c)) n.kids.push(build(c, depth + 1)); });
+    n.leaves = n.kids.length ? n.kids.reduce(function(s, c){ return s + c.leaves; }, 0) : 1;
+    return n;
+  }
+  return byId[''] ? build(byId[''], 0) : null;
+}
+function place(t){
+  var out = {}, ring = Math.max(RING, t.leaves * 28 / (2 * Math.PI));
+  (function go(n, a0, a1){
+    out[n.i.id] = { a: (a0 + a1) / 2, r: n.depth * ring, n: n };
+    var a = a0;
+    n.kids.forEach(function(c){ var w = (a1 - a0) * c.leaves / n.leaves; go(c, a, a + w); a += w; });
+  })(t, -Math.PI, Math.PI);
+  /* The shown idea's ancestors take its bearing: it lies in each of their
+     wedges, so nothing crosses. */
+  var f = out[cur];
+  if (f && cur !== '') for (var p = byId[cur]; p && p.id !== ''; p = byId[parentOf(p)]) if (out[p.id]) out[p.id].a = f.a;
+  return out;
+}
+function onPath(id){ for (var p = byId[cur]; p; p = p.id === '' ? null : byId[parentOf(p)]) if (p.id === id) return true; return false; }
+function stateOf(i){
+  if (i.status === 'merged') return 'merged';
+  if (i.status === 'discarded') return 'gone';
+  if (i.rebasing || attention[i.id] || (i.agent && i.agent.state === 'attention')) return 'att';
+  if (i.agent && i.agent.state === 'working') return 'working';
+  if (i.agent && i.agent.state === 'done') return i.agent.seen ? 'seen' : 'done';
+  return '';
+}
+function nodeEl(i){
+  var root = i.id === '';
+  var g = svg('g', { class: 'n' });
+  g.appendChild(svg('circle', { class: 'halo', r: root ? 15 : 11 }));
+  if (root) g.appendChild(svg('circle', { class: 'crown', r: 11 }));
+  g.appendChild(svg('circle', { class: 'spin', r: 9 }));
+  g.appendChild(svg('circle', { class: 'dot', r: root ? 7 : 5 }));
+  g.appendChild(svg('circle', { class: 'hit', r: 14 }));
+  g.addEventListener('click', function(e){ e.stopPropagation(); if (!moved) show(g.idea); });
+  g.addEventListener('dblclick', function(e){ e.stopPropagation(); });
+  g.addEventListener('contextmenu', function(e){ e.preventDefault(); e.stopPropagation(); menu(e.clientX, e.clientY, byId[g.idea]); });
+  g.addEventListener('pointerenter', function(e){ tip(e, byId[g.idea]); });
+  g.addEventListener('pointermove', moveTip);
+  g.addEventListener('pointerleave', hideTip);
+  return g;
+}
+function drawTree(){
+  $('bGone').classList.toggle('on', showGone);
+  var t = treeOf(); if (!t) return;
+  var to = place(t);
+  // Make, keep or drop each node's and edge's elements.
+  Object.keys(els).forEach(function(id){ if (!to[id]){ els[id].g.remove(); if (els[id].e) els[id].e.remove(); delete els[id]; delete pos[id]; } });
+  Object.keys(to).forEach(function(id){
+    var i = to[id].n.i, x = els[id];
+    if (!x){
+      x = els[id] = { g: nodeEl(i) };
+      if (id !== ''){ x.e = svg('path', { class: 'e' }); gEdges.appendChild(x.e); }
+      gNodes.appendChild(x.g);
+      // A new idea grows out of its parent.
+      var p = pos[parentOf(i)] || { a: to[id].a, r: 0 };
+      pos[id] = { a: to[id].a, r: p.r };
+    }
+    x.g.idea = id;
+    var st = stateOf(i);
+    x.g.setAttribute('class', 'n' + (id === '' ? ' root' : '') + (id === cur ? ' on' : '') + (st ? ' ' + st : ''));
+    if (x.e) x.e.setAttribute('class', 'e' + (onPath(id) && cur !== '' ? ' path' : '') + (i.behind ? ' behind' : '') + (st === 'gone' || st === 'merged' ? ' gone' : ''));
+    x.parent = parentOf(i);
+  });
+  // Turn the map to the shown idea's history, and frame it.
+  var rot1 = rot, cam1 = null;
+  if (focused !== cur){
+    if (cur !== '' && to[cur]) rot1 = -Math.PI / 2 - to[cur].a;
+    cam1 = frameFor(to, rot1);
+    focused = cur;
+  }
+  move(to, rot1, cam1);
+}
+/* A camera that fits the whole map, or if that would make it too small,
+   the shown idea's history from the root. */
+function frameFor(to, rot1){
+  var all = fit(to, rot1, Object.keys(to));
+  if (all.k >= .7 || cur === '') return all;
+  var path = Object.keys(to).filter(function(id){ return onPath(id); });
+  return fit(to, rot1, path);
+}
+function fit(to, rot1, ids){
+  var b = $('tree').getBoundingClientRect(), x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  ids.forEach(function(id){
+    var p = to[id], x = p.r * Math.cos(p.a + rot1), y = p.r * Math.sin(p.a + rot1);
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+  });
+  if (x0 === Infinity) return { x: 0, y: 0, k: 1 };
+  var pad = 36, k = Math.min((b.width - 2 * pad) / Math.max(1, x1 - x0), (b.height - 2 * pad) / Math.max(1, y1 - y0));
+  k = Math.max(.3, Math.min(1.25, k));
+  return { x: -(x0 + x1) / 2 * k, y: -(y0 + y1) / 2 * k, k: k };
+}
+function ease(u){ return u < .5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2; }
+function turn(a, b, e){ var d = ((b - a + 3 * Math.PI) % (2 * Math.PI)) - Math.PI; return a + d * e; }
+/* Moves every node to its place in `to`, the map's turn to rot1 and the
+   camera to cam1 (if given), in one smooth motion. */
+function move(to, rot1, cam1){
+  cancelAnimationFrame(anim);
+  var from = {}, rot0 = rot, cam0 = { x: cam.x, y: cam.y, k: cam.k }, t0 = performance.now(), D = still ? 0 : 520;
+  Object.keys(to).forEach(function(id){ from[id] = pos[id] || { a: to[id].a, r: to[id].r }; });
+  goal = { to: to, rot: rot1, cam: cam1 };
+  (function frame(now){
+    var u = D ? Math.min(1, (now - t0) / D) : 1, e = ease(u);
+    Object.keys(to).forEach(function(id){ pos[id] = { a: turn(from[id].a, to[id].a, e), r: from[id].r + (to[id].r - from[id].r) * e }; });
+    rot = turn(rot0, rot1, e);
+    if (cam1) cam = { x: cam0.x + (cam1.x - cam0.x) * e, y: cam0.y + (cam1.y - cam0.y) * e, k: cam0.k + (cam1.k - cam0.k) * e };
+    render();
+    if (u < 1) anim = requestAnimationFrame(frame); else { anim = 0; goal = null; }
+  })(t0);
+}
+/* Stops a motion where it's headed, for a pan or zoom to take over. */
+function settle(){
+  if (!anim || !goal) return;
+  cancelAnimationFrame(anim); anim = 0;
+  Object.keys(goal.to).forEach(function(id){ pos[id] = { a: goal.to[id].a, r: goal.to[id].r }; });
+  rot = goal.rot; goal = null;
+}
+function xy(p){ return [p.r * Math.cos(p.a + rot), p.r * Math.sin(p.a + rot)]; }
+function render(){
+  var b = $('tree').getBoundingClientRect();
+  world.setAttribute('transform', 'translate(' + (b.width / 2 + cam.x) + ',' + (b.height / 2 + cam.y) + ') scale(' + cam.k + ')');
+  Object.keys(els).forEach(function(id){
+    var x = els[id], p = pos[id]; if (!p) return;
+    var c = xy(p);
+    x.g.setAttribute('transform', 'translate(' + c[0].toFixed(2) + ',' + c[1].toFixed(2) + ')');
+    var q = pos[x.parent];
+    if (x.e && q){
+      /* Out from the parent along its bearing, into the child along its own:
+         a radial curve, straight where they share one. */
+      var m = (q.r + p.r) / 2, c1 = xy({ a: q.r ? q.a : p.a, r: m }), c2 = xy({ a: p.a, r: m }), s = xy(q);
+      x.e.setAttribute('d', 'M' + s[0].toFixed(2) + ' ' + s[1].toFixed(2) + 'C' + c1[0].toFixed(2) + ' ' + c1[1].toFixed(2) + ' ' + c2[0].toFixed(2) + ' ' + c2[1].toFixed(2) + ' ' + c[0].toFixed(2) + ' ' + c[1].toFixed(2));
+    }
+  });
+}
+if (window.ResizeObserver) new ResizeObserver(render).observe($('tree'));
+function home(){ settle(); var to = copy(pos); move(to, rot, fit(to, rot, Object.keys(to))); }
+function copy(o){ var c = {}; Object.keys(o).forEach(function(k){ c[k] = { a: o[k].a, r: o[k].r }; }); return c; }
+
+/* Panning and zooming, as on a map. */
+var moved = false;
+$('tree').addEventListener('pointerdown', function(e){
+  if (e.button !== 0) return;
+  settle(); moved = false;
+  var x0 = e.clientX, y0 = e.clientY, c0 = { x: cam.x, y: cam.y }, tree = $('tree'), id = e.pointerId, grabbed = false;
+  function mv(ev){
+    var dx = ev.clientX - x0, dy = ev.clientY - y0;
+    if (!moved && Math.abs(dx) + Math.abs(dy) < 4) return;
+    if (!grabbed){ grabbed = true; tree.setPointerCapture(id); tree.classList.add('panning'); hideTip(); }
+    moved = true; cam.x = c0.x + dx; cam.y = c0.y + dy; render();
+  }
+  function up(){ tree.classList.remove('panning'); tree.removeEventListener('pointermove', mv); tree.removeEventListener('pointerup', up); tree.removeEventListener('pointercancel', up); setTimeout(function(){ moved = false; }, 0); }
+  tree.addEventListener('pointermove', mv); tree.addEventListener('pointerup', up); tree.addEventListener('pointercancel', up);
+});
+$('tree').addEventListener('wheel', function(e){
+  e.preventDefault(); settle(); hideTip();
+  if (e.ctrlKey){
+    var b = $('tree').getBoundingClientRect(), px = e.clientX - b.left - b.width / 2, py = e.clientY - b.top - b.height / 2;
+    var k = Math.max(.3, Math.min(3, cam.k * Math.exp(-e.deltaY * .01)));
+    cam.x = px - (px - cam.x) * k / cam.k; cam.y = py - (py - cam.y) * k / cam.k; cam.k = k;
+  } else { cam.x -= e.deltaX; cam.y -= e.deltaY; }
+  render();
+}, { passive: false });
+$('tree').addEventListener('dblclick', home);
+
+function tip(e, i){
+  if (!i) return;
+  var t = $('tip'); t.innerHTML = '';
+  var name = el('div', 't-name');
+  if (i.id === ''){ var pill = el('span', 'pill', 'HEAD'); pill.title = ''; name.appendChild(pill); }
+  name.appendChild(el('span', '', i.name));
+  t.appendChild(name);
+  var st = stateOf(i), parent = byId[parentOf(i)];
+  var what = {
+    merged: 'Merged into the root',
+    gone: 'Discarded',
+    att: i.rebasing ? 'Rebase stopped on a conflict' : 'Needs attention',
+    working: 'Working',
+    done: 'Done',
+    seen: 'Done (seen)'
+  }[st] || (i.id === '' ? 'The checked-out branch: ideas merge here' : i.behind ? 'Behind ' + (parent ? parent.name : 'its parent') + ': rebase it' : 'Idle');
+  var line = el('div', 't-state ' + st); line.appendChild(el('i')); line.appendChild(el('span', '', what)); t.appendChild(line);
+  var msg = (i.agent && i.agent.message) || attention[i.id] || '';
+  if (msg) t.appendChild(el('div', 't-msg', msg));
+  if (i.id === ''){
+    var merged = ideas.filter(function(x){ return x.status === 'merged'; });
+    if (merged.length) t.appendChild(el('div', 't-msg', 'Merged: ' + merged.slice(0, 5).map(function(x){ return x.name; }).join(', ') + (merged.length > 5 ? ' and ' + (merged.length - 5) + ' more' : '')));
+  } else if (st !== 'merged' && st !== 'gone' && i.behind){
+    t.appendChild(el('div', 't-msg', 'Not on ' + (parent ? parent.name : 'its parent') + "'s latest commit."));
+  }
+  t.appendChild(el('div', 't-git', (i.branch || 'detached') + (i.head ? ' · ' + i.head.slice(0, 8) : '')));
+  t.style.display = 'block'; moveTip(e);
+  requestAnimationFrame(function(){ t.classList.add('on'); });
+}
+function moveTip(e){
+  var t = $('tip'), x = e.clientX + 14, y = e.clientY + 12;
+  if (x + t.offsetWidth > innerWidth - 6) x = e.clientX - t.offsetWidth - 10;
+  if (y + t.offsetHeight > innerHeight - 6) y = e.clientY - t.offsetHeight - 10;
+  t.style.left = x + 'px'; t.style.top = y + 'px';
+}
+function hideTip(){ var t = $('tip'); t.classList.remove('on'); t.style.display = 'none'; }
+function drawFoot(){
+  var i = byId[cur], f = $('foot'); f.innerHTML = '';
+  $('title').textContent = i ? i.name : ''; $('title').title = i ? i.name : '';
+  if (!i) return;
+  f.appendChild(el('b', '', i.name));
+  var c = el('code', '', (i.branch || 'detached') + (i.head ? ' @ ' + i.head.slice(0, 8) : ''));
+  f.appendChild(c);
+}
+/* Shown ideas in the tree's order, for moving up and down. */
+function order(){
+  var t = treeOf(), out = [];
+  if (t) (function walk(n){ out.push(n.i.id); n.kids.forEach(walk); })(t);
+  return out;
+}
+
+/* ---- Actions ---- */
+function branch(from){
+  var name = prompt('Name for the new idea (optional):', '');
+  if (name === null) return;
+  api('/api/ideas/branch', { from: from, name: name.trim() }).then(function(j){
+    return refresh().then(function(){ show(j.id); });
+  }).catch(function(e){ toast(e.message); });
+}
+function rename(i){
+  var name = prompt('Rename the idea:', i.name);
+  if (name === null || !name.trim()) return;
+  api('/api/ideas/rename', { id: i.id, name: name.trim() }).then(refresh).catch(function(e){ toast(e.message); });
+}
+/* The ideas under one, drawn or not, that are still active. */
+function under(id){
+  var k = kids(), out = [];
+  (function walk(x){ (k[x] || []).forEach(function(c){ if (c.status === 'active') out.push(c); walk(c.id); }); })(id);
+  return out;
+}
+/* Whether an idea and its ancestors are each on their parent's latest
+   commit, so it's on the root's head and can merge. */
+function based(i){ for (var p = i; p && p.id !== ''; p = byId[parentOf(p)]) if (p.behind) return false; return true; }
+function discard(i){
+  var n = under(i.id).length;
+  var more = n ? ' and the ' + (n === 1 ? 'idea' : n + ' ideas') + ' under it' : '';
+  if (!confirm('Discard "' + i.name + '"' + more + '? Their worktrees are removed and their terminals stop; their branches stay, so each can be restored.')) return;
+  var gone = [i].concat(under(i.id));
+  api('/api/ideas/discard', { id: i.id }).then(function(){
+    gone.forEach(function(x){ var v = viewOf(x.id); if (v) drop(v); });
+    if (gone.some(function(x){ return x.id === cur; })) cur = null, show(parentOf(i) || '');
+    return refresh();
+  }).catch(function(e){ toast(e.message); });
+}
+function merge(i){
+  var root = byId[''];
+  var n = kids()[i.id] ? kids()[i.id].filter(function(c){ return c.status === 'active'; }).length : 0;
+  if (!confirm('Merge "' + i.name + '" into the root? ' + (root.branch || 'The root') + ' moves forward to it, its worktree closes' + (n ? ', its ' + (n === 1 ? 'idea moves' : n + ' ideas move') + ' to the root,' : '') + ' and every other idea is rebased onto the new root.')) return;
+  var v = viewOf(i.id);
+  api('/api/ideas/merge', { id: i.id }).then(function(j){
+    if (v) drop(v);
+    if (cur === i.id) cur = null, show('');
+    toast(j.summary, j.summary.indexOf('flagged') < 0);
+    return refresh();
+  }).catch(function(e){ toast(e.message); });
+}
+function rebase(i){
+  api('/api/ideas/rebase', { id: i.id }).then(function(){ toast('Rebased "' + i.name + '"', true); return refresh(); })
+    .catch(function(e){ toast('"' + i.name + '" wasn\'t rebased: ' + e.message); refresh(); });
+}
+function restore(i){
+  api('/api/ideas/restore', { id: i.id }).then(function(){
+    var v = viewOf(i.id); if (v) drop(v);
+    return refresh().then(function(){ show(i.id); });
+  }).catch(function(e){ toast(e.message); });
+}
+function menu(x, y, i){
+  if (!i) return;
+  hideTip();
+  var m = $('menu'); m.innerHTML = '';
+  function add(label, f, cls){ var d = el('div', cls || '', label); if (f) d.onclick = function(){ hideMenu(); f(); }; m.appendChild(d); }
+  var active = i.status === 'active' || i.id === '';
+  if (active) add('Branch from here', function(){ branch(i.id); });
+  add('Rename…', function(){ rename(i); });
+  if (i.id !== '' && i.status === 'active'){
+    m.appendChild(el('hr'));
+    if (i.behind) add('Rebase onto ' + (byId[parentOf(i)] || {}).name, function(){ rebase(i); });
+    if (based(i)) add('Merge into the root…', function(){ merge(i); });
+    else add('Merge into the root (rebase first)', null, 'off');
+  }
+  if (i.id !== '' && i.worktree){ m.appendChild(el('hr')); add('Discard' + (under(i.id).length ? ' with the ideas under it' : '') + '…', function(){ discard(i); }, 'bad'); }
+  if (i.status === 'discarded') add('Restore', function(){ restore(i); });
+  m.style.display = 'block';
+  m.style.left = Math.min(x, innerWidth - m.offsetWidth - 4) + 'px';
+  m.style.top = Math.min(y, innerHeight - m.offsetHeight - 4) + 'px';
+}
+function hideMenu(){ $('menu').style.display = 'none'; }
+document.addEventListener('mousedown', function(e){ if (!$('menu').contains(e.target)) hideMenu(); });
+
+/* ---- Switching ---- */
+function viewOf(id){ for (var n = 0; n < views.length; n++) if (views[n].id === id) return views[n]; return null; }
+function show(id){
+  cur = id; store('cur', id);
+  history.replaceState(null, '', '#idea=' + encodeURIComponent(id));
+  delete attention[id];
+  see(id);
+  var v = viewOf(id);
+  if (!v) v = makeView(id);
+  views.splice(views.indexOf(v), 1); views.unshift(v);
+  while (views.length > KEEP) drop(views[views.length - 1]);
+  views.forEach(function(x){ x.el.classList.toggle('on', x === v); });
+  v.secs.forEach(function(s){ tell(s, { type: 'visible', visible: s.expanded }); });
+  var first = v.secs.filter(function(s){ return s.expanded; })[0];
+  if (first) tell(first, { type: 'focus' });
+  drawTree(); drawFoot();
+}
+/* A done idea shown is seen: grove keeps that, for every page and across
+   reloads, until its agent says something new. */
+function see(id){
+  var i = byId[id];
+  if (!i || !i.agent || i.agent.state !== 'done' || i.agent.seen) return;
+  i.agent.seen = true;
+  api('/api/ideas/seen', { id: id }).catch(function(e){ toast(String(e.message || e)); });
+}
+function drop(v){
+  clearTimeout(v.saveT); if (v.dirty) save(v, true);
+  v.el.remove(); views.splice(views.indexOf(v), 1);
+}
+
+/* ---- An idea's view: its sections ---- */
+function makeView(id){
+  var i = byId[id];
+  var v = { id: id, el: el('div', 'idea'), secs: [], picker: el('div', 'picker') };
+  $('views').appendChild(v.el);
+  views.push(v);
+  if (!i || (i.id !== '' && !i.worktree)){
+    var merged = i && i.status === 'merged';
+    var b = el('div', 'blank', !i ? 'No such idea.' : merged ? 'This idea is merged into the root. Its branch ' + i.branch + ' is kept.' : 'This idea is discarded: its worktree was removed, its branch ' + i.branch + ' kept.');
+    if (i && !merged){ var r = el('button', 'outline', 'Restore it'); r.onclick = function(){ restore(i); }; b.appendChild(el('br')); b.appendChild(r); }
+    v.el.appendChild(b); v.gone = true;
+    return v;
+  }
+  v.el.appendChild(v.picker);
+  i.sections.forEach(function(x){ addSection(v, x.interior, x.expanded, x.term, true); });
+  layout(v);
+  return v;
+}
+function addSection(v, interior, expanded, term, quiet){
+  var s = { v: v, interior: interior, expanded: expanded, term: term || 0, title: '', queue: [], ready: false };
+  s.el = el('section', 'sec');
+  var hd = el('div', 'hd'); hd.draggable = true;
+  var chev = el('span', 'chev'); chev.innerHTML = CHEV; hd.appendChild(chev);
+  hd.appendChild(el('span', '', interior));
+  s.sub = el('span', 'sub'); hd.appendChild(s.sub);
+  hd.appendChild(el('span', 'att'));
+  hd.appendChild(el('span', 'sp'));
+  var x = el('button', 'x', '×'); x.title = 'Close'; hd.appendChild(x);
+  s.bd = el('div', 'bd');
+  s.el.appendChild(hd); s.el.appendChild(s.bd);
+  hd.onclick = function(e){ if (e.target === x) return; toggle(s); };
+  x.onclick = function(e){ e.stopPropagation(); close(s); };
+  drag(s, hd);
+  v.el.appendChild(s.el);
+  v.secs.push(s);
+  load(s);
+  if (!quiet){ layout(v); save(v); }
+  return s;
+}
+/* Gets the section's URL and frames it. The terminal reattaches to its
+   terminal by id. */
+function load(s){
+  s.bd.innerHTML = ''; s.bd.appendChild(el('div', 'msg', 'Starting ' + s.interior + '…'));
+  api('/api/interior/open', { idea: s.v.id, interior: s.interior }).then(function(j){
+    var url = j.url;
+    if (s.interior === 'terminal') url += '&term=' + s.term;
+    var abs = new URL(url, location.href);
+    s.origin = abs.origin;
+    s.frame = el('iframe');
+    s.frame.src = abs.href;
+    s.frame.setAttribute('allow', 'clipboard-read; clipboard-write');
+    s.frame.onload = function(){ sendContext(s); tell(s, { type: 'visible', visible: s.expanded }); };
+    s.bd.innerHTML = ''; s.bd.appendChild(s.frame);
+  }).catch(function(e){
+    s.bd.innerHTML = '';
+    var m = el('div', 'msg bad', e.message); s.bd.appendChild(m);
+    var r = el('button', 'outline', 'Retry'); r.style.margin = '0 14px'; r.onclick = function(){ load(s); }; s.bd.appendChild(r);
+  });
+}
+function toggle(s){
+  s.expanded = !s.expanded;
+  if (s.expanded) clearAttention(s);
+  layout(s.v); save(s.v);
+  tell(s, { type: 'visible', visible: s.expanded });
+  if (s.expanded) tell(s, { type: 'focus' });
+}
+function close(s){
+  var v = s.v;
+  if (s.interior === 'terminal' && s.term){ dropped[s.term] = true; api('/api/term/kill?id=' + s.term, {}).catch(function(){}); }
+  s.el.remove(); v.secs.splice(v.secs.indexOf(s), 1);
+  layout(v); save(v);
+}
+/* Orders the sections (by CSS order, so no iframe is moved and reloaded),
+   and offers the picker once every one is collapsed. */
+function layout(v){
+  v.secs.forEach(function(s, n){ s.el.style.order = n; s.el.classList.toggle('open', s.expanded); });
+  var p = v.picker; p.style.order = v.secs.length; p.innerHTML = '';
+  var all = v.secs.every(function(s){ return !s.expanded; });
+  p.style.display = all ? 'block' : 'none';
+  if (!all) return;
+  p.appendChild(document.createTextNode('+ Open '));
+  if (!interiors.length) p.appendChild(el('span', 'none', 'no interiors'));
+  interiors.forEach(function(it, n){
+    if (n) p.appendChild(document.createTextNode(' · '));
+    var a = el('a', '', it.name); a.title = it.mode === 'builtin' ? 'built in' : it.mode;
+    a.onclick = function(){ addSection(v, it.name, true, 0); };
+    p.appendChild(a);
+  });
+}
+function save(v, now){
+  v.dirty = true; clearTimeout(v.saveT);
+  var go = function(){
+    v.dirty = false;
+    var secs = v.secs.map(function(s){ return { interior: s.interior, expanded: s.expanded, term: s.term }; });
+    if (byId[v.id]) byId[v.id].sections = secs;
+    api('/api/ideas/layout', { id: v.id, sections: secs }).catch(function(e){ toast('Layout not saved: ' + e.message); });
+  };
+  if (now) go(); else v.saveT = setTimeout(go, 300);
+}
+
+/* Reordering: drag a header above or below another section. */
+var dragging = null;
+function drag(s, hd){
+  hd.addEventListener('dragstart', function(e){
+    dragging = s; s.el.classList.add('dragging'); document.body.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', s.interior); } catch (x) {}
+  });
+  hd.addEventListener('dragend', function(){
+    if (dragging) dragging.el.classList.remove('dragging');
+    dragging = null; document.body.classList.remove('dragging');
+    s.v.secs.forEach(function(x){ x.el.classList.remove('over-top', 'over-bottom'); });
+  });
+  s.el.addEventListener('dragover', function(e){
+    if (!dragging || dragging.v !== s.v || dragging === s) return;
+    e.preventDefault();
+    var r = s.el.getBoundingClientRect(), top = e.clientY < r.top + Math.min(r.height / 2, 40);
+    s.el.classList.toggle('over-top', top); s.el.classList.toggle('over-bottom', !top);
+  });
+  s.el.addEventListener('dragleave', function(){ s.el.classList.remove('over-top', 'over-bottom'); });
+  s.el.addEventListener('drop', function(e){
+    if (!dragging || dragging.v !== s.v || dragging === s) return;
+    e.preventDefault();
+    var top = s.el.classList.contains('over-top'), secs = s.v.secs;
+    s.el.classList.remove('over-top', 'over-bottom');
+    secs.splice(secs.indexOf(dragging), 1);
+    secs.splice(secs.indexOf(s) + (top ? 0 : 1), 0, dragging);
+    layout(s.v); save(s.v);
+  });
+}
+
+/* ---- postMessage with interiors: { grove: 1, type, .. } ---- */
+function tell(s, m){
+  if (!s.frame || !s.frame.contentWindow) return;
+  m.grove = 1;
+  try { s.frame.contentWindow.postMessage(m, s.origin); } catch (e) {}
+}
+function sendContext(s){
+  var i = byId[s.v.id];
+  tell(s, { type: 'context', idea: s.v.id, worktree: i ? i.worktree : '', base: i ? i.fork : '', theme: theme() });
+}
+function sectionOf(src, origin){
+  for (var n = 0; n < views.length; n++){
+    var secs = views[n].secs;
+    for (var k = 0; k < secs.length; k++)
+      if (secs[k].frame && secs[k].frame.contentWindow === src && secs[k].origin === origin) return secs[k];
+  }
+  return null;
+}
+function clearAttention(s){
+  s.el.classList.remove('att');
+  if (!s.v.secs.some(function(x){ return x.el.classList.contains('att'); })){ delete attention[s.v.id]; drawTree(); }
+}
+/* Runs a command in one of the idea's terminals, as `grove run` does: the
+   first terminal section whose shell is at its prompt, else a new one. A
+   terminal running a program (an agent, an editor) isn't typed into. */
+function run(v, cmd){
+  api('/api/term/list').then(function(l){ return l.idle || []; }, function(){ return []; }).then(function(idle){
+    var t = v.secs.filter(function(s){ return s.interior === 'terminal' && s.ready && idle.indexOf(s.term) >= 0; })[0];
+    if (!t) t = addSection(v, 'terminal', true, 0);
+    if (!t.expanded) toggle(t);
+    if (t.ready) tell(t, { type: 'run', cmd: cmd }); else t.queue.push(cmd);
+  });
+}
+/* Shows the terminals an agent opened in a shown idea (`grove run`, which
+   keeps them in its sections) as sections of its view: running ones no
+   section has, and none of those closed here. */
+var dropped = {};                     // terminal id -> true, once no section's
+function adopt(){
+  var want = [];
+  views.forEach(function(v){
+    var i = byId[v.id];
+    if (v.gone || !i) return;
+    (i.sections || []).forEach(function(x){
+      if (x.interior !== 'terminal' || !x.term || dropped[x.term]) return;
+      if (v.secs.some(function(s){ return s.term === x.term; })) return;
+      want.push({ v: v, x: x });
+    });
+  });
+  if (!want.length) return;
+  api('/api/term/list').then(function(l){
+    var moved = [];
+    want.forEach(function(w){
+      if (l.ids.indexOf(w.x.term) < 0 || w.v.secs.some(function(s){ return s.term === w.x.term; })) return;
+      addSection(w.v, 'terminal', w.x.expanded, w.x.term, true);
+      if (moved.indexOf(w.v) < 0) moved.push(w.v);
+    });
+    moved.forEach(function(v){ layout(v); save(v); });
+  }).catch(function(){});
+}
+window.addEventListener('message', function(e){
+  var m = e.data;
+  if (!m || m.grove !== 1) return;
+  var s = sectionOf(e.source, e.origin);
+  if (!s) return;
+  switch (m.type){
+  case 'ready': sendContext(s); tell(s, { type: 'visible', visible: s.expanded }); break;
+  case 'term':
+    if (s.term !== m.id){ if (s.term) dropped[s.term] = true; s.term = m.id; save(s.v); }
+    s.ready = true;
+    s.queue.splice(0).forEach(function(c){ tell(s, { type: 'run', cmd: c }); });
+    break;
+  case 'title': s.title = String(m.title || ''); s.sub.textContent = s.title; break;
+  case 'exit': s.sub.textContent = (s.title ? s.title + ' · ' : '') + 'exited'; s.ready = false; break;
+  case 'attention':
+    if (s.v.id === cur && s.expanded) break;
+    s.el.classList.add('att'); s.el.title = String(m.message || '');
+    attention[s.v.id] = String(m.message || s.interior + ' needs attention'); drawTree();
+    break;
+  case 'run': if (m.cmd) run(s.v, String(m.cmd)); break;
+  case 'keys': key(m); break;
+  }
+});
+
+/* ---- Shortcuts: Alt+Shift chords, which interiors pass on as `keys` ---- */
+function key(e){
+  if (!(e.altKey || e.alt) || !(e.shiftKey || e.shift) || e.ctrlKey || e.ctrl || e.metaKey || e.meta) return false;
+  var code = e.code || '';
+  if (code === 'KeyB'){ toggleSide(); return true; }
+  if (code === 'KeyN'){ if (byId[cur] && byId[cur].status !== 'discarded') branch(cur); return true; }
+  if (code === 'ArrowUp' || code === 'ArrowDown'){
+    var o = order(), n = o.indexOf(cur) + (code === 'ArrowUp' ? -1 : 1);
+    if (n >= 0 && n < o.length) show(o[n]);
+    return true;
+  }
+  return false;
+}
+document.addEventListener('keydown', function(e){ if (key(e)) e.preventDefault(); });
+
+/* ---- The sidebar ---- */
+function toggleSide(){
+  var hide = !$('side').classList.contains('hidden');
+  $('side').classList.toggle('hidden', hide); store('side', hide ? 'hidden' : '');
+}
+$('bHide').onclick = toggleSide; $('showSide').onclick = toggleSide;
+if (store('side') === 'hidden') $('side').classList.add('hidden');
+var w = +store('sideW'); if (w) document.documentElement.style.setProperty('--side-w', w + 'px');
+$('sash').addEventListener('mousedown', function(e){
+  e.preventDefault(); $('sash').classList.add('drag'); document.body.classList.add('dragging');
+  var move = function(ev){ var x = Math.max(200, Math.min(ev.clientX, innerWidth * .6)); document.documentElement.style.setProperty('--side-w', x + 'px'); store('sideW', String(Math.round(x))); };
+  var up = function(){ $('sash').classList.remove('drag'); document.body.classList.remove('dragging'); removeEventListener('mousemove', move); removeEventListener('mouseup', up); };
+  addEventListener('mousemove', move); addEventListener('mouseup', up);
+});
+$('bBranch').onclick = function(){ if (byId[cur] && byId[cur].status !== 'discarded') branch(cur); };
+$('bGone').onclick = function(){ showGone = !showGone; store('gone', showGone ? '1' : '0'); drawTree(); };
+$('bHome').onclick = home;
+
+/* People and agents run git too: catch up with it now and then. */
+refresh();
+setInterval(function(){ if (!document.hidden) refresh(); }, 5000);
+/* `grove branch` and the other commands tell grove of their changes: catch
+   up at once, and say which ideas are new. */
+function watch(v){
+  fetch('/api/ideas/wait?v=' + v).then(function(r){ return r.json(); }).then(function(j){
+    if (v < 0 || j.v === v) return watch(j.v);
+    var had = byId;
+    refresh().then(function(){
+      if ('' in had) ideas.forEach(function(i){ if (!(i.id in had)) toast('New idea: ' + i.name + (byId[i.parent] ? ', from ' + byId[i.parent].name : ''), true); });
+    });
+    watch(j.v);
+  }).catch(function(){ setTimeout(function(){ watch(-1); }, 5000); });
+}
+watch(-1);
+addEventListener('focus', refresh);
+})();
+</script>
+</body>
+</html>

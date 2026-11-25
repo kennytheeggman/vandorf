@@ -924,17 +924,46 @@ pub fn project_json(
             let mut routes: Vec<Json> =
                 srv.routes.iter().map(|(r, p)| route(r, p, false)).collect();
             routes.extend(srv.raw.iter().map(|(r, p)| route(r, p, true)));
+            // Where each backend puts the server's main, as for bins.
+            let go = match &m.go {
+                MaybeGo::Some(g) => {
+                    let d = some_str(&srv.go)
+                        .map(|x| x.to_string())
+                        .unwrap_or_else(|| format!("{}/../cmd/{name}", g.out));
+                    let full = normalize(&root.join(d));
+                    Some(super::cli_leaf::relative(slash(&full).into(), p.root.clone()).unwrap())
+                }
+                MaybeGo::None => None,
+            };
+            let rust = match &m.rust {
+                MaybeRust::Some(_) => Some(
+                    some_str(&srv.rust)
+                        .cloned()
+                        .unwrap_or_else(|| format!("bin/{name}.rs").into()),
+                ),
+                MaybeRust::None => None,
+            };
+            // The executable the command line runs: cargo names a bin after
+            // its file, go build after its package's directory.
+            let stem = |f: &str| {
+                let f = f.trim_end_matches('/');
+                let f = f.rsplit('/').next().unwrap_or(f);
+                f.strip_suffix(".rs").unwrap_or(f).to_string()
+            };
+            let exe = match (&rust, &go) {
+                (Some(r), _) if stem(r) != "main" => stem(r),
+                (_, Some(g)) if !stem(g).is_empty() && stem(g) != "." => stem(g),
+                _ => name.to_string(),
+            };
+            let cli = some_str(&srv.cli).cloned();
             obj(vec![
                 ("name", Json::Str(name.clone())),
                 ("addr", Json::Str(srv.addr.clone())),
-                (
-                    "rust",
-                    Json::Str(
-                        some_str(&srv.rust)
-                            .cloned()
-                            .unwrap_or_else(|| format!("bin/{name}.rs").into()),
-                    ),
-                ),
+                ("exe", Json::Str(exe.into())),
+                ("go", go.map_or(Json::Null, |g| Json::Str(g.into()))),
+                ("rust", rust.map_or(Json::Null, Json::Str)),
+                ("cli", cli.clone().map_or(Json::Null, Json::Str)),
+                ("cli_at", cli.map_or(Json::Null, |c| at(&c))),
                 ("routes", Json::Arr(routes.into())),
                 (
                     "statics",

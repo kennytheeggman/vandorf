@@ -33,7 +33,7 @@ Rust isn't checked in, so the first build needs a bootstrap compiler; see
 
 ```
 rs/target/debug/vcc build        # regenerate rs/src/vcc, then cargo build
-export PATH="$PWD/rs/target/debug:$PATH"   # vcc and ide
+export PATH="$PWD/rs/target/debug:$PATH"   # vcc, ide and grove
 ```
 
 Then build and run the demo project:
@@ -176,6 +176,7 @@ Area collect each (Area) -> Step(f = { xs = this, r = { count = 0, total = 0.0, 
 - [Projects](docs/projects.md): `vandorf.toml`, the commands, implementations,
   generated code, executables and HTTP servers.
 - [The IDE](docs/ide.md).
+- [grove](docs/grove.md), the idea tree.
 - [Architecture](docs/architecture.md): how vcc is put together.
 - [Contributing](docs/contributing.md): building, testing and golden files.
 - [Bootstrapping](docs/bootstrapping.md).

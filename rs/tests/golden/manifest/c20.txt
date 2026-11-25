@@ -5,4 +5,4 @@ addr = "a"
 goo = "x"
 
 ---
-unknown field `goo`, expected one of `addr`, `setup`, `routes`, `raw`, `static`, `go`, `rust`
+unknown field `goo`, expected one of `addr`, `setup`, `cli`, `routes`, `raw`, `static`, `go`, `rust`

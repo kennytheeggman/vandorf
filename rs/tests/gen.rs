@@ -139,6 +139,7 @@ fn generates_http() {
                 name: "web-api".into(),
                 addr: "127.0.0.1:9".into(),
                 setup: setup.as_deref().unwrap_or("").into(),
+                cli: "".into(),
                 routes: v_routes(&routes),
                 raw: v_routes(&raw),
                 statics: vec![v::StaticFile { url: "/".into(), file: "../../web/index.html".into(), ctype: "text/html; charset=utf-8".into() }].into(),
@@ -147,7 +148,7 @@ fn generates_http() {
             let got = rust_generate(prog, vec![vsrv.clone()]);
             match &got.err {
                 v::MaybeStr::None => {
-                    let bin = vcc::vcc::run_rust_server(v::RustServerS { srv: vsrv, module_dir: v::MaybeStr::Some("app".into()), krate: "demo".into() }).unwrap();
+                    let bin = vcc::vcc::run_rust_server(v::RustServerS { prog: prog.clone(), srv: vsrv, module_dir: v::MaybeStr::Some("app".into()), krate: "demo".into() }).unwrap();
                     golden += &files_text([("http.rs".to_string(), &*got.http), ("mod.rs".to_string(), &*got.modrs), (format!("{}/{}", bin.dir, bin.file), &*bin.text)]);
                     n += 1;
                     with_setup += setup.is_some() as usize;
@@ -232,6 +233,7 @@ fn generates_go_servers() {
                 name: name.into(),
                 addr: "127.0.0.1:9".into(),
                 setup: if full { setup.as_deref().unwrap_or("") } else { "" }.into(),
+                cli: "".into(),
                 routes: v_routes(&routes),
                 raw: if full { v_routes(&raw) } else { v::List::default() },
                 statics: if full {
@@ -266,4 +268,46 @@ fn generates_go_servers() {
     }
     assert!(n > 15, "{n}");
     assert!(with_setup > 0, "no server with a setup generated");
+}
+
+/// A server's cli: run on a command instead of serving, in Rust and Go; a
+/// missing proc; one with the wrong signature.
+#[test]
+fn generates_cli_mains() {
+    let src = "func Say(s: string): void;\nproc Cli(argv: []string): void {\n\tCli -> Say(s = \"hi\");\n}\nproc Takes(n: int): void {\n\tTakes -> Say(s = \"hi\");\n}\nproc Gives(argv: []string): int {\n\tGives -> id(1);\n}\nproc Hi(): string {\n\tHi -> id(\"hi\");\n}\n";
+    let prog = common::analyze(&[src]).unwrap();
+    let mut golden = String::new();
+    for cli in ["Cli", "Missing", "Takes", "Gives"] {
+        golden += &format!("######## cli {cli}\n");
+        let routes = v_routes(&[("GET".to_string(), "/hi".to_string(), "Hi".to_string())]);
+        let vsrv = v::ServerSpec {
+            name: "web".into(),
+            addr: "127.0.0.1:9".into(),
+            setup: "".into(),
+            cli: cli.into(),
+            routes: routes.clone(),
+            raw: v::List::default(),
+            statics: v::List::default(),
+            path: "bin/web.rs".into(),
+        };
+        let bin = vcc::vcc::run_rust_server(v::RustServerS { prog: prog.clone(), srv: vsrv, module_dir: v::MaybeStr::Some("app".into()), krate: "demo".into() }).unwrap();
+        golden += &match &bin.err {
+            v::MaybeStr::None => files_text([(format!("{}/{}", bin.dir, bin.file), &*bin.text)]),
+            v::MaybeStr::Some(e) => format!("rust error: {e}\n"),
+        };
+        let go = vcc::vcc::run_go_generate(v::GoGenIn {
+            prog: prog.clone(),
+            package: "app".into(),
+            import_base: v::MaybeStr::Some("example.com/app".into()),
+            types_dir: "types".into(),
+            mains: v::List::default(),
+            servers: vec![v::GoServerSpec { name: "web".into(), addr: "127.0.0.1:9".into(), setup: "".into(), cli: cli.into(), routes, raw: v::List::default(), statics: v::List::default(), path: "cmd/web".into() }].into(),
+        })
+        .unwrap();
+        golden += &match go_text(go) {
+            Ok(text) => text.split("==== ").filter(|f| f.starts_with("cmd/web/")).map(|f| format!("==== {f}")).collect::<String>(),
+            Err(e) => format!("go error: {e}\n"),
+        };
+    }
+    common::check("gen-cli", "cli", &golden);
 }
