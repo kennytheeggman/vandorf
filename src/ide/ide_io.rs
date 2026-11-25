@@ -235,7 +235,7 @@ fn get(id: i64) -> Option<Arc<Term>> {
 }
 
 /// `PATH` with this executable's directory first.
-fn path_with_self() -> std::ffi::OsString {
+pub fn path_with_self() -> std::ffi::OsString {
     let mut dirs: Vec<PathBuf> = std::env::current_exe()
         .ok()
         .and_then(|e| e.parent().map(Path::to_path_buf))

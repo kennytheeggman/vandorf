@@ -439,14 +439,23 @@ pub fn unwrap_sections(r: ResSectionList) -> Result<List<Section>, String> {
 
 // ---- Interiors ----
 
-/// The interiors grove has itself: the terminal.
+/// The interiors grove has itself: the terminal, served by grove, and
+/// vandorf's IDE (`ide`), one per idea.
 pub fn built_ins(_n: i64) -> Result<List<Interior>, String> {
-    Ok(vec![Interior {
-        name: s("terminal"),
-        mode: s("builtin"),
-        start: s(""),
-        open: s("/terminal?idea={idea}"),
-    }]
+    Ok(vec![
+        Interior {
+            name: s("terminal"),
+            mode: s("builtin"),
+            start: s(""),
+            open: s("/terminal?idea={idea}"),
+        },
+        Interior {
+            name: s("ide"),
+            mode: s("per-worktree"),
+            start: s("ide --addr 127.0.0.1:{port}"),
+            open: s("{url}"),
+        },
+    ]
     .into())
 }
 
@@ -511,7 +520,7 @@ pub fn parse_interiors(text: Str, file: Str) -> Result<ResInteriorList, String> 
 }
 
 /// The interiors of a, with b's replacing a's of the same name, and b's
-/// others after them. A built-in can't be replaced.
+/// others after them. The terminal can't be replaced.
 pub fn merge_interiors(a: List<Interior>, b: List<Interior>) -> Result<List<Interior>, String> {
     let mut out: Vec<Interior> = a.to_vec();
     for x in b.iter() {

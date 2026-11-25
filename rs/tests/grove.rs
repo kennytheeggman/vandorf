@@ -79,7 +79,7 @@ fn ideas_are_branches_with_worktrees() {
     let tree = req("GET", "/api/ideas", "", "", "").body;
     let name = dir.file_name().unwrap().to_str().unwrap();
     assert!(tree.starts_with(&format!(r#"{{"ideas":[{{"branch":"main","fork":"","head":"{head}","id":"","name":"{name}","parent":null,"sections":[],"status":"active""#)), "{tree}");
-    assert!(tree.contains(r#""interiors":[{"mode":"builtin","name":"terminal"}]"#), "{tree}");
+    assert!(tree.contains(r#""interiors":[{"mode":"builtin","name":"terminal"},{"mode":"per-worktree","name":"ide"}]"#), "{tree}");
 
     // Branching: a branch idea/<id>, a worktree with its base, metadata.
     let a = id_of(&req("POST", "/api/ideas/branch", "", &token, r#"{"from": "", "name": "first try"}"#).body);
@@ -136,11 +136,12 @@ fn ideas_are_branches_with_worktrees() {
     let tree = req("GET", "/api/ideas", "", "", "").body;
     assert!(tree.contains(r#""id":"byhand","name":"byhand","parent":"","sections":[],"status":"discarded""#), "{tree}");
 
-    // Interiors from the repository's manifest, after the built-in one.
+    // Interiors from the repository's manifest: they can replace the IDE's
+    // entry, not the terminal's, and add their own after.
     let manifest = common.join("grove/interiors.toml");
-    std::fs::write(&manifest, "[interior.ide]\nmode = \"shared\"\nstart = \"ide --addr 127.0.0.1:{port}\"\n[interior.terminal]\nstart = \"no\"\n").unwrap();
+    std::fs::write(&manifest, "[interior.ide]\nmode = \"shared\"\nstart = \"ide --addr 127.0.0.1:{port}\"\n[interior.terminal]\nstart = \"no\"\n[interior.docs]\nstart = \"serve\"\n").unwrap();
     let tree = req("GET", "/api/ideas", "", "", "").body;
-    assert!(tree.contains(r#""interiors":[{"mode":"builtin","name":"terminal"},{"mode":"shared","name":"ide"}]"#), "{tree}");
+    assert!(tree.contains(r#""interiors":[{"mode":"builtin","name":"terminal"},{"mode":"shared","name":"ide"},{"mode":"per-worktree","name":"docs"}]"#), "{tree}");
     std::fs::write(&manifest, "[interior.ide]\nmode = \"sometimes\"\nstart = \"ide\"\n").unwrap();
     let bad = req("GET", "/api/ideas", "", "", "").body;
     assert!(bad.ends_with(r#"grove/interiors.toml: interior.ide.mode must be \"shared\" or \"per-worktree\", found \"sometimes\"","ok":false}"#), "{bad}");

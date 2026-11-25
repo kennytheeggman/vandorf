@@ -282,6 +282,7 @@ fn start(cmd: &str, dir: &str, port: i64) -> Result<Served, String> {
     };
     let mut child = c
         .current_dir(dir)
+        .env("PATH", super::ide_io::path_with_self())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -354,7 +355,8 @@ fn start(cmd: &str, dir: &str, port: i64) -> Result<Served, String> {
 }
 
 /// Gives the URL of the process kept as key, first starting cmd with the
-/// shell in dir if none is running: http://127.0.0.1:<port> once it accepts
+/// shell in dir if none is running, with grove's own directory first on the
+/// PATH (where `ide` is built): http://127.0.0.1:<port> once it accepts
 /// connections when port isn't 0, else the first http:// or https:// URL it
 /// prints. Waits up to 30 s.
 pub fn ensure(key: Str, cmd: Str, dir: Str, port: i64) -> Result<ResString, String> {

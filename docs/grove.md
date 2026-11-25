@@ -67,18 +67,21 @@ back is instant.
 
 ## Interiors
 
-An interior renders one worktree in an iframe. The terminal is built in: a
-shell on a pty in the idea's worktree, served by grove itself. The others
-come from manifests, the user's (`$XDG_CONFIG_HOME/grove/interiors.toml`,
+An interior renders one worktree in an iframe. Two are built in:
+
+- **terminal**: a shell on a pty in the idea's worktree, served by grove
+  itself.
+- **ide**: vandorf's IDE on the idea's worktree, one process per idea
+  (`ide --addr 127.0.0.1:{port}`). Interiors are started with grove's own
+  directory first on the `PATH`, so this finds the `ide` built next to
+  `grove`.
+
+The others come from manifests, the user's (`$XDG_CONFIG_HOME/grove/interiors.toml`,
 else `~/.config/grove/interiors.toml`) and then the repository's
 (`grove/interiors.toml` in the common git directory), which wins for a name
-both have:
+both have. A manifest can replace the `ide` entry, not the terminal's:
 
 ```toml
-[interior.ide]                 # vandorf's IDE, one per idea
-mode  = "per-worktree"
-start = "ide --addr 127.0.0.1:{port}"
-
 [interior.vscode]
 mode  = "per-worktree"
 start = "code-server --auth none --bind-addr 127.0.0.1:{port} {worktree}"

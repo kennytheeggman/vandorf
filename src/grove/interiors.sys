@@ -1,7 +1,8 @@
-// grove's interiors: what an idea's sections show, each in an iframe. The
-// terminal is built in, served by grove itself; the rest come from
-// manifests, the user's and then the repository's, each a table per
-// interior:
+// grove's interiors: what an idea's sections show, each in an iframe. Two
+// are built in: the terminal, served by grove itself, and vandorf's IDE,
+// `ide`, one per idea. The rest come from manifests, the user's and then
+// the repository's, each a table per interior (which can replace the IDE's
+// entry, not the terminal's):
 //
 //   [interior.vscode]
 //   mode  = "per-worktree"                 # one process per idea; "shared": one for all
@@ -30,7 +31,8 @@ interface Interiors {
 	// Finds a free port on 127.0.0.1.
 	func FreePort(n: int): int = "grove_io.rs:free_port";
 	// Gives the URL of the process kept as key, first starting cmd with the
-	// shell in dir if none is running: http://127.0.0.1:<port> once it accepts
+	// shell in dir if none is running, with grove's own directory first on the
+	// PATH (where `ide` is built): http://127.0.0.1:<port> once it accepts
 	// connections when port isn't 0, else the first http:// or https:// URL it
 	// prints. Waits up to 30 s.
 	func Ensure(key: string, cmd: string, dir: string, port: int): Res<string> = "grove_io.rs:ensure";
@@ -39,12 +41,13 @@ interface Interiors {
 	func Stop(worktree: string): int = "grove_io.rs:stop";
 }
 
-// The interiors grove has itself: the terminal.
+// The interiors grove has itself: the terminal, served by grove, and
+// vandorf's IDE (`ide`), one per idea.
 func BuiltIns(n: int): []Interior = "grove_leaf.rs:built_ins";
 // Reads a manifest's [interior.<name>] tables; an error names the file.
 func ParseInteriors(text: string, file: string): Res<[]Interior> = "grove_leaf.rs:parse_interiors";
 // The interiors of a, with b's replacing a's of the same name, and b's
-// others after them. A built-in can't be replaced.
+// others after them. The terminal can't be replaced.
 func MergeInteriors(a: []Interior, b: []Interior): []Interior = "grove_leaf.rs:merge_interiors";
 func FindInterior(xs: []Interior, name: string): MaybeInterior = "grove_leaf.rs:find_interior";
 // Whether a start command has a {port} for grove to fill.
