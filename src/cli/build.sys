@@ -51,14 +51,15 @@ proc ParseAll(s: { srcs: []string, i: int, file: File, errors: []Diag }): { file
 }
 
 func HasRust(m: Manifest): bool = "cli_leaf.rs:has_rust";
+func HasReact(m: Manifest): bool = "cli_leaf.rs:has_react";
 
 // Builds what the manifest configures: Go first, then Rust, each language's
-// library and the bins (all of them, or only `only`). Fails if it configures
-// neither.
+// library and the bins (all of them, or only `only`), then React's
+// TypeScript. Fails if it configures none of them.
 proc Build(s: { c: Checked, only: string }): string {
 	func GoOutDir(root: string, g: GoTarget): string = "cli_leaf.rs:go_out_dir";
 	Build switch {
-		(!this.s.c.project.manifest.has_go && !HasRust(m = this.s.c.project.manifest)) -> Fail(msg = "vandorf.toml: configure [go] and/or [rust] to build") as Neither,
+		(!this.s.c.project.manifest.has_go && !HasRust(m = this.s.c.project.manifest) && !HasReact(m = this.s.c.project.manifest)) -> Fail(msg = "vandorf.toml: configure [go], [rust] or [react] to build") as Neither,
 		else -> BinNames(bins = this.s.c.project.manifest.bins, only = this.s.only)
 	};
 	BinNames -> id(Build.s.c.project.manifest.go) as G;
@@ -69,9 +70,14 @@ proc Build(s: { c: Checked, only: string }): string {
 	GoBuild -> id(Build.s.c.project.manifest.rust) as R;
 	R switch {
 		Some(_) -> RustBuild(s = Build.s),
+		else -> id(Build.s.c.project.manifest.react) as T
+	};
+	RustBuild -> id(Build.s.c.project.manifest.react) as T;
+	T switch {
+		Some(t) -> ReactBuild(s = { c = Build.s.c, target = t }),
 		else -> id("built " + Build.s.c.project.manifest.name)
 	};
-	RustBuild -> id("built " + Build.s.c.project.manifest.name);
+	ReactBuild -> id("built " + Build.s.c.project.manifest.name);
 }
 
 // Rebases the program's implementation paths onto out, the Go output
@@ -217,18 +223,55 @@ proc RustBuild(s: { c: Checked, only: string }): string {
 	ImplWarnings -> Commands(s = { what = "post-build", cmds = UnwrapR(r = R).post, dir = RustBuild.s.c.project.root, i = 0 });
 }
 
+// Generates the project's TypeScript for [react]: types.ts, client.ts with a
+// typed function per route of each server (all of them, even for `vcc build
+// <bin>`: the client is a library), and hooks.ts. Writes them into [react]'s
+// out, unless that would overwrite a file vandorf didn't generate, then runs
+// [react]'s post commands.
+proc ReactBuild(s: { c: Checked, target: ReactTarget }): string {
+	func TsOutFiles(out: string, files: []TsFile): []OutFile = "cli_leaf.rs:ts_out_files";
+	ReactBuild -> TsServers(s = { m = this.s.c.project.manifest, names = this.s.c.project.manifest.http.keys, i = 0, acc = [] });
+	TsServers switch {
+		Ok(servers) -> TsGenerate(s = { prog = ReactBuild.s.c.prog, api_base = ReactBuild.s.target.api_base, servers = servers }),
+		Err(e) -> Fail(msg = e.msg) as SpecFailed
+	};
+	TsGenerate switch {
+		{ files = _, err = Some(e) } -> Fail(msg = e) as GenFailed,
+		else -> Guard(s = { files = TsOutFiles(out = JoinP(a = ReactBuild.s.c.project.root, b = ReactBuild.s.target.out), files = this.files), i = 0 })
+	};
+	Guard -> WriteAll(s = { files = TsOutFiles(out = JoinP(a = ReactBuild.s.c.project.root, b = ReactBuild.s.target.out), files = TsGenerate.files), i = 0 });
+	WriteAll -> Commands(s = { what = "post-build", cmds = ReactBuild.s.target.post, dir = ReactBuild.s.c.project.root, i = 0 });
+}
+
+// Gathers each server the client calls from its [http.*]: its name, its
+// setup and its routes (failing on one that's also a raw route, or isn't a
+// method and a path). Raw routes aren't JSON, so the client has none.
+proc TsServers(s: { m: Manifest, names: []string, i: int, acc: []TsServer }): Res<[]TsServer> {
+	func SetupName(d: ServerDecl): string = "cli_leaf.rs:setup_name";
+	TsServers switch {
+		(this.s.i == this.s.names.len) -> id(Ok(this.s.acc)),
+		else -> Routes(s = { name = this.s.names[this.s.i], routes = this.s.m.http[this.s.names[this.s.i]].routes, keys = this.s.m.http[this.s.names[this.s.i]].routes.keys, other = this.s.m.http[this.s.names[this.s.i]].raw, j = 0, acc = [] })
+	};
+	Routes switch {
+		Ok(routes) -> TsServers(s = { ..TsServers.s, i = TsServers.s.i + 1, acc = TsServers.s.acc + [{ name = TsServers.s.names[TsServers.s.i], setup = SetupName(d = TsServers.s.m.http[TsServers.s.names[TsServers.s.i]]), routes = routes }] }),
+		Err(e) -> id(Err(e))
+	};
+}
+
 // Runs `vcc test`: builds everything, then runs each language's test
-// commands, Go's then Rust's. Fails if there are none.
+// commands, Go's, Rust's, then React's. Fails if there are none.
 proc Test(s: Checked): string {
 	func GoTests(m: Manifest): []string = "cli_leaf.rs:go_tests";
 	func RustTests(m: Manifest): []string = "cli_leaf.rs:rust_tests";
+	func ReactTests(m: Manifest): []string = "cli_leaf.rs:react_tests";
 	Test -> Build(s = { c = this.s, only = "" });
 	Build switch {
-		(GoTests(m = Test.s.project.manifest).len == 0 && RustTests(m = Test.s.project.manifest).len == 0) -> Fail(msg = "vandorf.toml: no tests: add test = [..] to [go] or [rust]") as NoTests,
+		(GoTests(m = Test.s.project.manifest).len == 0 && RustTests(m = Test.s.project.manifest).len == 0 && ReactTests(m = Test.s.project.manifest).len == 0) -> Fail(msg = "vandorf.toml: no tests: add test = [..] to [go], [rust] or [react]") as NoTests,
 		else -> Commands(s = { what = "test", cmds = GoTests(m = Test.s.project.manifest), dir = Test.s.project.root, i = 0 }) as GoRun
 	};
 	GoRun -> Commands(s = { what = "test", cmds = RustTests(m = Test.s.project.manifest), dir = Test.s.project.root, i = 0 }) as RustRun;
-	RustRun -> id("tested " + Test.s.project.manifest.name);
+	RustRun -> Commands(s = { what = "test", cmds = ReactTests(m = Test.s.project.manifest), dir = Test.s.project.root, i = 0 }) as ReactRun;
+	ReactRun -> id("tested " + Test.s.project.manifest.name);
 }
 
 // Runs shell commands in order in dir, announcing each on stderr; the first

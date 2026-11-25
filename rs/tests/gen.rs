@@ -311,3 +311,91 @@ fn generates_cli_mains() {
     }
     common::check("gen-cli", "cli", &golden);
 }
+
+fn ts_generate(prog: &v::Program, api_base: &str, servers: Vec<v::TsServer>) -> v::TsOut {
+    vcc::vcc::run_ts_generate(v::TsGenIn { prog: prog.clone(), api_base: api_base.into(), servers: servers.into() }).unwrap()
+}
+
+fn ts_server(name: &str, setup: &str, routes: &[Route]) -> v::TsServer {
+    v::TsServer { name: name.into(), setup: setup.into(), routes: v_routes(routes) }
+}
+
+/// The TypeScript backend's files as golden text, each file's fixed runtime
+/// (from `// ---- The runtime` on) left out but checked to be the same every
+/// time, against tests/golden/gen-ts/runtime.txt; or its error.
+fn ts_text(out: v::TsOut, runtimes: &mut Vec<String>) -> String {
+    if let v::MaybeStr::Some(e) = out.err {
+        return format!("error: {e}\n");
+    }
+    let files: Vec<(String, String)> = out
+        .files
+        .iter()
+        .map(|f| {
+            let text = f.text.to_string();
+            match text.split_once("\n// ---- The runtime") {
+                Some((head, runtime)) => {
+                    runtimes.push(format!("==== {}\n// ---- The runtime{runtime}", f.name));
+                    (f.name.to_string(), format!("{head}\n// (the runtime)\n"))
+                }
+                None => (f.name.to_string(), text),
+            }
+        })
+        .collect();
+    files_text(files.iter().map(|(n, t)| (n.clone(), t.as_str())))
+}
+
+/// Checks that every runtime seen is the one recorded.
+fn check_ts_runtimes(runtimes: Vec<String>) {
+    let mut kinds: Vec<String> = runtimes.clone();
+    kinds.sort();
+    kinds.dedup();
+    assert_eq!(kinds.len(), 2, "client.ts's and hooks.ts's runtimes vary between programs");
+    common::check("gen-ts", "runtime", &kinds.concat());
+}
+
+#[test]
+fn generates_typescript() {
+    let (mut n, mut runtimes) = (0, vec![]);
+    for (name, prog) in &programs() {
+        // Every top-level proc routed (half GET, half POST); a route to a
+        // missing proc; no routes.
+        let mut golden = String::new();
+        for (setup, routes, raw) in server_cases(&top_procs(prog)).into_iter().take(3) {
+            golden += &format!("######## routes {routes:?}\n");
+            assert!(setup.is_none() && raw.len() <= 1);
+            let got = ts_generate(prog, "", vec![ts_server("web-api", "", &routes)]);
+            n += matches!(got.err, v::MaybeStr::None) as usize;
+            golden += &ts_text(got, &mut runtimes);
+        }
+        common::check("gen-ts", name, &golden);
+    }
+    assert!(n > 30, "{n}");
+    check_ts_runtimes(runtimes);
+}
+
+/// How the client names and calls routes: GET and POST, no parameters, a
+/// void result, reserved names, a setup's ctx left out, two servers, and
+/// routes whose functions would clash.
+#[test]
+fn generates_typescript_routes() {
+    let src = "type Ctx = { n: int };\nfunc Log(s: string): void;\nproc Setup(): Ctx {\n\tSetup -> id({ n = 1 });\n}\nproc Count(ctx: Ctx, by: int): int {\n\tCount -> id(this.ctx.n + this.by);\n}\nproc Delete(ids: []int, tags: map[string]bool): void {\n\tDelete -> Log(s = \"x\");\n}\nproc Now(): float {\n\tNow -> id(1.5);\n}\nproc delete(): int {\n\tdelete -> id(1);\n}\n";
+    let prog = common::analyze(&[src]).unwrap();
+    let route = |m: &str, p: &str, proc: &str| (m.to_string(), p.to_string(), proc.to_string());
+    let cases: Vec<(&str, Vec<v::TsServer>)> = vec![
+        ("two servers, one with a setup", vec![
+            ts_server("api", "Setup", &[route("GET", "/count", "Count"), route("POST", "/delete", "Delete")]),
+            ts_server("clock", "", &[route("GET", "/now", "Now")]),
+        ]),
+        ("a proc routed twice", vec![ts_server("api", "", &[route("GET", "/now", "Now"), route("POST", "/now", "Now")])]),
+        ("two servers routing one proc", vec![ts_server("a", "", &[route("GET", "/now", "Now")]), ts_server("b", "", &[route("GET", "/now", "Now")])]),
+        ("procs whose names differ in their first letter's case", vec![ts_server("api", "", &[route("POST", "/a", "Delete"), route("POST", "/b", "delete")])]),
+        ("a missing proc", vec![ts_server("api", "", &[route("GET", "/x", "Missing")])]),
+    ];
+    let mut golden = String::new();
+    let mut runtimes = vec![];
+    for (what, servers) in cases {
+        golden += &format!("######## {what}\n");
+        golden += &ts_text(ts_generate(&prog, "http://127.0.0.1:8099", servers), &mut runtimes);
+    }
+    common::check("gen-ts", "routes", &golden);
+}

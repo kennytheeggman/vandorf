@@ -651,13 +651,14 @@ one namespace. -C <dir>, anywhere in a command, runs it as if started in <dir>.
 
 build generates what the manifest configures: [go] and [rust] libraries (the
 types and the procs), an executable per [bin.<name>] running its entry proc
-with the command-line arguments, and per [http.<name>] a server for each
-language (which takes --addr to listen elsewhere). Impl paths in
-`= \"file:function\"` are relative to the .sys file naming them; each backend
-uses the reference with its extension (.go / .rs). After generating a
-language, build runs that language's `post` commands; test runs each
-language's `test` commands. They run in the manifest's directory; the first
-that fails fails the command.
+with the command-line arguments, per [http.<name>] a server for each
+language (which takes --addr to listen elsewhere), and for [react] the
+types, a typed client of the servers and React hooks in TypeScript. Impl
+paths in `= \"file:function\"` are relative to the .sys file naming them;
+each backend uses the reference with its extension (.go / .rs). After
+generating a language, build runs that language's `post` commands; test
+runs each language's `test` commands. They run in the manifest's directory;
+the first that fails fails the command.
 
 The IDE is the ide executable built alongside vcc: ide [--addr 127.0.0.1:8080],
 on the working directory. It offers terminals only when listening on a
@@ -1320,6 +1321,31 @@ pub fn defines_fn(src: Str, function: Str, keyword: Str) -> Result<bool, String>
 
 pub fn has_rust(m: Manifest) -> Result<bool, String> {
     Ok(matches!(m.rust, MaybeRust::Some(_)))
+}
+
+pub fn has_react(m: Manifest) -> Result<bool, String> {
+    Ok(matches!(m.react, MaybeReact::Some(_)))
+}
+
+pub fn react_tests(m: Manifest) -> Result<List<Str>, String> {
+    Ok(match m.react {
+        MaybeReact::Some(r) => r.test,
+        MaybeReact::None => List::default(),
+    })
+}
+
+pub fn ts_out_files(out: Str, files: List<TsFile>) -> Result<List<OutFile>, String> {
+    files
+        .iter()
+        .map(|f| {
+            Ok(OutFile {
+                path: join(out.clone(), f.name.clone())?,
+                text: f.text.clone(),
+                kind: f.kind.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()
+        .map(List::from)
 }
 
 pub fn go_tests(m: Manifest) -> Result<List<Str>, String> {
