@@ -76,3 +76,41 @@ Other pages:
 Writes and terminals need the per-run token the pages are served with, so
 other sites can't drive them. On a loopback address the IDE also requires a
 loopback `Host`, against DNS rebinding.
+
+## Editors
+
+An editor's git gutter can compare against the worktree's base,
+`refs/worktree/base` (see [Comparing revisions](projects.md#the-base)),
+instead of the index. Set the base first (`vcc base <rev>`; grove sets it
+for each idea): while the ref is unset there's nothing to compare against.
+
+**vim-gitgutter**, in your vimrc (or `b:gitgutter_diff_base` for one
+buffer):
+
+```vim
+let g:gitgutter_diff_base = 'refs/worktree/base'
+```
+
+gitgutter names the base in the `git show` it runs when it updates a
+buffer's signs. After moving the base, `:GitGutterAll` updates every
+buffer at once.
+
+**gitsigns.nvim**, once it's set up:
+
+```lua
+require('gitsigns').change_base('refs/worktree/base', true)
+```
+
+`true` applies it to every buffer, including ones opened later. Run it again
+after moving the base, so every buffer is compared against the new commit,
+for instance from a command:
+
+```lua
+vim.api.nvim_create_user_command('VccBase', function(o)
+  if o.args ~= '' then vim.fn.system({ 'vcc', 'base', o.args }) end
+  require('gitsigns').change_base('refs/worktree/base', true)
+end, { nargs = '?' })
+```
+
+For clients that can't be pointed at a ref, there's `vcc review`
+([Reviewing in other git clients](projects.md#reviewing-in-other-git-clients)).
