@@ -13,7 +13,10 @@ ide --addr 127.0.0.1:9000
 - **Explorer** (left): every `.sys` file under the directory, grouped by
   project, with the procs in each (the `ƒ` button lists funcs, types and
   interfaces too). Click a proc to open its diagram; click a project for its
-  overview: its manifest, entry points, files and counts.
+  overview: its manifest, entry points, files and counts. An HTTP server's
+  entry shows the command that starts it (`api [--addr host:port]`, the
+  executable named after its Rust bin or Go package), and with a `cli` the
+  proc a command runs instead (`grove <command> [args…]` → `GroveCli`).
 - **Tabs** (centre): a proc each, as a **diagram** or as **text**, compiled
   as you type. A file is compiled together with the rest of its project.
   Diagnostics show in place, with the same messages as `vcc check`.

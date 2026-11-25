@@ -234,7 +234,17 @@ function render(){
   p.servers.forEach(function(s){
     h.push('<div class="card wide" style="margin-top:10px"><h3><span class="tag">http</span>' + esc(s.name) +
       ' <code style="font-weight:400;color:var(--mut)">' + esc(s.addr) + '</code></h3>' +
-      '<div class="kv"><span class="k">Rust</span><span><code>src/' + esc(s.rust) + '</code></span></div>');
+      '<div class="kv">' +
+      // How the command line starts it: the executable serves, on --addr
+      // if given; with a cli, a command (not a flag) runs that proc instead.
+      '<span class="k">command</span><span><code title="Serves on ' + esc(s.addr) + ' unless given --addr">' +
+        esc(s.exe) + ' [--addr host:port]</code></span>' +
+      (s.cli ? '<span class="k">commands</span><span><code title="A first argument that is a command, -h or --help runs the proc instead of serving">' +
+        esc(s.exe) + ' &lt;command&gt; [args&hellip;]</code> &rarr; ' + procRef(s.cli, s.cli_at) + '</span>' : '') +
+      (s.go ? '<span class="k">Go</span><span><code>' + esc(s.go) + '</code></span>' : '') +
+      (s.rust ? '<span class="k">Rust</span><span><code>src/' + esc(s.rust) + '</code></span>' : '') +
+      (!s.go && !s.rust ? '<span class="k">built</span><span class="dflt">no backend configured</span>' : '') +
+      '</div>');
     var rows = s.routes.map(function(r){
       return '<tr><td class="m"><span class="method ' + esc(r.method) + '">' + esc(r.method || '*') + '</span></td>' +
         '<td class="p">' + esc(r.path) + '</td><td class="a">→</td><td>' + procRef(r.proc, r.at) +

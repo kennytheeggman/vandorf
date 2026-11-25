@@ -59,3 +59,28 @@ fn reads_sources_and_compiles() {
     let e = req("POST", "/api/compile", &[], &[], r#"{"source": "proc P(): int { func A(): string; P -> A(); }"}"#);
     assert!(e.body.contains(r#""diagnostics":[{"file":"<editor>","from":{"ch":5,"line":0},"here":true,"msg":"P.A ends proc P but returns string, expected int""#), "{}", e.body);
 }
+
+#[test]
+fn overview_shows_each_servers_command_line() {
+    // A project under the working directory, so the IDE serves it.
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("ide-overview");
+    std::fs::create_dir_all(dir.join("sys")).unwrap();
+    std::fs::write(dir.join("sys/a.sys"), "// Runs a command.\nproc Cli(argv: []string): void { func Out(argv: []string): void; Cli -> Out(argv = this.argv); }\nproc Page(n: int): int { func A(n: int): int; Page -> A(n = this.n); }\n").unwrap();
+    std::fs::write(
+        dir.join("vandorf.toml"),
+        "[project]\nname = \"o\"\nsources = [\"sys\"]\n[go]\nout = \"go/app\"\n[rust]\nout = \"rs/src/app\"\n\
+         [http.web]\naddr = \"127.0.0.1:1\"\ncli = \"Cli\"\nroutes = { \"GET /p\" = \"Page\" }\n\
+         [http.api]\naddr = \"127.0.0.1:2\"\nrust = \"bin/apid.rs\"\n",
+    )
+    .unwrap();
+    let cwd = std::env::current_dir().unwrap();
+    let rel = dir.strip_prefix(dunce::canonicalize(&cwd).unwrap()).or_else(|_| dir.strip_prefix(&cwd)).unwrap();
+    let res = req("GET", "/api/project", &[("dir", rel.to_str().unwrap())], &[], "");
+    assert_eq!(res.status, 200, "{}", res.body);
+    let b = &res.body;
+    // A server with a cli: its executable, and the proc a command runs.
+    assert!(b.contains(r#""exe":"web""#) && b.contains(r#""go":"go/cmd/web""#) && b.contains(r#""rust":"bin/web.rs""#), "{b}");
+    assert!(b.contains(r#""cli":"Cli","cli_at":{"doc":"Runs a command.","line":1,"path":"target/tmp/ide-overview/sys/a.sys"}"#), "{b}");
+    // Without: its executable named after its Rust bin.
+    assert!(b.contains(r#""exe":"apid""#) && b.contains(r#""cli":null,"cli_at":null"#), "{b}");
+}
