@@ -84,3 +84,14 @@ fn overview_shows_each_servers_command_line() {
     // Without: its executable named after its Rust bin.
     assert!(b.contains(r#""exe":"apid""#) && b.contains(r#""cli":null,"cli_at":null"#), "{b}");
 }
+
+
+#[test]
+fn previews_python() {
+    let result = req("POST", "/api/compile", &[], &[],
+        r#"{"source":"proc Main(n: int): int { Main -> id(this.n + 1); }"}"#);
+    assert_eq!(result.status, 200);
+    let python = result.body.split_once(r#""python":"#).expect("Python preview").1;
+    assert!(python.starts_with(r#"{"artifacts":"#), "{}", &python[..python.len().min(250)]);
+    assert!(python.contains("def run_main(") && python.contains("py/main.py"));
+}

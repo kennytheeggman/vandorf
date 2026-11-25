@@ -1,7 +1,7 @@
 # vandorf
 
 vandorf is a language for a program's control flow. A program is a set of
-**procs**, each a graph: its nodes are **funcs**, implemented in Go or Rust,
+**procs**, each a graph: its nodes are **funcs**, implemented in Go, Rust, or Python,
 and its edges say what runs next and with what. The compiler checks the graph
 (types, every read sees a node that ran, switches cover every case) and
 generates the control flow as code for both languages, together with a
@@ -12,14 +12,14 @@ What it's for:
 - **Control flow you can see.** The graph is the source, so the diagram
   can't drift from the code: loops, switches, for-each regions and
   concurrent branches are drawn as they run.
-- **Implementations stay ordinary code.** Funcs are plain Go and Rust
+- **Implementations stay ordinary code.** Funcs are plain Go, Rust, and Python
   functions with generated signatures and types; the compiler writes the
   state machines that call them, so your code stays small, pure and
   testable. A func's declaration, with its doc comment, is the spec of its
   implementation, and `vcc build` checks each one against it.
-- **One program, two backends.** The same `.sys` builds a Go package and a
-  Rust module with the same types, behaviour, executables and HTTP
-  servers.
+- **One program, three backends.** The same `.sys` builds a Go package, a
+  Rust module, and a Python package with the same types, behavior,
+  executables, and HTTP servers.
 
 vcc, the compiler, is itself written in vandorf (`src/`) and builds itself.
 
@@ -27,7 +27,8 @@ vcc, the compiler, is itself written in vandorf (`src/`) and builds itself.
 
 ## Getting started
 
-You need Rust (for vcc), and Go if you build the Go backend. vcc's generated
+You need Rust for vcc, Go for the Go backend, and Python 3.10 or later
+to run the Python backend. vcc's generated
 Rust isn't checked in, so the first build needs a bootstrap compiler; see
 [Bootstrapping](docs/bootstrapping.md). After that, vcc rebuilds itself:
 
@@ -41,9 +42,10 @@ Then build and run the demo project:
 ```
 cd examples/demo
 vcc check                        # check the project in vandorf.toml
-vcc build                        # generate Go and Rust, build both
+vcc build                        # build all configured backends
 (cd go && go run ./cmd/calc 3)   # 115
 (cd rs && cargo run --bin calc -- 3)
+python3 py/calc.py 3             # 115
 ide                              # the IDE on http://127.0.0.1:8080
 ```
 
@@ -160,7 +162,7 @@ proc Classify(e: Expr): string {
 
 **For each, and an HTTP route.** `Area` runs once per shape and its results
 are collected into an array; `Step` folds them into a report. The demo's
-`[http.api]` serves this proc as `POST /api/measure`, in Go and in Rust.
+`[http.api]` serves this proc as `POST /api/measure`, in Go, Rust, and Python.
 
 ![Measure: a for each region and a fold](docs/images/measure.png)
 

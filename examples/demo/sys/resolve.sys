@@ -8,10 +8,10 @@ type Scope = map[string]{ slot: int, kind: string };
 // names are known.
 proc Resolve(names: []string, query: string): string {
 	// Gives each name its index as a slot.
-	func Declare(names: []string, query: string): { scope: Scope, query: string } = "../go/app/impl.go:Declare", "../rs/src/impls.rs:declare";
-	func Adjust(scope: Scope, query: string): { scope: Scope, query: string } = "../go/app/impl.go:Adjust", "../rs/src/impls.rs:adjust";
-	func Found(name: string, slot: int, kind: string, total: int): string = "../go/app/impl.go:Found", "../rs/src/impls.rs:found";
-	func Missing(name: string, known: []string): string = "../go/app/impl.go:Missing", "../rs/src/impls.rs:missing";
+	func Declare(names: []string, query: string): { scope: Scope, query: string } = "../go/app/impl.go:Declare", "../rs/src/impls.rs:declare", "../py/impls.py:declare";
+	func Adjust(scope: Scope, query: string): { scope: Scope, query: string } = "../go/app/impl.go:Adjust", "../rs/src/impls.rs:adjust", "../py/impls.py:adjust";
+	func Found(name: string, slot: int, kind: string, total: int): string = "../go/app/impl.go:Found", "../rs/src/impls.rs:found", "../py/impls.py:found";
+	func Missing(name: string, known: []string): string = "../go/app/impl.go:Missing", "../rs/src/impls.rs:missing", "../py/impls.py:missing";
 
 	// Add a builtin after the declared names, and drop `tmp`.
 	Resolve -> Declare(names = this.names, query = this.query);

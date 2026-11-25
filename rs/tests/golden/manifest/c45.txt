@@ -1,0 +1,8 @@
+[project]
+name = "x"
+[python]
+out = "py/app"
+test = 1
+
+---
+invalid type: integer `1`, expected a sequence

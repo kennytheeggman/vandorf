@@ -206,8 +206,8 @@ A -> spawn { Fetch(url = this.a), Fetch(url = this.b) as F2, detach Log(line = "
   is the join's alone.
 
 Rust runs branches on threads (joined ones scoped to the step), Go on
-goroutines (detached ones outlive the request's cancellation). The diagram
-draws a spawn as a row of dotted cells, detached ones faded.
+goroutines, and Python on threads. Detached branches in Python run
+for the lifetime of the process. The diagram draws a spawn as a row of dotted cells, detached ones faded.
 
 ## Switches
 
@@ -245,13 +245,17 @@ arm heads on the way (`Lit(n) → else`).
 
 ## Types
 
-| Type | Written | Go | Rust |
-|---|---|---|---|
-| primitives | `int`, `float`, `bool`, `string`, `void` | `int`, `float64`, `bool`, `string` | `i64`, `f64`, `bool`, `Str` (`Arc<str>`) |
-| arrays | `[]T` | `[]T` | `List<T>` (a shared `Vec`) |
-| maps | `map[K]V`, `K` `int` or `string` | `map[K]V` | `Map<K, V>` (a shared `BTreeMap`) |
-| structs | `{ a: int, b: string }` | a named struct | a named struct |
-| enums | `enum { A, B(T) }` | a struct with a `Tag` and a field per variant | a named enum |
+| Type | Written | Go | Rust | Python |
+|---|---|---|---|---|
+| primitives | `int`, `float`, `bool`, `string`, `void` | `int`, `float64`, `bool`, `string` | `i64`, `f64`, `bool`, `Str` (`Arc<str>`) | `int`, `float`, `bool`, `str`, `None` |
+| arrays | `[]T` | `[]T` | `List<T>` (a shared `Vec`) | `tuple[T, ...]` |
+| maps | `map[K]V`, `K` `int` or `string` | `map[K]V` | `Map<K, V>` (a shared `BTreeMap`) | `dict[K, V]`, copied when passed to an implementation |
+| structs | `{ a: int, b: string }` | a named struct | a named struct | a frozen dataclass |
+| enums | `enum { A, B(T) }` | a struct with a `Tag` and a field per variant | a named enum | a base class with a frozen dataclass per variant |
+
+In Python, construct a variant with `Choice.B(payload)` and match it with
+`case Choice.B(payload):` after importing `Choice` from the generated
+`types` module.
 
 Every struct or enum shape gets one generated name, taken from where it
 first appears or from its typedef; equal shapes share it. Field, parameter
@@ -325,7 +329,7 @@ Adjust switch {
   (an array, e.g. `["tmp"]`).
 - `xs + ys` is a new array with both (`acc + [x]` to append).
 - `.len` of maps, arrays and strings; `.keys` and `.values` of maps, in key
-  order, so `for each (this.m.keys)` visits keys in the same order in both
+  order, so `for each (this.m.keys)` visits keys in the same order across
   backends. A `for each` takes any array expression.
 - Implementations must not change a map they're given (Go maps are
   references).

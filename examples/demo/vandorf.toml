@@ -1,5 +1,5 @@
-# The demo project: `vandorf build` here generates both backends and both
-# bins. Impl paths in sys/*.sys are relative to sys/.
+# The demo project: `vcc build` here generates all three backends and both bins.
+# Impl paths in sys/*.sys are relative to sys/.
 [project]
 name = "demo"
 sources = ["sys"]
@@ -11,6 +11,11 @@ post = ["go build -C ./go ./cmd/demo", "go build -C ./go ./cmd/calc", "go build 
 [rust]
 out = "rs/src/app"
 post = ["cargo build --manifest-path rs/Cargo.toml"]
+
+[python]
+out = "py/app"
+post = ["python3 -m compileall -q py/app"]
+test = ["python3 -m unittest discover -s py"]
 
 [bin.demo]                   # go/cmd/demo, rs/src/bin/demo.rs
 entry = "Main"

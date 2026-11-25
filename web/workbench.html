@@ -105,11 +105,13 @@ td code{ font:12px ui-monospace,monospace; white-space:pre-wrap; word-break:brea
       <button data-pane="vizPane" class="on">Diagram</button>
       <button data-pane="goPane">Go</button>
       <button data-pane="rustPane">Rust</button>
+      <button data-pane="pythonPane">Python</button>
       <button data-pane="implPane">Implementations</button>
     </nav>
     <div class="pane on" id="vizPane"><iframe id="viz" src="/viz" title="Visualizer"></iframe></div>
     <div class="pane" id="goPane"><div class="files"></div><pre class="code empty">Compile to see generated Go.</pre></div>
     <div class="pane" id="rustPane"><div class="files"></div><pre class="code empty">Compile to see generated Rust.</pre></div>
+    <div class="pane" id="pythonPane"><div class="files"></div><pre class="code empty">Compile to see generated Python.</pre></div>
     <div class="pane" id="implPane"><div class="empty">Compile to see implementation references.</div></div>
   </section>
 </main>
@@ -209,14 +211,17 @@ function show(res){
     return;
   }
   d.classList.remove('on'); d.innerHTML = '';
-  var go = res.go || {}, rust = res.rust || {};
-  var failed = [go.ok ? null : 'Go', rust.ok ? null : 'Rust'].filter(Boolean);
+  var go = res.go || {}, rust = res.rust || {}, python = res.python || {};
+  var failed = [[go, 'Go'], [rust, 'Rust'], [python, 'Python']].filter(function(x){
+    return !x[0].ok && !/^not configured/.test(x[0].error || '');
+  }).map(function(x){ return x[1]; });
   setStatus('OK — ' + res.grids + ' proc grid' + (res.grids === 1 ? '' : 's') +
     (failed.length ? ' · ' + failed.join(', ') + ' codegen failed' : ''), failed.length ? 'bad' : 'ok');
   lastDoc = res; pushDoc();
   showCode('goPane', 'go', go);
   showCode('rustPane', 'rust', rust);
-  showImpls(go, rust);
+  showCode('pythonPane', 'python', python);
+  showImpls(go, rust, python);
 }
 
 /* Each backend output has two artifacts, types and code; files are listed as
@@ -248,7 +253,7 @@ function showCode(paneId, lang, out){
   select(cur);
 }
 
-function showImpls(go, rust){
+function showImpls(go, rust, python){
   var p = $('implPane');
   function section(title, out, stubRe, note){
     if (!out.ok) return '<h3>' + title + '</h3><div class="empty">' + esc(out.error) + '</div>';
@@ -267,7 +272,9 @@ function showImpls(go, rust){
     section('Go', go, /^func (unimplemented\w+)/gm,
       'Paths are relative to the code package. Preview assumes package <code>app</code> at <code>example.com/app</code>, types at <code>example.com/app/types</code>; <code>vcc build</code> resolves the real paths from go.mod.') +
     section('Rust', rust, /^fn (unimplemented_\w+)/gm,
-      'Paths are relative to the generated module. Preview assumes it is <code>src/app</code> (<code>crate::app</code>); <code>vcc build</code> resolves it from Cargo.toml.');
+      'Paths are relative to the generated module. Preview assumes it is <code>src/app</code> (<code>crate::app</code>); <code>vcc build</code> resolves it from Cargo.toml.') +
+    (python.ok ? '<h3>Python</h3>' + (python.warnings || []).map(function(w){ return '<p><code>' + esc(w) + '</code></p>'; }).join('') :
+      '<h3>Python</h3><div class="empty">' + esc(python.error) + '</div>');
 }
 
 $('compile').addEventListener('click', compile);

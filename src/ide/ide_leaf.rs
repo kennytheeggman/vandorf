@@ -620,6 +620,7 @@ pub fn nominal_mains(prog: Program) -> Result<Map<Str, Bin>, String> {
                 entry: s("Main"),
                 go: MaybeStr::None,
                 rust: MaybeStr::Some(s("main.rs")),
+                python: MaybeStr::None,
             },
         )])
     } else {
@@ -1022,6 +1023,117 @@ pub fn project_json(
                 ("funcs", Json::Num(n.1)),
                 ("types", Json::Num(n.2)),
             ]),
+        ),
+    ]))
+}
+
+/// Previews the generated Python package and launchers without writing files.
+pub fn python_preview(unit: Unit, prog: Program) -> Result<Json, String> {
+    use super::{cli_leaf, python_leaf};
+    let fail = |e| obj(vec![("ok", Json::Bool(false)), ("error", Json::Str(e))]);
+    let input = match unit.project {
+        MaybeProject::Some(p) => {
+            let MaybePython::Some(target) = &p.manifest.python else {
+                return Ok(fail(s("not configured in vandorf.toml")));
+            };
+            let out = cli_leaf::join(p.root.clone(), target.out.clone())?;
+            let prog = cli_leaf::rebased_to(
+                Checked {
+                    project: p.clone(),
+                    prog,
+                },
+                out.clone(),
+            )?;
+            let specs = p
+                .manifest
+                .http
+                .iter()
+                .map(|(name, server)| -> Result<GoServerSpec, String> {
+                    let routes = |m: &Map<Str, Str>| -> Result<List<Route>, String> {
+                        let mut routes = Vec::new();
+                        for (key, proc) in m.iter() {
+                            routes.extend(
+                                cli_leaf::split_route(key.clone(), proc.clone())?
+                                    .iter()
+                                    .cloned(),
+                            );
+                        }
+                        Ok(routes.into())
+                    };
+                    Ok(GoServerSpec {
+                        name: name.clone(),
+                        addr: server.addr.clone(),
+                        setup: cli_leaf::setup_name(server.clone())?,
+                        cli: cli_leaf::cli_name(server.clone())?,
+                        routes: routes(&server.routes)?,
+                        raw: routes(&server.raw)?,
+                        statics: List::default(),
+                        path: s(""),
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            PythonInput {
+                prog,
+                out,
+                root: p.root,
+                check_impls: false,
+                bins: p.manifest.bins,
+                http: p.manifest.http,
+                servers: specs.into(),
+                only: s(""),
+            }
+        }
+        MaybeProject::None => PythonInput {
+            bins: nominal_mains(prog.clone())?,
+            prog,
+            out: s("py/app"),
+            root: s("."),
+            check_impls: false,
+            http: Map::default(),
+            servers: List::default(),
+            only: s(""),
+        },
+    };
+    let root = input.root.clone();
+    let output = python_leaf::generate(input)?;
+    if let MaybeStr::Some(e) = output.error {
+        return Ok(fail(e));
+    }
+    let mut artifacts = Vec::new();
+    for kind in ["types", "code", "main"] {
+        let files = output
+            .files
+            .iter()
+            .filter(|f| &*f.kind == kind)
+            .map(|f| {
+                Ok((
+                    cli_leaf::relative(f.path.clone(), root.clone())?,
+                    Json::Str(f.text.clone()),
+                ))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        if !files.is_empty() {
+            artifacts.push(obj(vec![
+                ("kind", Json::Str(s(kind))),
+                ("dir", Json::Str(s(""))),
+                (
+                    "files",
+                    Json::Obj(
+                        files
+                            .into_iter()
+                            .map(|(key, value)| JsonField { key, value })
+                            .collect(),
+                    ),
+                ),
+            ]));
+        }
+    }
+    Ok(obj(vec![
+        ("ok", Json::Bool(true)),
+        ("artifacts", Json::Arr(artifacts.into())),
+        (
+            "warnings",
+            Json::Arr(output.warnings.iter().cloned().map(Json::Str).collect()),
         ),
     ]))
 }

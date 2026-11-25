@@ -311,3 +311,50 @@ fn generates_cli_mains() {
     }
     common::check("gen-cli", "cli", &golden);
 }
+
+fn python_generate(prog: v::Program) -> v::PythonOutput {
+    vcc::vcc::run_python_code(v::PythonInput {
+        prog,
+        out: "py/app".into(),
+        root: ".".into(),
+        check_impls: false,
+        bins: Default::default(),
+        http: Default::default(),
+        servers: Default::default(),
+        only: "".into(),
+    })
+    .unwrap()
+}
+
+#[test]
+fn generates_python() {
+    let mut failures = Vec::new();
+    let temp = std::env::temp_dir().join(format!("vcc-gen-python-{}", std::process::id()));
+    std::fs::create_dir_all(&temp).unwrap();
+    for (name, prog) in programs() {
+        let result = python_generate(prog);
+        if let v::MaybeStr::Some(error) = &result.error {
+            failures.push(format!("{name}: {error}"));
+            continue;
+        }
+        let case = temp.join(&name);
+        for f in result.files.iter() {
+            let path = case.join(&*f.path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, &*f.text).unwrap();
+        }
+        if matches!(name.as_str(), "p076" | "examples-demo") {
+            let text = files_text(
+                result.files.iter()
+                    .filter(|f| f.path.ends_with("/types.py") || f.path.ends_with("/procs.py"))
+                    .map(|f| (f.path.to_string(), &*f.text)),
+            );
+            common::check("gen-python", &name, &text);
+        }
+    }
+    let compiled = std::process::Command::new("python3")
+        .args(["-m", "compileall", "-q"]).arg(&temp).output().unwrap();
+    std::fs::remove_dir_all(temp).unwrap();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    assert!(compiled.status.success(), "{}", String::from_utf8_lossy(&compiled.stdout));
+}

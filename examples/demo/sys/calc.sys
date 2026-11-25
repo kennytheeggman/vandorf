@@ -6,9 +6,9 @@ type Expr = enum { Lit(int), Neg(Expr), Add({ l: Expr, r: Expr }) };
 // `base + 2` at double scale, and totals the two with 100.
 proc Calc(base: int): int {
 	// Builds the expression `base + 2`, of two literals.
-	func Build(base: int): Expr = "../go/app/impl.go:Build", "../rs/src/impls.rs:build";
-	func Eval(e: Expr, scale: int): int = "../go/app/impl.go:Eval", "../rs/src/impls.rs:eval";
-	func Total(xs: []int): int = "../go/app/impl.go:Total", "../rs/src/impls.rs:total";
+	func Build(base: int): Expr = "../go/app/impl.go:Build", "../rs/src/impls.rs:build", "../py/impls.py:build";
+	func Eval(e: Expr, scale: int): int = "../go/app/impl.go:Eval", "../rs/src/impls.rs:eval", "../py/impls.py:eval";
+	func Total(xs: []int): int = "../go/app/impl.go:Total", "../rs/src/impls.rs:total", "../py/impls.py:total";
 
 	// Build(3) is 3 + 2; this evaluates -(3 + 2) + 10 = 5.
 	Calc -> Build(base = this.base);

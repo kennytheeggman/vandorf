@@ -1,0 +1,38 @@
+// The Python package and its launchers. The checked program is already
+// rebased onto the package directory when called by a project.
+type PythonInput = { prog: Program, out: string, root: string, check_impls: bool, bins: map[string]Bin, http: map[string]ServerDecl, servers: []GoServerSpec, only: string };
+type PythonOutput = { files: []OutFile, warnings: []string, error: MaybeStr };
+
+func PythonGenerate(s: PythonInput): PythonOutput = "python_leaf.rs:generate";
+
+proc PythonCode(s: PythonInput): PythonOutput {
+	PythonCode -> id(PythonGenerate(s = this.s));
+}
+func HasPython(m: Manifest): bool = "python_leaf.rs:has_python";
+func PythonTests(m: Manifest): []string = "python_leaf.rs:tests";
+
+proc PythonBuild(s: { c: Checked, target: PythonTarget, only: string }): string {
+	PythonBuild -> GoServerSpecs(s = { c = this.s.c, g = { out = this.s.target.out, package = None(), module = None(), types_dir = None(), post = [], test = [] }, names = BinNamesHttp(m = this.s.c.project.manifest, only = this.s.only), i = 0, acc = [] });
+	GoServerSpecs switch {
+		Ok(servers) -> PythonCode(s = { prog = RebasedTo(c = PythonBuild.s.c, out = JoinP(a = PythonBuild.s.c.project.root, b = PythonBuild.s.target.out)), out = JoinP(a = PythonBuild.s.c.project.root, b = PythonBuild.s.target.out), root = PythonBuild.s.c.project.root, check_impls = true, bins = PythonBuild.s.c.project.manifest.bins, http = PythonBuild.s.c.project.manifest.http, servers = servers, only = PythonBuild.s.only }),
+		Err(e) -> Fail(msg = e.msg) as Invalid
+	};
+	PythonCode switch {
+		{ error = Some(e), files = _, warnings = _ } -> Fail(msg = e) as Failed,
+		else -> Guard(s = { files = this.files, i = 0 })
+	};
+	Guard -> WriteAll(s = { files = PythonCode.files, i = 0 });
+	WriteAll -> PythonWarnings(xs = PythonCode.warnings, i = 0);
+	PythonWarnings -> Commands(s = { what = "post-build", cmds = PythonBuild.s.target.post, dir = PythonBuild.s.c.project.root, i = 0 });
+	Commands -> id("built Python");
+}
+
+func BinNamesHttp(m: Manifest, only: string): []string = "python_leaf.rs:server_names";
+
+proc PythonWarnings(xs: []string, i: int): bool {
+	PythonWarnings switch {
+		(this.i == this.xs.len) -> id(true),
+		else -> Console.Err(line = this.xs[this.i])
+	};
+	Console.Err -> PythonWarnings(xs = PythonWarnings.xs, i = PythonWarnings.i + 1);
+}

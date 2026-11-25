@@ -2,7 +2,7 @@
 // <a: int> <b: string>`.
 proc Main(a: int, b: string): string {
 	// Passes Main's command-line arguments on to Bar, unchanged.
-	func Start(a: int, b: string): { a: int, b: string } = "../go/app/impl.go:Args", "../rs/src/impls.rs:args";
+	func Start(a: int, b: string): { a: int, b: string } = "../go/app/impl.go:Args", "../rs/src/impls.rs:args", "../py/impls.py:args";
 
 	Main -> Start(a = this.a, b = this.b);
 	Start -> Bar(a = this.a, b = this.b);

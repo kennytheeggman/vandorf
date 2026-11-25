@@ -331,3 +331,137 @@ fn missing_implementations_warn_with_their_doc() {
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn builds_and_runs_a_python_only_project() {
+    let manifest = r#"
+[project]
+name = "python-only"
+sources = ["sys"]
+
+[python]
+out = "py/app"
+post = ["python3 -m compileall -q py/app"]
+test = ["python3 scripts/tool.py 41"]
+
+[bin.tool]
+entry = "Main"
+python = "scripts/tool.py"
+
+[http.web]
+addr = "127.0.0.1:0"
+setup = "Setup"
+cli = "Command"
+routes = { "GET /sum" = "Sum" }
+raw = { "POST /echo" = "Echo" }
+static = { "/" = "index.txt" }
+"#;
+    let source = r#"
+type Request = { method: string, path: string, query: map[string]string,
+                 headers: map[string]string, body: string };
+type Response = { status: int, headers: map[string]string, body: string };
+proc Main(n: int): int {
+    func Add(n: int): int = "../py/impls.py:add";
+    Main -> Add(n = this.n);
+}
+proc Setup(): int { Setup -> id(7); }
+proc Sum(ctx: int, add: int): int { Sum -> id(this.ctx + this.add); }
+proc Echo(ctx: int, req: Request): Response {
+    Echo -> id({status = 201, headers = ["Content-Type": "text/plain"],
+                body = this.req.query["prefix"] + this.req.body});
+}
+proc Command(args: []string): void {
+    func Print(s: string) = "../py/impls.py:echo";
+    Command -> Print(s = this.args[0]);
+}
+proc Concurrent(n: int): int {
+    func Branch(n: int): int = "../py/impls.py:branch";
+    func Note(n: int) = "../py/impls.py:note";
+    Concurrent -> spawn { Branch(n = this.n), Branch(n = this.n) as Other,
+                          detach Note(n = this.n) } join id(this.Branch + this.Other);
+}
+proc Copy(m: map[string]int): int {
+    func Mutate(m: map[string]int): int = "../py/impls.py:mutate";
+    Copy -> Mutate(m = this.m);
+    Mutate -> id(Copy.m["x"] + this);
+}
+"#;
+    let dir = project("python", &[
+        ("vandorf.toml", manifest),
+        ("sys/main.sys", source),
+        ("py/impls.py", r#"
+from threading import Barrier, Event
+
+barrier = Barrier(2)
+noted = Event()
+
+def add(n):
+    return n + 1
+
+def branch(n):
+    barrier.wait(timeout=5)
+    return n
+
+def note(n):
+    noted.set()
+
+def echo(s):
+    print(s)
+
+def mutate(m):
+    m["x"] += 1
+    return m["x"]
+"#),
+        ("index.txt", "hello static"),
+    ]);
+    let (ok, out) = vcc(&dir, &["test"]);
+    assert!(ok && out.contains("42") && out.contains("test: python3 scripts/tool.py 41"), "{out}");
+    let output = Command::new("python3").arg(dir.join("py/web.py")).arg("ping").output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "ping");
+
+    let checks = r#"
+import json
+import subprocess
+import sys
+from urllib.request import Request, urlopen
+
+sys.path.insert(0, "py")
+from app import VandorfError, procs
+import impls
+assert procs.run_concurrent(21) == 42
+assert impls.noted.wait(5)
+data = {"x": 1}
+assert procs.run_copy(data) == 3
+assert data == {"x": 1}
+try:
+    procs.run_command(())
+except VandorfError as exc:
+    assert "index 0 out of bounds" in str(exc)
+else:
+    raise AssertionError("expected a VandorfError")
+
+with subprocess.Popen([sys.executable, "py/web.py"], stderr=subprocess.PIPE, text=True) as p:
+    try:
+        ready = p.stderr.readline().strip()
+        assert ready.startswith("listening on "), ready
+        base = ready.removeprefix("listening on ")
+        with urlopen(base + "/", timeout=5) as response:
+            assert response.read() == b"hello static"
+        with urlopen(base + "/sum?add=2&ctx=100", timeout=5) as response:
+            assert json.load(response) == 9
+        with urlopen(Request(base + "/echo?prefix=hello+", data=b"world"), timeout=5) as response:
+            assert response.status == 201
+            assert response.headers["Content-Type"] == "text/plain"
+            assert response.read() == b"hello world"
+    finally:
+        p.terminate()
+"#;
+    let output = Command::new("python3").args(["-c", checks]).current_dir(&dir).output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+
+    std::fs::write(dir.join("py/impls.py"), "def add(n, extra):\n    return n + extra\n").unwrap();
+    let (ok, out) = vcc(&dir, &["build"]);
+    assert!(!ok && out.contains("expected def add(n: int) -> int"), "{out}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}

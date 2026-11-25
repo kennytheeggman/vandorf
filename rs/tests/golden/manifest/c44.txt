@@ -1,0 +1,6 @@
+[project]
+name = "x"
+[python]
+
+---
+missing field `out`
