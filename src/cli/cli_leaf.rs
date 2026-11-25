@@ -195,11 +195,21 @@ pub fn starts_with(text: Str, prefix: Str) -> Result<bool, String> {
     Ok(text.starts_with(&*prefix))
 }
 
-/// Rebases each func's implementation paths from the .sys file naming them
-/// onto `out`, the output directory (dirs[file id] is that file's directory),
-/// so generated code can reach them.
+/// Rebases each func's and foreign type's implementation paths from the .sys
+/// file naming them onto `out`, the output directory (dirs[file id] is that
+/// file's directory), so generated code can reach them.
 pub fn rebase_impls(prog: Program, dirs: List<Str>, out: Str) -> Result<Program, String> {
     let mut prog = prog;
+    let rebase = |imps: &List<ImplRef>| -> List<ImplRef> {
+        imps.iter()
+            .map(|i| {
+                let mut i = i.clone();
+                let full = normalize(&Path::new(&*dirs[i.span.file as usize]).join(&*i.file));
+                i.file = relative(slash(&full).into(), out.clone()).unwrap();
+                i
+            })
+            .collect()
+    };
     let nodes: Vec<NodeDecl> = prog
         .nodes
         .iter()
@@ -207,23 +217,27 @@ pub fn rebase_impls(prog: Program, dirs: List<Str>, out: Str) -> Result<Program,
             let mut n = n.clone();
             if let NodeKind::Func(f) = &n.kind {
                 let mut f = f.clone();
-                f.imps = f
-                    .imps
-                    .iter()
-                    .map(|i| {
-                        let mut i = i.clone();
-                        let full =
-                            normalize(&Path::new(&*dirs[i.span.file as usize]).join(&*i.file));
-                        i.file = relative(slash(&full).into(), out.clone()).unwrap();
-                        i
-                    })
-                    .collect();
+                f.imps = rebase(&f.imps);
                 n.kind = NodeKind::Func(f);
             }
             n
         })
         .collect();
     prog.nodes = nodes.into();
+    let types: Vec<TypeDef> = prog
+        .types
+        .iter()
+        .map(|d| {
+            let mut d = d.clone();
+            if let Type::Foreign(f) = &d.ty {
+                let mut f = f.clone();
+                f.imps = rebase(&f.imps);
+                d.ty = Type::Foreign(f);
+            }
+            d
+        })
+        .collect();
+    prog.types = types.into();
     Ok(prog)
 }
 
@@ -779,7 +793,9 @@ pub fn quiet(_s: Str) -> Result<(), String> {
 
 /// Lists a check for each func implemented in Rust: its file (absolute), its
 /// function, the warnings to print if the file is missing or doesn't define
-/// it, and its declaration's signature and doc.
+/// it, and its declaration's signature and doc. Then one for each foreign
+/// type: that its file defines the type it names, or, with no .rs type, a
+/// warning that it's a placeholder.
 pub fn impl_checks(
     prog: Program,
     t: Table,
@@ -848,7 +864,82 @@ pub fn impl_checks(
             ))?,
         });
     }
+    checks.extend(foreign_checks(
+        &prog, "rs", "Rust", &out_dir, &root, &paths, &srcs,
+    )?);
     Ok(checks.into())
+}
+
+/// The checks of each foreign type's `ext` implementation: that its file
+/// defines the type it names, warning otherwise; or, with none, a warning
+/// that `lang` uses a placeholder (a check of no file, so its warning
+/// always prints).
+fn foreign_checks(
+    prog: &Program,
+    ext: &str,
+    lang: &str,
+    out_dir: &Path,
+    root: &Str,
+    paths: &List<Str>,
+    srcs: &List<Str>,
+) -> Result<Vec<ImplCheck>, String> {
+    let mut checks = vec![];
+    for d in prog.types.iter() {
+        let Type::Foreign(fo) = &d.ty else { continue };
+        let Some(first) = fo.imps.first() else {
+            continue;
+        };
+        let imp = fo
+            .imps
+            .iter()
+            .find(|i| i.file.rsplit_once('.').is_some_and(|(_, e)| e == ext));
+        let span = imp.map_or(first.span.clone(), |i| i.span.clone());
+        let f = span.file as usize;
+        let warn = |msg: String| -> Result<Str, String> {
+            snippet(
+                "warning".into(),
+                msg.into(),
+                paths.get(f).cloned().unwrap_or_else(|| "?".into()),
+                srcs.get(f).cloned().unwrap_or_default(),
+                span.at,
+                span.end,
+                List::default(),
+            )
+        };
+        let qual = format!("foreign type {}", d.name);
+        let (path, shown, function) = match imp {
+            Some(i) => {
+                let path = normalize(&out_dir.join(&*i.file));
+                let shown = relative(slash(&path).into(), root.clone())?;
+                (slash(&path), shown, i.function.clone())
+            }
+            None => (String::new(), Str::from(""), Str::from("")),
+        };
+        let missing = match imp {
+            Some(_) => format!("{qual} is implemented in {shown}, which does not exist"),
+            None => format!(
+                "{qual} names no .{ext} type, so the {lang} code has a placeholder for it: add \"file.{ext}:Type\" to its declaration"
+            ),
+        };
+        checks.push(ImplCheck {
+            path: path.into(),
+            function: function.clone(),
+            keyword: "type".into(),
+            qual: qual.as_str().into(),
+            shown: shown.clone(),
+            sig: "".into(),
+            doc: "".into(),
+            decl_path: paths.get(f).cloned().unwrap_or_else(|| "?".into()),
+            decl_text: srcs.get(f).cloned().unwrap_or_default(),
+            at: span.at,
+            end: span.end,
+            missing: warn(missing)?,
+            undefined: warn(format!(
+                "{qual} is implemented by type {function} in {shown}, which does not define it"
+            ))?,
+        });
+    }
+    Ok(checks)
 }
 
 // ---- Implementations against their declarations ----
@@ -1199,6 +1290,10 @@ fn sig_diff(keyword: &str, want: &Sig, got: &Sig) -> Option<String> {
 /// Compares an implementation src defines with its declaration: an error for
 /// a signature that doesn't match, and one for a doc comment that doesn't.
 pub fn impl_mismatches(src: Str, c: ImplCheck, t: Table) -> Result<List<Str>, String> {
+    // A foreign type has no signature or doc to compare.
+    if &*c.keyword == "type" {
+        return Ok(List::default());
+    }
     let rust = &*c.keyword == "fn";
     let aliases: std::collections::HashMap<String, String> = t
         .aliases
@@ -1291,8 +1386,29 @@ pub fn impl_mismatches(src: Str, c: ImplCheck, t: Table) -> Result<List<Str>, St
 }
 
 /// Whether src defines `fn function` (or a generic `fn function<` / `func
-/// Function[T any](`); keyword is fn or func.
+/// Function[T any](`); keyword is fn or func. With keyword type, whether it
+/// defines the type a foreign type names: a Rust struct, enum, union, type or
+/// `use` of it, or a Go type, or for `pkg.T` imports pkg.
 pub fn defines_fn(src: Str, function: Str, keyword: Str) -> Result<bool, String> {
+    if &*keyword == "type" {
+        let name = function.trim_start_matches('*');
+        if let Some((pkg, _)) = name.split_once('.') {
+            return Ok(super::go_leaf::go_file_imports(src)?.contains_key(pkg));
+        }
+        let name = name.rsplit("::").next().unwrap_or(name);
+        let word_end =
+            |rest: &str| !rest.starts_with(|c: char| c == '_' || c.is_ascii_alphanumeric());
+        return Ok(src.lines().map(str::trim_start).any(|l| {
+            let l = l.strip_prefix("pub ").unwrap_or(l);
+            ["struct ", "enum ", "union ", "type "].iter().any(|k| {
+                l.strip_prefix(k)
+                    .and_then(|r| r.strip_prefix(name))
+                    .is_some_and(word_end)
+            }) || (l.starts_with("use ")
+                && (l.trim_end().ends_with(&format!("::{name};"))
+                    || l.trim_end().ends_with(&format!(" as {name};"))))
+        }));
+    }
     Ok(["(", "<", "["]
         .iter()
         .any(|open| src.contains(&format!("{keyword} {function}{open}"))))
@@ -1432,7 +1548,7 @@ pub fn go_out_files(out: Str, files: List<GoFile>) -> Result<List<OutFile>, Stri
 
 /// Lists a check for each func implemented in Go, as impl_checks does for
 /// Rust: its file, its function (defined by `func`), and its declaration's
-/// signature and doc.
+/// signature and doc; then each foreign type's, as for Rust.
 #[allow(clippy::too_many_arguments)]
 pub fn go_impl_checks(
     prog: Program,
@@ -1498,5 +1614,130 @@ pub fn go_impl_checks(
             ))?,
         });
     }
+    checks.extend(foreign_checks(
+        &prog, "go", "Go", &out_dir, &root, &paths, &srcs,
+    )?);
     Ok(checks.into())
+}
+
+/// Finds the foreign types at the program's entry points, which nothing
+/// outside the program can make or take: a bin's entry proc's parameters and
+/// result, an HTTP route's or raw route's proc's, and a server's setup
+/// result (every route's ctx). Each error names the entry point, at its proc.
+pub fn entry_foreign(m: Manifest, prog: Program) -> Result<List<Diag>, String> {
+    let foreign = |t: &Type| {
+        let mut t = t;
+        while let Type::Named(n) = t {
+            t = &prog.types[n.id as usize].ty;
+        }
+        matches!(t, Type::Foreign(_))
+    };
+    let shown = |t: &Type| {
+        crate::vcc::run_show_type(t.clone()).map_or_else(|_| "?".to_string(), |s| s.to_string())
+    };
+    let top = |name: &str| {
+        prog.top.iter().copied().find(|&p| {
+            prog.nodes[p as usize]
+                .qual
+                .last()
+                .is_some_and(|q| &**q == name)
+                && matches!(prog.nodes[p as usize].kind, NodeKind::Proc(_))
+        })
+    };
+    let mut out = vec![];
+    // Each foreign parameter and a foreign result of proc `name`, as `entry`;
+    // `ret` says why its result can't be one.
+    let check = |entry: &str, name: &str, params: bool, ret: &str, out: &mut Vec<Diag>| {
+        let Some(pid) = top(name) else { return };
+        let n = &prog.nodes[pid as usize];
+        let NodeKind::Proc(p) = &n.kind else { return };
+        if params {
+            if let NodeKind::Sig(sig) = &prog.nodes[p.entry as usize].kind {
+                for m in sig.params.iter().filter(|m| foreign(&m.ty)) {
+                    out.push(Diag {
+                        msg: format!(
+                            "{entry}: {name}'s parameter {} is a foreign type, {}, which can't come from outside the program",
+                            m.name,
+                            shown(&m.ty)
+                        )
+                        .into(),
+                        span: n.span.clone(),
+                    });
+                }
+            }
+        }
+        if foreign(&p.ret) {
+            out.push(Diag {
+                msg: format!(
+                    "{entry}: {name}'s result is a foreign type, {}, which {ret}",
+                    shown(&p.ret)
+                )
+                .into(),
+                span: n.span.clone(),
+            });
+        }
+    };
+    for (b, bin) in m.bins.iter() {
+        check(
+            &format!("bin {b}"),
+            &bin.entry,
+            true,
+            "can't leave the program",
+            &mut out,
+        );
+    }
+    for (srv, d) in m.http.iter() {
+        if let MaybeStr::Some(setup) = &d.setup {
+            check(
+                &format!("http server {srv}'s setup"),
+                setup,
+                false,
+                "every route would share as its ctx",
+                &mut out,
+            );
+        }
+        for (route, p) in d.routes.iter() {
+            check(
+                &format!("http server {srv}'s route {route:?}"),
+                p,
+                true,
+                "can't leave the program",
+                &mut out,
+            );
+        }
+        for (route, p) in d.raw.iter() {
+            check(
+                &format!("http server {srv}'s raw route {route:?}"),
+                p,
+                true,
+                "can't leave the program",
+                &mut out,
+            );
+        }
+    }
+    Ok(out.into())
+}
+
+pub fn unwrap_go_specs(r: ResGoServerSpecList) -> Result<List<GoServerSpec>, String> {
+    match r {
+        ResGoServerSpecList::Ok(s) => Ok(s),
+        ResGoServerSpecList::Err(e) => Err(e.msg.to_string()),
+    }
+}
+
+/// Lists the foreign types' Go references whose type is qualified.
+pub fn go_qualified_refs(prog: Program) -> Result<List<GoQualified>, String> {
+    let mut out = vec![];
+    for d in prog.types.iter() {
+        let Type::Foreign(f) = &d.ty else { continue };
+        for i in f.imps.iter().filter(|i| i.file.ends_with(".go")) {
+            if let Some((pkg, _)) = i.function.trim_start_matches('*').split_once('.') {
+                out.push(GoQualified {
+                    file: i.file.clone(),
+                    pkg: pkg.into(),
+                });
+            }
+        }
+    }
+    Ok(out.into())
 }

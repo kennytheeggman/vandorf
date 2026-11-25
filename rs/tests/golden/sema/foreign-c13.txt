@@ -1,0 +1,7 @@
+type Conn = "db.go:*Conn", "db.rs:Conn";
+func Open(): Conn; func Count(c: Conn): int; func Two(a: Conn, b: Conn): int; func Clone(c: Conn): Conn;
+func Bump(c: Conn); func Xs(): []int; func Get(i: int, c: Conn): int; func OpenAt(i: int): Conn;
+proc Q(c: Conn, n: int): int { func G(n: int): int; Q -> G(n = { ..this, n = 1 }.n); }
+proc P(n: int): int { P -> Open(); Open -> Q(c = this, n = 1); }
+---
+error: argument n of Q.G: this holds c, a foreign value, so it can only be read field by field: this.c @310..314

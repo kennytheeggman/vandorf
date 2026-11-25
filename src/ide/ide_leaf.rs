@@ -1025,3 +1025,18 @@ pub fn project_json(
         ),
     ]))
 }
+
+/// Writes a typedef's definition: shown, or a foreign type's implementations
+/// as the source writes them, `"db.go:*DB", "db.rs:Db"`.
+pub fn typedef_def(t: Type, shown: Str) -> Result<Str, String> {
+    Ok(match t {
+        Type::Foreign(f) => f
+            .imps
+            .iter()
+            .map(|i| format!("{:?}", format!("{}:{}", i.file, i.function)))
+            .collect::<Vec<_>>()
+            .join(", ")
+            .into(),
+        _ => shown,
+    })
+}

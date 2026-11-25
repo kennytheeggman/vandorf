@@ -24,9 +24,9 @@ func ParseManifest(text: string): Res<Manifest> = "cli_leaf.rs:parse_manifest";
 // absolute, and then wins.
 func JoinP(a: string, b: string): string = "cli_leaf.rs:join";
 func Parent(p: string): string = "cli_leaf.rs:parent";
-// Rebases each func's implementation paths from the .sys file naming them
-// onto `out`, the output directory (dirs[file id] is that file's directory),
-// so generated code can reach them.
+// Rebases each func's and foreign type's implementation paths from the .sys
+// file naming them onto `out`, the output directory (dirs[file id] is that
+// file's directory), so generated code can reach them.
 func RebaseImpls(prog: Program, dirs: []string, out: string): Program = "cli_leaf.rs:rebase_impls";
 // Makes target relative to the directory from, with `..` where it's outside
 // it; both absolute and normalized.

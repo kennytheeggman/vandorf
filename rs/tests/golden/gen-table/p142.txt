@@ -1,0 +1,9 @@
+#0 MainArgs struct { start: int, by: int } (parameters of Main)
+#1 ShowArgs struct {  } (parameters of Show)
+#2 TwiceArgs struct { by: int } (parameters of Twice)
+#3 FreshArgs struct { start: int } (parameters of Fresh)
+#4 UnusedArgs struct { n: int } (parameters of Unused)
+#5 MainOtherJoined struct { Twice: int } (joined branches of Main.Other's spawn)
+alias Counter = foreign#0
+alias Buf = foreign#1
+alias Later = foreign#2

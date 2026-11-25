@@ -69,6 +69,7 @@ fn key(ty: &Type, defs: &[TypeDef]) -> String {
         Type::Map(m) => format!("map[{}]{}", key(&m.key, defs), key(&m.value, defs)),
         Type::Named(n) if defs[n.id as usize].recursive => format!("#{}", n.id),
         Type::Named(n) => key(&defs[n.id as usize].ty, defs),
+        Type::Foreign(f) => format!("foreign#{}", f.id),
         Type::Struct(fs) | Type::Enum(fs) => {
             let mut parts: Vec<String> = fs
                 .iter()
@@ -102,6 +103,7 @@ pub fn get(t: Table, ty: Type) -> Result<TyRef, String> {
                 value: std::sync::Arc::new(go(t, &m.value)?),
             })),
             Type::Named(n) if !t.defs[n.id as usize].recursive => go(t, &t.defs[n.id as usize].ty)?,
+            Type::Foreign(f) => TyRef::Foreign(f.id),
             _ => {
                 let k = key(ty, &t.defs);
                 TyRef::Named(
@@ -196,6 +198,227 @@ pub fn ret_origin(nodes: List<NodeDecl>, n: i64) -> Result<Str, String> {
     .into())
 }
 
+// ---- Foreign types ----
+
+/// Whether t, through typedef names, is a foreign type.
+pub(crate) fn is_foreign(t: &Type, defs: &[TypeDef]) -> bool {
+    matches!(unfold(t, defs), Type::Foreign(_))
+}
+
+/// Finds a node's output as generated code keeps it: a signature node's
+/// parameters but its foreign ones (each kept on its own), or any other
+/// node's result.
+pub fn node_out(defs: List<TypeDef>, nodes: List<NodeDecl>, n: i64) -> Result<Type, String> {
+    Ok(match &nodes[n as usize].kind {
+        NodeKind::Sig(s) => Type::Struct(
+            s.params
+                .iter()
+                .filter(|m| !is_foreign(&m.ty, &defs))
+                .cloned()
+                .collect(),
+        ),
+        _ => super::sema_leaf::node_ret(nodes.clone(), n)?,
+    })
+}
+
+/// A node's parameters that are foreign, in order.
+pub(crate) fn foreign_params(nodes: &List<NodeDecl>, defs: &[TypeDef], n: i64) -> Vec<Member> {
+    params_of(nodes, n)
+        .iter()
+        .filter(|m| is_foreign(&m.ty, defs))
+        .cloned()
+        .collect()
+}
+
+/// The slot a foreign read lends from, in a proc's foreign values: a node's
+/// output (`out_<node>`) or one of the proc's parameters (`param_<name>`),
+/// with what to name if it's empty. `this` is node src's output.
+fn foreign_slot(
+    nodes: &List<NodeDecl>,
+    src: i64,
+    r: &Ref,
+) -> Result<(String, String, bool), String> {
+    let node = match &r.root {
+        Root::This => src,
+        Root::Node(n) => *n,
+        Root::Bind => return err("foreign_slot: a binding"),
+    };
+    Ok(match (&nodes[node as usize].kind, r.fields.first()) {
+        (NodeKind::Sig(_), Some(f)) => (format!("param_{f}"), qn(nodes, node), true),
+        _ => (format!("out_{}", sn(nodes, node)), qn(nodes, node), false),
+    })
+}
+
+/// Writes the lend of a foreign read: a `&mut` to the value in its slot.
+fn lend_of(slot: &(String, String, bool)) -> String {
+    let (field, node, param) = slot;
+    if *param {
+        format!("&mut **lend(&mut foreign.{field}, {})?", q(node))
+    } else {
+        format!("lend(&mut foreign.{field}, {})?", q(node))
+    }
+}
+
+/// Writes a read of a foreign value as a `&mut` lent from its slot (`this`
+/// being the output of the node being written, g.src).
+pub fn lend_expr(g: RGen, r: Ref) -> Result<Str, String> {
+    Ok(lend_of(&foreign_slot(&g.prog.nodes, g.src, &r)?).into())
+}
+
+/// Whether ty, through typedef names, is a foreign type.
+pub fn is_foreign_ty(defs: List<TypeDef>, ty: Type) -> Result<bool, String> {
+    Ok(is_foreign(&ty, &defs))
+}
+
+/// The ways proc pid's edges call node t: for each distinct one, the slots
+/// its foreign parameters are lent from, in their order. A call's input
+/// says which (`lent`).
+fn lend_ways(
+    nodes: &List<NodeDecl>,
+    defs: &[TypeDef],
+    pid: i64,
+    t: i64,
+) -> Result<Vec<Vec<(String, String, bool)>>, String> {
+    let fps = foreign_params(nodes, defs, t);
+    let mut out: Vec<Vec<(String, String, bool)>> = vec![];
+    if fps.is_empty() {
+        return Ok(out);
+    }
+    let gr = graph(nodes, pid);
+    for (&src, e) in gr.edges.iter() {
+        let calls = match e {
+            SEdge::Call(c) | SEdge::Collect(c) => vec![c.clone()],
+            SEdge::ForEach(f) => vec![f.call.clone()],
+            SEdge::Match(arms) => {
+                let mut v = vec![];
+                arms.iter().for_each(|a| arm_leaves_of(a, &mut v));
+                v
+            }
+            SEdge::Spawn(s) => vec![s.join.clone()],
+        };
+        for c in calls.iter().filter(|c| c.target == t) {
+            let mut way = vec![];
+            for p in &fps {
+                let Some(a) = c.args.iter().find(|a| a.name == p.name) else {
+                    return err("lend_ways: no argument");
+                };
+                let Expr::Ref(r) = &a.value else {
+                    return err("lend_ways: a foreign argument that isn't a read");
+                };
+                way.push(foreign_slot(nodes, src, r)?);
+            }
+            if !out.contains(&way) {
+                out.push(way);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Writes "lent: <way>" for a call of a node taking foreign values: which
+/// of the ways its proc calls it this one is (see lend_ways); "" for other
+/// calls.
+pub fn lent_field(g: RGen, c: Call) -> Result<Str, String> {
+    let ways = lend_ways(&g.prog.nodes, &g.prog.types, g.pid, c.target)?;
+    if ways.is_empty() {
+        return Ok("".into());
+    }
+    let fps = foreign_params(&g.prog.nodes, &g.prog.types, c.target);
+    let mut way = vec![];
+    for p in &fps {
+        let a = c
+            .args
+            .iter()
+            .find(|a| a.name == p.name)
+            .ok_or("lent_field: no argument")?;
+        let Expr::Ref(r) = &a.value else {
+            return err("lent_field: a foreign argument that isn't a read");
+        };
+        way.push(foreign_slot(&g.prog.nodes, g.src, r)?);
+    }
+    let i = ways
+        .iter()
+        .position(|w| *w == way)
+        .ok_or("lent_field: an unknown way")?;
+    Ok(format!("lent: {i}").into())
+}
+
+/// Writes how an id node's step takes its value: from its input, or, a
+/// foreign one, out of the slot it's in (an id ends the proc, so it's the
+/// last to need it).
+pub fn id_run(g: RGen, n: i64) -> Result<Str, String> {
+    let ways = lend_ways(&g.prog.nodes, &g.prog.types, g.pid, n)?;
+    Ok(match ways.first().and_then(|w| w.first()) {
+        Some((field, node, false)) => {
+            format!("let this = take_slot(&mut foreign.{field}, {})?;", q(node))
+        }
+        Some(_) => return err("id_run: a borrowed parameter"),
+        None => "let this = input.value;".to_string(),
+    }
+    .into())
+}
+
+/// A proc's foreign slots: each node's output that's foreign, and each
+/// foreign parameter, with its Rust type.
+fn foreign_slots(g: &RGen, pid: i64) -> Result<Vec<(String, String)>, String> {
+    let nodes = &g.prog.nodes;
+    let gr = graph(nodes, pid);
+    let mut out = vec![];
+    for r in gr.regions.iter() {
+        for &n in r.nodes.iter() {
+            let ret = ret_of(nodes, n);
+            if is_foreign(&ret, &g.prog.types) {
+                out.push((
+                    format!("out_{}", sn(nodes, n)),
+                    format!("Option<{}>", rtype(&g.table, &ret)?),
+                ));
+            }
+        }
+    }
+    for m in params_of(nodes, pid)
+        .iter()
+        .filter(|m| is_foreign(&m.ty, &g.prog.types))
+    {
+        out.push((
+            format!("param_{}", m.name),
+            format!("Option<&'f mut {}>", rtype(&g.table, &m.ty)?),
+        ));
+    }
+    Ok(out)
+}
+
+/// Why proc pid can't run for `what` (an executable or a server): a foreign
+/// parameter or result, which nothing outside the program can make or take.
+pub(crate) fn foreign_entry(prog: &Program, pid: i64, what: &str) -> Option<String> {
+    let name = qn(&prog.nodes, pid);
+    let shown = |t: &Type| {
+        crate::vcc::run_show_type(t.clone()).map_or_else(|_| "?".to_string(), |s| s.to_string())
+    };
+    if let Some(m) = params_of(&prog.nodes, pid)
+        .iter()
+        .find(|m| is_foreign(&m.ty, &prog.types))
+    {
+        return Some(format!(
+            "{what} runs proc {name}, whose parameter {} is a foreign type, {}, which can't come from outside the program",
+            m.name,
+            shown(&m.ty)
+        ));
+    }
+    let ret = ret_of(&prog.nodes, pid);
+    is_foreign(&ret, &prog.types).then(|| {
+        format!(
+            "{what} runs proc {name}, whose result is a foreign type, {}, which can't leave the program",
+            shown(&ret)
+        )
+    })
+}
+
+/// Why proc pid can't run for `what` (an executable or a server): a foreign
+/// parameter or result, which nothing outside the program can make or take.
+pub fn entry_problem(prog: Program, pid: i64, what: Str) -> Result<MaybeStr, String> {
+    Ok(foreign_entry(&prog, pid, &what).map_or(MaybeStr::None, |e| MaybeStr::Some(e.into())))
+}
+
 // ---- Text ----
 
 /// Renders lines of generated code as the reference's Writer does, indenting
@@ -228,6 +451,14 @@ pub fn render_lines(lines: List<Line>, indent: Str) -> Result<Str, String> {
     }
     Ok(out.into())
 }
+
+const RUST_LEND: &str = r##"
+/// Lends a foreign value from its slot, failing if its node hasn't run.
+fn lend<'a, T>(slot: &'a mut Option<T>, node: &str) -> Result<&'a mut T, Error> {
+    slot.as_mut()
+        .ok_or_else(|| format!("{node} has not run").into())
+}
+"##;
 
 const RUST_RUNTIME: &str = r##"
 /// Error returned by procs.
@@ -557,6 +788,7 @@ pub fn rust_render(t: Table, r: TyRef, qual: Str) -> Result<Str, String> {
             TyRef::Array(e) => format!("{q}List<{}>", go(t, e, q)),
             TyRef::Map(m) => format!("{q}Map<{}, {}>", go(t, &m.key, q), go(t, &m.value, q)),
             TyRef::Named(i) => format!("{q}{}", t.types[*i as usize].name),
+            TyRef::Foreign(i) => format!("{q}{}", cap(&t.defs[*i as usize].ident)),
         }
     }
     Ok(go(&t, &r, &qual).into())
@@ -1339,9 +1571,10 @@ fn params_of(nodes: &List<NodeDecl>, n: i64) -> List<Member> {
 /// them.
 pub fn sig_value(g: RGen, n: i64) -> Result<Str, String> {
     let nodes = &g.prog.nodes;
-    let ty = super::sema_leaf::node_ret(nodes.clone(), n)?;
+    let ty = node_out(g.prog.types.clone(), nodes.clone(), n)?;
     let fields = params_of(nodes, n)
         .iter()
+        .filter(|m| !is_foreign(&m.ty, &g.prog.types))
         .map(|m| {
             let f = rust_ident_of(&m.name);
             if boxed(&g.table, &ty, &m.name) {
@@ -1355,10 +1588,18 @@ pub fn sig_value(g: RGen, n: i64) -> Result<Str, String> {
     Ok(format!("let this = {} {{ {fields} }};", rtype(&g.table, &ty)?).into())
 }
 
-pub fn input_args(nodes: List<NodeDecl>, n: i64) -> Result<Str, String> {
-    Ok(params_of(&nodes, n)
+/// Writes the arguments a node's step passes it: its input's fields, and the
+/// foreign values lent to it (`lent_<param>`).
+pub fn input_args(g: RGen, n: i64) -> Result<Str, String> {
+    Ok(params_of(&g.prog.nodes, n)
         .iter()
-        .map(|p| format!("input.{}", rust_ident_of(&p.name)))
+        .map(|p| {
+            if is_foreign(&p.ty, &g.prog.types) {
+                format!("lent_{}", p.name)
+            } else {
+                format!("input.{}", rust_ident_of(&p.name))
+            }
+        })
         .collect::<Vec<_>>()
         .join(", ")
         .into())
@@ -1368,6 +1609,10 @@ fn graph(nodes: &List<NodeDecl>, pid: i64) -> Graph {
     super::doc_leaf::graph_of(nodes[pid as usize].clone()).unwrap()
 }
 
+/// Writes a node's state up to and through its run line: its input taken,
+/// the foreign values it takes lent from their slots (by the way it was
+/// called, if there are several), then, after the run, its output kept: in
+/// env if an edge reads it, or a foreign one in its slot if it has an edge.
 pub fn node_head(g: RGen, pid: i64, n: i64, run: Str) -> Result<List<Line>, String> {
     let nodes = &g.prog.nodes;
     let id = sn(nodes, n);
@@ -1380,9 +1625,35 @@ pub fn node_head(g: RGen, pid: i64, n: i64, run: Str) -> Result<List<Line>, Stri
             )
             .into(),
         ),
-        Line::L(run),
     ];
-    if read_nodes(graph(nodes, pid))?.contains_key(&n) {
+    let is_id = matches!(nodes[n as usize].kind, NodeKind::Id(_));
+    let ways = lend_ways(nodes, &g.prog.types, pid, n)?;
+    let lent: Vec<String> = foreign_params(nodes, &g.prog.types, n)
+        .iter()
+        .map(|p| format!("lent_{}", p.name))
+        .collect();
+    if !is_id && ways.len() == 1 {
+        for (v, slot) in lent.iter().zip(&ways[0]) {
+            out.push(Line::L(format!("let {v} = {};", lend_of(slot)).into()));
+        }
+    } else if !is_id && ways.len() > 1 {
+        out.push(Line::L(
+            format!("let ({},) = match input.lent {{", lent.join(", ")).into(),
+        ));
+        for (i, w) in ways.iter().enumerate() {
+            let lends: Vec<String> = w.iter().map(lend_of).collect();
+            out.push(Line::L(format!("{i} => ({},),", lends.join(", ")).into()));
+        }
+        out.push(Line::L("_ => unreachable!(),".into()));
+        out.push(Line::L("};".into()));
+    }
+    out.push(Line::L(run));
+    let gr = graph(nodes, pid);
+    if is_foreign(&ret_of(nodes, n), &g.prog.types) {
+        if gr.edges.contains_key(&n) {
+            out.push(Line::L(format!("foreign.out_{id} = Some(this);").into()));
+        }
+    } else if read_nodes(gr)?.contains_key(&n) {
         out.push(Line::L(
             format!("env.out_{id} = Some(this.clone());").into(),
         ));
@@ -1545,13 +1816,30 @@ pub fn proc_prelude(g: RGen, pid: i64) -> Result<List<Line>, String> {
     for &n in &order {
         let id = sn(nodes, n);
         out.push(format!("in_{id}: Option<{}>,", in_type(nodes.clone(), n)?));
-        out.push(format!(
-            "out_{id}: Option<{}>,",
-            rtype(&g.table, &ret_of(nodes, n))?
-        ));
+        // A foreign output is in the proc's Foreign struct instead.
+        let ret = node_out(g.prog.types.clone(), nodes.clone(), n)?;
+        if !is_foreign(&ret, &g.prog.types) {
+            out.push(format!("out_{id}: Option<{}>,", rtype(&g.table, &ret)?));
+        }
+    }
+    out.push("}".into());
+    let slots = foreign_slots(&g, pid)?;
+    if !slots.is_empty() {
+        out.extend([
+            "".into(),
+            format!(
+                "/// Proc {}'s foreign values, each in its slot, lent to the funcs that",
+                qn(nodes, pid)
+            ),
+            "/// take it: its nodes' outputs, and its parameters.".into(),
+            "#[derive(Default)]".into(),
+            format!("struct Foreign{name}<'f> {{"),
+        ]);
+        out.extend(slots.iter().map(|(f, t)| format!("{f}: {t},")));
+        out.push("_f: std::marker::PhantomData<&'f mut ()>,".into());
+        out.push("}".into());
     }
     out.extend([
-        "}".into(),
         "".into(),
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]".into(),
         format!("enum {pc} {{"),
@@ -1561,12 +1849,14 @@ pub fn proc_prelude(g: RGen, pid: i64) -> Result<List<Line>, String> {
     }
     out.extend(["}".into(), "".into()]);
     let params = params_of(nodes, pid);
+    let foreign = |m: &Member| is_foreign(&m.ty, &g.prog.types);
     let sig: Vec<String> = params
         .iter()
         .map(|m| {
             Ok(format!(
-                "{}: {}",
+                "{}: {}{}",
                 rust_local(m.name.clone())?,
+                if foreign(m) { "&mut " } else { "" },
                 rtype(&g.table, &m.ty)?
             ))
         })
@@ -1583,8 +1873,31 @@ pub fn proc_prelude(g: RGen, pid: i64) -> Result<List<Line>, String> {
         rtype(&g.table, &p.ret)?
     ));
     out.push(format!("let mut env = {env}::default();"));
-    let fields: Vec<String> = params
+    if !slots.is_empty() {
+        let mut init: Vec<String> = params
+            .iter()
+            .filter(|m| foreign(m))
+            .map(|m| {
+                Ok(format!(
+                    "param_{}: Some({})",
+                    m.name,
+                    rust_local(m.name.clone())?
+                ))
+            })
+            .collect::<Result<_, String>>()?;
+        if init.is_empty() {
+            out.push(format!("let mut foreign = Foreign{name}::default();"));
+        } else {
+            init.push("..Default::default()".into());
+            out.push(format!(
+                "let mut foreign = Foreign{name} {{ {} }};",
+                init.join(", ")
+            ));
+        }
+    }
+    let mut fields: Vec<String> = params
         .iter()
+        .filter(|m| !foreign(m))
         .map(|m| {
             Ok(format!(
                 "{}: {}",
@@ -1593,6 +1906,9 @@ pub fn proc_prelude(g: RGen, pid: i64) -> Result<List<Line>, String> {
             ))
         })
         .collect::<Result<_, String>>()?;
+    if params.iter().any(foreign) {
+        fields.push("lent: 0".into());
+    }
     out.push(format!(
         "env.in_{} = Some({} {{ {} }});",
         sn(nodes, p.entry),
@@ -1628,7 +1944,11 @@ pub fn region_head(g: RGen, pid: i64, opener: i64) -> Result<List<Line>, String>
         ),
         Line::L("let this = elem;".into()),
     ]
-    .into())
+    .into_iter()
+    .chain((!foreign_slots(&g, pid)?.is_empty()).then(|| {
+        Line::L(format!("let mut foreign = Foreign{}::default();", gn(nodes, pid)).into())
+    }))
+    .collect())
 }
 
 pub fn name_clash(prog: Program) -> Result<MaybeStr, String> {
@@ -1685,8 +2005,13 @@ fn signature(g: &RGen, n: i64, name: &str, types_path: &str) -> Result<String, S
         .iter()
         .map(|m| {
             Ok(format!(
-                "{}: {}",
+                "{}: {}{}",
                 rust_local(m.name.clone())?,
+                if is_foreign(&m.ty, &g.prog.types) {
+                    "&mut "
+                } else {
+                    ""
+                },
                 rust_render(
                     g.table.clone(),
                     get(g.table.clone(), m.ty.clone())?,
@@ -1716,8 +2041,15 @@ pub fn procs_file(g: RGen, body: Str) -> Result<Str, String> {
         Line::L("".into()),
         Line::L("use super::types;".into()),
         Line::Raw(RUST_RUNTIME.into()),
-        Line::Raw(body),
     ];
+    if g.prog
+        .types
+        .iter()
+        .any(|d| matches!(d.ty, Type::Foreign(_)))
+    {
+        ls.push(Line::Raw(RUST_LEND.into()));
+    }
+    ls.push(Line::Raw(body));
     let l = |s: String| Line::L(s.into());
     for (id, n) in nodes.iter().enumerate() {
         let id = id as i64;
@@ -1728,12 +2060,21 @@ pub fn procs_file(g: RGen, body: Str) -> Result<Str, String> {
             ls.push(l(format!("/// Input of {}.", qn(nodes, id))));
             ls.push(l("#[derive(Debug, Clone)]".into()));
             ls.push(l(format!("struct {} {{", in_type(nodes.clone(), id)?)));
-            for m in params_of(nodes, id).iter() {
+            for m in params_of(nodes, id)
+                .iter()
+                .filter(|m| !is_foreign(&m.ty, &g.prog.types))
+            {
                 ls.push(l(format!(
                     "{}: {},",
                     rust_ident_of(&m.name),
                     rtype(&g.table, &m.ty)?
                 )));
+            }
+            if !foreign_params(nodes, &g.prog.types, id).is_empty() {
+                ls.push(l(
+                    "/// Which way its proc lends it its foreign values.".into()
+                ));
+                ls.push(l("lent: usize,".into()));
             }
             ls.push(l("}".into()));
             ls.push(l("".into()));
@@ -1775,7 +2116,14 @@ pub fn procs_file(g: RGen, body: Str) -> Result<Str, String> {
         ));
         let params: Vec<String> = params_of(nodes, n)
             .iter()
-            .map(|m| Ok(format!("_: {}", rtype(&g.table, &m.ty)?)))
+            .map(|m| {
+                let mut_ = if is_foreign(&m.ty, &g.prog.types) {
+                    "&mut "
+                } else {
+                    ""
+                };
+                Ok(format!("_: {mut_}{}", rtype(&g.table, &m.ty)?))
+            })
             .collect::<Result<_, String>>()?;
         ls.push(l(format!(
             "fn unimplemented_{}({}) -> Result<{}, Error> {{",
@@ -1828,6 +2176,9 @@ pub fn rust_main(
             "{name} runs proc {entry}, but there is no top-level proc {entry}"
         ));
     };
+    if let Some(e) = foreign_entry(&prog, pid, &name) {
+        return fail(e);
+    }
     let params = params_of(nodes, pid);
     let argv = params.len() == 1
         && matches!(unfold(&params[0].ty, &prog.types), Type::Array(e) if matches!(unfold(e, &prog.types), Type::Prim(p) if &**p == "string"));
@@ -2922,6 +3273,9 @@ fn setup_server(g: &RGen, srv: &ServerSpec, w: &mut Vec<Line>) -> Result<(), Str
             "http server {name}: setup proc {setup} must take no parameters"
         ));
     }
+    if let Some(e) = foreign_entry(prog, sid, &format!("http server {name}'s setup")) {
+        return Err(e);
+    }
     let ctx_ty = ret_of(&prog.nodes, sid);
     let ident = server_ident(srv.name.clone())?;
     let (rctx, stat) = (
@@ -3096,8 +3450,13 @@ pub fn rust_signature(
             // As an implementation names them: generated code's renames
             // (`dim_`) are its own.
             Ok(format!(
-                "{}: {}",
+                "{}: {}{}",
                 rust_ident_of(&m.name),
+                if is_foreign(&m.ty, &prog.types) {
+                    "&mut "
+                } else {
+                    ""
+                },
                 rust_render(
                     t.clone(),
                     get(t.clone(), m.ty.clone())?,
@@ -3152,4 +3511,76 @@ pub fn mount_lines(mounts: Map<Str, Str>) -> Result<Str, String> {
         .map(|(name, path)| format!("#[path = {}]\nmod {};\n", q(path), rust_ident_of(name)))
         .collect::<String>()
         .into())
+}
+
+// ---- Foreign types in types.rs ----
+
+pub fn is_foreign_def(d: TypeDef) -> Result<bool, String> {
+    Ok(matches!(d.ty, Type::Foreign(_)))
+}
+
+pub fn is_foreign_ref(r: TyRef) -> Result<bool, String> {
+    Ok(matches!(r, TyRef::Foreign(_)))
+}
+
+pub fn foreign_imp(d: TypeDef, ext: Str) -> Result<MaybeImpl, String> {
+    let Type::Foreign(f) = &d.ty else {
+        return err("foreign_imp: not foreign");
+    };
+    Ok(f.imps
+        .iter()
+        .find(|i| i.file.rsplit_once('.').is_some_and(|(_, e)| *e == *ext))
+        .map_or(MaybeImpl::None, |i| MaybeImpl::Some(i.clone())))
+}
+
+pub fn unwrap_imp(m: MaybeImpl) -> Result<ImplRef, String> {
+    match m {
+        MaybeImpl::Some(i) => Ok(i),
+        MaybeImpl::None => err("unwrap_imp"),
+    }
+}
+
+/// Writes a foreign type's lines in types.rs: its doc, then an alias of path,
+/// or with none a placeholder struct saying how to give it one.
+pub fn rust_foreign_lines(t: Table, id: i64, path: MaybeStr) -> Result<List<Line>, String> {
+    let d = &t.defs[id as usize];
+    let name = cap(&d.ident);
+    let mut out: Vec<String> = vec![];
+    match path {
+        MaybeStr::Some(p) => {
+            if d.doc.is_empty() {
+                out.push(format!("/// Foreign type {}, implemented by {p}.", d.name));
+            } else {
+                out.extend(rust_doc_lines(&d.doc));
+            }
+            out.push(format!("pub type {name} = {p};"));
+        }
+        MaybeStr::None => {
+            out.push(format!(
+                "/// Stands in for foreign type {}, which names no .rs type: add",
+                d.name
+            ));
+            out.push("/// `\"file.rs:Type\"` to its declaration.".into());
+            out.push("#[derive(Debug)]".into());
+            out.push(format!("pub struct {name}(());"));
+        }
+    }
+    out.push("".into());
+    Ok(out.into_iter().map(|l| Line::L(l.into())).collect())
+}
+
+/// Writes the check that every foreign type can be lent to a spawn's
+/// branches: Send and 'static.
+pub fn rust_foreign_send(t: Table) -> Result<List<Line>, String> {
+    let mut out: Vec<String> = vec![
+        "/// Foreign values are lent to spawns' branches, which run on threads, so".into(),
+        "/// each foreign type must be Send and 'static.".into(),
+        "const _: fn() = || {".into(),
+        "fn send<T: Send + 'static>() {}".into(),
+    ];
+    for d in t.defs.iter().filter(|d| matches!(d.ty, Type::Foreign(_))) {
+        out.push(format!("send::<{}>();", cap(&d.ident)));
+    }
+    out.push("};".into());
+    Ok(out.into_iter().map(|l| Line::L(l.into())).collect())
 }

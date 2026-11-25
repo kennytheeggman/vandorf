@@ -25,6 +25,10 @@ type RGen = {
 	failed: MaybeStr,
 	fatal: MaybeStr,
 	proc_name: string,
+	// The proc being written, and the node whose state is (whose output
+	// `this` is).
+	pid: int,
+	src: int,
 	moves: Moves,
 	// Implementation files outside the crate's src/, mounted in mod.rs:
 	// module name -> path relative to the module.
@@ -76,6 +80,8 @@ func Move(m: Moves, owner: string, node: int, path: []string): { m: Moves, movin
 func NoMoves(n: int): Moves = "gen_leaf.rs:no_moves";
 func SortedTaken(taken: map[int]bool): []int = "gen_leaf.rs:sorted_keys";
 func SnakeG(n: NodeDecl): string = "gen_leaf.rs:snake_gname";
+// Whether ty, through typedef names, is a foreign type.
+func IsForeignTy(defs: []TypeDef, ty: Type): bool = "gen_leaf.rs:is_foreign_ty";
 
 // ---- Coercions ----
 
@@ -149,9 +155,15 @@ proc CoerceVariants(s: { at: { g: RGen, expr: string, from: Type, to: Type }, g:
 
 // Writes a read of a node's output, `this` or a binding: moved at its last
 // read (see Moves), cloned otherwise, and unboxed where its last field is
-// behind an Arc.
+// behind an Arc. A foreign value is lent from its slot instead.
 proc RRef(s: { g: RGen, r: Ref }): Emit {
-	RRef -> id(this.s.r.root) as R;
+	// Writes a read of a foreign value as a `&mut` lent from its slot (`this`
+	// being the output of the node being written, g.src).
+	func LendExpr(g: RGen, r: Ref): string = "gen_leaf.rs:lend_expr";
+	RRef switch {
+		(IsForeignTy(defs = this.s.g.prog.types, ty = this.s.r.ty)) -> id({ g = this.s.g, s = LendExpr(g = this.s.g, r = this.s.r) }),
+		else -> id(this.s.r.root) as R
+	};
 	R switch {
 		This() -> Move(m = RRef.s.g.moves, owner = "this", node = -1, path = RRef.s.r.fields) as M,
 		Node(n) -> Move(m = RRef.s.g.moves, owner = "node:" + Itoa(i = n), node = n, path = RRef.s.r.fields) as M,
@@ -363,7 +375,7 @@ proc RArgs(s: { g: RGen, args: []CallArg, i: int, acc: []string }): Parts {
 proc RCallee(s: { g: RGen, n: int }): Emit {
 	RCallee -> RsImpl(n = this.s.g.prog.nodes[BaseOf(nodes = this.s.g.prog.nodes, n = this.s.n)], ext = "rs");
 	RsImpl switch {
-		Some(imp) -> RImplPath(s = { g = RCallee.s.g, n = BaseOf(nodes = RCallee.s.g.prog.nodes, n = RCallee.s.n), imp = imp }),
+		Some(imp) -> RImplPath(s = { g = RCallee.s.g, qual = QualName(n = RCallee.s.g.prog.nodes[BaseOf(nodes = RCallee.s.g.prog.nodes, n = RCallee.s.n)]), imp = imp }),
 		else -> id({ g = { ..RCallee.s.g, stubs = RCallee.s.g.stubs + [BaseOf(nodes = RCallee.s.g.prog.nodes, n = RCallee.s.n): true] }, s = "unimplemented_" + SnakeG(n = RCallee.s.g.prog.nodes[BaseOf(nodes = RCallee.s.g.prog.nodes, n = RCallee.s.n)]) })
 	};
 	RImplPath switch {
@@ -382,46 +394,90 @@ func RsImplFile(n: NodeDecl): string = "gen_leaf.rs:rs_impl_file";
 // src/, each as a module by its path.
 func MountLines(mounts: map[string]string): string = "gen_leaf.rs:mount_lines";
 
-// Works out how generated code calls an implementation:
-// `crate::a::b::function`, or why it can't. A file outside the crate's src/
-// is mounted in mod.rs (mount: its module name) and called as
-// `super::<module>::function`; two such files can't share a name.
-proc RImplPath(s: { g: RGen, n: int, imp: ImplRef }): { path: MaybeStr, err: MaybeStr, mount: string } {
+// Works out how generated code reaches an implementation (a function, or a
+// foreign type) of qual: `crate::a::b::function`, or why it can't. A file
+// outside the crate's src/ is mounted in mod.rs (mount: its module name) and
+// reached as `super::<module>::function`; two such files can't share a name.
+proc RImplPath(s: { g: RGen, qual: string, imp: ImplRef }): { path: MaybeStr, err: MaybeStr, mount: string } {
 	RImplPath -> id(this.s.g.module_dir) as Dir;
 	Dir switch {
 		Some(dir) -> JoinPath(base = dir, rel = RImplPath.s.imp.file),
-		else -> id({ path = None(), err = Some(QualName(n = RImplPath.s.g.prog.nodes[RImplPath.s.n]) + " is implemented in " + RImplPath.s.imp.file + ", but the output module's place in the crate is unknown (pass --module-dir or generate under a crate's src/)"), mount = "" })
+		else -> id({ path = None(), err = Some(RImplPath.s.qual + " is implemented in " + RImplPath.s.imp.file + ", but the output module's place in the crate is unknown (pass --module-dir or generate under a crate's src/)"), mount = "" })
 	};
 	JoinPath switch {
 		Some(file) -> ModulePath(file = file),
 		else -> switch {
-			(!MountableStem(file = RImplPath.s.imp.file)) -> id({ path = None(), err = Some(QualName(n = RImplPath.s.g.prog.nodes[RImplPath.s.n]) + ": " + RImplPath.s.imp.file + " is outside the crate's src/, and its name can't be a module of the output"), mount = "" }),
-			(Stem(file = RImplPath.s.imp.file) in RImplPath.s.g.mounts && RImplPath.s.g.mounts[Stem(file = RImplPath.s.imp.file)] != RImplPath.s.imp.file) -> id({ path = None(), err = Some(QualName(n = RImplPath.s.g.prog.nodes[RImplPath.s.n]) + ": " + RImplPath.s.imp.file + " and " + RImplPath.s.g.mounts[Stem(file = RImplPath.s.imp.file)] + " are both outside the crate's src/ and would both be module " + Stem(file = RImplPath.s.imp.file)), mount = "" }),
+			(!MountableStem(file = RImplPath.s.imp.file)) -> id({ path = None(), err = Some(RImplPath.s.qual + ": " + RImplPath.s.imp.file + " is outside the crate's src/, and its name can't be a module of the output"), mount = "" }),
+			(Stem(file = RImplPath.s.imp.file) in RImplPath.s.g.mounts && RImplPath.s.g.mounts[Stem(file = RImplPath.s.imp.file)] != RImplPath.s.imp.file) -> id({ path = None(), err = Some(RImplPath.s.qual + ": " + RImplPath.s.imp.file + " and " + RImplPath.s.g.mounts[Stem(file = RImplPath.s.imp.file)] + " are both outside the crate's src/ and would both be module " + Stem(file = RImplPath.s.imp.file)), mount = "" }),
 			else -> id({ path = Some("super::" + RustIdent(s = Stem(file = RImplPath.s.imp.file)) + "::" + RustIdent(s = RImplPath.s.imp.function)), err = None(), mount = Stem(file = RImplPath.s.imp.file) })
 		}
 	};
 	ModulePath switch {
 		Some(m) -> id({ path = Some(m + "::" + RustIdent(s = RImplPath.s.imp.function)), err = None(), mount = "" }),
-		else -> id({ path = None(), err = Some(QualName(n = RImplPath.s.g.prog.nodes[RImplPath.s.n]) + ": " + RImplPath.s.imp.file + " is not a Rust module file"), mount = "" })
+		else -> id({ path = None(), err = Some(RImplPath.s.qual + ": " + RImplPath.s.imp.file + " is not a Rust module file"), mount = "" })
 	};
 }
+
+// Writes types.rs's foreign types after the table's: each an alias of the
+// type its .rs implementation names (its file mounted in mod.rs if it's
+// outside the crate's src/), or a placeholder if it names none; then the
+// check that each can cross threads. Fails as RImplPath does.
+proc RForeignTypes(s: { g: RGen, i: int, acc: []Line, any: bool }): { g: RGen, lines: []Line } {
+	func ForeignImp(d: TypeDef, ext: string): MaybeImpl = "gen_leaf.rs:foreign_imp";
+	// Writes a foreign type's lines in types.rs: its doc, then an alias of path,
+	// or with none a placeholder struct saying how to give it one.
+	func ForeignTypeLines(t: Table, id: int, path: MaybeStr): []Line = "gen_leaf.rs:rust_foreign_lines";
+	// Writes the check that every foreign type can be lent to a spawn's
+	// branches: Send and 'static.
+	func SendLines(t: Table): []Line = "gen_leaf.rs:rust_foreign_send";
+	RForeignTypes switch {
+		(this.s.i == this.s.g.prog.types.len && this.s.any) -> id({ g = this.s.g, lines = this.s.acc + SendLines(t = this.s.g.table) }),
+		(this.s.i == this.s.g.prog.types.len) -> id({ g = this.s.g, lines = this.s.acc }),
+		(!IsForeignDef(d = this.s.g.prog.types[this.s.i])) -> RForeignTypes(s = { ..this.s, i = this.s.i + 1 }),
+		else -> ForeignImp(d = this.s.g.prog.types[this.s.i], ext = "rs")
+	};
+	ForeignImp switch {
+		Some(imp) -> RImplPath(s = { g = RForeignTypes.s.g, qual = "foreign type " + RForeignTypes.s.g.prog.types[RForeignTypes.s.i].name, imp = imp }),
+		else -> RForeignTypes(s = { ..RForeignTypes.s, i = RForeignTypes.s.i + 1, acc = RForeignTypes.s.acc + ForeignTypeLines(t = RForeignTypes.s.g.table, id = RForeignTypes.s.i, path = None()), any = true })
+	};
+	RImplPath switch {
+		{ path = Some(p), err = _, mount = m } -> switch {
+			(m == "") -> RForeignTypes(s = { ..RForeignTypes.s, i = RForeignTypes.s.i + 1, acc = RForeignTypes.s.acc + ForeignTypeLines(t = RForeignTypes.s.g.table, id = RForeignTypes.s.i, path = Some(p)), any = true }),
+			else -> RForeignTypes(s = { ..RForeignTypes.s, g = { ..RForeignTypes.s.g, mounts = RForeignTypes.s.g.mounts + [m: UnwrapImp(m = ForeignImp).file] }, i = RForeignTypes.s.i + 1, acc = RForeignTypes.s.acc + ForeignTypeLines(t = RForeignTypes.s.g.table, id = RForeignTypes.s.i, path = Some(p)), any = true })
+		},
+		{ path = _, err = Some(e), mount = _ } -> id({ g = GFatal(g = RForeignTypes.s.g, msg = e), lines = RForeignTypes.s.acc }),
+		else -> id({ g = RForeignTypes.s.g, lines = RForeignTypes.s.acc })
+	};
+}
+
+func IsForeignDef(d: TypeDef): bool = "gen_leaf.rs:is_foreign_def";
+func UnwrapImp(m: MaybeImpl): ImplRef = "gen_leaf.rs:unwrap_imp";
 
 // Takes a file's name without .rs: the module a mounted implementation file
 // becomes.
 func Stem(file: string): string = "gen_leaf.rs:rs_stem";
 func MountableStem(file: string): bool = "gen_leaf.rs:mountable_stem";
 
-// Writes the input of c's target: `In<Target> { param: value, .. }`.
+// Writes the input of c's target: `In<Target> { param: value, .. }`, and
+// for a target taking foreign values, which way they're lent (`lent: 0`).
 proc RInput(s: { g: RGen, c: Call }): Emit {
+	// Writes "lent: <way>" for a call of a node taking foreign values: which
+	// of the ways its proc calls it this one is (see lend_ways); "" for other
+	// calls.
+	func LentField(g: RGen, c: Call): string = "gen_leaf.rs:lent_field";
 	RInput -> RNamedArgs(s = { g = this.s.g, args = this.s.c.args, i = 0, acc = [] });
-	RNamedArgs -> id({ g = this.g, s = InType(nodes = RInput.s.g.prog.nodes, n = RInput.s.c.target) + " { " + Join(parts = this.parts, sep = ", ") + " }" });
+	RNamedArgs switch {
+		(LentField(g = RInput.s.g, c = RInput.s.c) == "") -> id({ g = this.g, s = InType(nodes = RInput.s.g.prog.nodes, n = RInput.s.c.target) + " { " + Join(parts = this.parts, sep = ", ") + " }" }),
+		else -> id({ g = this.g, s = InType(nodes = RInput.s.g.prog.nodes, n = RInput.s.c.target) + " { " + Join(parts = this.parts + [LentField(g = RInput.s.g, c = RInput.s.c)], sep = ", ") + " }" })
+	};
 }
 
 // Writes each of a call's arguments as `param: value`, at its parameter's
-// type.
+// type; a foreign value isn't in the input, but lent when the target runs.
 proc RNamedArgs(s: { g: RGen, args: []CallArg, i: int, acc: []string }): Parts {
 	RNamedArgs switch {
 		(this.s.i == this.s.args.len) -> id({ g = this.s.g, parts = this.s.acc }),
+		(IsForeignTy(defs = this.s.g.prog.types, ty = this.s.args[this.s.i].param)) -> RNamedArgs(s = { ..this.s, i = this.s.i + 1 }),
 		else -> RValue(s = { g = this.s.g, e = this.s.args[this.s.i].value, want = this.s.args[this.s.i].param })
 	};
 	RValue -> RNamedArgs(s = { g = this.g, args = RNamedArgs.s.args, i = RNamedArgs.s.i + 1, acc = RNamedArgs.s.acc + [RustIdent(s = RNamedArgs.s.args[RNamedArgs.s.i].name) + ": " + this.s] });
@@ -494,21 +550,27 @@ proc RBody(s: { g: RGen, pid: int, n: int, body: SBody }): EmitLines {
 // implementation, a proc through its run_ function, an id or signature node
 // from its input), keep its output if it's read later, then its edge.
 proc RNode(s: { g: RGen, pid: int, n: int }): EmitLines {
-	func ArgList(nodes: []NodeDecl, n: int): string = "gen_leaf.rs:input_args";
+	// Writes the arguments a node's step passes it: its input's fields, and the
+	// foreign values lent to it (`lent_<param>`).
+	func ArgList(g: RGen, n: int): string = "gen_leaf.rs:input_args";
+	// Writes how an id node's step takes its value: from its input, or, a
+	// foreign one, out of the slot it's in (an id ends the proc, so it's the
+	// last to need it).
+	func IdRun(g: RGen, n: int): string = "gen_leaf.rs:id_run";
 	// Writes a signature node's output: its input's fields, as the struct of
 	// them.
 	func SigValue(g: RGen, n: int): string = "gen_leaf.rs:sig_value";
 	RNode -> id(this.s.g.prog.nodes[BaseOf(nodes = this.s.g.prog.nodes, n = this.s.n)].kind) as K;
 	K switch {
-		Proc(_) -> RNodeBody(s = { g = RNode.s.g, pid = RNode.s.pid, n = RNode.s.n, run = "let this = run_" + SnakeG(n = RNode.s.g.prog.nodes[BaseOf(nodes = RNode.s.g.prog.nodes, n = RNode.s.n)]) + "(" + ArgList(nodes = RNode.s.g.prog.nodes, n = RNode.s.n) + ").map_err(|e| wrap(" + Quote(s = QualName(n = RNode.s.g.prog.nodes[RNode.s.n])) + ", e.into()))?;" }),
-		Id(_) -> RNodeBody(s = { g = RNode.s.g, pid = RNode.s.pid, n = RNode.s.n, run = "let this = input.value;" }),
+		Proc(_) -> RNodeBody(s = { g = RNode.s.g, pid = RNode.s.pid, n = RNode.s.n, run = "let this = run_" + SnakeG(n = RNode.s.g.prog.nodes[BaseOf(nodes = RNode.s.g.prog.nodes, n = RNode.s.n)]) + "(" + ArgList(g = RNode.s.g, n = RNode.s.n) + ").map_err(|e| wrap(" + Quote(s = QualName(n = RNode.s.g.prog.nodes[RNode.s.n])) + ", e.into()))?;" }),
+		Id(_) -> RNodeBody(s = { g = RNode.s.g, pid = RNode.s.pid, n = RNode.s.n, run = IdRun(g = RNode.s.g, n = RNode.s.n) }),
 		Sig(_) -> RNodeBody(s = { g = RNode.s.g, pid = RNode.s.pid, n = RNode.s.n, run = SigValue(g = RNode.s.g, n = RNode.s.n) }),
 		else -> RCallee(s = { g = RNode.s.g, n = RNode.s.n })
 	};
 	// A callee error here stops the generator.
 	RCallee switch {
 		(IsSomeS(m = this.g.failed) && !IsSomeS(m = RNode.s.g.failed)) -> RNodeBody(s = { g = GFatal(g = RNode.s.g, msg = UnwrapS(m = this.g.failed)), pid = RNode.s.pid, n = RNode.s.n, run = "" }),
-		else -> RNodeBody(s = { g = this.g, pid = RNode.s.pid, n = RNode.s.n, run = "let this = " + this.s + "(" + ArgList(nodes = RNode.s.g.prog.nodes, n = RNode.s.n) + ").map_err(|e| wrap(" + Quote(s = QualName(n = RNode.s.g.prog.nodes[RNode.s.n])) + ", e.into()))?;" })
+		else -> RNodeBody(s = { g = this.g, pid = RNode.s.pid, n = RNode.s.n, run = "let this = " + this.s + "(" + ArgList(g = RNode.s.g, n = RNode.s.n) + ").map_err(|e| wrap(" + Quote(s = QualName(n = RNode.s.g.prog.nodes[RNode.s.n])) + ", e.into()))?;" })
 	};
 }
 
@@ -517,6 +579,10 @@ proc RNode(s: { g: RGen, pid: int, n: int }): EmitLines {
 // the results, or a spawn and its join), or, with none, returning its output
 // as the proc's.
 proc RNodeBody(s: { g: RGen, pid: int, n: int, run: string }): EmitLines {
+	// Writes a node's state up to and through its run line: its input taken,
+	// the foreign values it takes lent from their slots (by the way it was
+	// called, if there are several), then, after the run, its output kept: in
+	// env if an edge reads it, or a foreign one in its slot if it has an edge.
 	func Head(g: RGen, pid: int, n: int, run: string): []Line = "gen_leaf.rs:node_head";
 	RNodeBody switch {
 		(this.s.n in GraphOf(n = this.s.g.prog.nodes[this.s.pid]).edges) -> id(GraphOf(n = this.s.g.prog.nodes[this.s.pid]).edges[this.s.n]) as E,
@@ -582,7 +648,7 @@ func RegionFn(g: RGen, pid: int, r: int): string = "gen_leaf.rs:region_fn";
 proc RLoop(s: { g: RGen, pid: int, nodes: []int, i: int, acc: []Line }): EmitLines {
 	RLoop switch {
 		(this.s.i == this.s.nodes.len) -> id({ g = this.s.g, lines = [L("loop {"), L("match pc {")] + this.s.acc + [L("_ => return Err(format!(" + Quote(s = QualName(n = this.s.g.prog.nodes[this.s.pid]) + ": invalid state {pc:?}") + ").into()),"), L("}"), L("}")] }),
-		else -> RNode(s = { g = this.s.g, pid = this.s.pid, n = this.s.nodes[this.s.i] })
+		else -> RNode(s = { g = { ..this.s.g, src = this.s.nodes[this.s.i] }, pid = this.s.pid, n = this.s.nodes[this.s.i] })
 	};
 	RNode -> RLoop(s = { g = this.g, pid = RLoop.s.pid, nodes = RLoop.s.nodes, i = RLoop.s.i + 1, acc = RLoop.s.acc + this.lines });
 }
@@ -592,7 +658,7 @@ proc RLoop(s: { g: RGen, pid: int, nodes: []int, i: int, acc: []Line }): EmitLin
 proc RProc(s: { g: RGen, pid: int }): EmitLines {
 	func Prelude(g: RGen, pid: int): []Line = "gen_leaf.rs:proc_prelude";
 	func Opens(g: Graph): []int = "gen_leaf.rs:opens_by_region";
-	RProc -> RLoop(s = { g = { ..this.s.g, proc_name = QualName(n = this.s.g.prog.nodes[this.s.pid]) }, pid = this.s.pid, nodes = GraphOf(n = this.s.g.prog.nodes[this.s.pid]).regions[0].nodes, i = 0, acc = [] });
+	RProc -> RLoop(s = { g = { ..this.s.g, proc_name = QualName(n = this.s.g.prog.nodes[this.s.pid]), pid = this.s.pid }, pid = this.s.pid, nodes = GraphOf(n = this.s.g.prog.nodes[this.s.pid]).regions[0].nodes, i = 0, acc = [] });
 	RLoop -> RRegions(s = { g = this.g, pid = RProc.s.pid, opens = Opens(g = GraphOf(n = RProc.s.g.prog.nodes[RProc.s.pid])), i = 0, acc = Prelude(g = RProc.s.g, pid = RProc.s.pid) + this.lines + [L("}"), L("")] });
 }
 
@@ -617,9 +683,10 @@ proc RRegions(s: { g: RGen, pid: int, opens: []int, i: int, acc: []Line }): Emit
 // http: "" without servers.
 type RustOut = { types: string, procs: string, modrs: string, http: string, err: MaybeStr };
 
-// Generates a program's Rust: types.rs, procs.rs, mod.rs and, with servers,
-// http.rs. Fails on a bad module_dir or names that would clash in Rust, and
-// on the first error writing the procs or servers.
+// Generates a program's Rust: types.rs (its foreign types after the table's),
+// procs.rs, mod.rs and, with servers, http.rs. Fails on a bad module_dir or
+// names that would clash in Rust, and on the first error writing the foreign
+// types, the procs or the servers.
 proc RustGenerate(s: { prog: Program, module_dir: MaybeStr, servers: []ServerSpec }): RustOut {
 	func NameClash(prog: Program): MaybeStr = "gen_leaf.rs:name_clash";
 	func BadModuleDir(d: MaybeStr): MaybeStr = "gen_leaf.rs:bad_module_dir";
@@ -632,24 +699,25 @@ proc RustGenerate(s: { prog: Program, module_dir: MaybeStr, servers: []ServerSpe
 		(IsSomeS(m = NameClash(prog = RustGenerate.s.prog))) -> id({ types = "", procs = "", modrs = "", http = "", err = NameClash(prog = RustGenerate.s.prog) }),
 		else -> RustTypegen(t = this)
 	};
-	RustTypegen -> RProcs(s = {
-		g = { prog = RustGenerate.s.prog, table = BuildTable, module_dir = Trimmed(d = RustGenerate.s.module_dir), coercions = [:], helpers = [], stubs = [:], failed = None(), fatal = None(), proc_name = "", moves = NoMoves(n = 0), mounts = [:] },
-		procs = Order(nodes = RustGenerate.s.prog.nodes, top = RustGenerate.s.prog.top), i = 0, acc = []
+	RustTypegen -> RForeignTypes(s = {
+		g = { prog = RustGenerate.s.prog, table = BuildTable, module_dir = Trimmed(d = RustGenerate.s.module_dir), coercions = [:], helpers = [], stubs = [:], failed = None(), fatal = None(), proc_name = "", pid = -1, src = -1, moves = NoMoves(n = 0), mounts = [:] },
+		i = 0, acc = [], any = false
 	});
+	RForeignTypes -> RProcs(s = { g = this.g, procs = Order(nodes = RustGenerate.s.prog.nodes, top = RustGenerate.s.prog.top), i = 0, acc = [] });
 	RProcs switch {
-		(RustGenerate.s.servers.len == 0) -> id({ types = RustTypegen, procs = ProcsFile(g = this.g, body = Lines(lines = this.lines, indent = "    ")), modrs = ModRs(n = 0) + MountLines(mounts = this.g.mounts), http = "", err = FirstError(g = this.g) }),
+		(RustGenerate.s.servers.len == 0) -> id({ types = RustTypegen + Lines(lines = RForeignTypes.lines, indent = "    "), procs = ProcsFile(g = this.g, body = Lines(lines = this.lines, indent = "    ")), modrs = ModRs(n = 0) + MountLines(mounts = this.g.mounts), http = "", err = FirstError(g = this.g) }),
 		else -> RustHttp(s = { g = this.g, servers = RustGenerate.s.servers })
 	};
 	// As in the reference: an error that stopped the generator, then one in
 	// http.rs, then one from an expression.
 	RustHttp switch {
 		{ text = _, err = Some(e) } -> switch {
-			(IsSomeS(m = RProcs.g.fatal)) -> id({ types = RustTypegen, procs = "", modrs = "", http = "", err = RProcs.g.fatal }),
-			else -> id({ types = RustTypegen, procs = "", modrs = "", http = "", err = Some(e) })
+			(IsSomeS(m = RProcs.g.fatal)) -> id({ types = RustTypegen + Lines(lines = RForeignTypes.lines, indent = "    "), procs = "", modrs = "", http = "", err = RProcs.g.fatal }),
+			else -> id({ types = RustTypegen + Lines(lines = RForeignTypes.lines, indent = "    "), procs = "", modrs = "", http = "", err = Some(e) })
 		},
 		else -> switch {
-			(IsSomeS(m = FirstError(g = RProcs.g))) -> id({ types = RustTypegen, procs = "", modrs = "", http = "", err = FirstError(g = RProcs.g) }),
-			else -> id({ types = RustTypegen, procs = ProcsFile(g = RProcs.g, body = Lines(lines = RProcs.lines, indent = "    ")), modrs = ModRs(n = 0) + MountLines(mounts = RProcs.g.mounts) + "pub mod http;\n", http = this.text, err = None() })
+			(IsSomeS(m = FirstError(g = RProcs.g))) -> id({ types = RustTypegen + Lines(lines = RForeignTypes.lines, indent = "    "), procs = "", modrs = "", http = "", err = FirstError(g = RProcs.g) }),
+			else -> id({ types = RustTypegen + Lines(lines = RForeignTypes.lines, indent = "    "), procs = ProcsFile(g = RProcs.g, body = Lines(lines = RProcs.lines, indent = "    ")), modrs = ModRs(n = 0) + MountLines(mounts = RProcs.g.mounts) + "pub mod http;\n", http = this.text, err = None() })
 		}
 	};
 }

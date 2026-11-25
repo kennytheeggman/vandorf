@@ -1,0 +1,7 @@
+type Conn = "db.go:*Conn", "db.rs:Conn";
+func Open(): Conn; func Count(c: Conn): int; func Two(a: Conn, b: Conn): int; func Clone(c: Conn): Conn;
+func Bump(c: Conn); func Xs(): []int; func Get(i: int, c: Conn): int; func OpenAt(i: int): Conn;
+
+proc P(n: int): int { P -> Open(); Open -> Count(c = this); Count switch { (Two(a = Open, b = Open) > 0) -> id(1), else -> id(2) }; }
+---
+error: Open is a foreign value, lent to Two twice here: one call borrows it once @338..342

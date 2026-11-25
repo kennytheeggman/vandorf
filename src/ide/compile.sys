@@ -160,14 +160,17 @@ proc Symbols(s: { base: string, unit: Unit, prog: Program }): Json {
 	NodeSymbols -> id(Obj([{ key = "types", value = Obj(TypeSymbols) }, { key = "nodes", value = Obj(this) }]));
 }
 
-// Lists each typedef as a symbol: its definition shown, whether it's
-// recursive, and its doc.
+// Lists each typedef as a symbol: its definition shown (a foreign type's,
+// its implementations as written), whether it's recursive, and its doc.
 proc TypeSymbols(s: { types: []TypeDef, i: int, acc: []JsonField }): []JsonField {
+	// Writes a typedef's definition: shown, or a foreign type's implementations
+	// as the source writes them, `"db.go:*DB", "db.rs:Db"`.
+	func Def(t: Type, shown: string): string = "ide_leaf.rs:typedef_def";
 	TypeSymbols switch {
 		(this.s.i == this.s.types.len) -> id(this.s.acc),
 		else -> ShowType(t = this.s.types[this.s.i].ty)
 	};
-	ShowType -> TypeSymbols(s = { ..TypeSymbols.s, i = TypeSymbols.s.i + 1, acc = TypeSymbols.s.acc + [{ key = TypeSymbols.s.types[TypeSymbols.s.i].name, value = Obj([{ key = "def", value = Str(this) }, { key = "recursive", value = Bool(TypeSymbols.s.types[TypeSymbols.s.i].recursive) }, { key = "doc", value = Str(TypeSymbols.s.types[TypeSymbols.s.i].doc) }]) }] });
+	ShowType -> TypeSymbols(s = { ..TypeSymbols.s, i = TypeSymbols.s.i + 1, acc = TypeSymbols.s.acc + [{ key = TypeSymbols.s.types[TypeSymbols.s.i].name, value = Obj([{ key = "def", value = Str(Def(t = TypeSymbols.s.types[TypeSymbols.s.i].ty, shown = this)) }, { key = "recursive", value = Bool(TypeSymbols.s.types[TypeSymbols.s.i].recursive) }, { key = "doc", value = Str(TypeSymbols.s.types[TypeSymbols.s.i].doc) }]) }] });
 }
 
 // Lists each func and proc as a symbol by its qualified name: its kind, doc,
@@ -251,7 +254,7 @@ proc GoPreview(s: { unit: Unit, prog: Program }): Json {
 	GoPreview -> id(this.s.unit.project) as P;
 	P switch {
 		Some(p) -> id(p.manifest.go) as G,
-		else -> GoPreviewJson(s = { prog = GoPreview.s.prog, package = "app", import_base = Some("example.com/app"), types_dir = "types", mains = NominalGoMains(prog = GoPreview.s.prog), servers = [] }) as Nominal
+		else -> GoPreviewJson(s = { prog = GoPreview.s.prog, package = "app", import_base = Some("example.com/app"), types_dir = "types", mains = NominalGoMains(prog = GoPreview.s.prog), servers = [], imports = [:] }) as Nominal
 	};
 	G switch {
 		Some(g) -> FindUp(s = { dir = JoinP(a = GoPreview.s.unit.root, b = g.out), marker = "go.mod" }),
@@ -268,7 +271,8 @@ proc GoPreview(s: { unit: Unit, prog: Program }): Json {
 		import_base = this,
 		types_dir = UnwrapOr(m = UnwrapG(g = G).types_dir, d = "types"),
 		mains = GoMainSpecs(c = { project = UnwrapPr(p = P), prog = GoPreview.s.prog }, g = UnwrapG(g = G), names = UnwrapPr(p = P).manifest.bins.keys),
-		servers = []
+		servers = [],
+		imports = [:]
 	}) as Configured;
 }
 

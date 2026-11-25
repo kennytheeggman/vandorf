@@ -275,6 +275,8 @@ pub fn go_render(t: Table, r: TyRef, qual: Str) -> Result<Str, String> {
         )
         .into(),
         TyRef::Named(i) => format!("{qual}{}", t.types[i as usize].name).into(),
+        // The code package's alias of it (foreign_vandorf.go).
+        TyRef::Foreign(i) => format!("foreign{}", exported(&t.defs[i as usize].ident)).into(),
     })
 }
 
@@ -399,6 +401,10 @@ pub fn go_lines(ls: List<Str>) -> Result<Str, String> {
 // ---- Expressions ----
 
 pub fn go_ref(g: GGen, r: Ref) -> Result<Str, String> {
+    // A foreign parameter, kept in env rather than the signature node's output.
+    if let (Some(f), true) = (r.fields.last(), is_foreign(&r.ty, &g.prog.types)) {
+        return Ok(format!("env.param{}", exported(f)).into());
+    }
     let mut s = match r.root {
         Root::This => "this".to_string(),
         Root::Node(n) => format!("env.out{}", gn(&g.prog.nodes, n)),
@@ -658,7 +664,21 @@ pub fn go_prelude(g: GGen, pid: i64) -> Result<List<Str>, String> {
         out.push(format!("in{id} {}", in_type(nodes, n)));
         out.push(format!(
             "out{id} {}",
-            gtype(&g.table, &g.tq, &ret_of(nodes, n))
+            gtype(
+                &g.table,
+                &g.tq,
+                &node_out(g.prog.types.clone(), nodes.clone(), n)?
+            )
+        ));
+    }
+    let params = params_of(nodes, pid);
+    // Foreign parameters, which the signature node's output (in the types
+    // package) can't hold.
+    for m in params.iter().filter(|m| is_foreign(&m.ty, &g.prog.types)) {
+        out.push(format!(
+            "param{} {}",
+            exported(&m.name),
+            gtype(&g.table, &g.tq, &m.ty)
         ));
     }
     out.extend(["}".into(), "".into(), "const (".into()]);
@@ -670,7 +690,6 @@ pub fn go_prelude(g: GGen, pid: i64) -> Result<List<Str>, String> {
         });
     }
     out.extend([")".into(), "".into()]);
-    let params = params_of(nodes, pid);
     let ret = gtype(&g.table, &g.tq, &p.ret);
     let sig: String = params
         .iter()
@@ -689,6 +708,13 @@ pub fn go_prelude(g: GGen, pid: i64) -> Result<List<Str>, String> {
     ));
     out.push(format!("var zero {ret}"));
     out.push(format!("env := &{env}{{}}"));
+    for m in params.iter().filter(|m| is_foreign(&m.ty, &g.prog.types)) {
+        out.push(format!(
+            "env.param{} = {}",
+            exported(&m.name),
+            go_param(&m.name)
+        ));
+    }
     let fields: Vec<String> = params
         .iter()
         .map(|m| format!("{}: {}", exported(&m.name), go_param(&m.name)))
@@ -717,10 +743,12 @@ pub fn go_node_head(g: GGen, pid: i64, n: i64, call: Str) -> Result<List<Str>, S
     let mut out = vec![format!("case {}:", pc(nodes, pid, n))];
     let is_id = matches!(nodes[n as usize].kind, NodeKind::Id(_) | NodeKind::Sig(_));
     if let NodeKind::Sig(_) = &nodes[n as usize].kind {
-        // A signature node: its output is its input's fields.
-        let ty = ret_of(nodes, n);
+        // A signature node: its output is its input's fields, but foreign ones
+        // (kept in env).
+        let ty = node_out(g.prog.types.clone(), nodes.clone(), n)?;
         let fields = params_of(nodes, n)
             .iter()
+            .filter(|m| !is_foreign(&m.ty, &g.prog.types))
             .map(|m| {
                 let f = exported(&m.name);
                 let v = format!("env.in{id}.{f}");
@@ -934,18 +962,215 @@ fn plain(paths: &[&str]) -> Vec<(String, String)> {
 }
 
 fn signature(prog: &Program, t: &Table, tq: &str, n: i64, name: &str, named: bool) -> String {
+    // An implementation names a foreign type as its .go reference writes it.
+    let ty = |ty: &Type| {
+        if named {
+            if let Some(w) = foreign_written(prog, ty) {
+                return w;
+            }
+        }
+        gtype(t, tq, ty)
+    };
     let mut s = format!("func {name}(ctx context.Context");
     for m in params_of(&prog.nodes, n).iter() {
         let p = if named { go_param(&m.name) } else { "_".into() };
-        s.push_str(&format!(", {p} {}", gtype(t, tq, &m.ty)));
+        s.push_str(&format!(", {p} {}", ty(&m.ty)));
     }
     let ret = ret_of(&prog.nodes, n);
     if is_void(&ret) {
         s.push_str(") error");
     } else {
-        s.push_str(&format!(") ({}, error)", gtype(t, tq, &ret)));
+        s.push_str(&format!(") ({}, error)", ty(&ret)));
     }
     s
+}
+
+// ---- Foreign types ----
+
+fn is_foreign(t: &Type, defs: &[TypeDef]) -> bool {
+    super::gen_leaf::is_foreign(t, defs)
+}
+
+fn node_out(defs: List<TypeDef>, nodes: List<NodeDecl>, n: i64) -> Result<Type, String> {
+    super::gen_leaf::node_out(defs, nodes, n)
+}
+
+/// A foreign type as its .go reference writes it (`*sql.DB`), if ty is one
+/// with one.
+fn foreign_written(prog: &Program, ty: &Type) -> Option<String> {
+    let Type::Foreign(f) = unfold(ty, &prog.types) else {
+        return None;
+    };
+    f.imps
+        .iter()
+        .find(|i| i.file.ends_with(".go"))
+        .map(|i| i.function.to_string())
+}
+
+/// Writes foreign_vandorf.go, if the program has foreign types: for each, the
+/// code package's alias of the Go type its .go implementation names (as that
+/// file writes it, its package imported if it's another, or the package it
+/// qualifies the type with), or a placeholder if it names none. Or why a
+/// type can't be reached.
+pub fn go_foreign_file(g: GGen, package: Str, setup: GoSetup) -> Result<GoOut, String> {
+    let fail = |e: String| {
+        Ok(GoOut {
+            files: List::default(),
+            err: MaybeStr::Some(e.into()),
+        })
+    };
+    let mut imports: Vec<(String, String)> = vec![];
+    let mut w: Vec<String> = vec![];
+    let alias_for = |path: &str, want: &str, imports: &mut Vec<(String, String)>| -> String {
+        if let Some((_, a)) = imports.iter().find(|(p, _)| p == path) {
+            return a.clone();
+        }
+        let (mut a, mut i) = (want.to_string(), 2);
+        while imports.iter().any(|(_, x)| *x == a) {
+            a = format!("{want}{i}");
+            i += 1;
+        }
+        imports.push((path.to_string(), a.clone()));
+        a
+    };
+    for d in g.prog.types.iter() {
+        let Type::Foreign(f) = &d.ty else { continue };
+        let alias = format!("foreign{}", exported(&d.ident));
+        let Some(imp) = f.imps.iter().find(|i| i.file.ends_with(".go")) else {
+            w.push(format!(
+                "// {alias} stands in for foreign type {}, which names no .go type: add",
+                d.name
+            ));
+            w.push("// `\"file.go:Type\"` to its declaration.".into());
+            w.push(format!("type {alias} struct{{}}"));
+            w.push("".into());
+            continue;
+        };
+        let written = &*imp.function;
+        let stars = written.len() - written.trim_start_matches('*').len();
+        let (ptr, name) = written.split_at(stars);
+        let dir = imp
+            .file
+            .rsplit_once('/')
+            .map_or("", |(d, _)| d)
+            .trim_end_matches('/');
+        let ty = if let Some((pkg, t)) = name.split_once('.') {
+            // Qualified as the file writes it: import what it imports.
+            let key = format!("{}|{pkg}", imp.file);
+            let Some(path) = g.fimports.get(&Str::from(key.as_str())) else {
+                return fail(format!(
+                    "foreign type {}'s Go type {written} names package {pkg}, but {} doesn't import it",
+                    d.name, imp.file
+                ));
+            };
+            format!("{ptr}{}.{t}", alias_for(path, pkg, &mut imports))
+        } else if dir.is_empty() || dir == "." {
+            written.to_string()
+        } else {
+            let MaybeStr::Some(base) = &g.import_base else {
+                return fail(format!(
+                    "foreign type {} is implemented in {}, outside the code package, but its import path is unknown (pass --module or run inside a Go module)",
+                    d.name, imp.file
+                ));
+            };
+            let path = match join_path(base.clone(), dir.into())? {
+                MaybeStr::Some(p) if !p.is_empty() => p.to_string(),
+                _ => {
+                    return fail(format!(
+                        "foreign type {}: {} is outside the Go module {base} is in",
+                        d.name, imp.file
+                    ));
+                }
+            };
+            let stem = ident(path.rsplit('/').next().unwrap());
+            format!("{ptr}{}.{name}", alias_for(&path, &stem, &mut imports))
+        };
+        w.push(format!(
+            "// {alias} is foreign type {}: {written}, from {}.",
+            d.name, imp.file
+        ));
+        w.push(format!("type {alias} = {ty}"));
+        w.push("".into());
+    }
+    if w.is_empty() {
+        return Ok(GoOut {
+            files: List::default(),
+            err: MaybeStr::None,
+        });
+    }
+    Ok(GoOut {
+        files: vec![GoFile {
+            dir: "".into(),
+            name: "foreign_vandorf.go".into(),
+            text: file_text(&package, &render(w), imports, &setup).into(),
+            kind: "code".into(),
+        }]
+        .into(),
+        err: MaybeStr::None,
+    })
+}
+
+/// Lists the packages a Go file imports, by the name it uses for each: its
+/// alias, or else its path's last element (without a `/vN` major version).
+pub fn go_file_imports(src: Str) -> Result<Map<Str, Str>, String> {
+    let mut out = vec![];
+    let mut add = |spec: &str| {
+        let spec = spec.trim();
+        let (alias, path) = match spec.rsplit_once(' ') {
+            Some((a, p)) => (a.trim().to_string(), p.trim()),
+            None => (String::new(), spec),
+        };
+        let path = path.trim_matches('"');
+        if path.is_empty() || alias == "_" || alias == "." {
+            return;
+        }
+        let name = if alias.is_empty() {
+            let mut segs: Vec<&str> = path.split('/').collect();
+            if segs.len() > 1
+                && segs.last().is_some_and(|s| {
+                    s.starts_with('v') && s[1..].chars().all(|c| c.is_ascii_digit()) && s.len() > 1
+                })
+            {
+                segs.pop();
+            }
+            segs.last()
+                .unwrap_or(&"")
+                .trim_start_matches("go-")
+                .replace(['-', '.'], "_")
+        } else {
+            alias
+        };
+        out.push((Str::from(name.as_str()), Str::from(path)));
+    };
+    let mut in_block = false;
+    for l in src.lines() {
+        let l = l.split("//").next().unwrap_or("").trim();
+        if in_block {
+            if l.starts_with(')') {
+                in_block = false;
+            } else if !l.is_empty() {
+                add(l);
+            }
+        } else if let Some(rest) = l.strip_prefix("import") {
+            let rest = rest.trim();
+            if rest.starts_with('(') {
+                in_block = true;
+                let inner = rest[1..].trim();
+                if !inner.is_empty() && !inner.starts_with(')') {
+                    add(inner.trim_end_matches(')'));
+                }
+            } else if !rest.is_empty() {
+                add(rest);
+            }
+        } else if l.starts_with("func ")
+            || l.starts_with("type ")
+            || l.starts_with("var ")
+            || l.starts_with("const ")
+        {
+            break;
+        }
+    }
+    Ok(out.into_iter().collect())
 }
 
 /// The signature an implementation of func n must have.
@@ -1104,6 +1329,9 @@ fn main_file(
             "{name} runs proc {entry}, but there is no top-level proc {entry}"
         )));
     };
+    if let Some(e) = super::gen_leaf::foreign_entry(prog, pid, name) {
+        return Ok(Err(e));
+    }
     let params = params_of(nodes, pid);
     let argv = params.len() == 1
         && matches!(unfold(&params[0].ty, &prog.types), Type::Array(e) if matches!(unfold(e, &prog.types), Type::Prim(p) if &**p == "string"));
@@ -2275,6 +2503,7 @@ impl GoHttp<'_> {
                 self.enc(&m.value)
             ),
             TyRef::Named(i) => format!("httpEnc{}", self.t.types[*i as usize].name),
+            TyRef::Foreign(_) => "httpEncForeign".into(),
         }
     }
 
@@ -2288,6 +2517,7 @@ impl GoHttp<'_> {
                 self.dec(&m.value)
             ),
             TyRef::Named(i) => format!("httpDec{}", self.t.types[*i as usize].name),
+            TyRef::Foreign(_) => "httpDecForeign".into(),
         }
     }
 
@@ -2544,7 +2774,14 @@ impl GoHttp<'_> {
             -1 => Err(format!(
                 "http server {server} runs proc {p}, but there is no top-level proc {p}"
             )),
-            pid => Ok(pid),
+            pid => match super::gen_leaf::foreign_entry(
+                &self.prog,
+                pid,
+                &format!("http server {server}"),
+            ) {
+                Some(e) => Err(e),
+                None => Ok(pid),
+            },
         }
     }
 
@@ -2565,6 +2802,11 @@ impl GoHttp<'_> {
             return Err(format!(
                 "http server {name}: setup proc {setup} must take no parameters"
             ));
+        }
+        if let Some(e) =
+            super::gen_leaf::foreign_entry(&self.prog, sid, &format!("http server {name}'s setup"))
+        {
+            return Err(e);
         }
         let ctx_ty = ret_of(&nodes, sid);
         let ident = go_server_ident(name);

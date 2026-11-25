@@ -1,0 +1,7 @@
+type Conn = "db.go:*Conn", "db.rs:Conn";
+func Open(): Conn; func Count(c: Conn): int; func Two(a: Conn, b: Conn): int; func Clone(c: Conn): Conn;
+func Bump(c: Conn); func Xs(): []int; func Get(i: int, c: Conn): int; func OpenAt(i: int): Conn;
+proc Q(c: Conn): Conn { Q -> Bump(c = this.c); Bump -> id(Q.c); }
+proc P(n: int): int { P -> Open(); Open -> Q(c = this); Q -> Count(c = this); }
+---
+error: id can't give back Q.c, a foreign value its proc only borrows from its caller; return one a func makes @298..300

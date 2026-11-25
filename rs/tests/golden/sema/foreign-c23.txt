@@ -1,0 +1,7 @@
+type Conn = "db.go:*Conn", "db.rs:Conn";
+func Open(): Conn; func Count(c: Conn): int; func Two(a: Conn, b: Conn): int; func Clone(c: Conn): Conn;
+func Bump(c: Conn); func Xs(): []int; func Get(i: int, c: Conn): int; func OpenAt(i: int): Conn;
+type G<T> = "g.go:T";
+proc P(n: int): int { P -> Open(); Open -> Count(c = this); }
+---
+error: foreign type G can't be generic: its implementations name one type each @250..251

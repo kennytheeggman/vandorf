@@ -5,8 +5,8 @@
 // appear; a typedef's shape is named after it.
 
 // A type as backends see it: primitives, arrays and maps inline, structs and
-// enums by index into the table.
-type TyRef = enum { Prim(string), Array(TyRef), Map({ key: TyRef, value: TyRef }), Named(int) };
+// enums by index into the table, foreign types by their typedef's index.
+type TyRef = enum { Prim(string), Array(TyRef), Map({ key: TyRef, value: TyRef }), Named(int), Foreign(int) };
 type RefMember = { name: string, r: TyRef };
 type Shape = enum { Struct([]RefMember), Enum([]RefMember) };
 // origin: where it was first seen, for doc comments ("return of Bar.Start").
@@ -50,8 +50,8 @@ func FindBoxed(t: Table): map[string]bool = "gen_leaf.rs:find_boxed";
 
 // Builds the type table for a program, naming every struct and enum shape
 // once: its typedefs first, then every func's parameters and every node's
-// return, then what each spawn's join receives. Then it marks the fields to
-// box.
+// return (a signature node's without its foreign parameters), then what each
+// spawn's join receives. Then it marks the fields to box.
 proc BuildTable(prog: Program): Table {
 	func Reserved(types: []TypeDef): map[string]bool = "gen_leaf.rs:reserved";
 	BuildTable -> TypedefTypes(s = { t = { types = [], aliases = [], by_key = [:], boxed = [:], reserved = Reserved(types = this.prog.types), defs = this.prog.types }, i = 0 });
@@ -105,7 +105,7 @@ proc NodeTypes(s: { t: Table, prog: Program, i: int }): Table {
 	};
 	RegisterParams switch {
 		(IsAliasNode(n = NodeTypes.s.prog.nodes[NodeTypes.s.i])) -> NodeTypes(s = { t = this, prog = NodeTypes.s.prog, i = NodeTypes.s.i + 1 }),
-		else -> Register(s = { t = this, ty = NodeRet(nodes = NodeTypes.s.prog.nodes, n = NodeTypes.s.i), hint = RetHint(nodes = NodeTypes.s.prog.nodes, n = NodeTypes.s.i), origin = RetOrigin(nodes = NodeTypes.s.prog.nodes, n = NodeTypes.s.i) })
+		else -> Register(s = { t = this, ty = NodeOut(defs = NodeTypes.s.prog.types, nodes = NodeTypes.s.prog.nodes, n = NodeTypes.s.i), hint = RetHint(nodes = NodeTypes.s.prog.nodes, n = NodeTypes.s.i), origin = RetOrigin(nodes = NodeTypes.s.prog.nodes, n = NodeTypes.s.i) })
 	};
 	Register -> NodeTypes(s = { t = this.t, prog = NodeTypes.s.prog, i = NodeTypes.s.i + 1 });
 }
@@ -124,11 +124,12 @@ type RegisterIn = { t: Table, ty: Type, hint: string, origin: string };
 
 // Registers ty and its parts, naming new shapes after hint: an array's
 // element `<hint>Item`, a map's `<hint>Key` and `<hint>Value`, a typedef's
-// after the typedef.
+// after the typedef. A foreign type has no shape: backends name it.
 proc Register(s: RegisterIn): Registered {
 	Register -> id(this.s.ty) as T;
 	T switch {
 		Prim(p) -> id({ t = Register.s.t, r = Prim(p) }),
+		Foreign(f) -> id({ t = Register.s.t, r = Foreign(f.id) }),
 		Array(e) -> Register(s = { t = Register.s.t, ty = e, hint = Register.s.hint + "Item", origin = Register.s.origin }) as Elem,
 		Map(m) -> Register(s = { t = Register.s.t, ty = m.key, hint = Register.s.hint + "Key", origin = Register.s.origin }) as Key,
 		Named(n) -> switch {
@@ -146,6 +147,10 @@ proc Register(s: RegisterIn): Registered {
 }
 
 func IsStructOrEnum(t: Type): bool = "../sema/sema_leaf.rs:is_struct_or_enum";
+// Finds a node's output as generated code keeps it: a signature node's
+// parameters but its foreign ones (each kept on its own), or any other
+// node's result.
+func NodeOut(defs: []TypeDef, nodes: []NodeDecl, n: int): Type = "gen_leaf.rs:node_out";
 
 // Registers a struct or enum: a shape already in the table keeps its name; a
 // new one gets a fresh name, its slot reserved before its parts so the

@@ -37,6 +37,7 @@ fn v_tyref(r: &v::TyRef) -> String {
         v::TyRef::Array(e) => format!("[]{}", v_tyref(e)),
         v::TyRef::Map(m) => format!("map[{}]{}", v_tyref(&m.key), v_tyref(&m.value)),
         v::TyRef::Named(i) => format!("#{i}"),
+        v::TyRef::Foreign(i) => format!("foreign#{i}"),
     }
 }
 
@@ -201,6 +202,7 @@ fn generates_go() {
                     types_dir: types_dir.as_str().into(),
                     mains: ms.iter().map(|(n, e, p)| v::GoMainSpec { name: n.as_str().into(), entry: e.as_str().into(), path: p.as_str().into() }).collect(),
                     servers: v::List::default(),
+                    imports: v::Map::default(),
                 })
                 .unwrap(),
             );
@@ -251,6 +253,7 @@ fn generates_go_servers() {
                     types_dir: "types".into(),
                     mains: v::List::default(),
                     servers: vec![server("web-api", "../cmd/web-api", true), server("plain", "../cmd/plain", false)].into(),
+                    imports: v::Map::default(),
                 })
                 .unwrap(),
             );
@@ -302,6 +305,7 @@ fn generates_cli_mains() {
             types_dir: "types".into(),
             mains: v::List::default(),
             servers: vec![v::GoServerSpec { name: "web".into(), addr: "127.0.0.1:9".into(), setup: "".into(), cli: cli.into(), routes, raw: v::List::default(), statics: v::List::default(), path: "cmd/web".into() }].into(),
+            imports: v::Map::default(),
         })
         .unwrap();
         golden += &match go_text(go) {

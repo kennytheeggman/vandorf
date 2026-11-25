@@ -1,0 +1,6 @@
+######## setup None, routes [("POST", "/api/main", "Main"), ("GET", "/api/show", "Show"), ("POST", "/api/twice", "Twice"), ("GET", "/api/fresh", "Fresh"), ("POST", "/api/unused", "Unused")], raw []
+error: http server web-api runs proc Fresh, whose result is a foreign type, Counter, which can't leave the program
+######## setup None, routes [("GET", "/x", "Missing")], raw []
+error: http server web-api runs proc Missing, but there is no top-level proc Missing
+######## setup None, routes [], raw [("GET", "/raw", "Main")]
+error: http server web-api: raw route proc Main must take one { method: string, path: string, query: map[string]string, headers: map[string]string, body: string } and return { status: int, headers: map[string]string, body: string }

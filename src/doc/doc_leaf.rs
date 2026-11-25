@@ -339,6 +339,7 @@ fn show_ty(t: &Type) -> String {
         Type::Struct(ms) => format!("{{ {} }}", members(ms, false)),
         Type::Enum(ms) => format!("enum {{ {} }}", members(ms, true)),
         Type::Named(n) => n.name.to_string(),
+        Type::Foreign(f) => f.name.to_string(),
     }
 }
 

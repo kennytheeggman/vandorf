@@ -1,0 +1,7 @@
+type Conn = "db.go:*Conn", "db.rs:Conn";
+func Open(): Conn; func Count(c: Conn): int; func Two(a: Conn, b: Conn): int; func Clone(c: Conn): Conn;
+func Bump(c: Conn); func Xs(): []int; func Get(i: int, c: Conn): int; func OpenAt(i: int): Conn;
+
+proc P(n: int): int { P -> Open(); Open -> spawn { detach Bump(c = this) } join Count(c = Open); }
+---
+error: Bump is detached, so it can't borrow this, a foreign value: nothing waits for it to give it back @311..315

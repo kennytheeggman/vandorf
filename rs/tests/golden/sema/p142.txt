@@ -1,0 +1,105 @@
+// Foreign types (#19): values the implementations make and change, which
+// procs hold and pass on but can't look inside.
+
+// A counter kept by the implementations.
+type Counter = "counter.go:*Counter", "../counter.rs:Counter";
+// A text being built, implemented outside the code package and the crate.
+type Buf = "../ext/buf.go:*Buf", "../../leaves/buf.rs:Buf";
+// Implemented nowhere yet: both backends get a placeholder.
+type Later = "later.py:Later";
+
+// Makes a counter.
+func New(start: int): Counter = "counter.go:New", "../counter.rs:new";
+// Adds by to c.
+func Bump(c: Counter, by: int) = "counter.go:Bump", "../counter.rs:bump";
+func Read(c: Counter): int = "counter.go:Read", "../counter.rs:read";
+func Move(from: Counter, to: Counter, by: int) = "counter.go:Move", "../counter.rs:move_by";
+func NewBuf(): Buf = "../ext/buf.go:NewBuf", "../../leaves/buf.rs:new_buf";
+func Write(b: Buf, s: string) = "../ext/buf.go:Write", "../../leaves/buf.rs:write";
+func Text(b: Buf): string = "../ext/buf.go:Text", "../../leaves/buf.rs:text";
+func Itoa(i: int): string = "counter.go:Itoa", "../counter.rs:itoa";
+
+// Every way a foreign value travels: lent to funcs and procs, to spawn
+// branches, read in conditions, returned by a proc into a node.
+proc Main(start: int, by: int): string {
+	Main -> New(start = this.start);
+	New -> Bump(c = this, by = Main.by);
+	Bump -> Bump(c = New, by = Main.by * 2) as Again;
+	Again -> Fresh(start = 1000) as Other;
+	Other -> spawn { Twice(c = New, by = 1), Bump(c = Other, by = 5) as Side } join Move(from = Other, to = New, by = this.Twice);
+	Move switch {
+		(Read(c = New) < 100) -> Bump(c = New, by = 10) as Step,
+		else -> Show(c = Other) as Shown
+	};
+	Step -> Move(from = Other, to = New, by = 0);
+	// Shown is called with either counter: its input says which is lent.
+	Shown switch {
+		(this > 500) -> Show(c = New) as Shown,
+		else -> NewBuf()
+	};
+	NewBuf -> Write(b = this, s = "new=" + Itoa(i = Read(c = New)));
+	Write -> Text(b = NewBuf);
+}
+
+// A counter's count.
+proc Show(c: Counter): int {
+	Show -> Read(c = this.c);
+}
+
+// Bumps a counter it borrows twice.
+proc Twice(c: Counter, by: int): int {
+	Twice -> Bump(c = this.c, by = this.by);
+	Bump -> Bump(c = Twice.c, by = Twice.by) as Second;
+	Second -> id(Twice.by * 2);
+}
+
+// A new counter, bumped once, given back.
+proc Fresh(start: int): Counter {
+	Fresh -> New(start = this.start);
+	New -> Bump(c = this, by = 1);
+	Bump -> id(New);
+}
+
+// Builds around a placeholder.
+proc Unused(n: int): int {
+	func MakeLater(n: int): Later;
+	func UseLater(l: Later): int;
+	Unused -> MakeLater(n = this.n);
+	MakeLater -> UseLater(l = this);
+}
+
+---
+#8 edge #0: call #1(c:Counter=this:Counter@1339..1343, by:int=#9.by:int@1350..1357) @1330..1334 text="c = this, by = Main.by"
+#8 edge #1: call #10(c:Counter=#0:Counter@1378..1381, by:int=(#9.by:int@1388..1395 * 2 :int)) @1369..1373 text="c = New, by = Main.by * 2"
+#8 edge #3: switch [(Read(c = New) < 100)] ((call #2(c:Counter=#0:Counter@1606..1609) @1597..1601 text="" < 100 :int)) -> call #13(c:Counter=#0:Counter@1630..1633, by:int=10) @1621..1625 text="c = New, by = 10"; [else] else -> call #14(c:Counter=#11:Counter@1672..1677) @1663..1667 text="c = Other"
+#8 edge #4: call #5(b:Buf=this:Buf@1912..1916, s:string=("new=" + call #7(i:int=call #2(c:Counter=#0:Counter@1949..1952) @1940..1944 text="") @1931..1935 text="" :string)) @1902..1907 text="b = this, s = \"new=\" + Itoa(i = Read(c = New))"
+#8 edge #5: call #6(b:Buf=#4:Buf@1976..1982) @1967..1971 text="b = NewBuf"
+#8 edge #9: call #0(start:int=this.start:int@1309..1319) @1297..1300 text="start = this.start"
+#8 edge #10: call #11(start:int=1000) @1421..1426 text="start = 1000"
+#8 edge #11: spawn { call #17(c:Counter=#0:Counter@1479..1482, by:int=1) @1469..1474 text="c = New, by = 1", call #12(c:Counter=#11:Counter@1502..1507, by:int=5) @1493..1497 text="c = Other, by = 5" } join :{ Twice: int } -> call #3(from:Counter=#11:Counter@1544..1549, to:Counter=#0:Counter@1556..1559, by:int=this.Twice:int@1566..1576) @1532..1536 text="from = Other, to = New, by = this.Twice"
+#8 edge #13: call #3(from:Counter=#11:Counter@1713..1718, to:Counter=#0:Counter@1725..1728, by:int=0) @1701..1705 text="from = Other, to = New, by = 0"
+#8 edge #14: switch [(this > 500)] ((this:int@1829..1833 > 500 :int)) -> call #14(c:Counter=#0:Counter@1853..1856) @1844..1848 text="c = New"; [else] else -> call #4() @1878..1884 text=""
+#8 spawned={12: 11, 17: 11}
+#8 region 0: parent=-1 entry=9 elem=void nodes=[9, 0, 1, 10, 11, 3, 13, 14, 4, 5, 6] sink=-1
+#8 region_of={0: 0, 1: 0, 3: 0, 4: 0, 5: 0, 6: 0, 9: 0, 10: 0, 11: 0, 13: 0, 14: 0} opens={}
+#15 edge #16: call #2(c:Counter=this.c:Counter@2057..2063) @2048..2052 text="c = this.c"
+#15 spawned={}
+#15 region 0: parent=-1 entry=16 elem=void nodes=[16, 2] sink=-1
+#15 region_of={2: 0, 16: 0} opens={}
+#17 edge #1: call #20(c:Counter=#18.c:Counter@2205..2212, by:int=#18.by:int@2219..2227) @2196..2200 text="c = Twice.c, by = Twice.by"
+#17 edge #18: call #1(c:Counter=this.c:Counter@2164..2170, by:int=this.by:int@2177..2184) @2155..2159 text="c = this.c, by = this.by"
+#17 edge #20: call #19(value:int=(#18.by:int@2254..2262 * 2 :int)) @2251..2253 text="Twice.by * 2"
+#17 spawned={}
+#17 region 0: parent=-1 entry=18 elem=void nodes=[18, 1, 20, 19] sink=-1
+#17 region_of={1: 0, 18: 0, 19: 0, 20: 0} opens={}
+#21 edge #0: call #1(c:Counter=this:Counter@2401..2405, by:int=1) @2392..2396 text="c = this, by = 1"
+#21 edge #1: call #23(value:Counter=#0:Counter@2428..2431) @2425..2427 text="New"
+#21 edge #22: call #0(start:int=this.start:int@2371..2381) @2359..2362 text="start = this.start"
+#21 spawned={}
+#21 region 0: parent=-1 entry=22 elem=void nodes=[22, 0, 1, 23] sink=-1
+#21 region_of={0: 0, 1: 0, 22: 0, 23: 0} opens={}
+#24 edge #25: call #26(n:int=this.n:int@2584..2590) @2570..2579 text="n = this.n"
+#24 edge #26: call #27(l:Later=this:Later@2620..2624) @2607..2615 text="l = this"
+#24 spawned={}
+#24 region 0: parent=-1 entry=25 elem=void nodes=[25, 26, 27] sink=-1
+#24 region_of={25: 0, 26: 0, 27: 0} opens={}
