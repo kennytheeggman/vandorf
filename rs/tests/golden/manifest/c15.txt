@@ -4,4 +4,4 @@ name = "x"
 entri = "A"
 
 ---
-unknown field `entri`, expected one of `entry`, `go`, `rust`
+unknown field `entri`, expected one of `entry`, `go`, `rust`, `python`

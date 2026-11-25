@@ -45,10 +45,16 @@ out = "rs/src/app"         # a module under a crate's src/
 post = ["cargo build --manifest-path rs/Cargo.toml"]
 test = ["cargo test --manifest-path rs/Cargo.toml"]
 
+[python]                   # optional: Python 3.10+ package
+out = "py/app"
+post = ["python3 -m compileall -q py/app"]
+test = ["python3 -m unittest discover -s py"]
+
 [bin.demo]                 # an executable per backend, running a proc
 entry = "Main"             # default "Main"
 # go = "go/cmd/demo"       # Go main package; default <go.out>/../cmd/<name>
 # rust = "bin/demo.rs"     # under the crate's src/; default bin/<name>.rs
+# python = "py/demo.py"    # relative to the manifest; default <python.out>/../<name>.py
 
 [http.api]                 # an HTTP server per backend
 addr = "127.0.0.1:8099"
@@ -59,6 +65,7 @@ routes = { "POST /api/measure" = "Measure", "GET /api/hello" = "Hello" }
 static = { "/" = "web/index.html" }
 # go = "go/cmd/api"
 # rust = "bin/api.rs"
+# python = "py/api.py"
 ```
 
 Unknown fields and tables are errors, so a typo doesn't go unnoticed.
@@ -80,15 +87,15 @@ Each backend emits two artifacts:
 |---|---|---|
 | Go | `<out>/types/types_vandorf.go`, its own package (`types_dir = "."` to inline) | `<out>/*_vandorf.go` |
 | Rust | `<out>/types.rs` | `<out>/mod.rs`, `<out>/procs.rs` |
+| Python | `<out>/types.py` | `<out>/__init__.py`, `<out>/procs.py`, and support modules |
 
 Go needs the separate package: the code package imports the
 implementations, so implementations in other packages can only reach the
 types if they live elsewhere.
 
-Each top-level proc gets a typed entry point: `run_<proc>` in Rust,
-`Run<Proc>` in Go. Generated code isn't meant to be checked in: run
-`vcc build` before building or testing the Go module or the Rust crate.
-Neither backend overwrites a file it didn't generate.
+Each top-level proc gets a typed entry point. Rust and Python use
+`run_<proc>`, and Go uses `Run<Proc>`. Run `vcc build` before using a
+generated artifact. The compiler only overwrites files it generated.
 
 ## Implementations
 
@@ -96,7 +103,7 @@ A func names its implementation per backend; each backend uses the one with
 its file extension:
 
 ```
-func Start(i: int): { l: []int, s: string } = "../go/app/impl.go:Range", "../rs/src/impls.rs:range";
+func Start(i: int): { l: []int, s: string } = "../go/app/impl.go:Range", "../rs/src/impls.rs:range", "../py/impls.py:range_values";
 ```
 
 Paths are relative to the `.sys` file naming them; each backend resolves
@@ -113,14 +120,25 @@ them against its output directory.
   as `super::io::f`; its stem must be unique among such files.
   `pub fn range(i: i64) -> Result<types::ForEachStartOut, E>` with
   `E: Into<Box<dyn Error + Send + Sync>>`; void is `()`.
+- **Python** imports the named function from its `.py` file. For
+  `out = "py/app"`, a sibling `py/impls.py` can use
+  `from app import types`. The expected callable is
+  `def range_values(i: int) -> types.ForEachStartOut`. Void returns
+  `None`. Raise an exception to fail the proc. Callers see
+  `app.VandorfError` with the node name and original exception.
+  Implementations and procs are synchronous. Spawns and for-each regions
+  use threads.
 
 `vcc build` warns when a referenced file or function is missing, naming
 where the func is declared and printing the expected signature, after the
 func's doc comment. Until it exists, the func calls a generated stub that
-fails.
+fails. With a Python interpreter on `PATH`, the Python backend also
+checks that declared functions accept the required positional arguments.
+Generated calls validate their input and result values. Type hints are
+optional.
 
-An implementation that exists is checked against its declaration, after
-generating each language and before its `post` commands compile it:
+Go and Rust implementations are checked against their declarations before
+their `post` commands:
 
 - **Its signature**: the parameters' names and types, and the result, as
   above. Types compare by the names codegen gives them, without module or
@@ -166,9 +184,10 @@ are. The result is printed.
 - **Rust**: a file under the crate's `src/` (`bin/<name>.rs`) calling
   `<crate>::<module>::run_<entry>`, so the crate needs a `lib.rs` that
   declares the module.
-
-An existing hand-written `src/main.rs` is left alone (the command fails
-instead).
+- **Python** generates a script next to the package by default. Run it
+  with `python3 py/demo.py 2 hello`. The same applies to servers, for
+  example `python3 py/api.py --addr 127.0.0.1:8099`. Servers use the Python
+  standard library.
 
 ## HTTP servers
 
@@ -218,6 +237,8 @@ uses this for `grove branch` and the other commands it gives agents.
 - **Rust**: `http.rs` in the module (the JSON codec, a std-only server and a
   `handle_<name>` per server) and the server's executable under the crate's
   `src/`.
+- **Python** uses `ThreadingHTTPServer` and embeds static text in its
+  generated launcher. Rebuild after changing a static file.
 
 The demo's `[http.api]` serves `examples/demo/sys/api.sys`:
 

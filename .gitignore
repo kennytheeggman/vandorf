@@ -13,3 +13,9 @@ target/
 /examples/demo/go/api
 /examples/demo/go/calc
 /examples/demo/go/demo
+
+/examples/demo/py/app/
+/examples/demo/py/api.py
+/examples/demo/py/calc.py
+/examples/demo/py/demo.py
+__pycache__/

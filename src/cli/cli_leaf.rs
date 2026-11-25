@@ -78,6 +78,17 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
         },
         None => MaybeGo::None,
     };
+    let python = match t.get("python").and_then(|p| p.as_table()) {
+        Some(p) => match p.get("out").and_then(|o| o.as_str()) {
+            Some(out) => MaybePython::Some(PythonTarget {
+                out: s(out),
+                post: cmds(p, "post"),
+                test: cmds(p, "test"),
+            }),
+            None => return fail("[python]: missing field `out`".into()),
+        },
+        None => MaybePython::None,
+    };
     let mut http = vec![];
     if let Some(h) = t.get("http").and_then(|h| h.as_table()) {
         for (n, v) in h {
@@ -107,6 +118,7 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
                     statics: table("static"),
                     go: opt(v.get("go")),
                     rust: opt(v.get("rust")),
+                    python: opt(v.get("python")),
                 },
             ));
         }
@@ -121,6 +133,7 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
                     entry: v.get("entry").and_then(|e| e.as_str()).map_or(s("Main"), s),
                     go: opt(v.get("go")),
                     rust: opt(v.get("rust")),
+                    python: opt(v.get("python")),
                 },
             ));
         }
@@ -131,6 +144,7 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
         rust,
         has_go: t.contains_key("go"),
         go,
+        python,
         bins: bins.into_iter().collect(),
         http: http.into_iter().collect(),
     }))
@@ -522,6 +536,7 @@ const BIN: Fields = &[
     ("entry", Kind::Str, false),
     ("go", Kind::Str, false),
     ("rust", Kind::Str, false),
+    ("python", Kind::Str, false),
 ];
 const SERVER: Fields = &[
     ("addr", Kind::Str, true),
@@ -532,6 +547,7 @@ const SERVER: Fields = &[
     ("static", Kind::StrMap, false),
     ("go", Kind::Str, false),
     ("rust", Kind::Str, false),
+    ("python", Kind::Str, false),
 ];
 const META: Fields = &[("name", Kind::Str, true), ("sources", Kind::Strs, false)];
 const GO: Fields = &[
@@ -548,10 +564,16 @@ const RUST: Fields = &[
     ("post", Kind::Strs, false),
     ("test", Kind::Strs, false),
 ];
+const PYTHON: Fields = &[
+    ("out", Kind::Str, true),
+    ("post", Kind::Strs, false),
+    ("test", Kind::Strs, false),
+];
 const MANIFEST: Fields = &[
     ("project", Kind::Table("Meta", META), true),
     ("go", Kind::Table("GoTarget", GO), false),
     ("rust", Kind::Table("RustTarget", RUST), false),
+    ("python", Kind::Table("PythonTarget", PYTHON), false),
     ("bin", Kind::Tables("Bin", BIN), false),
     ("http", Kind::Tables("Server", SERVER), false),
 ];

@@ -100,7 +100,8 @@ proc CompileUnit(s: { base: string, unit: Unit }): HttpResponse {
 		else -> DocumentJson(prog = Have.prog) as DiagramOnly
 	};
 	RustPreview -> GoPreview(s = { unit = CompileUnit.s.unit, prog = Have.prog });
-	GoPreview -> DocumentJson(prog = Have.prog);
+	GoPreview -> PythonPreview(unit = CompileUnit.s.unit, prog = Have.prog);
+	PythonPreview -> DocumentJson(prog = Have.prog);
 	DiagramOnly -> id(Api(j = Obj([
 		{ key = "ok", value = Bool(true) },
 		{ key = "name", value = Str(CompileUnit.s.unit.names[CompileUnit.s.unit.here]) },
@@ -117,7 +118,8 @@ proc CompileUnit(s: { base: string, unit: Unit }): HttpResponse {
 		{ key = "document", value = this },
 		{ key = "symbols", value = Symbols },
 		{ key = "go", value = GoPreview },
-		{ key = "rust", value = RustPreview }
+		{ key = "rust", value = RustPreview },
+		{ key = "python", value = PythonPreview }
 	])));
 }
 
@@ -319,3 +321,6 @@ proc PreviewMains(s: { prog: Program, bins: map[string]Bin, names: []string, mod
 		else -> PreviewMains(s = { ..PreviewMains.s, i = PreviewMains.s.i + 1, acc = PreviewMains.s.acc + [{ path = this.dir, text = this.text, kind = this.file }] })
 	};
 }
+
+// Previews the generated Python package and launchers without writing files.
+func PythonPreview(unit: Unit, prog: Program): Json = "ide_leaf.rs:python_preview";

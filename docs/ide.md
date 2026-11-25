@@ -60,7 +60,7 @@ Other pages:
 
 - `/viewer?path=sys/calc.sys&proc=Calc`: one proc's diagram and text, as in
   a tab.
-- `/workbench`: an editor beside the generated Go and Rust, for trying
+- `/workbench`: an editor beside generated Go, Rust, and Python code, for trying
   things out.
 - `/viz`: the diagram on its own, for a `.sys` file given by path.
 

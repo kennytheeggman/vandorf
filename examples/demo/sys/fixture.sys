@@ -3,16 +3,16 @@
 interface Foo {
 	// Counts the characters of s. Implemented outside the generated
 	// package/module.
-	func Call(s: string): int = "../go/effects/foo.go:Call", "../rs/src/effects.rs:call";
+	func Call(s: string): int = "../go/effects/foo.go:Call", "../rs/src/effects.rs:call", "../py/impls.py:call";
 }
 
 // Lists 0..i-1, and i as a string, then squares each element in a for each
 // region and sums the squares.
 proc ForEach(i: int): int {
 	// Lists 0..i-1, with i as a string.
-	func Start(i: int): { l: []int, s: string } = "../go/app/impl.go:Range", "../rs/src/impls.rs:range";
-	func Process(i: int, l: []int): int = "../go/app/impl.go:Square", "../rs/src/impls.rs:square";
-	func Collect(l: []int): int = "../go/app/impl.go:Sum", "../rs/src/impls.rs:sum";
+	func Start(i: int): { l: []int, s: string } = "../go/app/impl.go:Range", "../rs/src/impls.rs:range", "../py/impls.py:range_values";
+	func Process(i: int, l: []int): int = "../go/app/impl.go:Square", "../rs/src/impls.rs:square", "../py/impls.py:square";
+	func Collect(l: []int): int = "../go/app/impl.go:Sum", "../rs/src/impls.rs:sum", "../py/impls.py:sum_values";
 
 	ForEach -> Start(i = this.i);
 	Start for each (Start.l) -> Process(i = this, l = Start.l);
@@ -26,13 +26,13 @@ type Outcome = enum { I(string), S, B({ i: int }) };
 // ForEach on that: zero goes to a func with no implementation, anything else
 // is described, passed to Foo.Call and logged.
 proc Bar(a: int, b: string): string {
-	func Start(a: int, b: string): string = "../go/app/impl.go:Repeat", "../rs/src/impls.rs:repeat";
-	func Loop(s: string): int = "../go/app/impl.go:Grow", "../rs/src/impls.rs:grow";
+	func Start(a: int, b: string): string = "../go/app/impl.go:Repeat", "../rs/src/impls.rs:repeat", "../py/impls.py:repeat";
+	func Loop(s: string): int = "../go/app/impl.go:Grow", "../rs/src/impls.rs:grow", "../py/impls.py:grow";
 	// No implementation: calls a generated stub that returns an error.
 	func Branch1(i: int): string;
-	func Branch2Begin(i: int): string = "../go/app/impl.go:Describe", "../rs/src/impls.rs:describe";
-	func Branch2End(i: int) = "../go/app/impl.go:Log", "../rs/src/impls.rs:log";
-	func End(r: Outcome): string = "../go/app/impl.go:Finish", "../rs/src/impls.rs:finish";
+	func Branch2Begin(i: int): string = "../go/app/impl.go:Describe", "../rs/src/impls.rs:describe", "../py/impls.py:describe";
+	func Branch2End(i: int) = "../go/app/impl.go:Log", "../rs/src/impls.rs:log", "../py/impls.py:log";
+	func End(r: Outcome): string = "../go/app/impl.go:Finish", "../rs/src/impls.rs:finish", "../py/impls.py:finish";
 
 	Bar -> Start(a = this.a, b = this.b);
 	Start -> Loop(s = this);

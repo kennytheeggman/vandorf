@@ -1,0 +1,14 @@
+[project]
+name = "x"
+[python]
+out = "py/app"
+post = ["python3 -m compileall py/app"]
+test = ["python3 -m unittest"]
+[bin.a]
+python = "bin/a.py"
+[http.w]
+addr = "a"
+python = "bin/w.py"
+
+---
+

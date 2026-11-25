@@ -9,9 +9,9 @@ type Fold = { xs: []Measured, r: Report, i: int };
 // a report: how many shapes there are, their total area, and how many of
 // each kind.
 proc Measure(shapes: []Shape): Report {
-	func Shapes(shapes: []Shape): []Shape = "../go/app/impl.go:Shapes", "../rs/src/impls.rs:shapes";
-	func Area(s: Shape): Measured = "../go/app/impl.go:Area", "../rs/src/impls.rs:area";
-	func Step(f: Fold): Fold = "../go/app/impl.go:Step", "../rs/src/impls.rs:step";
+	func Shapes(shapes: []Shape): []Shape = "../go/app/impl.go:Shapes", "../rs/src/impls.rs:shapes", "../py/impls.py:shapes";
+	func Area(s: Shape): Measured = "../go/app/impl.go:Area", "../rs/src/impls.rs:area", "../py/impls.py:area";
+	func Step(f: Fold): Fold = "../go/app/impl.go:Step", "../rs/src/impls.rs:step", "../py/impls.py:step";
 
 	Measure -> Shapes(shapes = this.shapes);
 	Shapes for each (this) -> Area(s = this);
@@ -36,6 +36,6 @@ proc Measure(shapes: []Shape): Report {
 
 // Greets name, times times, for GET with a query string.
 proc Hello(name: string, times: int): string {
-	func Greet(name: string, times: int): string = "../go/app/impl.go:Greet", "../rs/src/impls.rs:greet";
+	func Greet(name: string, times: int): string = "../go/app/impl.go:Greet", "../rs/src/impls.rs:greet", "../py/impls.py:greet";
 	Hello -> Greet(name = this.name, times = this.times);
 }

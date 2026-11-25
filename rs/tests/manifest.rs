@@ -49,6 +49,10 @@ const CASES: &[&str] = &[
     // A server's cli.
     "[project]\nname = \"x\"\n[http.w]\naddr = \"a\"\ncli = \"Cli\"\n",
     "[project]\nname = \"x\"\n[http.w]\naddr = \"a\"\ncli = [\"Cli\"]\n",
+    // Python may be the only target and can override entry-point scripts.
+    "[project]\nname = \"x\"\n[python]\nout = \"py/app\"\npost = [\"python3 -m compileall py/app\"]\ntest = [\"python3 -m unittest\"]\n[bin.a]\npython = \"bin/a.py\"\n[http.w]\naddr = \"a\"\npython = \"bin/w.py\"\n",
+    "[project]\nname = \"x\"\n[python]\n",
+    "[project]\nname = \"x\"\n[python]\nout = \"py/app\"\ntest = 1\n",
 ];
 
 mod common;

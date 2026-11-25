@@ -232,7 +232,8 @@ function compile(){
 }
 function codegenStatus(res){
   var failed = [res.go && res.go.ok === false && res.go.error !== 'not configured in vandorf.toml' ? 'Go' : null,
-                res.rust && res.rust.ok === false && res.rust.error !== 'not configured in vandorf.toml' ? 'Rust' : null].filter(Boolean);
+                res.rust && res.rust.ok === false && res.rust.error !== 'not configured in vandorf.toml' ? 'Rust' : null,
+                res.python && res.python.ok === false && res.python.error !== 'not configured in vandorf.toml' ? 'Python' : null].filter(Boolean);
   status('OK' + (failed.length ? ' · ' + failed.join(', ') + ' codegen failed' : ''), failed.length ? 'bad' : 'ok');
 }
 function show(res){

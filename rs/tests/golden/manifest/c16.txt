@@ -5,4 +5,4 @@ addr = "a"
 route = {}
 
 ---
-unknown field `route`, expected one of `addr`, `setup`, `cli`, `routes`, `raw`, `static`, `go`, `rust`
+unknown field `route`, expected one of `addr`, `setup`, `cli`, `routes`, `raw`, `static`, `go`, `rust`, `python`
