@@ -119,6 +119,14 @@ body.dragging iframe{ pointer-events:none }
 #toasts{ position:fixed; right:12px; bottom:12px; z-index:40; display:flex; flex-direction:column; gap:6px; max-width:420px }
 .toast{ background:var(--bg); border:1px solid var(--line); border-left:3px solid var(--err); box-shadow:0 4px 14px var(--shadow); padding:8px 10px; font-size:12px; white-space:pre-wrap }
 .toast.info{ border-left-color:var(--accent) }
+.toast.merge{ border-left-color:var(--ok) }
+.toast.discard{ border-left-color:var(--mut) }
+#confirmation{ box-sizing:border-box; width:min(440px, calc(100% - 32px)); padding:18px; color:var(--ink); background:var(--bg); border:1px solid var(--line); box-shadow:0 8px 30px var(--shadow) }
+#confirmation::backdrop{ background:rgba(0,0,0,.48) }
+#confirmation h2{ margin:0 0 8px; font-size:16px }
+#confirmation p{ margin:0 0 16px; overflow-wrap:anywhere }
+#confirmation .actions{ display:flex; justify-content:flex-end; gap:8px }
+#confirmation .destructive{ color:var(--err); border-color:var(--err); background:var(--err-bg) }
 #showSide{ position:fixed; left:0; top:50%; z-index:5; height:40px; width:14px; padding:0; background:var(--bar); border:1px solid var(--line); border-left:0; display:none }
 #side.hidden ~ #showSide{ display:flex }
 </style>
@@ -143,7 +151,17 @@ body.dragging iframe{ pointer-events:none }
 </div>
 <div id="tip"></div>
 <div id="menu"></div>
-<div id="toasts"></div>
+<div id="toasts" aria-live="polite"></div>
+<dialog id="confirmation" aria-labelledby="confirmationTitle" aria-describedby="confirmationText">
+  <form method="dialog">
+    <h2 id="confirmationTitle"></h2>
+    <p id="confirmationText"></p>
+    <div class="actions">
+      <button type="submit" value="cancel" class="outline" autofocus>Cancel</button>
+      <button type="submit" value="confirm" id="confirmAction"></button>
+    </div>
+  </form>
+</dialog>
 <script>
 (function(){
 'use strict';
@@ -161,10 +179,28 @@ function api(path, body){
   });
 }
 function store(k, v){ try { if (v === undefined) return localStorage.getItem('grove.' + k); localStorage.setItem('grove.' + k, v); } catch (e) { return null; } }
-function toast(msg, info){
-  var d = document.createElement('div'); d.className = 'toast' + (info ? ' info' : ''); d.textContent = msg;
-  $('toasts').appendChild(d); setTimeout(function(){ d.remove(); }, info ? 3000 : 8000);
+function toast(msg, outcome){
+  var d = el('div', 'toast' + (outcome ? ' ' + outcome : ''), msg);
+  $('toasts').appendChild(d); setTimeout(function(){ d.remove(); }, outcome ? 3000 : 8000);
 }
+function ask(title, detail, action, destructive){
+  var dialog = $('confirmation'), button = $('confirmAction');
+  $('confirmationTitle').textContent = title;
+  $('confirmationText').textContent = detail;
+  button.textContent = action;
+  button.className = destructive ? 'destructive' : 'primary';
+  dialog.returnValue = 'cancel';
+  return new Promise(function(resolve){
+    dialog.addEventListener('close', function(){ resolve(dialog.returnValue === 'confirm'); }, { once: true });
+    dialog.showModal();
+  });
+}
+$('confirmation').addEventListener('keydown', function(e){
+  if (e.key === 'Enter' && !e.repeat){
+    e.preventDefault();
+    $('confirmation').close('confirm');
+  }
+});
 function el(tag, cls, text){ var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 var CHEV = '<svg viewBox="0 0 16 16"><path d="M4 6l4 4 4-4"/></svg>';
 
@@ -184,13 +220,14 @@ function refresh(){
   return api('/api/ideas').then(function(j){
     repo = j.repo; ideas = j.ideas; interiors = j.interiors;
     byId = {}; ideas.forEach(function(i){ byId[i.id] = i; });
+    views.slice().forEach(function(v){ if (!(v.id in byId)){ v.dirty = false; drop(v); } });
     $('repoName').textContent = repo.name;
     document.title = repo.name + ' · grove';
     if (cur === null || !(cur in byId)){
       var want = decodeURIComponent((location.hash.match(/idea=([^&]*)/) || [])[1] || store('cur') || '');
       show(want in byId ? want : '');
     } else {
-      // The shown idea finishing while it's looked at is seen too.
+      // A report arriving while the idea is being viewed is seen too.
       if (document.hasFocus() && document.visibilityState === 'visible') see(cur);
       drawTree(); drawFoot(); if (!viewOf(cur)) show(cur);
     }
@@ -210,6 +247,7 @@ var pos = {};                         // id -> { a, r }, as drawn
 var goal = null;                      // the layout being moved to
 var els = {};                         // id -> { g, e, kind }
 var focused;                          // the idea the map last turned to
+var hovered = null, tipPoint;
 var anim = 0;
 var still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 function svg(tag, attrs){ var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); return e; }
@@ -253,9 +291,10 @@ function onPath(id){ for (var p = byId[cur]; p; p = p.id === '' ? null : byId[pa
 function stateOf(i){
   if (i.status === 'merged') return 'merged';
   if (i.status === 'discarded') return 'gone';
-  if (i.rebasing || attention[i.id] || (i.agent && i.agent.state === 'attention')) return 'att';
+  if (i.rebasing || i.rebaseFailure || attention[i.id]) return 'att';
   if (i.agent && i.agent.state === 'working') return 'working';
   if (i.agent && i.agent.state === 'done') return i.agent.seen ? 'seen' : 'done';
+  if (i.agent && i.agent.state === 'attention') return i.agent.seen ? 'seen' : 'att';
   return '';
 }
 function nodeEl(i){
@@ -296,6 +335,10 @@ function drawTree(){
     if (x.e) x.e.setAttribute('class', 'e' + (onPath(id) && cur !== '' ? ' path' : '') + (i.behind ? ' behind' : '') + (st === 'gone' || st === 'merged' ? ' gone' : ''));
     x.parent = parentOf(i);
   });
+  if (hovered !== null){
+    if (to[hovered]) tip(tipPoint, to[hovered].n.i);
+    else hideTip();
+  }
   // Turn the map to the shown idea's history, and frame it.
   var rot1 = rot, cam1 = null;
   if (focused !== cur){
@@ -398,6 +441,7 @@ $('tree').addEventListener('dblclick', home);
 
 function tip(e, i){
   if (!i) return;
+  hovered = i.id;
   var t = $('tip'); t.innerHTML = '';
   var name = el('div', 't-name');
   if (i.id === ''){ var pill = el('span', 'pill', 'HEAD'); pill.title = ''; name.appendChild(pill); }
@@ -407,13 +451,13 @@ function tip(e, i){
   var what = {
     merged: 'Merged into the root',
     gone: 'Discarded',
-    att: i.rebasing ? 'Rebase stopped on a conflict' : 'Needs attention',
+    att: i.rebasing ? 'Rebase stopped on a conflict' : i.rebaseFailure ? 'Rebase failed' : 'Needs attention',
     working: 'Working',
     done: 'Done',
-    seen: 'Done (seen)'
+    seen: i.agent && i.agent.state === 'attention' ? 'Attention (seen)' : 'Done (seen)'
   }[st] || (i.id === '' ? 'The checked-out branch: ideas merge here' : i.behind ? 'Behind ' + (parent ? parent.name : 'its parent') + ': rebase it' : 'Idle');
   var line = el('div', 't-state ' + st); line.appendChild(el('i')); line.appendChild(el('span', '', what)); t.appendChild(line);
-  var msg = (i.agent && i.agent.message) || attention[i.id] || '';
+  var msg = i.rebaseFailure || attention[i.id] || (i.agent && i.agent.message) || '';
   if (msg) t.appendChild(el('div', 't-msg', msg));
   if (i.id === ''){
     var merged = ideas.filter(function(x){ return x.status === 'merged'; });
@@ -426,12 +470,13 @@ function tip(e, i){
   requestAnimationFrame(function(){ t.classList.add('on'); });
 }
 function moveTip(e){
+  tipPoint = { clientX: e.clientX, clientY: e.clientY };
   var t = $('tip'), x = e.clientX + 14, y = e.clientY + 12;
   if (x + t.offsetWidth > innerWidth - 6) x = e.clientX - t.offsetWidth - 10;
   if (y + t.offsetHeight > innerHeight - 6) y = e.clientY - t.offsetHeight - 10;
   t.style.left = x + 'px'; t.style.top = y + 'px';
 }
-function hideTip(){ var t = $('tip'); t.classList.remove('on'); t.style.display = 'none'; }
+function hideTip(){ hovered = null; var t = $('tip'); t.classList.remove('on'); t.style.display = 'none'; }
 function drawFoot(){
   var i = byId[cur], f = $('foot'); f.innerHTML = '';
   $('title').textContent = i ? i.name : ''; $('title').title = i ? i.name : '';
@@ -469,31 +514,44 @@ function under(id){
 /* Whether an idea and its ancestors are each on their parent's latest
    commit, so it's on the root's head and can merge. */
 function based(i){ for (var p = i; p && p.id !== ''; p = byId[parentOf(p)]) if (p.behind) return false; return true; }
-function discard(i){
-  var n = under(i.id).length;
-  var more = n ? ' and the ' + (n === 1 ? 'idea' : n + ' ideas') + ' under it' : '';
-  if (!confirm('Discard "' + i.name + '"' + more + '? Their worktrees are removed and their terminals stop; their branches stay, so each can be restored.')) return;
-  var gone = [i].concat(under(i.id));
+function ideaNames(xs){ return xs.map(function(x){ return '“' + x.name + '”'; }).join(', '); }
+async function discard(i){
+  var gone = [i].concat(under(i.id)), names = ideaNames(gone);
+  if (!await ask(gone.length === 1 ? 'Discard idea?' : 'Discard ideas?',
+      'Remove the worktrees and stop the sessions for ' + names + '. Their branches are kept for restoring later.',
+      'Discard', true)) return;
   api('/api/ideas/discard', { id: i.id }).then(function(){
-    gone.forEach(function(x){ var v = viewOf(x.id); if (v) drop(v); });
-    if (gone.some(function(x){ return x.id === cur; })) cur = null, show(parentOf(i) || '');
+    gone.forEach(function(x){ var v = viewOf(x.id); if (v){ v.dirty = false; drop(v); } });
+    if (gone.some(function(x){ return x.id === cur; })) show(parentOf(i) || '');
+    toast('Discarded ' + names, 'discard');
     return refresh();
   }).catch(function(e){ toast(e.message); });
 }
-function merge(i){
-  var root = byId[''];
-  var n = kids()[i.id] ? kids()[i.id].filter(function(c){ return c.status === 'active'; }).length : 0;
-  if (!confirm('Merge "' + i.name + '" into the root? ' + (root.branch || 'The root') + ' moves forward to it, its worktree closes' + (n ? ', its ' + (n === 1 ? 'idea moves' : n + ' ideas move') + ' to the root,' : '') + ' and every other idea is rebased onto the new root.')) return;
-  var v = viewOf(i.id);
+async function merge(i){
+  var root = byId[''], children = kids()[i.id] || [];
+  var detail = (root.branch || 'The root') + ' will move forward to “' + i.name +
+    '”, closing its worktree and stopping its sessions. ';
+  if (children.length) detail += 'Move ' + ideaNames(children) + ' under the root. ';
+  detail += 'Rebase the other active ideas onto the updated tree.';
+  if (!await ask('Merge into the root?', detail, 'Merge', true)) return;
   api('/api/ideas/merge', { id: i.id }).then(function(j){
-    if (v) drop(v);
-    if (cur === i.id) cur = null, show('');
-    toast(j.summary, j.summary.indexOf('flagged') < 0);
+    var v = viewOf(i.id); if (v){ v.dirty = false; drop(v); }
+    if (cur === i.id) show('');
+    toast(j.summary, 'merge');
+    return refresh();
+  }).catch(function(e){ toast(e.message); });
+}
+async function deleteIdea(i){
+  if (!await ask('Delete “' + i.name + '” permanently?',
+      'Remove ' + i.branch + ', its metadata, and any remaining worktree and sessions. This cannot be undone.',
+      'Delete permanently', true)) return;
+  api('/api/ideas/delete', { id: i.id }).then(function(){
+    if (cur === i.id) show(parentOf(i) || '');
     return refresh();
   }).catch(function(e){ toast(e.message); });
 }
 function rebase(i){
-  api('/api/ideas/rebase', { id: i.id }).then(function(){ toast('Rebased "' + i.name + '"', true); return refresh(); })
+  api('/api/ideas/rebase', { id: i.id }).then(function(){ toast('Rebased "' + i.name + '"', 'info'); return refresh(); })
     .catch(function(e){ toast('"' + i.name + '" wasn\'t rebased: ' + e.message); refresh(); });
 }
 function restore(i){
@@ -512,12 +570,16 @@ function menu(x, y, i){
   add('Rename…', function(){ rename(i); });
   if (i.id !== '' && i.status === 'active'){
     m.appendChild(el('hr'));
-    if (i.behind) add('Rebase onto ' + (byId[parentOf(i)] || {}).name, function(){ rebase(i); });
+    if (i.behind && !i.rebasing) add('Rebase onto ' + (byId[parentOf(i)] || {}).name, function(){ rebase(i); });
     if (based(i)) add('Merge into the root…', function(){ merge(i); });
     else add('Merge into the root (rebase first)', null, 'off');
   }
   if (i.id !== '' && i.worktree){ m.appendChild(el('hr')); add('Discard' + (under(i.id).length ? ' with the ideas under it' : '') + '…', function(){ discard(i); }, 'bad'); }
   if (i.status === 'discarded') add('Restore', function(){ restore(i); });
+  if (i.status === 'discarded' || i.status === 'merged'){
+    if ((kids()[i.id] || []).length) add('Delete child ideas first', null, 'off');
+    else add('Delete permanently…', function(){ deleteIdea(i); }, 'bad');
+  }
   m.style.display = 'block';
   m.style.left = Math.min(x, innerWidth - m.offsetWidth - 4) + 'px';
   m.style.top = Math.min(y, innerHeight - m.offsetHeight - 4) + 'px';
@@ -542,13 +604,17 @@ function show(id){
   if (first) tell(first, { type: 'focus' });
   drawTree(); drawFoot();
 }
-/* A done idea shown is seen: grove keeps that, for every page and across
+/* An agent’s done or attention report is seen when shown: grove keeps that, for every page and across
    reloads, until its agent says something new. */
 function see(id){
   var i = byId[id];
-  if (!i || !i.agent || i.agent.state !== 'done' || i.agent.seen) return;
+  if (!i || !i.agent || (i.agent.state !== 'done' && i.agent.state !== 'attention') || i.agent.seen) return;
   i.agent.seen = true;
-  api('/api/ideas/seen', { id: id }).catch(function(e){ toast(String(e.message || e)); });
+  api('/api/ideas/seen', { id: id, report: i.agent.report }).catch(function(e){
+    i.agent.seen = false;
+    drawTree();
+    toast(String(e.message || e));
+  });
 }
 function drop(v){
   clearTimeout(v.saveT); if (v.dirty) save(v, true);
@@ -811,7 +877,7 @@ function watch(v){
     if (v < 0 || j.v === v) return watch(j.v);
     var had = byId;
     refresh().then(function(){
-      if ('' in had) ideas.forEach(function(i){ if (!(i.id in had)) toast('New idea: ' + i.name + (byId[i.parent] ? ', from ' + byId[i.parent].name : ''), true); });
+      if ('' in had) ideas.forEach(function(i){ if (!(i.id in had)) toast('New idea: ' + i.name + (byId[i.parent] ? ', from ' + byId[i.parent].name : ''), 'info'); });
     });
     watch(j.v);
   }).catch(function(){ setTimeout(function(){ watch(-1); }, 5000); });

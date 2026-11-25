@@ -3,6 +3,7 @@
 //   GET  /api/ideas                      the repository, its ideas and the interiors
 //   POST /api/ideas/branch {from, name?} a new idea at from's head, its id
 //   POST /api/ideas/discard {id}         removes its worktree and its subtree's, keeps their branches
+//   POST /api/ideas/delete {id}          permanently deletes a discarded or merged idea without children
 //   POST /api/ideas/restore {id}         a discarded idea's worktree back
 //   POST /api/ideas/rename {id, name}
 //   POST /api/ideas/layout {id, sections}
@@ -21,7 +22,7 @@ type Writing = enum { Go({ repo: Repo, j: Json }), Stop(HttpResponse) };
 // root's head (merged: `git for-each-ref --merged HEAD` lines). It's behind
 // when it's active and its fork isn't its parent's head. agents: what
 // agents said of each idea.
-func TreeJson(repo: Repo, worktrees: string, branches: string, merged: string, root: Idea, ideas: []Idea, interiors: []Interior, agents: map[string]AgentStatus): Json = "grove_leaf.rs:tree_json";
+func TreeJson(repo: Repo, worktrees: string, branches: string, merged: string, root: Idea, ideas: []Idea, interiors: []Interior, agents: map[string]AgentStatus, failures: map[string]string): Json = "grove_leaf.rs:tree_json";
 // Answers with {"ok": true, key: value}, or the error.
 func Answer(r: Res<string>, key: string): HttpResponse = "grove_leaf.rs:answer";
 // a, or d if a is "".
@@ -90,7 +91,8 @@ proc LoadTree(repo: Repo): Res<Json> {
 		Ok(xs) -> Grove.Statuses(n = 0),
 		Err(e) -> id(Err(e))
 	};
-	Grove.Statuses -> id(Ok(TreeJson(repo = LoadTree.repo, worktrees = UnwrapR2(r = Worktrees), branches = UnwrapR2(r = Branches), merged = OkOr(r = Merged, d = ""), root = Root, ideas = Ideas, interiors = UnwrapInteriors(r = LoadInteriors), agents = this)));
+	Grove.Statuses -> Grove.RebaseFailures(n = 0);
+	Grove.RebaseFailures -> id(Ok(TreeJson(repo = LoadTree.repo, worktrees = UnwrapR2(r = Worktrees), branches = UnwrapR2(r = Branches), merged = OkOr(r = Merged, d = ""), root = Root, ideas = Ideas, interiors = UnwrapInteriors(r = LoadInteriors), agents = Grove.Statuses, failures = this)));
 }
 
 // Serves POST /api/ideas/branch {from, name?}: a new idea branched from
@@ -116,6 +118,20 @@ proc DiscardRoute(req: HttpRequest): HttpResponse {
 	};
 	DiscardTree -> Grove.Changed(n = 0);
 	Grove.Changed -> id(Answer(r = DiscardTree, key = "id"));
+}
+
+// Permanently deletes a discarded or merged idea after checking that it has no children.
+proc DeleteRoute(req: HttpRequest): HttpResponse {
+	DeleteRoute -> GroveWrite(req = this.req);
+	GroveWrite switch {
+		Stop(r) -> id(r),
+		Go(w) -> Grove.Delete(repo = w.repo, id = StrOr(j = w.j, key = "id", d = ""))
+	};
+	Grove.Delete switch {
+		Ok(_) -> Grove.Changed(n = 0),
+		Err(e) -> id(ApiErr(msg = e.msg))
+	};
+	Grove.Changed -> id(Answer(r = Grove.Delete, key = "id"));
 }
 
 // Serves POST /api/ideas/restore {id}: gives a discarded idea its worktree

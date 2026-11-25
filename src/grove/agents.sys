@@ -113,11 +113,13 @@ proc NotifyRoute(req: HttpRequest): HttpResponse {
 	};
 	Grove.Repo switch {
 		Ok(r) -> switch {
+			(BoolOr(j = UnwrapJ(r = ParseJson), key = "rebase", d = false)) -> Grove.SetRebaseFailure(id = StrOr(j = UnwrapJ(r = ParseJson), key = "idea", d = ""), message = ""),
 			(BoolOr(j = UnwrapJ(r = ParseJson), key = "open", d = false)) -> OpenTerminal(s = { repo = r, id = StrOr(j = UnwrapJ(r = ParseJson), key = "idea", d = ""), run = StrOr(j = UnwrapJ(r = ParseJson), key = "run", d = "") }),
 			else -> id(Ok(StrOr(j = UnwrapJ(r = ParseJson), key = "idea", d = ""))) as Told
 		},
 		Err(e) -> id(ApiErr(msg = e.msg))
 	};
+	Grove.SetRebaseFailure -> id(Ok(StrOr(j = UnwrapJ(r = ParseJson), key = "idea", d = ""))) as Told;
 	OpenTerminal -> id(this) as Told;
 	Told -> Grove.Changed(n = 0);
 	Grove.Changed -> id(Answer(r = Told, key = "idea"));
@@ -392,10 +394,13 @@ proc CliStatus(s: { repo: Repo, a: CliArgs }): Res<string> {
 	};
 }
 
+// Tells the server a failed rebase has been retried.
+func RebaseNotice(idea: string): string = "grove_leaf.rs:rebase_notice";
+
 // `grove rebase [--idea <idea>] [--continue]`: rebases this idea (or --idea)
 // onto its parent's head, in its worktree. On a conflict it stops there to
 // be resolved, then `grove rebase --continue` finishes it. Tells grove, which
-// clears a flag of the idea's status.
+// clears its failed rebase flag.
 proc CliRebase(s: { repo: Repo, a: CliArgs }): Res<string> {
 	CliRebase switch {
 		(this.s.a.has_idea) -> id(Ok(this.s.a.idea)) as Which,
@@ -412,7 +417,7 @@ proc CliRebase(s: { repo: Repo, a: CliArgs }): Res<string> {
 	ContinueRebase -> id(this) as Done;
 	RebaseOne -> id(this) as Done;
 	Done switch {
-		Ok(what) -> Grove.Notify(path = "/api/agent/status", body = StatusBody(idea = UnwrapR2(r = Which), a = { ..CliRebase.s.a, args = ["clear"] })),
+		Ok(_) -> Grove.Notify(path = "/api/agent/notify", body = RebaseNotice(idea = UnwrapR2(r = Which))),
 		Err(e) -> id(Err(e))
 	};
 	Grove.Notify -> id(Ok(ToldText(done = UnwrapR2(r = Done) + ": " + OrStr(a = UnwrapR2(r = Which), d = "the root"), notified = this)));

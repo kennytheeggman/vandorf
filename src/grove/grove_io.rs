@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
@@ -583,6 +584,7 @@ fn statuses_map() -> &'static Mutex<HashMap<String, AgentStatus>> {
 /// done; "" forgets it), unseen, for as long as grove runs. Gives how many ideas
 /// have a status.
 pub fn set_status(id: Str, state: Str, message: Str) -> Result<i64, String> {
+    static REPORTS: AtomicI64 = AtomicI64::new(1);
     let mut m = statuses_map().lock().unwrap();
     if state.is_empty() {
         m.remove(&*id);
@@ -593,16 +595,21 @@ pub fn set_status(id: Str, state: Str, message: Str) -> Result<i64, String> {
                 state,
                 message,
                 seen: false,
+                report: REPORTS.fetch_add(1, Ordering::Relaxed),
             },
         );
     }
     Ok(m.len() as i64)
 }
 
-/// Marks an idea's done status seen; whether it was done and unseen.
-pub fn see_status(id: Str) -> Result<bool, String> {
+/// Marks an idea's done or attention status seen; whether it changed.
+pub fn see_status(id: Str, report: i64) -> Result<bool, String> {
     Ok(match statuses_map().lock().unwrap().get_mut(&*id) {
-        Some(a) if &*a.state == "done" && !a.seen => {
+        Some(a)
+            if (report == 0 || report == a.report)
+                && matches!(&*a.state, "done" | "attention")
+                && !a.seen =>
+        {
             a.seen = true;
             true
         }
@@ -618,4 +625,157 @@ pub fn statuses(_n: i64) -> Result<Map<Str, AgentStatus>, String> {
         .iter()
         .map(|(k, v)| (Str::from(k.as_str()), v.clone()))
         .collect())
+}
+
+fn rebase_failure_map() -> &'static Mutex<HashMap<Str, Str>> {
+    static FAILURES: OnceLock<Mutex<HashMap<Str, Str>>> = OnceLock::new();
+    FAILURES.get_or_init(Default::default)
+}
+
+/// A failed rebase's message, cleared by a successful retry or by entering
+/// a stopped rebase (whose state comes from Git).
+pub fn set_rebase_failure(id: Str, message: Str) -> Result<i64, String> {
+    let mut failures = rebase_failure_map().lock().unwrap();
+    if message.is_empty() {
+        failures.remove(&id);
+    } else {
+        failures.insert(id, message);
+    }
+    Ok(failures.len() as i64)
+}
+
+pub fn rebase_failures(_n: i64) -> Result<Map<Str, Str>, String> {
+    Ok(rebase_failure_map()
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(id, msg)| (id.clone(), msg.clone()))
+        .collect())
+}
+
+/// Deletes a discarded or merged leaf. Keep its metadata until after Git succeeds so
+/// a failed cleanup can be retried, and let Git protect uncommitted changes.
+pub fn delete(repo: Repo, id: Str) -> Result<ResString, String> {
+    use super::grove_leaf::{
+        meta_path, new_idea, parse_idea, valid_id, worktree_of, worktree_path,
+    };
+    use std::fs;
+    use std::io::ErrorKind::NotFound;
+
+    let remove = || -> Result<(), String> {
+        if !valid_id(id.clone())? {
+            return Err("Choose a valid discarded or merged idea to delete".to_string());
+        }
+        let _held = lock(&repo.common)?;
+        let read_idea = |id: Str| -> Result<Option<Idea>, String> {
+            let path = meta_path(repo.common.clone(), id.clone())?;
+            match fs::read_to_string(&*path) {
+                Ok(text) => match parse_idea(text.into(), id)? {
+                    ResIdea::Ok(idea) => Ok(Some(idea)),
+                    ResIdea::Err(e) => Err(e.msg.to_string()),
+                },
+                Err(e) if e.kind() == NotFound => Ok(None),
+                Err(e) => Err(format!("cannot read {path}: {e}")),
+            }
+        };
+        let idea = read_idea(id.clone())?;
+        let branch = format!("idea/{id}");
+        let reference = format!("refs/heads/{branch}");
+        let branches = run_git(
+            &repo.top,
+            &[
+                "for-each-ref",
+                "--format=%(refname) %(objectname)",
+                &reference,
+            ],
+        )?;
+        let head = branches
+            .lines()
+            .find_map(|line| line.strip_prefix(&reference)?.strip_prefix(' '));
+        if head.is_none() && idea.is_none() {
+            return Err(format!("no such idea: {id}"));
+        }
+        let idea = match idea {
+            Some(idea) => idea,
+            None => new_idea(id.clone())?,
+        };
+        let worktrees = run_git(&repo.top, &["worktree", "list", "--porcelain"])?;
+        let worktree = worktree_of(worktrees.into(), id.clone())?;
+        // Merged as the tree shows it: its metadata says so, or its branch
+        // has commits of its own and they're all in the root's head.
+        let mut merged = &*idea.status == "merged";
+        if let (false, Some(head)) = (merged, head) {
+            let root = run_git(&repo.top, &["rev-parse", "HEAD"])?;
+            let fork = if idea.fork.is_empty() {
+                &root
+            } else {
+                &*idea.fork
+            };
+            let in_root = run_git(
+                &repo.top,
+                &[
+                    "for-each-ref",
+                    "--merged",
+                    "HEAD",
+                    "--format=%(refname)",
+                    &reference,
+                ],
+            )?;
+            merged = head != fork && in_root.lines().any(|line| line == reference);
+        }
+        if !merged && !worktree.is_empty() && &*idea.status != "discarded" {
+            return Err(format!("{} isn't discarded or merged", idea.name));
+        }
+        let dir = Path::new(&*repo.common).join("grove/ideas");
+        let entries = match fs::read_dir(&dir) {
+            Ok(entries) => Some(entries),
+            Err(e) if e.kind() == NotFound => None,
+            Err(e) => return Err(format!("cannot read {}: {e}", dir.display())),
+        };
+        for entry in entries.into_iter().flatten() {
+            let entry = entry.map_err(|e| format!("cannot list ideas: {e}"))?;
+            let name = entry.file_name();
+            let Some(child) = name.to_str().and_then(|name| name.strip_suffix(".toml")) else {
+                continue;
+            };
+            if valid_id(s(child))? && read_idea(s(child))?.is_some_and(|child| child.parent == id) {
+                return Err(format!("Delete the ideas under {} first", idea.name));
+            }
+        }
+        if !worktree.is_empty() {
+            run_git(&repo.top, &["worktree", "remove", "--", &worktree])?;
+        }
+        if head.is_some() {
+            run_git(&repo.top, &["branch", "-D", "--", &branch])?;
+        }
+
+        let expected = worktree_path(repo.common.clone(), id.clone())?;
+        for dir in [&expected, &worktree] {
+            if dir.is_empty() {
+                continue;
+            }
+            stop(dir.clone())?;
+            let mut terminals = opened().lock().unwrap();
+            terminals.retain(|term, cwd| {
+                if cwd.as_str() == &**dir {
+                    let _ = super::ide_io::term_kill(*term);
+                    false
+                } else {
+                    true
+                }
+            });
+        }
+        set_status(id.clone(), s(""), s(""))?;
+        set_rebase_failure(id.clone(), s(""))?;
+        let path = meta_path(repo.common.clone(), id.clone())?;
+        match fs::remove_file(&*path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == NotFound => Ok(()),
+            Err(e) => Err(format!("cannot remove {path}: {e}")),
+        }
+    };
+    Ok(match remove() {
+        Ok(()) => ResString::Ok(id),
+        Err(e) => err_str(e),
+    })
 }

@@ -35,6 +35,10 @@ is set to the commit it was branched at.
   it, stops their terminals and the interiors started for them, and keeps
   their branches, so each can be **restored**. If any of them has changes
   that aren't committed, nothing is discarded.
+- **Delete permanently** is in a discarded or merged node's right-click
+  menu in the history view. It removes the branch, remaining worktree and sessions, and
+  idea metadata. Delete any child ideas first. Git protects uncommitted
+  changes in a remaining worktree.
 - **Merge** an idea into the root (see [Merging](#merging)).
 - **Rename** any idea, the root too.
 
@@ -95,15 +99,17 @@ people's.
   zoom, and double-click (or the target button) to see the whole tree
   again. Right-click a node to branch, rename, rebase, merge, discard or
   restore it. The history button shows merged and discarded ideas. The
-  sidebar can be resized, and hidden (Alt+Shift+B).
+  sidebar can be resized, and hidden (Alt+Shift+B). Merge, discard, and
+  permanent deletion ask for confirmation. Enter confirms and Escape cancels.
 
   A node shows what the agent in its idea last said (`grove status`): a
   spinner while it's **working**, amber with a pulse when it needs
   **attention** (also when a rebase stopped or couldn't be made), green
-  when it's **done**, and a quieter blue once it's done and someone has
-  shown it, so the done ideas no one has looked at yet stand out. grove
-  keeps that it's been seen, for every window and across reloads, until
-  the agent reports again (a new done is green again). The root, the
+  when it's **done**, and a quieter blue once someone views the idea
+  after either report. That acknowledgment applies across windows and
+  reloads until the agent reports again. A failed rebase remains amber
+  until rebased successfully or retried interactively. A stopped rebase
+  stays amber until it finishes or is aborted. The root, the
   checked-out branch, is the larger blue node with a ring. A dashed edge
   means the idea isn't on its parent's latest commit.
 - **Sections** (right): under a slim bar with the shown idea's name (the
@@ -236,7 +242,7 @@ starts. The page catches up at once and says which ideas are new.
 - **rebase** moves this idea onto its parent's latest commit, replaying
   its own commits there. On a conflict it stops for the agent (or you) to
   resolve it in the worktree, `git add` the files, and run
-  `grove rebase --continue`. Afterwards the idea's attention flag clears.
+  `grove rebase --continue`. Afterwards the rebase warning clears.
 - **Discarding and merging are left to people**, in the tree. `grove
   discard` and `grove merge` refuse, and `$GROVE_TOKEN` is a token of its
   own that only the agent routes take, not grove's other writes. An agent
