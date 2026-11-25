@@ -365,6 +365,7 @@ function post(msg){
   if (!EMBEDDED) return;
   try { window.parent.postMessage(msg, location.origin); } catch (e) {}
 }
+document.addEventListener('pointerdown', function(){ post({ type: 'vandorf-viz-focus' }); }, true);
 
 /* ---------- mode switching ---------- */
 function setMode(m){

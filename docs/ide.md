@@ -20,6 +20,15 @@ ide --addr 127.0.0.1:9000
 - **Tabs** (centre): a proc each, as a **diagram** or as **text**, compiled
   as you type. A file is compiled together with the rest of its project.
   Diagnostics show in place, with the same messages as `vcc check`.
+  Use **Split right** or **Split down** to open the active tab in another
+  group. Splitting a proc opens its other view, so you can edit text beside
+  the diagram. All open views of a file share its draft.
+  Drag a tab onto another group's tab strip to move it, or drop it at an
+  edge of an editor to create a group there. Drag the divider to resize
+  groups. Reloading restores the group layout, sizes, and tabs.
+  **Pop out tab** opens a separate window with the same draft. Use **Dock
+  in IDE** or close the window to return the tab. Reloading the main IDE
+  restores popped-out tabs in their original groups.
 - **Diagrams** are drawn from the graph: funcs, procs (orange), interface
   funcs (purple), switches with their arm labels, loops, for each regions
   and spawns. A proc's diagram starts with its signature node at the top,

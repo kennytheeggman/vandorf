@@ -15,24 +15,40 @@ iframe{ border:0; width:100%; height:100%; display:block; background:var(--bg) }
 .split-h{ cursor:row-resize; height:4px; background:transparent } .split-h:hover,.split-h.drag{ background:var(--accent) }
 /* The terminal panel comes out of the bottom (the default), left or right. */
 #center{ display:grid; min-width:0; min-height:0; grid-template-columns:minmax(0,1fr);
-  grid-template-areas:"tabs" "frames" "split" "panel"; grid-template-rows:var(--bar-h) minmax(0,1fr) 4px var(--panel,32%) }
-#tabs{ grid-area:tabs } #frames{ grid-area:frames } #splitPanel{ grid-area:split } #panel{ grid-area:panel }
-#center.right{ grid-template-areas:"tabs split panel" "frames split panel"; grid-template-rows:var(--bar-h) minmax(0,1fr);
+  grid-template-areas:"editors" "split" "panel"; grid-template-rows:minmax(0,1fr) 4px var(--panel,32%) }
+#editors{ grid-area:editors; min-width:0; min-height:0; display:grid }
+#splitPanel{ grid-area:split } #panel{ grid-area:panel }
+#center.right{ grid-template-areas:"editors split panel"; grid-template-rows:minmax(0,1fr);
   grid-template-columns:minmax(0,1fr) 4px var(--panelw,40%) }
-#center.left{ grid-template-areas:"panel split tabs" "panel split frames"; grid-template-rows:var(--bar-h) minmax(0,1fr);
+#center.left{ grid-template-areas:"panel split editors"; grid-template-rows:minmax(0,1fr);
   grid-template-columns:var(--panelw,40%) 4px minmax(0,1fr) }
 #center.left #splitPanel, #center.right #splitPanel{ cursor:col-resize; height:auto }
-#center.nopanel{ grid-template-rows:var(--bar-h) minmax(0,1fr) 0 0 }
-#center.nopanel.right{ grid-template-rows:var(--bar-h) minmax(0,1fr); grid-template-columns:minmax(0,1fr) 0 0 }
-#center.nopanel.left{ grid-template-rows:var(--bar-h) minmax(0,1fr); grid-template-columns:0 0 minmax(0,1fr) }
-#center.nopanel #panel, #center.nopanel .split-h{ display:none }
+#center.nopanel{ grid-template-rows:minmax(0,1fr) 0 0 }
+#center.nopanel.right{ grid-template-rows:minmax(0,1fr); grid-template-columns:minmax(0,1fr) 0 0 }
+#center.nopanel.left{ grid-template-rows:minmax(0,1fr); grid-template-columns:0 0 minmax(0,1fr) }
+#center.nopanel #panel, #center.nopanel #splitPanel{ display:none }
 
-#tabs{ display:flex; align-items:stretch; overflow-x:auto; overflow-y:hidden; background:var(--bar); border-bottom:1px solid var(--line); scrollbar-width:thin }
+.editor-split, .editor-group{ min-width:0; min-height:0; display:grid }
+.editor-split.columns{ grid-template-columns:minmax(0,var(--first)) 4px minmax(0,var(--second)); grid-template-rows:minmax(0,1fr) }
+.editor-split.rows{ grid-template-rows:minmax(0,var(--first)) 4px minmax(0,var(--second)); grid-template-columns:minmax(0,1fr) }
+.editor-split > .split-v, .editor-split > .split-h{ background:var(--line) }
+.editor-split > .drag, .editor-split > [role=separator]:hover, .editor-split > [role=separator]:focus-visible{ background:var(--accent) }
+.editor-group{ position:relative; grid-template-rows:var(--bar-h) minmax(0,1fr) }
+.editor-bar{ display:flex; min-width:0; background:var(--bar); border-bottom:1px solid var(--line) }
+.editor-tabs{ display:flex; flex:1; min-width:0; overflow-x:auto; scrollbar-width:thin }
+.editor-actions{ display:flex; align-items:center; padding:0 3px }
+.editor-actions button:disabled{ opacity:.35; cursor:default }
+.editor-group[data-drop]::after{ content:""; position:absolute; inset:0; z-index:1; pointer-events:none;
+  background:var(--sel); border:1px solid var(--accent); opacity:.65 }
+.editor-group[data-drop=left]::after{ right:50% }
+.editor-group[data-drop=right]::after{ left:50% }
+.editor-group[data-drop=top]::after{ bottom:50% }
+.editor-group[data-drop=bottom]::after{ top:50% }
 .tab{ display:flex; align-items:center; gap:6px; padding:0 4px 0 10px; border-right:1px solid var(--line); color:var(--mut);
-  white-space:nowrap; cursor:pointer; user-select:none; max-width:240px; position:relative }
+  white-space:nowrap; cursor:pointer; user-select:none; min-width:0; flex:none; max-width:240px; position:relative }
 .tab:hover{ background:var(--hover) }
 .tab.on{ background:var(--bg); color:var(--ink) }
-.tab.on::after{ content:""; position:absolute; left:0; right:0; top:0; height:2px; background:var(--accent) }
+.editor-group.focused .tab.on::after{ content:""; position:absolute; left:0; right:0; top:0; height:2px; background:var(--accent) }
 .tab .t{ overflow:hidden; text-overflow:ellipsis }
 .tab .f{ font-size:11px; color:var(--mut) }
 .tab .x{ width:20px; height:20px; padding:0; font-size:14px; color:var(--mut) }
@@ -40,11 +56,12 @@ iframe{ border:0; width:100%; height:100%; display:block; background:var(--bg) }
 .tab.dirty .x::before{ content:"\25CF"; color:var(--dirty); font-size:11px }
 .tab.dirty .x span{ display:none }
 .tab.dirty .x:hover::before{ content:"" } .tab.dirty .x:hover span{ display:inline }
-#frames{ position:relative; min-height:0; background:var(--bg) }
-#frames iframe{ position:absolute; inset:0; visibility:hidden }
-#frames iframe.on{ visibility:visible }
-#welcome{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--mut); text-align:center; padding:16px }
-#welcome h2{ color:var(--ink); font-size:18px; margin:0 0 8px }
+.editor-frames{ position:relative; min-height:0; background:var(--bg) }
+.editor-frames iframe{ position:absolute; inset:0; visibility:hidden }
+.editor-frames iframe.on{ visibility:visible }
+.editor-empty{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--mut); text-align:center; padding:16px }
+.editor-empty[hidden]{ display:none }
+.editor-empty h2{ color:var(--ink); font-size:18px; margin:0 0 8px }
 #panel{ min-height:0; min-width:0; border-top:1px solid var(--line) }
 #center.right #panel{ border-top:0; border-left:1px solid var(--line) }
 #center.left #panel{ border-top:0; border-right:1px solid var(--line) }
@@ -96,14 +113,7 @@ body.dragging iframe{ pointer-events:none }
   <aside id="side"><iframe id="explorer" src="/explorer" title="Explorer"></iframe></aside>
   <div class="split-v" id="splitSide"></div>
   <section id="center">
-    <nav id="tabs"></nav>
-    <div id="frames">
-      <div id="welcome"><div>
-        <h2>No open procs</h2>
-        Pick a proc in the explorer to open its diagram.<br>
-        <kbd>Ctrl</kbd>+click opens another tab &middot; click a proc in a diagram to expand it in place.
-      </div></div>
-    </div>
+    <div id="editors"></div>
     <div class="split-h" id="splitPanel"></div>
     <div id="panel"><iframe id="terminal" src="/terminal" title="Terminal"></iframe></div>
   </section>
@@ -173,10 +183,13 @@ function post(win, msg){ try { win.postMessage(msg, location.origin); } catch (e
 var themePref = store('vandorf.ide.theme') || 'system';
 var mq = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
 var theme = 'light';
-function frames(){ return Array.prototype.slice.call(document.querySelectorAll('iframe')); }
+function frames(){
+  return Array.from(document.querySelectorAll('iframe')).concat((tabs || []).filter(function(t){ return t.popup; }).map(function(t){ return t.frame; }));
+}
 function applyTheme(){
   theme = themePref === 'system' ? (mq && mq.matches ? 'dark' : 'light') : themePref;
   document.documentElement.setAttribute('data-theme', theme);
+  (tabs || []).forEach(function(t){ if (t.popup) t.popup.bar.ownerDocument.documentElement.dataset.theme = theme; });
   frames().forEach(function(f){ if (f.contentWindow) post(f.contentWindow, { type: 'vandorf-theme', theme: theme }); });
   segOn($('sTheme'), themePref);
 }
@@ -245,11 +258,12 @@ fetch('/api/sources').then(function(r){ return r.json(); }).then(function(r){ if
 /* ---------- splitters ---------- */
 function drag(el, onMove){
   el.addEventListener('pointerdown', function(e){
+    if (e.button !== 0) return;
     e.preventDefault(); el.classList.add('drag'); document.body.classList.add('dragging');
     function mv(ev){ onMove(ev); }
     function up(){ el.classList.remove('drag'); document.body.classList.remove('dragging');
-      window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); }
-    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+      window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); }
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
   });
 }
 var sideW = +store('vandorf.ide.side') || 260, panelH = store('vandorf.ide.panel') || '32%', panelW = store('vandorf.ide.panelw') || '40%';
@@ -315,7 +329,8 @@ function fileOfProc(proc){
 }
 
 /* ---------- tabs ---------- */
-var tabs = [], active = null, seq = 0, buffers = loadJSON('vandorf.ide.buffers', {});
+var tabs = [], active = null, activeGroup = null, rootGroup, dragged = null, seq = 0;
+var buffers = loadJSON('vandorf.ide.buffers', {}), edits = new Map();
 function keyOf(path, proc){ return path + '#' + (proc || ''); }
 function projectKey(dir){ return 'project:' + dir; }
 /* The project whose manifest is in dir, from the outlines. */
@@ -333,65 +348,237 @@ function entryOf(path, proc){
 }
 function tabByWin(w){ for (var i = 0; i < tabs.length; i++) if (tabs[i].frame.contentWindow === w) return tabs[i]; return null; }
 function saveTabs(){
-  store('vandorf.ide.tabs', JSON.stringify({
-    tabs: tabs.map(function(t){ return t.project != null ? { project: t.project } : { path: t.path, proc: t.proc, mode: t.mode }; }),
-    active: active ? tabs.indexOf(active) : -1,
-  }));
+  var focusPath = [];
+  function snapshot(node, path){
+    if (node.children){
+      return { axis: node.axis, ratio: node.ratio, children: node.children.map(function(child, i){ return snapshot(child, path.concat(i)); }) };
+    }
+    if (node === activeGroup) focusPath = path;
+    return {
+      tabs: node.tabs.map(function(t){ return t.project != null ? { project: t.project } : { path: t.path, proc: t.proc, mode: t.mode }; }),
+      active: node.tabs.indexOf(node.active),
+    };
+  }
+  var layout = snapshot(rootGroup, []);
+  store('vandorf.ide.tabs', JSON.stringify({ layout: layout, focus: focusPath }));
 }
 function saveBuffers(){ store('vandorf.ide.buffers', JSON.stringify(buffers)); }
 
-function open(o){
-  if (!o || (!o.path && o.project == null)) return;
-  if (o.project != null) return openProject(o);
-  var key = keyOf(o.path, o.proc);
-  if (!o.newTab){
-    for (var i = 0; i < tabs.length; i++) if (tabs[i].key === key){
-      activate(tabs[i]);
-      if (o.line != null || o.mode) post(tabs[i].frame.contentWindow, { type: 'ide-goto', line: o.line, mode: o.mode });
-      return;
+// Moving a connected iframe can keep its document alive where supported.
+// Browsers that reload it restore its view and draft through viewer-ready.
+function place(parent, el, before){
+  before = before || null;
+  if (before === el) return;
+  if (parent.moveBefore && el.isConnected && parent.isConnected) parent.moveBefore(el, before);
+  else parent.insertBefore(el, before);
+}
+function group(){
+  var g = { tabs: [], active: null, parent: null, el: document.createElement('section') };
+  g.el.className = 'editor-group';
+  g.el.innerHTML = '<div class="editor-bar"><nav class="editor-tabs" aria-label="Editor tabs"></nav><div class="editor-actions">' +
+    '<button class="icon" data-action="right" aria-label="Split right" title="Split right"><svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10"/><path d="M8 3v10"/></svg></button>' +
+    '<button class="icon" data-action="bottom" aria-label="Split down" title="Split down"><svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10"/><path d="M2 8h12"/></svg></button>' +
+    '<button class="icon" data-action="window" aria-label="Pop out tab" title="Pop out tab"><svg viewBox="0 0 16 16"><path d="M7 3H3v10h10V9M9 3h4v4M13 3 7 9"/></svg></button>' +
+    '</div></div><div class="editor-frames"><div class="editor-empty"><div><h2>No open procs</h2>Pick a proc in the explorer.</div></div>' +
+    '<div class="editor-empty editor-detached" hidden><button class="outline">Dock tab here</button></div></div>';
+  g.bar = g.el.querySelector('.editor-bar');
+  g.nav = g.el.querySelector('.editor-tabs');
+  g.frames = g.el.querySelector('.editor-frames');
+  g.empty = g.el.querySelector('.editor-empty');
+  g.detached = g.el.querySelector('.editor-detached');
+  g.actions = Array.from(g.el.querySelectorAll('[data-action]'));
+  g.detached.querySelector('button').onclick = function(){ dock(g.active); };
+  g.bar.addEventListener('click', function(e){
+    var b = e.target.closest('[data-action]');
+    if (!b || !g.active) return;
+    var t = g.active;
+    if (b.dataset.action === 'window'){
+      if (t.popup) dock(t); else popOut(t);
+    } else {
+      var next = splitGroup(g, b.dataset.action);
+      var mode = t.proc && t.mode === 'diagram' ? 'text' : t.proc ? 'diagram' : t.mode;
+      open({ path: t.path, proc: t.proc, project: t.project, mode: mode, newTab: true }, next);
     }
+  });
+  g.el.addEventListener('pointerdown', function(e){
+    if (!e.target.closest('button, .tab') && g !== activeGroup) activate(g.active, g);
+  });
+  g.el.addEventListener('dragover', function(e){
+    if (!dragged) return;
+    var edge = dropEdge(g, e);
+    if (edge && dragged.group === g && g.tabs.length === 1) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    g.el.dataset.drop = edge || 'center';
+  });
+  g.el.addEventListener('dragleave', function(e){
+    if (!g.el.contains(e.relatedTarget)) delete g.el.dataset.drop;
+  });
+  g.el.addEventListener('drop', function(e){
+    if (!dragged) return;
+    e.preventDefault();
+    var t = dragged, edge = dropEdge(g, e);
+    clearTabDrag();
+    if (edge && t.group === g && g.tabs.length === 1) return;
+    var over = e.target.closest('.tab'), before = null;
+    if (over){
+      var r = over.getBoundingClientRect();
+      before = e.clientX < r.left + r.width / 2 ? over : over.nextElementSibling;
+    }
+    moveTab(t, edge ? splitGroup(g, edge) : g, edge ? null : before);
+  });
+  refreshGroup(g);
+  return g;
+}
+function dropEdge(g, e){
+  if (g.bar.contains(e.target)) return '';
+  var r = g.frames.getBoundingClientRect();
+  var x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+  var edge = Math.min(x, 1 - x, y, 1 - y);
+  if (edge > .23) return '';
+  if (edge === x) return 'left';
+  if (edge === 1 - x) return 'right';
+  return edge === y ? 'top' : 'bottom';
+}
+function clearTabDrag(){
+  dragged = null;
+  document.body.classList.remove('dragging');
+  document.querySelectorAll('.editor-group[data-drop]').forEach(function(el){ delete el.dataset.drop; });
+}
+function splitNode(axis, ratio){
+  var n = { axis: axis, ratio: ratio, children: [], parent: null, el: document.createElement('div') };
+  n.el.className = 'editor-split ' + axis;
+  var handle = document.createElement('div');
+  handle.className = axis === 'columns' ? 'split-v' : 'split-h';
+  handle.tabIndex = 0;
+  handle.setAttribute('role', 'separator');
+  handle.setAttribute('aria-label', 'Resize editor groups');
+  handle.setAttribute('aria-orientation', axis === 'columns' ? 'vertical' : 'horizontal');
+  handle.setAttribute('aria-valuemin', '10');
+  handle.setAttribute('aria-valuemax', '90');
+  n.handle = handle;
+  function resize(value){
+    n.ratio = Math.max(.1, Math.min(.9, value));
+    n.el.style.setProperty('--first', n.ratio + 'fr');
+    n.el.style.setProperty('--second', (1 - n.ratio) + 'fr');
+    handle.setAttribute('aria-valuenow', String(Math.round(n.ratio * 100)));
   }
-  var t = { id: ++seq, path: o.path, proc: o.proc || null, key: key, mode: o.mode || (o.proc ? 'diagram' : 'text'),
-            line: o.line, dirty: false };
-  t.frame = document.createElement('iframe');
-  t.frame.title = (o.proc || o.path);
-  t.frame.src = '/viewer?tab=' + t.id;
-  $('frames').appendChild(t.frame);
+  drag(handle, function(e){
+    var r = n.el.getBoundingClientRect();
+    resize(axis === 'columns' ? (e.clientX - r.left) / r.width : (e.clientY - r.top) / r.height);
+    saveTabs();
+  });
+  handle.onkeydown = function(e){
+    var prev = axis === 'columns' ? 'ArrowLeft' : 'ArrowUp';
+    var next = axis === 'columns' ? 'ArrowRight' : 'ArrowDown';
+    if (e.key !== prev && e.key !== next) return;
+    e.preventDefault();
+    resize(n.ratio + (e.key === prev ? -.05 : .05));
+    saveTabs();
+  };
+  resize(ratio);
+  return n;
+}
+function setChildren(n, left, right){
+  n.children = [left, right];
+  left.parent = right.parent = n;
+  n.el.appendChild(n.handle);
+  place(n.el, left.el, n.handle);
+  place(n.el, right.el);
+}
+function replaceNode(old, next){
+  var parent = old.parent;
+  next.parent = parent;
+  if (parent) parent.children[parent.children.indexOf(old)] = next;
+  else rootGroup = next;
+  place(old.el.parentNode, next.el, old.el);
+}
+function splitGroup(g, edge){
+  var row = edge === 'top' || edge === 'bottom';
+  var n = splitNode(row ? 'rows' : 'columns', .5), next = group();
+  replaceNode(g, n);
+  if (edge === 'left' || edge === 'top') setChildren(n, next, g);
+  else setChildren(n, g, next);
+  return next;
+}
+function prune(g){
+  if (g.tabs.length || !g.parent) return;
+  var parent = g.parent;
+  var sibling = parent.children.find(function(child){ return child !== g; });
+  replaceNode(parent, sibling);
+  parent.el.remove();
+}
+function removeFromGroup(t){
+  var g = t.group, i = g.tabs.indexOf(t);
+  g.tabs.splice(i, 1);
+  if (g.active === t) g.active = g.tabs[Math.min(i, g.tabs.length - 1)] || null;
+  refreshGroup(g);
+  return g;
+}
+function moveTab(t, g, before){
+  if (before === t.el){ activate(t); return; }
+  var old = removeFromGroup(t);
+  var index = before ? g.tabs.findIndex(function(x){ return x.el === before; }) : g.tabs.length;
+  g.tabs.splice(index, 0, t);
+  t.group = g;
+  place(g.nav, t.el, before);
+  if (!t.popup && old !== g) place(g.frames, t.frame);
+  if (old !== g) prune(old);
+  activate(t);
+}
+function createFrame(t, host, popped){
+  if (t.frame) t.frame.remove();
+  t.frame = host.ownerDocument.createElement('iframe');
+  var isProject = t.project != null;
+  t.frame.title = isProject ? 'Project ' + (t.project || '.') : t.proc || t.path;
+  t.frame.src = (isProject ? '/project?dir=' + encodeURIComponent(t.project) : '/viewer?tab=' + t.id) + (popped ? '&popout=1' : '');
+  host.appendChild(t.frame);
+}
+function addTab(o, g){
+  var isProject = o.project != null;
+  var t = { id: ++seq, project: o.project, path: o.path || null, proc: o.proc || null, group: g,
+            key: isProject ? projectKey(o.project) : keyOf(o.path, o.proc),
+            mode: isProject ? 'project' : o.mode || (o.proc ? 'diagram' : 'text'), line: o.line };
   t.el = document.createElement('div');
   t.el.className = 'tab';
-  t.el.title = o.path + (o.proc ? ' — ' + o.proc : '');
+  t.el.draggable = true;
+  t.el.title = isProject ? (t.project || '.') + '/vandorf.toml' : t.path + (t.proc ? ' — ' + t.proc : '');
   t.el.innerHTML = '<span class="badge"></span><span class="t"></span><span class="f"></span><button class="x" title="Close"><span>&times;</span></button>';
-  t.el.onclick = function(e){ if (e.target.closest('.x')) close(t); else activate(t); };
+  if (isProject){
+    t.el.querySelector('.badge').classList.add('project');
+    t.el.querySelector('.f').textContent = 'project';
+  }
+  t.el.onclick = function(e){
+    if (e.target.closest('.x')) close(t);
+    else { activate(t); if (t.popup) t.popup.win.focus(); }
+  };
   t.el.onauxclick = function(e){ if (e.button === 1){ e.preventDefault(); close(t); } };
-  // Insert after the active tab, like most editors.
-  var at = active ? tabs.indexOf(active) + 1 : tabs.length;
-  tabs.splice(at, 0, t);
-  var next = $('tabs').children[at];
-  $('tabs').insertBefore(t.el, next || null);
+  t.el.ondragstart = function(e){
+    dragged = t;
+    e.dataTransfer.setData('text/plain', t.el.title);
+    e.dataTransfer.effectAllowed = 'move';
+    document.body.classList.add('dragging');
+  };
+  t.el.ondragend = clearTabDrag;
+  var at = g.active ? g.tabs.indexOf(g.active) + 1 : g.tabs.length;
+  tabs.push(t);
+  g.tabs.splice(at, 0, t);
+  place(g.nav, t.el, g.nav.children[at]);
+  createFrame(t, g.frames, false);
   label(t);
-  activate(t);
+  return t;
 }
-/* A project's overview, one tab per project. */
-function openProject(o){
-  var key = projectKey(o.project);
-  for (var i = 0; i < tabs.length; i++) if (tabs[i].key === key){ activate(tabs[i]); return; }
-  var t = { id: ++seq, project: o.project, path: null, proc: null, key: key, mode: 'project', dirty: false };
-  t.frame = document.createElement('iframe');
-  t.frame.title = 'Project ' + o.project;
-  t.frame.src = '/project?dir=' + encodeURIComponent(o.project);
-  $('frames').appendChild(t.frame);
-  t.el = document.createElement('div');
-  t.el.className = 'tab';
-  t.el.title = (o.project || '.') + '/vandorf.toml';
-  t.el.innerHTML = '<span class="badge project"></span><span class="t"></span><span class="f">project</span><button class="x" title="Close"><span>&times;</span></button>';
-  t.el.onclick = function(e){ if (e.target.closest('.x')) close(t); else activate(t); };
-  t.el.onauxclick = function(e){ if (e.button === 1){ e.preventDefault(); close(t); } };
-  var at = active ? tabs.indexOf(active) + 1 : tabs.length;
-  tabs.splice(at, 0, t);
-  $('tabs').insertBefore(t.el, $('tabs').children[at] || null);
-  label(t);
+function open(o, g){
+  if (!o || (!o.path && o.project == null)) return;
+  g = g || activeGroup;
+  var key = o.project != null ? projectKey(o.project) : keyOf(o.path, o.proc);
+  var t = !o.newTab && g.tabs.find(function(x){ return x.key === key; });
+  if (!t) return activate(addTab(o, g));
   activate(t);
+  if (o.line != null || o.mode) post(t.frame.contentWindow, { type: 'ide-goto', line: o.line, mode: o.mode });
+  if (t.popup) t.popup.win.focus();
 }
+
 function label(t){
   if (t.project != null){
     var pj = projectAt(t.project);
@@ -405,26 +592,96 @@ function label(t){
   bd.title = entry ? 'Entry point: ' + entry.join(', ') : '';
   t.el.querySelector('.t').textContent = t.proc ? t.proc.split('.').pop() : base;
   t.el.querySelector('.f').textContent = t.proc ? base : '';
-  t.el.classList.toggle('dirty', !!buffers[t.path]);
+  t.el.classList.toggle('dirty', buffers[t.path] != null);
 }
-function activate(t){
-  active = t;
-  tabs.forEach(function(x){ x.el.classList.toggle('on', x === t); x.frame.classList.toggle('on', x === t); });
-  $('welcome').style.display = t ? 'none' : '';
-  if (t){ t.el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); post(t.frame.contentWindow, { type: 'ide-activate' }); }
+function refreshGroup(g){
+  g.tabs.forEach(function(t){
+    t.el.classList.toggle('on', t === g.active);
+    if (!t.popup) t.frame.classList.toggle('on', t === g.active);
+  });
+  g.empty.hidden = !!g.active;
+  g.detached.hidden = !(g.active && g.active.popup);
+  g.actions.forEach(function(b){ b.disabled = !g.active; });
+  var pop = g.actions[2], name = g.active && g.active.popup ? 'Dock tab' : 'Pop out tab';
+  pop.title = name;
+  pop.setAttribute('aria-label', name);
+}
+function activate(t, g){
+  g = g || t.group;
+  if (activeGroup && activeGroup !== g) activeGroup.el.classList.remove('focused');
+  activeGroup = g;
+  active = g.active = t;
+  g.el.classList.add('focused');
+  refreshGroup(g);
+  if (t){
+    t.el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    post(t.frame.contentWindow, { type: 'ide-activate' });
+  }
   post($('explorer').contentWindow, { type: 'ide-active', path: t && t.path, proc: t && t.proc, project: t ? t.project : null });
-  showWhere(); saveTabs();
+  showWhere();
+  saveTabs();
 }
 function close(t){
-  var i = tabs.indexOf(t);
-  if (i < 0) return;
-  if (t.path && buffers[t.path] && !tabs.some(function(x){ return x !== t && x.path === t.path; })){
+  var lastView = t.path && !tabs.some(function(x){ return x !== t && x.path === t.path; });
+  if (lastView && buffers[t.path] != null){
     if (!confirm(t.path + ' has unsaved changes. Close and keep them as a draft?\n(OK keeps the draft; Cancel keeps the tab open)')) return;
   }
-  tabs.splice(i, 1); t.el.remove(); t.frame.remove();
-  if (active === t) activate(tabs[Math.min(i, tabs.length - 1)] || null);
-  else saveTabs();
+  if (lastView) edits.delete(t.path);
+  tabs.splice(tabs.indexOf(t), 1);
+  var g = removeFromGroup(t);
+  t.el.remove(); t.frame.remove();
+  releasePopup(t);
+  if (g !== activeGroup){ prune(g); saveTabs(); return; }
+  var next = g;
+  if (!g.tabs.length && g.parent){
+    next = g.parent.children.find(function(child){ return child !== g; });
+    while (next.children) next = next.children[0];
+    prune(g);
+  }
+  activate(next.active, next);
 }
+
+function popOut(t){
+  var win = window.open('', '_blank', 'popup,width=1000,height=720');
+  if (!win){
+    $('status').textContent = 'Allow pop-ups for this IDE to open a separate window.';
+    $('status').className = 'bad';
+    return;
+  }
+  var doc = win.document;
+  doc.title = t.el.title;
+  doc.documentElement.dataset.theme = theme;
+  doc.documentElement.lang = 'en';
+  doc.head.innerHTML = '<link rel="stylesheet" href="/ui.css"><style>' +
+    'body{display:grid;grid-template-rows:var(--bar-h) minmax(0,1fr)} .bar{border-bottom:1px solid var(--line)}' +
+    'iframe{border:0;width:100%;height:100%;display:block}</style>';
+  doc.body.innerHTML = '<header class="bar"><button class="outline">Dock in IDE</button><span></span></header>';
+  var bar = doc.querySelector('header');
+  bar.querySelector('span').textContent = t.el.title;
+  bar.querySelector('button').onclick = function(){ dock(t); window.focus(); };
+  t.popup = { win: win, bar: bar, timer: setInterval(function(){
+    try { if (!win.closed && win.document === doc) return; } catch (e) {}
+    dock(t);
+  }, 400) };
+  win.addEventListener('focus', function(){ if (t.popup && t !== active) activate(t); });
+  createFrame(t, doc.body, true);
+  activate(t);
+}
+function releasePopup(t){
+  if (!t.popup) return;
+  var popup = t.popup;
+  t.popup = null;
+  clearInterval(popup.timer);
+  popup.win.close();
+}
+function dock(t){
+  if (!t || !t.popup) return;
+  releasePopup(t);
+  createFrame(t, t.group.frames, false);
+  activate(t);
+}
+window.addEventListener('pagehide', function(e){ if (!e.persisted) tabs.forEach(releasePopup); });
+
 function showWhere(){
   var t = active, info = t && t.path && fileInfo(t.path);
   if (t && t.project != null){
@@ -451,14 +708,18 @@ function run(sub){
 window.addEventListener('message', function(e){
   if (e.origin !== location.origin || !e.data || typeof e.data.type !== 'string') return;
   var m = e.data, t = tabByWin(e.source);
+  if (!t && e.source !== $('explorer').contentWindow && e.source !== $('terminal').contentWindow) return;
   switch (m.type){
   case 'ide-open':
     if (m.proc && !m.path) m.path = fileOfProc(m.proc) || (t && t.path);
-    open(m); break;
+    open(m, t ? t.group : activeGroup); break;
   case 'viewer-ready':
     if (!t) return;
     post(e.source, { type: 'ide-init', path: t.path, proc: t.proc, mode: t.mode, line: t.line, theme: theme,
-                     buffer: buffers[t.path] != null ? buffers[t.path] : null, active: t === active });
+                     buffer: buffers[t.path] != null ? buffers[t.path] : null, active: t === t.group.active });
+    break;
+  case 'ide-focus':
+    if (t && t !== active) activate(t);
     break;
   case 'ide-tab-state':
     if (!t) return;
@@ -467,29 +728,40 @@ window.addEventListener('message', function(e){
     label(t); saveTabs(); if (t === active) showWhere();
     break;
   case 'ide-buffer':
+    if (!t || !t.path) return;
     // An edit in one tab: every other tab on the file follows it.
-    if (m.dirty) buffers[m.path] = m.text; else delete buffers[m.path];
+    edits.set(t.path, m.text);
+    if (m.dirty) buffers[t.path] = m.text; else delete buffers[t.path];
     saveBuffers();
     tabs.forEach(function(x){
-      if (x.path !== m.path) return;
+      if (x.path !== t.path) return;
       label(x);
       if (x.frame.contentWindow !== e.source) post(x.frame.contentWindow, { type: 'ide-buffer', text: m.text, dirty: m.dirty });
     });
     break;
   case 'ide-saved':
-    delete buffers[m.path]; saveBuffers();
-    tabs.forEach(function(x){ if (x.path === m.path){ label(x); if (x.frame.contentWindow !== e.source) post(x.frame.contentWindow, { type: 'ide-buffer', text: m.text, dirty: false }); } });
+    if (!t || !t.path) return;
+    // Edits can land while the save request is still in flight.
+    var latest = edits.has(t.path) ? edits.get(t.path) : m.text;
+    var dirty = latest !== m.text;
+    if (dirty) buffers[t.path] = latest; else delete buffers[t.path];
+    saveBuffers();
+    tabs.forEach(function(x){
+      if (x.path !== t.path) return;
+      label(x);
+      post(x.frame.contentWindow, { type: 'ide-buffer', text: latest, dirty: dirty, saved: m.text });
+    });
     loadTree(); post($('explorer').contentWindow, { type: 'ide-refresh' });
     break;
   case 'ide-status':
-    if (t && t !== active) return;
+    if (t !== active) return;
     var s = $('status'); s.textContent = m.text; s.className = m.cls || '';
     break;
   case 'ide-close':
     if (t) close(t); break;
   case 'explorer-ready':
     post(e.source, { type: 'vandorf-theme', theme: theme });
-    post(e.source, { type: 'ide-active', path: active && active.path, proc: active && active.proc });
+    post(e.source, { type: 'ide-active', path: active && active.path, proc: active && active.proc, project: active && active.project });
     break;
   case 'project-ready':
     post(e.source, { type: 'vandorf-theme', theme: theme }); break;
@@ -502,12 +774,38 @@ window.addEventListener('message', function(e){
 });
 
 /* ---------- restore ---------- */
+rootGroup = activeGroup = group();
+$('editors').appendChild(rootGroup.el);
 loadTree().then(function(){
   var saved = loadJSON('vandorf.ide.tabs', null);
-  if (saved && saved.tabs && saved.tabs.length){
-    var keep = saved.tabs.filter(function(t){ return t.project != null ? projectAt(t.project) : fileInfo(t.path); });
-    keep.forEach(function(t){ open(t.project != null ? { project: t.project } : { path: t.path, proc: t.proc, mode: t.mode, newTab: true }); });
-    if (tabs[saved.active]) activate(tabs[saved.active]);
+  if (saved && (saved.layout || Array.isArray(saved.tabs))){
+    function restore(data){
+      if ((data.axis === 'rows' || data.axis === 'columns') && data.children && data.children.length === 2){
+        var n = splitNode(data.axis, Number.isFinite(data.ratio) ? data.ratio : .5);
+        var left = restore(data.children[0]), right = restore(data.children[1]);
+        if (!left) return right;
+        if (!right) return left;
+        setChildren(n, left, right);
+        return n;
+      }
+      var g = group();
+      var selected = null;
+      (data.tabs || []).forEach(function(o, i){
+        if (tree && !(o.project != null ? projectAt(o.project) : fileInfo(o.path))) return;
+        var t = addTab(o, g);
+        if (i === data.active) selected = t;
+      });
+      g.active = selected || g.tabs[0] || null;
+      refreshGroup(g);
+      return g.tabs.length ? g : null;
+    }
+    var next = restore(saved.layout || saved) || group();
+    rootGroup.el.remove();
+    rootGroup = next;
+    $('editors').appendChild(next.el);
+    (saved.focus || []).forEach(function(i){ if (next.children) next = next.children[i] || next.children[0]; });
+    while (next.children) next = next.children[0];
+    activate(next.active, next);
     return;
   }
   // First visit: the first Main proc, or the first proc of any file.
@@ -516,6 +814,7 @@ loadTree().then(function(){
     return f.items.some(function(it){ if (it.kind === 'proc' && (!first || it.name === 'Main')) first = { path: f.path, proc: it.qual }; return first && first.proc === 'Main'; });
   });
   if (first) open(first);
+  else activate(null, rootGroup);
 });
 })();
 </script>

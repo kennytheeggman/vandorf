@@ -94,7 +94,11 @@ td.a{ width:1%; color:var(--mut) }
 'use strict';
 var $ = function(id){ return document.getElementById(id); };
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]; }); }
-function up(m){ if (window.parent !== window) window.parent.postMessage(m, location.origin); }
+var host = new URLSearchParams(location.search).has('popout') ? window.parent.opener || window.parent : window.parent;
+function up(m){ if (host !== window) host.postMessage(m, location.origin); }
+function focusTab(){ up({ type: 'ide-focus' }); }
+window.addEventListener('focus', focusTab);
+document.addEventListener('pointerdown', focusTab, true);
 var TOKEN = '__VANDORF_TOKEN__';
 var dir = new URLSearchParams(location.search).get('dir') || '';
 var P = null;
@@ -293,7 +297,7 @@ $('overview').addEventListener('click', function(e){
 });
 
 window.addEventListener('message', function(e){
-  if (e.origin !== location.origin || !e.data) return;
+  if (e.origin !== location.origin || e.source !== host || !e.data) return;
   var m = e.data;
   if (m.type === 'vandorf-theme') document.documentElement.setAttribute('data-theme', m.theme);
   if (m.type === 'ide-activate' && P && P.name) up({ type: 'ide-status', text: 'Project ' + P.name, cls: '' });
