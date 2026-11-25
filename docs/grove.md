@@ -12,6 +12,15 @@ grove                        # http://127.0.0.1:8090
 grove --addr 127.0.0.1:9000
 ```
 
+> **One-time setup for agents' status.** The working / needs-attention /
+> done marks on the map come from agents calling `grove status`. grove
+> can't make an agent do that itself: for Claude Code, add the hooks in
+> [Status from agents' hooks](#status-from-agents-hooks) to
+> `~/.claude/settings.json` (merge them into any `hooks` you have), then
+> restart Claude sessions (or open `/hooks`) so they load. Without them
+> everything else works; nodes just show no status. The hooks do nothing
+> outside grove, since they check `$GROVE_URL` first.
+
 ## Ideas
 
 An idea is a local branch `idea/<id>` with its own worktree. The root of the
@@ -228,8 +237,11 @@ starts. The page catches up at once and says which ideas are new.
 
 grove has nothing specific to any agent: `grove status` is a plain command.
 An agent tool with hooks can call it at the right moments, guarded by
-`$GROVE_URL` so it does nothing outside grove. For Claude Code, in its
-settings (`~/.claude/settings.json` for every repository):
+`$GROVE_URL` so it does nothing outside grove. For Claude Code, this has
+to be added to its settings by hand, once: in `~/.claude/settings.json`
+(for every repository), merged into any `hooks` already there. Sessions
+started before the change don't have it until they're restarted or `/hooks`
+is opened.
 
 ```json
 {
