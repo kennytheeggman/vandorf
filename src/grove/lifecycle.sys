@@ -61,8 +61,9 @@ proc ParentHead(s: { repo: Repo, parent: string }): Res<string> {
 
 // Rebases an idea onto its parent's head, in its worktree: the commits it
 // has since its fork, replayed there. An idea with no worktree is left
-// alone. Fails, leaving the idea as it was, if its worktree has changes
-// that aren't committed; on a conflict, undoes the rebase and fails, or
+// alone, as is one whose commits are all in its parent already. Fails,
+// leaving the idea as it was, if its worktree has changes that aren't
+// committed; on a conflict, undoes the rebase and fails, or
 // with keep leaves it stopped there to resolve (`grove rebase --continue`).
 // Afterwards its fork is where it meets its parent. Gives what it did.
 proc RebaseIdea(s: { repo: Repo, idea: Idea, keep: bool }): Res<string> {
@@ -74,6 +75,20 @@ proc RebaseIdea(s: { repo: Repo, idea: Idea, keep: bool }): Res<string> {
 	ParentHead switch {
 		Ok(h) -> switch {
 			(h == RebaseIdea.s.idea.fork) -> id(Ok("up to date")),
+			else -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["rev-list", "--count", "HEAD", "^" + h]) as Ahead
+		},
+		Err(e) -> id(Err(e))
+	};
+	// An idea whose commits of its own are all in its parent already (merged
+	// some other way, such as git merge by hand) is left alone: rebasing it
+	// would replay them as new commits, off its parent again.
+	Ahead switch {
+		Ok(n) -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["rev-list", "--count", "HEAD", "^" + OrStr(a = RebaseIdea.s.idea.fork, d = UnwrapR2(r = ParentHead))]) as Own,
+		Err(e) -> id(Err(e))
+	};
+	Own switch {
+		Ok(n) -> switch {
+			(UnwrapR2(r = Ahead) == "0" && n != "0") -> id(Ok("already in its parent")),
 			else -> Grove.Git(dir = UnwrapR2(r = IdeaWorktree), args = ["status", "--porcelain"]) as Dirty
 		},
 		Err(e) -> id(Err(e))
@@ -201,6 +216,10 @@ proc MergeIdea(s: { repo: Repo, id: string }): Res<string> {
 	};
 	Based switch {
 		Ok(_) -> Grove.Git(dir = MergeIdea.s.repo.top, args = ["merge", "--ff-only", "--quiet", "refs/heads/idea/" + MergeIdea.s.id]) as Merge,
+		Err(_) -> Grove.Git(dir = MergeIdea.s.repo.top, args = ["merge-base", "--is-ancestor", UnwrapR2(r = Head), UnwrapR2(r = RootHead)]) as InRoot
+	};
+	InRoot switch {
+		Ok(_) -> id(Err(GroveErr(msg = NameOf(i = I) + " has nothing to merge: it's in the root already"))),
 		Err(_) -> id(Err(GroveErr(msg = NameOf(i = I) + " isn't built on the root's head: rebase it onto its parent first")))
 	};
 	Merge switch {

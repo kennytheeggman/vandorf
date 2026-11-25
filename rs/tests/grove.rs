@@ -495,8 +495,10 @@ fn merging_rebases_the_tree_and_agents_report() {
     assert_eq!(idea_in(port, "C"), ("active".into(), false, false, String::new(), String::new()));
     assert_eq!(idea_in(port, "D"), ("active".into(), true, false, "attention".into(), String::new()));
     assert_eq!(git(&wt(&d), &["status", "--porcelain"]), "");
+    // A came in with B, so it's merged and left where it was.
+    assert_eq!(idea_in(port, "A").0, "merged");
     let (_, again) = call(port, "POST", "/api/ideas/merge", &token, &format!(r#"{{"id": "{a}"}}"#));
-    assert!(again.contains("A has nothing to merge"), "{again}");
+    assert!(again.contains("A has nothing to merge: it's in the root already"), "{again}");
 
     // Agents report their status, and rebase their own idea.
     let envs = dir.join("env.txt");
@@ -553,4 +555,39 @@ fn merging_rebases_the_tree_and_agents_report() {
 
     drop(_server);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn merging_leaves_ideas_merged_by_hand_alone() {
+    let dir = repo_named("grove-handmerge-test");
+    let common = dir.join(".git");
+    let make = |name: &str, file: &str, text: &str| -> String {
+        let (ok, out) = grove(&dir, &[], &["branch", name, "--no-terminal"]);
+        assert!(ok, "{out}");
+        let id = out["branched idea ".len()..].split(' ').next().unwrap().to_string();
+        let wt = common.join("grove/worktrees").join(&id);
+        std::fs::write(wt.join(file), text).unwrap();
+        git(&wt, &["add", "."]);
+        git(&wt, &["commit", "-qm", name]);
+        id
+    };
+    // E is merged into the root with git, not grove, so its metadata still
+    // says active; then the root changes E's file further.
+    let e = make("E", "idea-e.txt", "e\n");
+    git(&dir, &["merge", "--ff-only", "-q", &format!("idea/{e}")]);
+    std::fs::write(dir.join("idea-e.txt"), "e, edited\n").unwrap();
+    git(&dir, &["commit", "-qam", "edit E"]);
+    let e_head = git(&dir, &["rev-parse", &format!("idea/{e}")]);
+    let f = make("F", "idea-f.txt", "f\n");
+    let (_server, port, token) = serve(&dir, &[]);
+    assert_eq!(idea_in(port, "E").0, "merged");
+
+    // Merging F restacks the tree, but E's commit is in the root already:
+    // replaying it would make a new commit off the root, and E an active
+    // idea again.
+    let (status, merged) = call(port, "POST", "/api/ideas/merge", &token, &format!(r#"{{"id": "{f}"}}"#));
+    assert_eq!(status, 200, "{merged}");
+    assert!(merged.contains("merged F into the root; every other idea is on it now"), "{merged}");
+    assert_eq!(git(&dir, &["rev-parse", &format!("idea/{e}")]), e_head);
+    assert_eq!(idea_in(port, "E").0, "merged");
 }
