@@ -18,9 +18,11 @@ body{ background:var(--app) }
 #sash{ width:4px; margin-left:-2px; margin-right:-2px; cursor:col-resize; z-index:2; flex:none }
 #sash:hover, #sash.drag{ background:var(--accent) }
 #side.hidden + #sash{ display:none }
-/* The tree is a map: the root in the middle, ideas on rings around it,
-   no labels (every node has a tooltip). Drag or scroll to pan, pinch or
-   Ctrl+scroll to zoom, double-click to come back to the root. */
+/* The tree is a map: the repository in the middle, a small hub dot, its
+   pins (the branches, tags and commits ideas come from) on the first ring,
+   and their ideas on the rings out, no labels (every node has a tooltip).
+   Drag or scroll to pan, pinch or Ctrl+scroll to zoom, double-click to see
+   the whole map. */
 #tree{ flex:1; position:relative; overflow:hidden; cursor:grab; touch-action:none; user-select:none }
 #tree.panning{ cursor:grabbing }
 #map{ position:absolute; inset:0; width:100%; height:100%; display:block }
@@ -38,8 +40,15 @@ body{ background:var(--app) }
 .n:hover .dot{ stroke:var(--ink) }
 .n.on .dot{ fill:var(--accent); stroke:var(--accent) }
 .n.on .halo{ opacity:.18 }
-.n.root .dot{ fill:var(--accent); stroke:var(--accent) }
-.n.root:hover .crown, .n.root.on .crown{ stroke:var(--accent); opacity:1; transform:scale(1.25) }
+/* The hub: the repository itself, no git source, a small dot in the
+   theme's ink that the pins lead out from. */
+.n.hub .dot{ fill:var(--ink); stroke:var(--ink) }
+.n.hub:hover .dot{ stroke:var(--ink) }
+/* A pin: the larger blue node with a ring; a tag's or a commit's ring is
+   dashed, as it stays where it is. */
+.n.pin .dot{ fill:var(--accent); stroke:var(--accent) }
+.n.pin.fixed .crown{ stroke-dasharray:2 2.5 }
+.n.pin:hover .crown, .n.pin.on .crown{ stroke:var(--accent); opacity:1; transform:scale(1.25) }
 .n.done .dot{ fill:var(--ok); stroke:var(--ok) }
 /* Done, and someone has shown it since: a quieter blue, so the done ideas
    no one has looked at yet stay green. */
@@ -137,8 +146,9 @@ body.dragging iframe{ pointer-events:none }
     <div class="bar">
       <span class="ttl" id="repoName">ideas</span>
       <span class="sp"></span>
+      <button class="icon" id="bPin" title="Pin a branch, tag or commit"><svg viewBox="0 0 16 16"><path d="M6 2.5h4M7 2.5v4L4.5 9h7L9 6.5v-4M8 9v4.5"/></svg></button>
       <button class="icon" id="bBranch" title="Branch a new idea from this one (Alt+Shift+N)"><svg viewBox="0 0 16 16"><circle cx="4.5" cy="3.5" r="1.6"/><circle cx="4.5" cy="12.5" r="1.6"/><circle cx="11.5" cy="6.5" r="1.6"/><path d="M4.5 5.1v5.8M11.5 8.1c0 2.4-4.2 1.6-6.4 3.1"/></svg></button>
-      <button class="icon" id="bHome" title="Back to the root (double-click the map)"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><circle cx="8" cy="8" r="5.5"/></svg></button>
+      <button class="icon" id="bHome" title="See the whole map (double-click it)"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><circle cx="8" cy="8" r="5.5"/></svg></button>
       <button class="icon" id="bGone" title="Show merged and discarded ideas"><svg viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/></svg></button>
       <button class="icon" id="bHide" title="Hide the tree (Alt+Shift+B)"><svg viewBox="0 0 16 16"><path d="M10 3.5L5.5 8l4.5 4.5"/></svg></button>
     </div>
@@ -223,9 +233,9 @@ function refresh(){
     views.slice().forEach(function(v){ if (!(v.id in byId)){ v.dirty = false; drop(v); } });
     $('repoName').textContent = repo.name;
     document.title = repo.name + ' · grove';
-    if (cur === null || !(cur in byId)){
+    if (cur === null || !(cur in byId) || (cur === '' && firstPin() !== '')){
       var want = decodeURIComponent((location.hash.match(/idea=([^&]*)/) || [])[1] || store('cur') || '');
-      show(want in byId ? want : '');
+      show(want in byId && want !== '' ? want : firstPin());
     } else {
       // A report arriving while the idea is being viewed is seen too.
       if (document.hasFocus() && document.visibilityState === 'visible') see(cur);
@@ -235,9 +245,10 @@ function refresh(){
   }).catch(function(e){ toast(String(e.message || e)); });
 }
 
-/* ---- The tree: a map of ideas, the root in the middle ----
-   Each idea sits on a ring by its depth, in a wedge as wide as the leaves
-   under it. The shown idea's history (the root, its ancestors, it) is
+/* ---- The tree: a map of ideas, the repository in the middle ----
+   The repository itself is a hub, no git source; its pins are on the first
+   ring, and each idea sits on a ring by its depth, in a wedge as wide as the
+   leaves under it. The shown idea's history (its pin, its ancestors, it) is
    straightened onto one bearing and the map turned so it points up. */
 var NS = 'http://www.w3.org/2000/svg';
 var RING = 62;                        // px between rings, at zoom 1
@@ -255,13 +266,23 @@ var map = svg('svg', { id: 'map' }), world = svg('g', {}), gEdges = svg('g', {})
 world.appendChild(gEdges); world.appendChild(gNodes); map.appendChild(world); $('tree').appendChild(map);
 
 function parentOf(i){ return i.parent === null ? null : (i.parent in byId ? i.parent : ''); }
+function isPin(i){ return !!i && i.kind !== 'idea' && i.kind !== 'hub'; }
+/* The pin shown first: the checked-out branch's, else the first; '' with
+   no pins. */
+function firstPin(){
+  var pins = ideas.filter(isPin);
+  var main = pins.filter(function(p){ return repo && p.worktree === repo.top; })[0];
+  return main ? main.id : pins.length ? pins[0].id : '';
+}
+/* What a pin or idea is in git: its branch, or the tag or commit it pins. */
+function gitOf(i){ return i.branch || (isPin(i) ? i.kind + ' ' + (i.kind === 'commit' ? i.ref.slice(0, 8) : i.ref) : 'detached'); }
 function kids(){
   var k = {};
   ideas.forEach(function(i){ var p = parentOf(i); if (p !== null) (k[p] = k[p] || []).push(i); });
   return k;
 }
-/* The ideas drawn: the root and active ones; merged and discarded ones
-   when asked for (or shown, or with a drawn idea under them). */
+/* The ideas drawn: the hub, the pins and active ideas; merged and discarded
+   ones when asked for (or shown, or with a drawn idea under them). */
 function treeOf(){
   var k = kids(), seen = {};
   function vis(i){ return i.status === 'active' || showGone || i.id === cur || (k[i.id] || []).some(vis); }
@@ -287,7 +308,8 @@ function place(t){
   if (f && cur !== '') for (var p = byId[cur]; p && p.id !== ''; p = byId[parentOf(p)]) if (out[p.id]) out[p.id].a = f.a;
   return out;
 }
-function onPath(id){ for (var p = byId[cur]; p; p = p.id === '' ? null : byId[parentOf(p)]) if (p.id === id) return true; return false; }
+/* Whether id is on the shown idea's history: it, its ancestors, its pin. */
+function onPath(id){ for (var p = byId[cur]; p && p.id !== ''; p = byId[parentOf(p)]) if (p.id === id) return true; return false; }
 function stateOf(i){
   if (i.status === 'merged') return 'merged';
   if (i.status === 'discarded') return 'gone';
@@ -298,14 +320,18 @@ function stateOf(i){
   return '';
 }
 function nodeEl(i){
-  var root = i.id === '';
+  var hub = i.kind === 'hub', pin = isPin(i);
   var g = svg('g', { class: 'n' });
-  g.appendChild(svg('circle', { class: 'halo', r: root ? 15 : 11 }));
-  if (root) g.appendChild(svg('circle', { class: 'crown', r: 11 }));
-  g.appendChild(svg('circle', { class: 'spin', r: 9 }));
-  g.appendChild(svg('circle', { class: 'dot', r: root ? 7 : 5 }));
-  g.appendChild(svg('circle', { class: 'hit', r: 14 }));
-  g.addEventListener('click', function(e){ e.stopPropagation(); if (!moved) show(g.idea); });
+  if (!hub){
+    g.appendChild(svg('circle', { class: 'halo', r: pin ? 15 : 11 }));
+    if (pin) g.appendChild(svg('circle', { class: 'crown', r: 11 }));
+    g.appendChild(svg('circle', { class: 'spin', r: 9 }));
+  }
+  g.appendChild(svg('circle', { class: 'dot', r: hub ? 3.5 : pin ? 7 : 5 }));
+  g.appendChild(svg('circle', { class: 'hit', r: hub ? 10 : 14 }));
+  /* The hub isn't shown, as it's no pin or idea: clicking it sees the whole
+     map. */
+  g.addEventListener('click', function(e){ e.stopPropagation(); if (moved) return; if (g.idea === '') home(); else show(g.idea); });
   g.addEventListener('dblclick', function(e){ e.stopPropagation(); });
   g.addEventListener('contextmenu', function(e){ e.preventDefault(); e.stopPropagation(); menu(e.clientX, e.clientY, byId[g.idea]); });
   g.addEventListener('pointerenter', function(e){ tip(e, byId[g.idea]); });
@@ -331,8 +357,9 @@ function drawTree(){
     }
     x.g.idea = id;
     var st = stateOf(i);
-    x.g.setAttribute('class', 'n' + (id === '' ? ' root' : '') + (id === cur ? ' on' : '') + (st ? ' ' + st : ''));
-    if (x.e) x.e.setAttribute('class', 'e' + (onPath(id) && cur !== '' ? ' path' : '') + (i.behind ? ' behind' : '') + (st === 'gone' || st === 'merged' ? ' gone' : ''));
+    x.g.setAttribute('class', 'n' + (i.kind === 'hub' ? ' hub' : isPin(i) ? ' pin' + (i.kind === 'branch' ? '' : ' fixed') : '') + (id === cur ? ' on' : '') + (st ? ' ' + st : ''));
+    /* The history is drawn from the pin: the edges into ideas on it. */
+    if (x.e) x.e.setAttribute('class', 'e' + (onPath(id) && i.kind === 'idea' ? ' path' : '') + (i.behind ? ' behind' : '') + (st === 'gone' || st === 'merged' ? ' gone' : ''));
     x.parent = parentOf(i);
   });
   if (hovered !== null){
@@ -349,11 +376,12 @@ function drawTree(){
   move(to, rot1, cam1);
 }
 /* A camera that fits the whole map, or if that would make it too small,
-   the shown idea's history from the root. */
+   the shown idea's history from its pin (a shown pin's ideas). */
 function frameFor(to, rot1){
   var all = fit(to, rot1, Object.keys(to));
   if (all.k >= .7 || cur === '') return all;
-  var path = Object.keys(to).filter(function(id){ return onPath(id); });
+  var pin = isPin(byId[cur]);
+  var path = Object.keys(to).filter(function(id){ return onPath(id) || (pin && byId[id] && byId[id].pin === cur); });
   return fit(to, rot1, path);
 }
 function fit(to, rot1, ids){
@@ -444,28 +472,30 @@ function tip(e, i){
   hovered = i.id;
   var t = $('tip'); t.innerHTML = '';
   var name = el('div', 't-name');
-  if (i.id === ''){ var pill = el('span', 'pill', 'HEAD'); pill.title = ''; name.appendChild(pill); }
+  if (isPin(i) && repo && i.worktree === repo.top){ var pill = el('span', 'pill', 'HEAD'); pill.title = ''; name.appendChild(pill); }
   name.appendChild(el('span', '', i.name));
   t.appendChild(name);
-  var st = stateOf(i), parent = byId[parentOf(i)];
+  var st = stateOf(i), parent = byId[parentOf(i)], pin = byId[i.pin];
   var what = {
-    merged: 'Merged into the root',
+    merged: 'Merged into ' + (pin ? pin.name : 'its pin'),
     gone: 'Discarded',
     att: i.rebasing ? 'Rebase stopped on a conflict' : i.rebaseFailure ? 'Rebase failed' : 'Needs attention',
     working: 'Working',
     done: 'Done',
     seen: i.agent && i.agent.state === 'attention' ? 'Attention (seen)' : 'Done (seen)'
-  }[st] || (i.id === '' ? 'The checked-out branch: ideas merge here' : i.behind ? 'Behind ' + (parent ? parent.name : 'its parent') + ': rebase it' : 'Idle');
+  }[st] || (i.kind === 'hub' ? 'The repository: its pins lead out from here' :
+    isPin(i) ? (!i.head ? 'Its ' + i.kind + ' ' + i.ref + ' is gone: unpin it' : i.kind === 'branch' ? 'Pinned branch: its ideas merge here' : 'Pinned ' + i.kind + ': it stays where it is') :
+    i.behind ? 'Behind ' + (parent ? parent.name : 'its parent') + ': rebase it' : 'Idle');
   var line = el('div', 't-state ' + st); line.appendChild(el('i')); line.appendChild(el('span', '', what)); t.appendChild(line);
   var msg = i.rebaseFailure || attention[i.id] || (i.agent && i.agent.message) || '';
   if (msg) t.appendChild(el('div', 't-msg', msg));
-  if (i.id === ''){
-    var merged = ideas.filter(function(x){ return x.status === 'merged'; });
+  if (isPin(i)){
+    var merged = ideas.filter(function(x){ return x.kind === 'idea' && x.pin === i.id && x.status === 'merged'; });
     if (merged.length) t.appendChild(el('div', 't-msg', 'Merged: ' + merged.slice(0, 5).map(function(x){ return x.name; }).join(', ') + (merged.length > 5 ? ' and ' + (merged.length - 5) + ' more' : '')));
   } else if (st !== 'merged' && st !== 'gone' && i.behind){
     t.appendChild(el('div', 't-msg', 'Not on ' + (parent ? parent.name : 'its parent') + "'s latest commit."));
   }
-  t.appendChild(el('div', 't-git', (i.branch || 'detached') + (i.head ? ' · ' + i.head.slice(0, 8) : '')));
+  if (i.kind !== 'hub') t.appendChild(el('div', 't-git', gitOf(i) + (i.head ? ' · ' + i.head.slice(0, 8) : '')));
   t.style.display = 'block'; moveTip(e);
   requestAnimationFrame(function(){ t.classList.add('on'); });
 }
@@ -482,17 +512,36 @@ function drawFoot(){
   $('title').textContent = i ? i.name : ''; $('title').title = i ? i.name : '';
   if (!i) return;
   f.appendChild(el('b', '', i.name));
-  var c = el('code', '', (i.branch || 'detached') + (i.head ? ' @ ' + i.head.slice(0, 8) : ''));
+  var c = el('code', '', i.kind === 'hub' ? 'no pins' : gitOf(i) + (i.head ? ' @ ' + i.head.slice(0, 8) : ''));
   f.appendChild(c);
 }
-/* Shown ideas in the tree's order, for moving up and down. */
+/* Shown pins and ideas in the tree's order, for moving up and down. */
 function order(){
   var t = treeOf(), out = [];
-  if (t) (function walk(n){ out.push(n.i.id); n.kids.forEach(walk); })(t);
+  if (t) (function walk(n){ if (n.i.id !== '') out.push(n.i.id); n.kids.forEach(walk); })(t);
   return out;
 }
 
 /* ---- Actions ---- */
+function pinRef(){
+  var ref = prompt('Pin a branch, tag or commit (its name, or anything git finds a commit by):', '');
+  if (ref === null || !ref.trim()) return;
+  api('/api/pins/pin', { ref: ref.trim() }).then(function(j){
+    return refresh().then(function(){ show(j.id); });
+  }).catch(function(e){ toast(e.message); });
+}
+async function unpin(p){
+  var gone = under(p.id);
+  var detail = (gone.length ? 'Discard ' + ideaNames(gone) + ', removing their worktrees and stopping their sessions; their branches are kept for restoring later. ' : '') +
+    'Stop the sessions on “' + p.name + '” and remove its worktree if grove made it. The ' + p.kind + ' ' + p.ref + ' itself stays in git.';
+  if (!await ask(gone.length ? 'Unpin “' + p.name + '” and discard its ideas?' : 'Unpin “' + p.name + '”?', detail, 'Unpin', true)) return;
+  api('/api/pins/unpin', { id: p.id }).then(function(){
+    [p].concat(gone).forEach(function(x){ var v = viewOf(x.id); if (v){ v.dirty = false; drop(v); } });
+    if (cur === p.id || gone.some(function(x){ return x.id === cur; })) cur = null;
+    toast('Unpinned ' + p.name + (gone.length ? ', discarding ' + ideaNames(gone) : ''), 'discard');
+    return refresh();
+  }).catch(function(e){ toast(e.message); });
+}
 function branch(from){
   var name = prompt('Name for the new idea (optional):', '');
   if (name === null) return;
@@ -501,7 +550,7 @@ function branch(from){
   }).catch(function(e){ toast(e.message); });
 }
 function rename(i){
-  var name = prompt('Rename the idea:', i.name);
+  var name = prompt(isPin(i) ? 'Rename the pin:' : 'Rename the idea:', i.name);
   if (name === null || !name.trim()) return;
   api('/api/ideas/rename', { id: i.id, name: name.trim() }).then(refresh).catch(function(e){ toast(e.message); });
 }
@@ -512,8 +561,8 @@ function under(id){
   return out;
 }
 /* Whether an idea and its ancestors are each on their parent's latest
-   commit, so it's on the root's head and can merge. */
-function based(i){ for (var p = i; p && p.id !== ''; p = byId[parentOf(p)]) if (p.behind) return false; return true; }
+   commit, so it's on its pin's head and can merge. */
+function based(i){ for (var p = i; p && p.kind === 'idea'; p = byId[parentOf(p)]) if (p.behind) return false; return true; }
 function ideaNames(xs){ return xs.map(function(x){ return '“' + x.name + '”'; }).join(', '); }
 async function discard(i){
   var gone = [i].concat(under(i.id)), names = ideaNames(gone);
@@ -522,21 +571,21 @@ async function discard(i){
       'Discard', true)) return;
   api('/api/ideas/discard', { id: i.id }).then(function(){
     gone.forEach(function(x){ var v = viewOf(x.id); if (v){ v.dirty = false; drop(v); } });
-    if (gone.some(function(x){ return x.id === cur; })) show(parentOf(i) || '');
+    if (gone.some(function(x){ return x.id === cur; })) show(parentOf(i) || firstPin());
     toast('Discarded ' + names, 'discard');
     return refresh();
   }).catch(function(e){ toast(e.message); });
 }
 async function merge(i){
-  var root = byId[''], children = kids()[i.id] || [];
-  var detail = (root.branch || 'The root') + ' will move forward to “' + i.name +
+  var pin = byId[i.pin] || { name: 'its pin', branch: '' }, children = kids()[i.id] || [];
+  var detail = (pin.branch || pin.name) + ' will move forward to “' + i.name +
     '”, closing its worktree and stopping its sessions. ';
-  if (children.length) detail += 'Move ' + ideaNames(children) + ' under the root. ';
-  detail += 'Rebase the other active ideas onto the updated tree.';
-  if (!await ask('Merge into the root?', detail, 'Merge', true)) return;
+  if (children.length) detail += 'Move ' + ideaNames(children) + ' under ' + pin.name + '. ';
+  detail += 'Rebase the other active ideas on ' + pin.name + ' onto it.';
+  if (!await ask('Merge into ' + pin.name + '?', detail, 'Merge', true)) return;
   api('/api/ideas/merge', { id: i.id }).then(function(j){
     var v = viewOf(i.id); if (v){ v.dirty = false; drop(v); }
-    if (cur === i.id) show('');
+    if (cur === i.id) show(i.pin in byId ? i.pin : firstPin());
     toast(j.summary, 'merge');
     return refresh();
   }).catch(function(e){ toast(e.message); });
@@ -546,7 +595,7 @@ async function deleteIdea(i){
       'Remove ' + i.branch + ', its metadata, and any remaining worktree and sessions. This cannot be undone.',
       'Delete permanently', true)) return;
   api('/api/ideas/delete', { id: i.id }).then(function(){
-    if (cur === i.id) show(parentOf(i) || '');
+    if (cur === i.id) show(parentOf(i) || firstPin());
     return refresh();
   }).catch(function(e){ toast(e.message); });
 }
@@ -565,24 +614,35 @@ function menu(x, y, i){
   hideTip();
   var m = $('menu'); m.innerHTML = '';
   function add(label, f, cls){ var d = el('div', cls || '', label); if (f) d.onclick = function(){ hideMenu(); f(); }; m.appendChild(d); }
-  var active = i.status === 'active' || i.id === '';
-  if (active) add('Branch from here', function(){ branch(i.id); });
+  /* The hub is no git source: it only pins one. */
+  if (i.kind === 'hub'){ add('Pin a branch, tag or commit…', pinRef); pop(); return; }
+  if (i.status === 'active' && (i.kind === 'idea' || i.head)) add('Branch from here', function(){ branch(i.id); });
   add('Rename…', function(){ rename(i); });
-  if (i.id !== '' && i.status === 'active'){
+  if (isPin(i)){
+    m.appendChild(el('hr'));
+    add('Unpin' + (under(i.id).length ? ' and discard its ideas' : '') + '…', function(){ unpin(i); }, 'bad');
+    pop(); return;
+  }
+  if (i.status === 'active'){
+    var pin = byId[i.pin] || { name: 'its pin', kind: '' };
     m.appendChild(el('hr'));
     if (i.behind && !i.rebasing) add('Rebase onto ' + (byId[parentOf(i)] || {}).name, function(){ rebase(i); });
-    if (based(i)) add('Merge into the root…', function(){ merge(i); });
-    else add('Merge into the root (rebase first)', null, 'off');
+    if (isPin(pin) && pin.kind !== 'branch') add('Merge (a ' + pin.kind + ' has no branch to merge into)', null, 'off');
+    else if (based(i)) add('Merge into ' + pin.name + '…', function(){ merge(i); });
+    else add('Merge into ' + pin.name + ' (rebase first)', null, 'off');
   }
-  if (i.id !== '' && i.worktree){ m.appendChild(el('hr')); add('Discard' + (under(i.id).length ? ' with the ideas under it' : '') + '…', function(){ discard(i); }, 'bad'); }
+  if (i.worktree){ m.appendChild(el('hr')); add('Discard' + (under(i.id).length ? ' with the ideas under it' : '') + '…', function(){ discard(i); }, 'bad'); }
   if (i.status === 'discarded') add('Restore', function(){ restore(i); });
   if (i.status === 'discarded' || i.status === 'merged'){
     if ((kids()[i.id] || []).length) add('Delete child ideas first', null, 'off');
     else add('Delete permanently…', function(){ deleteIdea(i); }, 'bad');
   }
-  m.style.display = 'block';
-  m.style.left = Math.min(x, innerWidth - m.offsetWidth - 4) + 'px';
-  m.style.top = Math.min(y, innerHeight - m.offsetHeight - 4) + 'px';
+  pop();
+  function pop(){
+    m.style.display = 'block';
+    m.style.left = Math.min(x, innerWidth - m.offsetWidth - 4) + 'px';
+    m.style.top = Math.min(y, innerHeight - m.offsetHeight - 4) + 'px';
+  }
 }
 function hideMenu(){ $('menu').style.display = 'none'; }
 document.addEventListener('mousedown', function(e){ if (!$('menu').contains(e.target)) hideMenu(); });
@@ -627,9 +687,16 @@ function makeView(id){
   var v = { id: id, el: el('div', 'idea'), secs: [], picker: el('div', 'picker') };
   $('views').appendChild(v.el);
   views.push(v);
-  if (!i || (i.id !== '' && !i.worktree)){
-    var merged = i && i.status === 'merged';
-    var b = el('div', 'blank', !i ? 'No such idea.' : merged ? 'This idea is merged into the root. Its branch ' + i.branch + ' is kept.' : 'This idea is discarded: its worktree was removed, its branch ' + i.branch + ' kept.');
+  if (i && i.kind === 'hub'){
+    /* Nothing pinned: nothing to branch ideas from yet. */
+    var h = el('div', 'blank', 'Nothing is pinned. Pin a branch, a tag or a commit to branch ideas from.');
+    var pb = el('button', 'outline', 'Pin…'); pb.onclick = pinRef; h.appendChild(el('br')); h.appendChild(pb);
+    v.el.appendChild(h); v.gone = true;
+    return v;
+  }
+  if (!i || (i.kind === 'idea' && !i.worktree)){
+    var merged = i && i.status === 'merged', into = i && byId[i.pin];
+    var b = el('div', 'blank', !i ? 'No such idea.' : merged ? 'This idea is merged into ' + (into ? into.name : 'its pin') + '. Its branch ' + i.branch + ' is kept.' : 'This idea is discarded: its worktree was removed, its branch ' + i.branch + ' kept.');
     if (i && !merged){ var r = el('button', 'outline', 'Restore it'); r.onclick = function(){ restore(i); }; b.appendChild(el('br')); b.appendChild(r); }
     v.el.appendChild(b); v.gone = true;
     return v;
@@ -839,7 +906,7 @@ function key(e){
   if (!(e.altKey || e.alt) || !(e.shiftKey || e.shift) || e.ctrlKey || e.ctrl || e.metaKey || e.meta) return false;
   var code = e.code || '';
   if (code === 'KeyB'){ toggleSide(); return true; }
-  if (code === 'KeyN'){ if (byId[cur] && byId[cur].status !== 'discarded') branch(cur); return true; }
+  if (code === 'KeyN'){ if (byId[cur] && byId[cur].kind !== 'hub' && byId[cur].status !== 'discarded') branch(cur); return true; }
   if (code === 'ArrowUp' || code === 'ArrowDown'){
     var o = order(), n = o.indexOf(cur) + (code === 'ArrowUp' ? -1 : 1);
     if (n >= 0 && n < o.length) show(o[n]);
@@ -863,7 +930,8 @@ $('sash').addEventListener('mousedown', function(e){
   var up = function(){ $('sash').classList.remove('drag'); document.body.classList.remove('dragging'); removeEventListener('mousemove', move); removeEventListener('mouseup', up); };
   addEventListener('mousemove', move); addEventListener('mouseup', up);
 });
-$('bBranch').onclick = function(){ if (byId[cur] && byId[cur].status !== 'discarded') branch(cur); };
+$('bBranch').onclick = function(){ if (byId[cur] && byId[cur].kind !== 'hub' && byId[cur].status !== 'discarded') branch(cur); };
+$('bPin').onclick = pinRef;
 $('bGone').onclick = function(){ showGone = !showGone; store('gone', showGone ? '1' : '0'); drawTree(); };
 $('bHome').onclick = home;
 
@@ -877,7 +945,7 @@ function watch(v){
     if (v < 0 || j.v === v) return watch(j.v);
     var had = byId;
     refresh().then(function(){
-      if ('' in had) ideas.forEach(function(i){ if (!(i.id in had)) toast('New idea: ' + i.name + (byId[i.parent] ? ', from ' + byId[i.parent].name : ''), 'info'); });
+      if ('' in had) ideas.forEach(function(i){ if (!(i.id in had)) toast((isPin(i) ? 'New pin: ' : 'New idea: ') + i.name + (i.kind === 'idea' && byId[i.parent] ? ', from ' + byId[i.parent].name : ''), 'info'); });
     });
     watch(j.v);
   }).catch(function(){ setTimeout(function(){ watch(-1); }, 5000); });

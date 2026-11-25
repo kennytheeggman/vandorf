@@ -444,8 +444,7 @@ proc PinRoute(req: HttpRequest): HttpResponse {
 		Stop(r) -> id(r),
 		Go(w) -> PinRef(s = { repo = w.repo, ref = StrOr(j = w.j, key = "ref", d = "") })
 	};
-	PinRef -> Grove.Changed(n = 0);
-	Grove.Changed -> id(Answer(r = PinRef, key = "id"));
+	PinRef -> id(Answer(r = this, key = "id"));
 }
 
 // Serves POST /api/pins/unpin {id}: unpins the pin, discarding the ideas on
