@@ -4,11 +4,13 @@
 // interior): a terminal, an editor, anything a manifest can start. Served as
 // [http.grove] in vandorf.toml: each path is a raw route to its own proc.
 //
-// The root of the tree is the repository's main worktree, id "". grove keeps
-// its metadata in the common git directory (`git rev-parse
-// --git-common-dir`), under grove/: an idea's in ideas/<id>.toml, the root's
-// in root.toml, and ideas' worktrees in worktrees/<id>. Nothing is committed
-// or pushed. Writes, terminals and the session token are the IDE's (ide.sys):
+// The middle of the tree is the repository itself, id "": a hub, no git
+// source. Around it are the pins (pins.sys), the branches, tags and commits
+// ideas are branched from, and around them the ideas. grove keeps its
+// metadata in the common git directory (`git rev-parse --git-common-dir`),
+// under grove/: an idea's in ideas/<id>.toml, a pin's in pins/<file>.toml,
+// and the worktrees grove makes in worktrees/. Nothing is committed or
+// pushed. Writes, terminals and the session token are the IDE's (ide.sys):
 // WriteGate, TermGate and Session.Token.
 
 // The repository grove serves: its main worktree and its common git
@@ -19,9 +21,10 @@ type Repo = { top: string, common: string };
 // expanded, and for a terminal its id while it runs (0 for none).
 type Section = { interior: string, expanded: bool, term: int };
 
-// An idea's metadata, as stored. parent: the idea it was branched from, ""
-// for the repository itself. fork: the commit it was branched at. status:
-// active or discarded. sections: its interiors, in order.
+// An idea's metadata, as stored. parent: the idea or the pin it was
+// branched from ("" from before pins, for the root). fork: the commit it was
+// branched at. status: active, discarded or merged. sections: its
+// interiors, in order.
 type Idea = { id: string, name: string, parent: string, fork: string, status: string, sections: []Section };
 
 interface Grove {
@@ -41,9 +44,13 @@ interface Grove {
 	// renamed into place, holding grove's lock (grove/lock in the common git
 	// directory) while it does.
 	func Store(common: string, path: string, text: string): Res<string> = "grove_io.rs:store";
-	// Deletes a discarded or merged leaf. Keep its metadata until after Git succeeds so
-	// a failed cleanup can be retried, and let Git protect uncommitted changes.
-	func Delete(repo: Repo, id: string): Res<string> = "grove_io.rs:delete";
+	// Removes the file at path if there's one, holding grove's lock while it
+	// does.
+	func Remove(common: string, path: string): Res<string> = "grove_io.rs:remove";
+	// Deletes a discarded or merged leaf, merged meaning in base, its pin's
+	// head ("" for none). Keep its metadata until after Git succeeds so a
+	// failed cleanup can be retried, and let Git protect uncommitted changes.
+	func Delete(repo: Repo, id: string, base: string): Res<string> = "grove_io.rs:delete";
 	// Makes the agents' token, once per run: what grove's terminals and
 	// interiors get as $GROVE_TOKEN. It's a token of its own, not the
 	// session's, and only the agent routes take it (AgentGate).
@@ -104,8 +111,9 @@ func WorktreeOf(porcelain: string, id: string): string = "grove_leaf.rs:worktree
 func ParseIdea(text: string, id: string): Res<Idea> = "grove_leaf.rs:parse_idea";
 // Writes an idea's metadata as TOML.
 func IdeaToml(i: Idea): string = "grove_leaf.rs:idea_toml";
-// The metadata of an idea that has none stored: named after its id, branched
-// from the root, active, with no sections.
+// The metadata of an idea that has none stored: named after its id, with no
+// parent (so it hangs from the pin it forks from), active, with no
+// sections.
 func NewIdea(id: string): Idea = "grove_leaf.rs:new_idea";
 // The ids of the ideas: those with metadata (file names <id>.toml) and those
 // with a branch (lines "refs/heads/idea/<id> <commit>" from `git
@@ -133,15 +141,22 @@ proc GrovePageRoute(req: HttpRequest): HttpResponse {
 	Pages.Get -> id(PageResponse(text = this, token = Session.Token));
 }
 
-// Gives the worktree an idea lives in: the repository's main worktree for
-// the root (""), else the one with its branch checked out; an error if it
-// has none (it's discarded, or its worktree was removed outside grove).
+// Gives the worktree an idea lives in: the one with its branch checked out,
+// or an error if it has none (it's discarded, or its worktree was removed
+// outside grove). A pin's is its own (PinWorktree, which makes grove's if
+// it has none), and the repository itself ("") has its main worktree.
 proc IdeaWorktree(s: { repo: Repo, id: string }): Res<string> {
 	IdeaWorktree switch {
 		(this.s.id == "") -> id(Ok(this.s.repo.top)),
+		(IsPinId(id = this.s.id)) -> LoadPin(s = this.s),
 		(!ValidId(id = this.s.id)) -> id(Err(GroveErr(msg = "invalid idea id: " + this.s.id))),
 		else -> Grove.Git(dir = this.s.repo.top, args = ["worktree", "list", "--porcelain"])
 	};
+	LoadPin switch {
+		Ok(p) -> PinWorktree(s = { repo = IdeaWorktree.s.repo, pin = p }),
+		Err(e) -> id(Err(e))
+	};
+	PinWorktree -> id(this);
 	Grove.Git switch {
 		Ok(out) -> switch {
 			(WorktreeOf(porcelain = out, id = IdeaWorktree.s.id) == "") -> id(Err(GroveErr(msg = "idea " + IdeaWorktree.s.id + " has no worktree"))),

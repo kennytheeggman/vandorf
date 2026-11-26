@@ -1,0 +1,460 @@
+// grove's pins (#35): the git sources, on the map's first ring around the
+// repository itself (ring 0, a hub that's no git source). A pin names a
+// branch, which it follows, or a tag or a commit, which stay where they are;
+// each pin's ideas hang from it on the rings out. A pin keeps its name and
+// sections in grove/pins/<file>.toml in the common git directory, as an idea
+// does, and has a worktree for its interiors and terminals: the one its
+// branch is checked out in (the repository's own, for the checked-out
+// branch), or else grove's, grove/worktrees/<file>, detached for a tag or a
+// commit.
+//   POST /api/pins/pin {ref}     pins a branch, a tag or a commit, its id
+//   POST /api/pins/unpin {id}    unpins a pin, discarding the ideas on it
+//
+// A pin's id is its kind and ref, kind@ref: branch@main, tag@v1.0,
+// commit@<sha>. An idea's id can't have an @, so the two never meet. The
+// first time grove reads a repository's pins (there's no grove/pins yet), it
+// pins the checked-out branch, with the root's name and sections from
+// grove/root.toml if there's one, and hangs from it the ideas that hung from
+// the root: a repository from before pins looks the same, one ring out.
+
+// A pin, as stored. kind: branch, tag or commit. ref: the branch's or the
+// tag's name, or the commit. name and sections: as an idea's.
+type Pin = { id: string, kind: string, ref: string, name: string, sections: []Section };
+
+// The pins and ideas, as grove reads them: each pin's head by id ("" for one
+// whose branch or tag is gone), each idea with metadata or a branch, its
+// parent resolved (LoadForest), the idea branches (lines "refs/heads/idea/<id>
+// <commit>" of `git for-each-ref`), and main, the pin of the branch checked
+// out in the repository's own worktree ("" if it isn't pinned).
+type Forest = { pins: []Pin, heads: map[string]string, ideas: []Idea, branches: string, main: string };
+
+// A ref given to pin, read: kind is branch for refs/heads/<name>, tag for
+// refs/tags/<name>, else "" for a name to look for.
+type PinWant = { kind: string, name: string };
+
+// Whether id is a pin's: branch@, tag@ or commit@ and a ref.
+func IsPinId(id: string): bool = "grove_leaf.rs:is_pin_id";
+// The path of a pin's metadata: grove/pins/<file>.toml in the common git
+// directory, file being its id with what isn't a letter, a digit, '.', '_',
+// '-' or '@' percent-encoded.
+func PinPath(common: string, id: string): string = "grove_leaf.rs:pin_path";
+// The path grove gives a pin's worktree when it makes one:
+// grove/worktrees/<file> in the common git directory, file as for PinPath.
+func PinWorktreePath(common: string, id: string): string = "grove_leaf.rs:pin_worktree_path";
+// Reads a pin's metadata (file names it in errors), filling what's missing
+// (a name is its ref's, as NewPin gives); its id is its kind's and ref's.
+func ParsePin(text: string, file: string): Res<Pin> = "grove_leaf.rs:parse_pin";
+// Writes a pin's metadata as TOML.
+func PinToml(p: Pin): string = "grove_leaf.rs:pin_toml";
+// A new pin of a kind and a ref: named after its ref (a commit after its
+// first eight digits), with no sections.
+func NewPin(kind: string, name: string): Pin = "grove_leaf.rs:new_pin";
+// The revision of a pin's head, for git rev-parse: refs/heads/<ref>^{commit}
+// for a branch, refs/tags/<ref>^{commit} for a tag, <ref>^{commit} for a
+// commit.
+func PinRev(p: Pin): string = "grove_leaf.rs:pin_rev";
+// Finds a pin's worktree in the output of `git worktree list --porcelain`:
+// for a branch, the one it's checked out in; for a tag or a commit, grove's
+// (as PinWorktreePath makes it); "" if there's none.
+func PinWorktreeOf(porcelain: string, p: Pin): string = "grove_leaf.rs:pin_worktree_of";
+// The pin whose worktree (PinWorktreeOf) is top, in the output of `git
+// worktree list --porcelain`; "" if none's is.
+func PinAt(porcelain: string, pins: []Pin, top: string): string = "grove_leaf.rs:pin_at";
+// A pin as an idea, for what pins and ideas share: its id, name and
+// sections, with no parent or fork, active.
+func PinAsIdea(p: Pin): Idea = "grove_leaf.rs:pin_as_idea";
+// The pin the branch checked out in the repository's own worktree has, from
+// `git symbolic-ref --quiet HEAD` there (refs/heads/<branch>, or "" when
+// it's detached); "" if it isn't pinned.
+func MainPin(pins: []Pin, head: string): string = "grove_leaf.rs:main_pin";
+// The ideas whose parent is neither one of the pins nor an idea with a
+// branch (in lines of `git for-each-ref`, as IdsOf reads them), or is the
+// idea itself: made by hand, from before pins, or whose parent is gone.
+func Orphans(ideas: []Idea, pins: []Pin, branches: string): []Idea = "grove_leaf.rs:orphans";
+// The head of an idea's branch, from lines of `git for-each-ref` as IdsOf
+// reads them; "" if it has none.
+func BranchHead(branches: string, id: string): string = "grove_leaf.rs:branch_head";
+// The pin an idea forks from, given for each pin how many of the idea's
+// commits it hasn't (dists, -1 for a pin it can't be compared with): the one
+// that has the most of them; if that's unclear, main if it's among the
+// tied (or none can be compared), else the first of the tie, or of the
+// pins; "" with no pins.
+func Nearest(pins: []Pin, dists: []int, main: string): string = "grove_leaf.rs:nearest";
+// The ideas of xs, each whose id is in parents with that parent instead.
+func Adopted(xs: []Idea, parents: map[string]string): []Idea = "grove_leaf.rs:adopted";
+// The pin at the top of an idea's line in xs: its parent, its parent's
+// parent, and so on up to a pin (id itself, if it's one); "" if there's none.
+func PinOf(xs: []Idea, id: string): string = "grove_leaf.rs:pin_of";
+// The pin of pins with this id; an error if there's none.
+func FindPin(pins: []Pin, id: string): Res<Pin> = "grove_leaf.rs:find_pin";
+// The idea of xs with this id; an error if there's none.
+func FindIdea(xs: []Idea, id: string): Res<Idea> = "grove_leaf.rs:find_idea";
+// Every idea under id (a pin or an idea) in xs, children before their
+// parents.
+func Beneath(xs: []Idea, id: string): []Idea = "grove_leaf.rs:beneath";
+// The head of the pin id in heads, or "" if it has none.
+func HeadOf(heads: map[string]string, id: string): string = "grove_leaf.rs:head_of";
+// The number git printed, or -1 if it failed.
+func CountOf(r: Res<string>): int = "grove_leaf.rs:count_of";
+// Whether a file name is a metadata file's: it ends in .toml.
+func IsToml(name: string): bool = "grove_leaf.rs:is_toml";
+// A ref given to pin, read (PinWant).
+func RefKind(name: string): PinWant = "grove_leaf.rs:ref_kind";
+// The pin named on the command line: a pin's id, or the branch, tag or
+// commit it pins (a commit by its first four or more digits); "" if no pin
+// is.
+func PinNamed(pins: []Pin, name: string): string = "grove_leaf.rs:pin_named";
+// The names of the ideas of xs that are active: that have a worktree
+// (WorktreeOf) in the output of `git worktree list --porcelain`.
+func ActiveNames(xs: []Idea, porcelain: string): []string = "grove_leaf.rs:active_names";
+func UnwrapPins(r: Res<[]Pin>): []Pin = "grove_leaf.rs:unwrap_pins";
+func UnwrapPin(r: Res<Pin>): Pin = "grove_leaf.rs:unwrap_pin";
+func UnwrapForest(r: Res<Forest>): Forest = "grove_leaf.rs:unwrap_forest";
+
+// Loads the pins, in their files' order. The first time (there's no
+// grove/pins yet), pins the checked-out branch first (Migrate).
+proc LoadPins(repo: Repo): Res<[]Pin> {
+	LoadPins -> Fs.IsDir(path = JoinP(a = this.repo.common, b = "grove/pins"));
+	Fs.IsDir switch {
+		(this) -> Grove.List(dir = JoinP(a = LoadPins.repo.common, b = "grove/pins")),
+		else -> Migrate(repo = LoadPins.repo)
+	};
+	Migrate switch {
+		Ok(_) -> Grove.List(dir = JoinP(a = LoadPins.repo.common, b = "grove/pins")),
+		Err(e) -> id(Err(e))
+	};
+	Grove.List -> ReadPins(s = { repo = LoadPins.repo, files = this, i = 0, acc = [] });
+}
+
+// Reads each pin's metadata (the files that end in .toml) in turn.
+proc ReadPins(s: { repo: Repo, files: []string, i: int, acc: []Pin }): Res<[]Pin> {
+	ReadPins switch {
+		(this.s.i == this.s.files.len) -> id(Ok(this.s.acc)),
+		(!IsToml(name = this.s.files[this.s.i])) -> ReadPins(s = { ..this.s, i = this.s.i + 1 }) as Skip,
+		else -> Files.Read(path = JoinP(a = JoinP(a = this.s.repo.common, b = "grove/pins"), b = this.s.files[this.s.i]))
+	};
+	Files.Read switch {
+		Ok(text) -> id(ParsePin(text = text, file = ReadPins.s.files[ReadPins.s.i])) as Parsed,
+		Err(e) -> id(Err(GroveErr(msg = "cannot read pin " + ReadPins.s.files[ReadPins.s.i] + ": " + e.msg)))
+	};
+	Parsed switch {
+		Ok(p) -> ReadPins(s = { ..ReadPins.s, i = ReadPins.s.i + 1, acc = ReadPins.s.acc + [p] }),
+		Err(e) -> id(Err(e))
+	};
+}
+
+// Pins the branch checked out in the repository's own worktree (or, with a
+// detached HEAD, its commit), the first time grove reads the pins: with the
+// root's name and sections from grove/root.toml if there's one, and with
+// every idea that hung from the root (parent "") hanging from it. Gives its
+// id, or "" with nothing to pin.
+proc Migrate(repo: Repo): Res<string> {
+	Migrate -> Grove.Git(dir = this.repo.top, args = ["symbolic-ref", "--quiet", "--short", "HEAD"]) as Branch;
+	Branch switch {
+		Ok(b) -> id(NewPin(kind = "branch", name = b)) as P,
+		Err(_) -> Grove.Git(dir = Migrate.repo.top, args = ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]) as Commit
+	};
+	Commit switch {
+		Ok(c) -> id(NewPin(kind = "commit", name = c)) as P,
+		Err(_) -> id(Ok(""))
+	};
+	P -> LoadIdea(s = { repo = Migrate.repo, id = "" });
+	LoadIdea switch {
+		Ok(root) -> SavePin(s = { repo = Migrate.repo, pin = { ..P, name = OrStr(a = root.name, d = P.name), sections = root.sections } }),
+		Err(e) -> id(Err(e))
+	};
+	SavePin switch {
+		Ok(_) -> Grove.List(dir = JoinP(a = Migrate.repo.common, b = "grove/ideas")),
+		Err(e) -> id(Err(e))
+	};
+	Grove.List -> LoadIdeas(s = { repo = Migrate.repo, ids = IdsOf(files = this, branches = ""), i = 0, acc = [] });
+	LoadIdeas switch {
+		Ok(xs) -> Reparent(s = { repo = Migrate.repo, xs = ChildrenOf(xs = xs, id = ""), to = P.id, i = 0 }),
+		Err(e) -> id(Err(e))
+	};
+	Reparent switch {
+		Ok(_) -> id(Ok(P.id)),
+		Err(e) -> id(Err(e))
+	};
+}
+
+// Loads a pin's metadata; an error if there's no such pin.
+proc LoadPin(s: { repo: Repo, id: string }): Res<Pin> {
+	LoadPin switch {
+		(!IsPinId(id = this.s.id)) -> id(Err(GroveErr(msg = "not a pin: " + this.s.id))),
+		else -> Files.Read(path = PinPath(common = this.s.repo.common, id = this.s.id))
+	};
+	Files.Read switch {
+		Ok(text) -> id(ParsePin(text = text, file = LoadPin.s.id)),
+		Err(_) -> id(Err(GroveErr(msg = "no pin " + LoadPin.s.id)))
+	};
+}
+
+// Stores a pin's metadata, giving its id.
+proc SavePin(s: { repo: Repo, pin: Pin }): Res<string> {
+	SavePin -> Grove.Store(common = this.s.repo.common, path = PinPath(common = this.s.repo.common, id = this.s.pin.id), text = PinToml(p = this.s.pin));
+	Grove.Store switch {
+		Ok(_) -> id(Ok(SavePin.s.pin.id)),
+		Err(e) -> id(Err(GroveErr(msg = "cannot save pin " + SavePin.s.pin.id + ": " + e.msg)))
+	};
+}
+
+// Gives a pin's head: the commit its branch or tag is at, or its commit; an
+// error if its branch or tag is gone.
+proc PinHead(s: { repo: Repo, pin: Pin }): Res<string> {
+	PinHead -> Grove.Git(dir = this.s.repo.top, args = ["rev-parse", "--verify", "--quiet", PinRev(p = this.s.pin)]);
+	Grove.Git switch {
+		Ok(h) -> id(Ok(h)),
+		Err(_) -> id(Err(GroveErr(msg = PinHead.s.pin.name + " has no commit: its " + PinHead.s.pin.kind + " " + PinHead.s.pin.ref + " is gone")))
+	};
+}
+
+// Each pin's head (PinHead), by id: "" for one whose branch or tag is gone.
+proc PinHeads(s: { repo: Repo, pins: []Pin, i: int, acc: map[string]string }): map[string]string {
+	PinHeads switch {
+		(this.s.i == this.s.pins.len) -> id(this.s.acc),
+		else -> PinHead(s = { repo = this.s.repo, pin = this.s.pins[this.s.i] })
+	};
+	PinHead -> PinHeads(s = { ..PinHeads.s, i = PinHeads.s.i + 1, acc = PinHeads.s.acc + [PinHeads.s.pins[PinHeads.s.i].id: OkOr(r = this, d = "")] });
+}
+
+// Gives a pin's worktree (PinWorktreeOf), first making grove's if it has
+// none: grove/worktrees/<file> (PinWorktreePath) with its branch checked
+// out, or detached at its tag's or commit's head.
+proc PinWorktree(s: { repo: Repo, pin: Pin }): Res<string> {
+	PinWorktree -> Grove.Git(dir = this.s.repo.top, args = ["worktree", "list", "--porcelain"]) as Worktrees;
+	Worktrees switch {
+		Ok(out) -> switch {
+			(PinWorktreeOf(porcelain = out, p = PinWorktree.s.pin) != "") -> id(Ok(PinWorktreeOf(porcelain = out, p = PinWorktree.s.pin))),
+			(PinWorktree.s.pin.kind == "branch") -> Grove.Git(dir = PinWorktree.s.repo.top, args = ["worktree", "add", PinWorktreePath(common = PinWorktree.s.repo.common, id = PinWorktree.s.pin.id), PinWorktree.s.pin.ref]) as Add,
+			else -> PinHead(s = PinWorktree.s)
+		},
+		Err(e) -> id(Err(e))
+	};
+	PinHead switch {
+		Ok(h) -> Grove.Git(dir = PinWorktree.s.repo.top, args = ["worktree", "add", "--detach", PinWorktreePath(common = PinWorktree.s.repo.common, id = PinWorktree.s.pin.id), h]) as Add,
+		Err(e) -> id(Err(e))
+	};
+	Add switch {
+		Ok(_) -> id(Ok(PinWorktreePath(common = PinWorktree.s.repo.common, id = PinWorktree.s.pin.id))),
+		Err(e) -> id(Err(GroveErr(msg = "cannot make a worktree for " + PinWorktree.s.pin.name + ": " + e.msg)))
+	};
+}
+
+// Reads the pins and ideas (Forest). An idea hanging from one of the pins,
+// or from an idea with a branch, keeps its parent; any other (a branch
+// idea/<x> made by hand, an idea from before pins, or one whose parent is
+// gone) hangs from the pin it forks from (Nearest), so every idea is on a
+// pin's line.
+proc LoadForest(repo: Repo): Res<Forest> {
+	LoadForest -> LoadPins(repo = this.repo);
+	LoadPins switch {
+		Ok(ps) -> PinHeads(s = { repo = LoadForest.repo, pins = ps, i = 0, acc = [:] }),
+		Err(e) -> id(Err(e))
+	};
+	PinHeads -> Grove.Git(dir = LoadForest.repo.top, args = ["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/idea/"]) as Branches;
+	Branches switch {
+		Ok(_) -> Grove.List(dir = JoinP(a = LoadForest.repo.common, b = "grove/ideas")),
+		Err(e) -> id(Err(e))
+	};
+	Grove.List -> LoadIdeas(s = { repo = LoadForest.repo, ids = IdsOf(files = this, branches = UnwrapR2(r = Branches)), i = 0, acc = [] });
+	LoadIdeas switch {
+		Ok(_) -> Grove.Git(dir = LoadForest.repo.top, args = ["symbolic-ref", "--quiet", "HEAD"]) as Checked,
+		Err(e) -> id(Err(e))
+	};
+	Checked -> id(MainPin(pins = UnwrapPins(r = LoadPins), head = OkOr(r = this, d = ""))) as Main;
+	Main -> Adopt(s = { repo = LoadForest.repo, xs = Orphans(ideas = UnwrapIdeas(r = LoadIdeas), pins = UnwrapPins(r = LoadPins), branches = UnwrapR2(r = Branches)), pins = UnwrapPins(r = LoadPins), heads = PinHeads, branches = UnwrapR2(r = Branches), main = this, i = 0, acc = [:] });
+	Adopt -> id(Ok({ pins = UnwrapPins(r = LoadPins), heads = PinHeads, ideas = Adopted(xs = UnwrapIdeas(r = LoadIdeas), parents = this), branches = UnwrapR2(r = Branches), main = Main }));
+}
+
+// Finds the pin each idea of xs forks from (Nearest), by id.
+proc Adopt(s: { repo: Repo, xs: []Idea, pins: []Pin, heads: map[string]string, branches: string, main: string, i: int, acc: map[string]string }): map[string]string {
+	Adopt switch {
+		(this.s.i == this.s.xs.len) -> id(this.s.acc),
+		else -> Distances(s = { repo = this.s.repo, head = BranchHead(branches = this.s.branches, id = this.s.xs[this.s.i].id), pins = this.s.pins, heads = this.s.heads, i = 0, acc = [] })
+	};
+	Distances -> Adopt(s = { ..Adopt.s, i = Adopt.s.i + 1, acc = Adopt.s.acc + [Adopt.s.xs[Adopt.s.i].id: Nearest(pins = Adopt.s.pins, dists = this, main = Adopt.s.main)] });
+}
+
+// How many of the commits at head each pin hasn't (`git rev-list --count
+// <pin's head>..<head>`), in the pins' order: -1 for a pin with no head, or
+// for every pin when head is "".
+proc Distances(s: { repo: Repo, head: string, pins: []Pin, heads: map[string]string, i: int, acc: []int }): []int {
+	Distances switch {
+		(this.s.i == this.s.pins.len) -> id(this.s.acc),
+		(this.s.head == "" || HeadOf(heads = this.s.heads, id = this.s.pins[this.s.i].id) == "") -> Distances(s = { ..this.s, i = this.s.i + 1, acc = this.s.acc + [-1] }) as Skip,
+		else -> Grove.Git(dir = this.s.repo.top, args = ["rev-list", "--count", HeadOf(heads = this.s.heads, id = this.s.pins[this.s.i].id) + ".." + this.s.head])
+	};
+	Grove.Git -> Distances(s = { ..Distances.s, i = Distances.s.i + 1, acc = Distances.s.acc + [CountOf(r = this)] });
+}
+
+// For each pin with a head, the idea branches whose commits are all in it
+// (lines of `git for-each-ref --merged <head>`), by id.
+proc MergedInto(s: { repo: Repo, pins: []Pin, heads: map[string]string, i: int, acc: map[string]string }): map[string]string {
+	MergedInto switch {
+		(this.s.i == this.s.pins.len) -> id(this.s.acc),
+		(HeadOf(heads = this.s.heads, id = this.s.pins[this.s.i].id) == "") -> MergedInto(s = { ..this.s, i = this.s.i + 1 }) as Skip,
+		else -> Grove.Git(dir = this.s.repo.top, args = ["for-each-ref", "--merged", HeadOf(heads = this.s.heads, id = this.s.pins[this.s.i].id), "--format=%(refname)", "refs/heads/idea/"])
+	};
+	Grove.Git -> MergedInto(s = { ..MergedInto.s, i = MergedInto.s.i + 1, acc = MergedInto.s.acc + [MergedInto.s.pins[MergedInto.s.i].id: OkOr(r = this, d = "")] });
+}
+
+// Loads an idea's metadata (LoadIdea) or, for a pin, its own as an idea's
+// (PinAsIdea), for what the two share: a name and sections.
+proc LoadNode(s: { repo: Repo, id: string }): Res<Idea> {
+	LoadNode switch {
+		(IsPinId(id = this.s.id)) -> LoadPin(s = this.s),
+		else -> LoadIdea(s = this.s)
+	};
+	LoadPin switch {
+		Ok(p) -> id(Ok(PinAsIdea(p = p))),
+		Err(e) -> id(Err(e))
+	};
+	LoadIdea -> id(this);
+}
+
+// Stores an idea's metadata (SaveIdea) or, for a pin, the idea's name and
+// sections as its own. The repository itself keeps neither. Gives its id.
+proc SaveNode(s: { repo: Repo, idea: Idea }): Res<string> {
+	SaveNode switch {
+		(this.s.idea.id == "") -> id(Err(GroveErr(msg = "the repository itself keeps no name or sections: its pins and ideas do"))),
+		(IsPinId(id = this.s.idea.id)) -> LoadPin(s = { repo = this.s.repo, id = this.s.idea.id }),
+		else -> SaveIdea(s = this.s)
+	};
+	LoadPin switch {
+		Ok(p) -> SavePin(s = { repo = SaveNode.s.repo, pin = { ..p, name = SaveNode.s.idea.name, sections = SaveNode.s.idea.sections } }),
+		Err(e) -> id(Err(e))
+	};
+	SavePin -> id(this);
+	SaveIdea -> id(this);
+}
+
+// Pins a branch, a tag or a commit: ref names a branch if there's one by
+// that name, else a tag, else whatever commit git finds by it (HEAD~2,
+// origin/main); refs/heads/<name> and refs/tags/<name> say which. Gives the
+// pin a worktree (PinWorktree), and stores it. Refuses one that's pinned
+// already, and an idea's branch (idea/<id>). Gives its id.
+proc PinRef(s: { repo: Repo, ref: string }): Res<string> {
+	PinRef -> id(RefKind(name = this.s.ref)) as Want;
+	Want switch {
+		(this.name == "") -> id(Err(GroveErr(msg = "name a branch, a tag or a commit to pin"))),
+		(this.kind == "tag") -> Grove.Git(dir = PinRef.s.repo.top, args = ["show-ref", "--verify", "--quiet", "refs/tags/" + this.name]) as Tag,
+		else -> Grove.Git(dir = PinRef.s.repo.top, args = ["show-ref", "--verify", "--quiet", "refs/heads/" + this.name]) as Branch
+	};
+	Branch switch {
+		Ok(_) -> id(NewPin(kind = "branch", name = Want.name)) as Found,
+		Err(_) -> switch {
+			(Want.kind == "branch") -> id(Err(GroveErr(msg = "nothing to pin: there's no branch " + Want.name))),
+			else -> Grove.Git(dir = PinRef.s.repo.top, args = ["show-ref", "--verify", "--quiet", "refs/tags/" + Want.name]) as Tag
+		}
+	};
+	Tag switch {
+		Ok(_) -> id(NewPin(kind = "tag", name = Want.name)) as Found,
+		Err(_) -> switch {
+			(Want.kind == "tag") -> id(Err(GroveErr(msg = "nothing to pin: there's no tag " + Want.name))),
+			else -> Grove.Git(dir = PinRef.s.repo.top, args = ["rev-parse", "--verify", "--quiet", Want.name + "^{commit}"]) as Commit
+		}
+	};
+	Commit switch {
+		Ok(c) -> id(NewPin(kind = "commit", name = c)) as Found,
+		Err(_) -> id(Err(GroveErr(msg = "nothing to pin: " + Want.name + " isn't a branch, a tag or a commit")))
+	};
+	Found switch {
+		(this.kind == "branch" && HasPrefix(text = this.ref, prefix = "idea/")) -> id(Err(GroveErr(msg = this.ref + " is an idea's branch: branch from the idea instead"))),
+		else -> LoadPins(repo = PinRef.s.repo)
+	};
+	LoadPins switch {
+		Ok(ps) -> id(FindPin(pins = ps, id = Found.id)) as Pinned,
+		Err(e) -> id(Err(e))
+	};
+	Pinned switch {
+		Ok(p) -> id(Err(GroveErr(msg = Found.ref + " is pinned already, as " + p.name))),
+		Err(_) -> PinWorktree(s = { repo = PinRef.s.repo, pin = Found })
+	};
+	PinWorktree switch {
+		Ok(_) -> SavePin(s = { repo = PinRef.s.repo, pin = Found }),
+		Err(e) -> id(Err(e))
+	};
+}
+
+// Unpins a pin: discards every idea on it, as discarding does (DiscardEach,
+// children first), removes its worktree if it's grove's (the repository's
+// own, or one made outside grove, stays), stops what grove started in it,
+// and forgets it. Refuses, unpinning nothing, if any of those ideas, or
+// grove's worktree for it, has changes that aren't committed. Its merged
+// and discarded ideas keep their branches and metadata, as discarded ones
+// do. Gives its id.
+proc Unpin(s: { repo: Repo, id: string }): Res<string> {
+	Unpin -> LoadPin(s = this.s);
+	LoadPin switch {
+		Ok(p) -> id(p) as P,
+		Err(e) -> id(Err(e))
+	};
+	P -> LoadForest(repo = Unpin.s.repo);
+	LoadForest switch {
+		Ok(f) -> id(Beneath(xs = f.ideas, id = Unpin.s.id)) as Gone,
+		Err(e) -> id(Err(e))
+	};
+	Gone -> DirtyOnes(s = { repo = Unpin.s.repo, xs = this, i = 0, acc = [] });
+	DirtyOnes switch {
+		(this.len > 0) -> id(Err(GroveErr(msg = "nothing was unpinned: these have changes that aren't committed: " + JoinWith(xs = this, sep = ", ")))),
+		else -> Grove.Git(dir = Unpin.s.repo.top, args = ["worktree", "list", "--porcelain"]) as Worktrees
+	};
+	Worktrees switch {
+		Ok(out) -> id(PinWorktreeOf(porcelain = out, p = P)) as Wt,
+		Err(e) -> id(Err(e))
+	};
+	Wt switch {
+		(this != "" && this == PinWorktreePath(common = Unpin.s.repo.common, id = P.id)) -> Grove.Git(dir = this, args = ["status", "--porcelain"]) as Dirty,
+		else -> DiscardEach(s = { repo = Unpin.s.repo, xs = Gone, i = 0 })
+	};
+	Dirty switch {
+		Ok(out) -> switch {
+			(out != "") -> id(Err(GroveErr(msg = "nothing was unpinned: " + P.name + " has changes that aren't committed in " + Wt))),
+			else -> DiscardEach(s = { repo = Unpin.s.repo, xs = Gone, i = 0 })
+		},
+		Err(e) -> id(Err(e))
+	};
+	DiscardEach switch {
+		Ok(_) -> switch {
+			(Wt != "" && Wt == PinWorktreePath(common = Unpin.s.repo.common, id = P.id)) -> Grove.Git(dir = Unpin.s.repo.top, args = ["worktree", "remove", Wt]) as Remove,
+			else -> id(Wt) as Removed
+		},
+		Err(e) -> id(Err(GroveErr(msg = "cannot unpin " + P.name + ": " + e.msg)))
+	};
+	Remove switch {
+		Ok(_) -> id(Wt) as Removed,
+		Err(e) -> id(Err(GroveErr(msg = "cannot unpin " + P.name + ": its ideas are discarded, but its worktree stays: " + e.msg)))
+	};
+	Removed -> Interiors.Stop(worktree = this);
+	Interiors.Stop for each (P.sections) -> Term.Kill(id = this.term) as Killed;
+	Killed collect each (Killed) -> Grove.SetStatus(id = P.id, state = "", message = "");
+	Grove.SetStatus -> Grove.Remove(common = Unpin.s.repo.common, path = PinPath(common = Unpin.s.repo.common, id = P.id));
+	Grove.Remove switch {
+		Ok(_) -> id(Ok(P.id)),
+		Err(e) -> id(Err(GroveErr(msg = "cannot forget " + P.name + ": " + e.msg)))
+	};
+}
+
+// Serves POST /api/pins/pin {ref}: pins a branch, a tag or a commit
+// (PinRef), its id.
+proc PinRoute(req: HttpRequest): HttpResponse {
+	PinRoute -> GroveWrite(req = this.req);
+	GroveWrite switch {
+		Stop(r) -> id(r),
+		Go(w) -> PinRef(s = { repo = w.repo, ref = StrOr(j = w.j, key = "ref", d = "") })
+	};
+	PinRef -> id(Answer(r = this, key = "id"));
+}
+
+// Serves POST /api/pins/unpin {id}: unpins the pin, discarding the ideas on
+// it (Unpin). People only.
+proc UnpinRoute(req: HttpRequest): HttpResponse {
+	UnpinRoute -> GroveWrite(req = this.req);
+	GroveWrite switch {
+		Stop(r) -> id(r),
+		Go(w) -> Unpin(s = { repo = w.repo, id = StrOr(j = w.j, key = "id", d = "") })
+	};
+	Unpin -> Grove.Changed(n = 0);
+	Grove.Changed -> id(Answer(r = Unpin, key = "id"));
+}

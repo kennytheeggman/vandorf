@@ -79,19 +79,26 @@ fn ideas_are_branches_with_worktrees() {
     let denied = req("POST", "/api/ideas/branch", "", "wrong", r#"{"from": ""}"#);
     assert_eq!(denied.status, 403);
 
-    // At first, only the root: the main worktree.
+    // At first, the repository itself, a hub, and the checked-out branch,
+    // pinned, in the main worktree.
     let tree = req("GET", "/api/ideas", "", "", "").body;
     let name = dir.file_name().unwrap().to_str().unwrap();
-    assert!(tree.starts_with(&format!(r#"{{"ideas":[{{"agent":null,"behind":false,"branch":"main","fork":"","head":"{head}","id":"","name":"{name}","parent":null,"sections":[],"status":"active""#)), "{tree}");
+    let top = dir.to_str().unwrap();
+    assert!(tree.starts_with(&format!(r#"{{"ideas":[{{"agent":null,"behind":false,"branch":"","fork":"","head":"","id":"","kind":"hub","name":"{name}","parent":null,"pin":"","sections":[],"status":"active","worktree":"{top}"}},{{"agent":null,"behind":false,"branch":"main","fork":"","head":"{head}","id":"branch@main","kind":"branch","name":"main","parent":"","pin":"branch@main","ref":"main","sections":[],"status":"active","worktree":"{top}"}}]"#)), "{tree}");
     assert!(tree.contains(r#""interiors":[{"mode":"builtin","name":"terminal"},{"mode":"per-worktree","name":"ide"}]"#), "{tree}");
+    let pin = std::fs::read_to_string(common.join("grove/pins/branch@main.toml")).unwrap();
+    assert!(pin.contains("id = \"branch@main\"\nkind = \"branch\"\nref = \"main\"\nname = \"main\"\n"), "{pin}");
 
-    // Branching: a branch idea/<id>, a worktree with its base, metadata.
-    let a = id_of(&req("POST", "/api/ideas/branch", "", &token, r#"{"from": "", "name": "first try"}"#).body);
+    // Branching from a pin: a branch idea/<id>, a worktree with its base,
+    // metadata. The repository itself is no git source to branch from.
+    let hub = req("POST", "/api/ideas/branch", "", &token, r#"{"from": ""}"#);
+    assert_eq!(hub.body, r#"{"error":"the repository itself isn't a git source: branch from a pin or an idea","ok":false}"#);
+    let a = id_of(&req("POST", "/api/ideas/branch", "", &token, r#"{"from": "branch@main", "name": "first try"}"#).body);
     let wt = common.join("grove/worktrees").join(&a);
     assert_eq!(git(&wt, &["rev-parse", "--abbrev-ref", "HEAD"]), format!("idea/{a}"));
     assert_eq!(git(&wt, &["rev-parse", "refs/worktree/base"]), head);
     let meta = std::fs::read_to_string(common.join(format!("grove/ideas/{a}.toml"))).unwrap();
-    assert!(meta.contains("name = \"first try\"\nparent = \"\"\n"), "{meta}");
+    assert!(meta.contains("name = \"first try\"\nparent = \"branch@main\"\n"), "{meta}");
 
     // A layout is stored, and a child idea starts with its parent's
     // interiors, without its terminals.
@@ -99,7 +106,7 @@ fn ideas_are_branches_with_worktrees() {
     assert_eq!(lay.body, format!(r#"{{"id":"{a}","ok":true}}"#));
     let b = id_of(&req("POST", "/api/ideas/branch", "", &token, &format!(r#"{{"from": "{a}"}}"#)).body);
     let tree = req("GET", "/api/ideas", "", "", "").body;
-    assert!(tree.contains(&format!(r#""id":"{b}","name":"{b}","parent":"{a}","rebaseFailure":"","rebasing":false,"sections":[{{"expanded":false,"interior":"terminal","term":0}},{{"expanded":true,"interior":"ide","term":0}}],"status":"active""#)), "{tree}");
+    assert!(tree.contains(&format!(r#""id":"{b}","kind":"idea","name":"{b}","parent":"{a}","pin":"branch@main","rebaseFailure":"","rebasing":false,"sections":[{{"expanded":false,"interior":"terminal","term":0}},{{"expanded":true,"interior":"ide","term":0}}],"status":"active""#)), "{tree}");
     for (body, err) in [
         (r#"{"id": "../x", "sections": []}"#, "invalid idea id: ../x"),
         (r#"{"id": "nobranch", "sections": []}"#, "no such idea: nobranch"),
@@ -119,9 +126,9 @@ fn ideas_are_branches_with_worktrees() {
     assert!(!wt.exists());
     assert_eq!(git(&dir, &["rev-parse", &format!("idea/{a}")]), head);
     let tree = req("GET", "/api/ideas", "", "", "").body;
-    assert!(tree.contains(&format!(r#""id":"{a}","name":"first try","parent":"","rebaseFailure":"","rebasing":false,"sections":[{{"expanded":false,"interior":"terminal","term":0}},{{"expanded":true,"interior":"ide","term":0}}],"status":"discarded","worktree":"""#)), "{tree}");
+    assert!(tree.contains(&format!(r#""id":"{a}","kind":"idea","name":"first try","parent":"branch@main","pin":"branch@main","rebaseFailure":"","rebasing":false,"sections":[{{"expanded":false,"interior":"terminal","term":0}},{{"expanded":true,"interior":"ide","term":0}}],"status":"discarded","worktree":"""#)), "{tree}");
     // Its child went with it, and still hangs from it.
-    assert!(tree.contains(&format!(r#""id":"{b}","name":"{b}","parent":"{a}","rebaseFailure":"","rebasing":false,"sections":[{{"expanded":false,"interior":"terminal","term":0}},{{"expanded":true,"interior":"ide","term":0}}],"status":"discarded""#)), "{tree}");
+    assert!(tree.contains(&format!(r#""id":"{b}","kind":"idea","name":"{b}","parent":"{a}","pin":"branch@main","rebaseFailure":"","rebasing":false,"sections":[{{"expanded":false,"interior":"terminal","term":0}},{{"expanded":true,"interior":"ide","term":0}}],"status":"discarded""#)), "{tree}");
     let again = req("POST", "/api/ideas/discard", "", &token, &format!(r#"{{"id": "{a}"}}"#));
     assert!(again.body.contains("has no worktree"), "{}", again.body);
     assert_eq!(req("POST", "/api/ideas/restore", "", &token, &format!(r#"{{"id": "{a}"}}"#)).status, 200);
@@ -131,14 +138,29 @@ fn ideas_are_branches_with_worktrees() {
     let root = req("POST", "/api/ideas/discard", "", &token, r#"{"id": ""}"#);
     assert_eq!(root.body, r#"{"error":"the repository itself can't be discarded","ok":false}"#);
 
-    // Renaming, the root too.
-    assert_eq!(req("POST", "/api/ideas/rename", "", &token, r#"{"id": "", "name": "trunk"}"#).status, 200);
-    assert!(req("GET", "/api/ideas", "", "", "").body.contains(r#""id":"","name":"trunk""#));
+    // Renaming, a pin too; a pin keeps its sections. The repository itself
+    // has neither.
+    assert_eq!(req("POST", "/api/ideas/rename", "", &token, r#"{"id": "branch@main", "name": "trunk"}"#).status, 200);
+    let lay = req("POST", "/api/ideas/layout", "", &token, r#"{"id": "branch@main", "sections": [{"interior": "terminal"}]}"#);
+    assert_eq!(lay.body, r#"{"id":"branch@main","ok":true}"#);
+    assert!(req("GET", "/api/ideas", "", "", "").body.contains(r#""id":"branch@main","kind":"branch","name":"trunk","parent":"","pin":"branch@main","ref":"main","sections":[{"expanded":true,"interior":"terminal","term":0}]"#));
+    let hub = req("POST", "/api/ideas/rename", "", &token, r#"{"id": "", "name": "x"}"#);
+    assert_eq!(hub.body, r#"{"error":"the repository itself isn't renamed: rename a pin or an idea","ok":false}"#);
+    for (path, body, err) in [
+        ("discard", r#"{"id": "branch@main"}"#, "a pin isn't discarded: unpin it, which discards the ideas on it"),
+        ("merge", r#"{"id": "branch@main"}"#, "ideas are merged into their pin; a pin isn't merged into anything"),
+        ("rebase", r#"{"id": "branch@main"}"#, "a pin has no parent to rebase onto: its ideas rebase onto it"),
+        ("rename", r#"{"id": "branch@nope", "name": "x"}"#, "no pin branch@nope"),
+    ] {
+        let r = req("POST", &format!("/api/ideas/{path}"), "", &token, body);
+        assert_eq!((r.status, r.body), (400, format!(r#"{{"error":"{err}","ok":false}}"#)), "{path}");
+    }
 
-    // A branch made outside grove is an idea too, from the root.
+    // A branch made outside grove is an idea too, hanging from the pin it
+    // forks from: here the only one.
     git(&dir, &["branch", "idea/byhand"]);
     let tree = req("GET", "/api/ideas", "", "", "").body;
-    assert!(tree.contains(r#""id":"byhand","name":"byhand","parent":"","rebaseFailure":"","rebasing":false,"sections":[],"status":"discarded""#), "{tree}");
+    assert!(tree.contains(r#""id":"byhand","kind":"idea","name":"byhand","parent":"branch@main","pin":"branch@main","rebaseFailure":"","rebasing":false,"sections":[],"status":"discarded""#), "{tree}");
 
     // Interiors from the repository's manifest: they can replace the IDE's
     // entry, not the terminal's, and add their own after.
@@ -311,13 +333,13 @@ fn agents_branch_from_the_command_line() {
     // Without a grove running: the commands work on the repository, and say
     // grove wasn't told. Discarding is left to people.
     let (ok, out) = grove(&dir, &[], &["branch", "first", "--no-terminal"]);
-    assert!(ok && out.starts_with("branched idea ") && out.contains(" (first) from the root\n") && out.contains("grove wasn't told (no $GROVE_URL"), "{out}");
+    assert!(ok && out.starts_with("branched idea ") && out.contains(" (first) from branch@main\n") && out.contains("grove wasn't told (no $GROVE_URL"), "{out}");
     let a = out["branched idea ".len()..].split(' ').next().unwrap().to_string();
     let wt = common.join("grove/worktrees").join(&a);
     let (ok, out) = grove(&wt, &[], &["current"]);
-    assert!(ok && out.starts_with(&format!("id:       {a}\nname:     first\nbranch:   idea/{a}\n")), "{out}");
+    assert!(ok && out.starts_with(&format!("id:       {a}\nname:     first\nbranch:   idea/{a}\n")) && out.contains("\nparent:   branch@main\npin:      branch@main (branch main)\n"), "{out}");
     let (ok, out) = grove(&wt, &[], &["list"]);
-    assert!(ok && out.contains(&format!("*   {a}")), "{out}");
+    assert!(ok && out.starts_with("  branch@main  main\n") && out.contains(&format!("\n*   {a}")), "{out}");
     let (ok, out) = grove(&wt, &[], &["discard"]);
     assert!(!ok && out.contains("discarding is left to people"), "{out}");
     let (ok, out) = grove(&wt, &[], &["bogus"]);
@@ -495,20 +517,20 @@ fn merging_rebases_the_tree_and_agents_report() {
     // left as it was and flagged.
     let (status, merged) = call(port, "POST", "/api/ideas/merge", &token, &format!(r#"{{"id": "{b}"}}"#));
     assert_eq!(status, 200, "{merged}");
-    assert!(merged.contains("merged B into the root; not rebased onto it, so flagged: D (rebasing onto its parent conflicts)"), "{merged}");
+    assert!(merged.contains("merged B into main; not rebased onto it, so flagged: D (rebasing onto its parent conflicts)"), "{merged}");
     assert!(dir.join("idea-b.txt").exists() && dir.join("idea-a.txt").exists());
     assert!(!wt(&b).exists());
     assert_eq!(idea_in(port, "B").0, "merged");
     assert!(wt(&c).join("idea-b.txt").exists() && wt(&c).join("idea-c.txt").exists());
-    assert_eq!(idea_in(port, "C"), ("active".into(), false, false, String::new(), String::new()));
-    assert_eq!(idea_in(port, "D"), ("active".into(), true, false, String::new(), String::new()));
+    assert_eq!(idea_in(port, "C"), ("active".into(), false, false, String::new(), "branch@main".into()));
+    assert_eq!(idea_in(port, "D"), ("active".into(), true, false, String::new(), "branch@main".into()));
     let failed_rebase = || call(port, "GET", "/api/ideas", "", "").1.contains("Not rebased onto its parent");
     assert!(failed_rebase());
     assert_eq!(git(&wt(&d), &["status", "--porcelain"]), "");
     // A came in with B, so it's merged and left where it was.
     assert_eq!(idea_in(port, "A").0, "merged");
     let (_, again) = call(port, "POST", "/api/ideas/merge", &token, &format!(r#"{{"id": "{a}"}}"#));
-    assert!(again.contains("A has nothing to merge: it's in the root already"), "{again}");
+    assert!(again.contains("A has nothing to merge: it's in main already"), "{again}");
 
     // Agents report their status, and rebase their own idea.
     let envs = dir.join("env.txt");
@@ -580,7 +602,7 @@ fn merging_rebases_the_tree_and_agents_report() {
     git(&wt(&d), &["add", "idea-a.txt"]);
     let (ok, out) = grove(&wt(&d), &env, &["rebase", "--continue"]);
     assert!(ok && out.starts_with(&format!("rebased: {d}")), "{out}");
-    assert_eq!(idea_in(port, "D"), ("active".into(), false, false, String::new(), String::new()));
+    assert_eq!(idea_in(port, "D"), ("active".into(), false, false, String::new(), "branch@main".into()));
 
     // Discarding C takes the idea under it too.
     let (ok, out) = grove(&wt(&c), &env, &["branch", "E", "--no-terminal"]);
@@ -669,15 +691,15 @@ fn merging_leaves_ideas_merged_by_hand_alone() {
     // grove, and P replays only the commit the root hasn't.
     let (status, merged) = call(port, "POST", "/api/ideas/merge", &token, &format!(r#"{{"id": "{f}"}}"#));
     assert_eq!(status, 200, "{merged}");
-    assert!(merged.contains("merged F into the root; every other idea is on it now"), "{merged}");
+    assert!(merged.contains("merged F into main; every other idea on it is up to date"), "{merged}");
     assert_eq!(head(&format!("idea/{e}")), e_head);
     assert_eq!(idea_in(port, "E").0, "merged");
     assert_eq!(head(&format!("idea/{h}")), h_head);
     assert_eq!(idea_in(port, "H").0, "merged");
-    assert_eq!(idea_in(port, "G"), ("active".into(), false, false, String::new(), String::new()));
+    assert_eq!(idea_in(port, "G"), ("active".into(), false, false, String::new(), "branch@main".into()));
     assert_eq!(std::fs::read_to_string(wt(&g).join("idea-e.txt")).unwrap(), "edited\n");
     assert!(wt(&g).join("idea-f.txt").exists() && wt(&g).join("idea-g.txt").exists());
-    assert_eq!(idea_in(port, "P"), ("active".into(), false, false, String::new(), String::new()));
+    assert_eq!(idea_in(port, "P"), ("active".into(), false, false, String::new(), "branch@main".into()));
     assert_eq!(git(&dir, &["rev-list", "--count", &format!("HEAD..idea/{p}")]), "1");
     assert_eq!(std::fs::read_to_string(wt(&p).join("idea-p.txt")).unwrap(), "edited\n");
 
@@ -689,6 +711,224 @@ fn merging_leaves_ideas_merged_by_hand_alone() {
     assert!(deleted.contains(r#""ok":true"#), "{deleted}");
     assert_eq!(git(&dir, &["branch", "--list", &format!("idea/{h}")]), "");
     assert!(!wt(&h).exists() && !common.join(format!("grove/ideas/{h}.toml")).exists());
+    drop(_server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn pins_are_the_git_sources() {
+    let dir = repo_named("grove-pins-test");
+    let common = dir.join(".git");
+    let wt = |id: &str| common.join("grove/worktrees").join(id);
+    let head = git(&dir, &["rev-parse", "HEAD"]);
+    // A branch dev, a commit ahead of main, and an annotated tag at main.
+    git(&dir, &["checkout", "-qb", "dev"]);
+    std::fs::write(dir.join("dev.txt"), "dev\n").unwrap();
+    git(&dir, &["add", "."]);
+    git(&dir, &["commit", "-qm", "dev"]);
+    git(&dir, &["checkout", "-q", "main"]);
+    git(&dir, &["tag", "-a", "v1", "-m", "v1"]);
+    let dev0 = git(&dir, &["rev-parse", "dev"]);
+
+    // From before pins: the root's name and sections in root.toml, an idea
+    // on the root, and one on that.
+    std::fs::create_dir_all(common.join("grove/ideas")).unwrap();
+    std::fs::write(common.join("grove/root.toml"), "name = \"trunk\"\n\n[[sections]]\ninterior = \"terminal\"\nexpanded = false\nterm = 0\n").unwrap();
+    for (id, parent) in [("old", ""), ("kid", "old")] {
+        git(&dir, &["worktree", "add", "-q", "-b", &format!("idea/{id}"), wt(id).to_str().unwrap(), "HEAD"]);
+        std::fs::write(common.join(format!("grove/ideas/{id}.toml")), format!("id = \"{id}\"\nname = \"{id}\"\nparent = \"{parent}\"\nfork = \"{head}\"\nstatus = \"active\"\n")).unwrap();
+    }
+    let (_server, port, token) = serve(&dir, &[]);
+
+    // The first read pins the checked-out branch, with the root's name and
+    // sections, and the ideas on the root hang from it, one ring out.
+    let tree = call(port, "GET", "/api/ideas", "", "").1;
+    assert!(tree.contains(r#""id":"branch@main","kind":"branch","name":"trunk","parent":"","pin":"branch@main","ref":"main","sections":[{"expanded":false,"interior":"terminal","term":0}],"status":"active""#), "{tree}");
+    assert_eq!(idea_in(port, "old"), ("active".into(), false, false, String::new(), "branch@main".into()));
+    assert_eq!(idea_in(port, "kid").4, "old");
+    let meta = std::fs::read_to_string(common.join("grove/ideas/old.toml")).unwrap();
+    assert!(meta.contains("parent = \"branch@main\""), "{meta}");
+    assert!(common.join("grove/pins/branch@main.toml").exists());
+
+    // Pins in the metadata: a branch, a tag (named), a commit.
+    let pins = common.join("grove/pins");
+    std::fs::write(pins.join("branch@dev.toml"), "kind = \"branch\"\nref = \"dev\"\n").unwrap();
+    std::fs::write(pins.join("tag@v1.toml"), "kind = \"tag\"\nref = \"v1\"\nname = \"release\"\n").unwrap();
+    std::fs::write(pins.join(format!("commit@{dev0}.toml")), format!("kind = \"commit\"\nref = \"{dev0}\"\n")).unwrap();
+    let tree = call(port, "GET", "/api/ideas", "", "").1;
+    assert!(tree.contains(&format!(r#""head":"{dev0}","id":"branch@dev","kind":"branch","name":"dev","parent":"","pin":"branch@dev","ref":"dev","sections":[],"status":"active","worktree":"""#)), "{tree}");
+    assert!(tree.contains(&format!(r#""branch":"","fork":"","head":"{head}","id":"tag@v1","kind":"tag","name":"release""#)), "{tree}");
+    assert!(tree.contains(&format!(r#""id":"commit@{dev0}","kind":"commit","name":"{}""#, &dev0[..8])), "{tree}");
+
+    // Hand-made idea branches hang from the pin they fork from, or the
+    // checked-out branch's when that's unclear.
+    git(&dir, &["branch", "idea/hand1", "dev"]);
+    git(&dir, &["branch", "idea/hand2", "main"]);
+    assert_eq!(idea_in(port, "hand1").4, "branch@dev");
+    assert_eq!(idea_in(port, "hand2").4, "branch@main");
+
+    // Branching from dev, and merging into it: dev fast-forwards in a
+    // worktree of grove's, main stays, and the other idea on dev is rebased.
+    let branch = |from: &str, name: &str, file: &str| -> String {
+        let (_, out) = call(port, "POST", "/api/ideas/branch", &token, &format!(r#"{{"from": "{from}", "name": "{name}"}}"#));
+        let id = id_of(&out);
+        std::fs::write(wt(&id).join(file), format!("{name}\n")).unwrap();
+        git(&wt(&id), &["add", "."]);
+        git(&wt(&id), &["commit", "-qm", name]);
+        id
+    };
+    let x = branch("branch@dev", "X", "x.txt");
+    let y = branch("branch@dev", "Y", "y.txt");
+    assert_eq!(git(&wt(&x), &["rev-parse", "refs/worktree/base"]), dev0);
+    assert_eq!(idea_in(port, "X"), ("active".into(), false, false, String::new(), "branch@dev".into()));
+    let (status, merged) = call(port, "POST", "/api/ideas/merge", &token, &format!(r#"{{"id": "{x}"}}"#));
+    assert_eq!(status, 200, "{merged}");
+    assert!(merged.contains("merged X into dev; every other idea on it is up to date"), "{merged}");
+    let dev1 = git(&dir, &["rev-parse", "dev"]);
+    assert_eq!(dev1, git(&dir, &["rev-parse", &format!("idea/{x}")]));
+    assert_eq!(git(&dir, &["rev-parse", "main"]), head);
+    let devwt = wt("branch@dev");
+    assert_eq!(git(&devwt, &["symbolic-ref", "HEAD"]), "refs/heads/dev");
+    assert!(devwt.join("x.txt").exists() && !dir.join("x.txt").exists());
+    assert!(call(port, "GET", "/api/ideas", "", "").1.contains(&format!(r#""worktree":"{}""#, devwt.display())));
+    assert_eq!(idea_in(port, "X").0, "merged");
+    assert_eq!(idea_in(port, "Y"), ("active".into(), false, false, String::new(), "branch@dev".into()));
+    assert!(wt(&y).join("x.txt").exists());
+    // The ideas on main were left alone.
+    assert_eq!(git(&wt("old"), &["rev-parse", "HEAD"]), head);
+
+    // Rebasing onto a pin that moved on.
+    std::fs::write(devwt.join("more.txt"), "more\n").unwrap();
+    git(&devwt, &["add", "."]);
+    git(&devwt, &["commit", "-qm", "more"]);
+    assert!(idea_in(port, "Y").1);
+    let (status, rebased) = call(port, "POST", "/api/ideas/rebase", &token, &format!(r#"{{"id": "{y}"}}"#));
+    assert_eq!(status, 200, "{rebased}");
+    assert!(!idea_in(port, "Y").1);
+    assert_eq!(git(&wt(&y), &["rev-parse", "refs/worktree/base"]), git(&dir, &["rev-parse", "dev"]));
+
+    // Merged by hand means its commits are all in its pin: Y, merged into dev
+    // with git, though not into main, can be deleted.
+    git(&devwt, &["merge", "-q", "--ff-only", &format!("idea/{y}")]);
+    assert_eq!(idea_in(port, "Y").0, "merged");
+    let (_, deleted) = call(port, "POST", "/api/ideas/delete", &token, &format!(r#"{{"id": "{y}"}}"#));
+    assert!(deleted.contains(r#""ok":true"#), "{deleted}");
+
+    // A tag (or a commit) has no branch to merge into; its worktree, made
+    // when it's needed, is detached at it.
+    let z = branch("tag@v1", "Z", "z.txt");
+    assert_eq!(idea_in(port, "Z").4, "tag@v1");
+    let (_, refused) = call(port, "POST", "/api/ideas/merge", &token, &format!(r#"{{"id": "{z}"}}"#));
+    assert!(refused.contains("release is a tag, with no branch to merge into: its ideas can be rebased onto it, not merged"), "{refused}");
+    let (_, term) = call(port, "POST", "/api/term?idea=tag%40v1", &token, "");
+    assert!(term.contains(r#""ok":true"#), "{term}");
+    assert_eq!(git(&wt("tag@v1"), &["rev-parse", "HEAD"]), head);
+    assert!(!Command::new("git").args(["symbolic-ref", "-q", "HEAD"]).current_dir(wt("tag@v1")).status().unwrap().success());
+    let (_, term) = call(port, "POST", &format!("/api/term?idea=commit%40{dev0}"), &token, "");
+    assert!(term.contains(r#""ok":true"#), "{term}");
+    assert_eq!(git(&wt(&format!("commit@{dev0}")), &["rev-parse", "HEAD"]), dev0);
+
+    drop(_server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn pinning_and_unpinning() {
+    let dir = repo_named("grove-pin-test");
+    let common = dir.join(".git");
+    let wt = |id: &str| common.join("grove/worktrees").join(id);
+    let first = git(&dir, &["rev-parse", "HEAD"]);
+    git(&dir, &["branch", "feature/x"]);
+    git(&dir, &["branch", "dev"]);
+    git(&dir, &["tag", "v1"]);
+    std::fs::write(dir.join("b.txt"), "b\n").unwrap();
+    git(&dir, &["add", "."]);
+    git(&dir, &["commit", "-qm", "second"]);
+    let (_server, port, token) = serve(&dir, &[]);
+    let pin = |r: &str| call(port, "POST", "/api/pins/pin", &token, &format!(r#"{{"ref": "{r}"}}"#)).1;
+    let unpin = |id: &str| call(port, "POST", "/api/pins/unpin", &token, &format!(r#"{{"id": "{id}"}}"#)).1;
+    let tree = || call(port, "GET", "/api/ideas", "", "").1;
+    let detached = |dir: &Path| !Command::new("git").args(["symbolic-ref", "-q", "HEAD"]).current_dir(dir).status().unwrap().success();
+
+    // A branch (its name needn't make a file name), a tag and a commit (by
+    // anything git finds it by), each with a worktree of grove's.
+    assert_eq!(pin("feature/x"), r#"{"id":"branch@feature/x","ok":true}"#);
+    assert!(common.join("grove/pins/branch@feature%2Fx.toml").exists());
+    assert_eq!(git(&wt("branch@feature%2Fx"), &["symbolic-ref", "HEAD"]), "refs/heads/feature/x");
+    assert_eq!(pin("refs/tags/v1"), r#"{"id":"tag@v1","ok":true}"#);
+    assert!(detached(&wt("tag@v1")) && git(&wt("tag@v1"), &["rev-parse", "HEAD"]) == first);
+    assert_eq!(pin("HEAD~1"), format!(r#"{{"id":"commit@{first}","ok":true}}"#));
+    assert!(detached(&wt(&format!("commit@{first}"))));
+    assert!(tree().contains(&format!(r#""id":"commit@{first}","kind":"commit","name":"{}","parent":"","pin":"commit@{first}","ref":"{first}""#, &first[..8])));
+
+    // Refused: one pinned already, an idea's branch, nothing; and the
+    // session's token is needed.
+    git(&dir, &["branch", "idea/zz", "main"]);
+    for (r, err) in [
+        ("main", "main is pinned already, as main"),
+        ("feature/x", "feature/x is pinned already, as feature/x"),
+        ("idea/zz", "idea/zz is an idea's branch: branch from the idea instead"),
+        ("refs/tags/nope", "nothing to pin: there's no tag nope"),
+        ("refs/heads/v1", "nothing to pin: there's no branch v1"),
+        ("nope", "nothing to pin: nope isn't a branch, a tag or a commit"),
+        ("", "name a branch, a tag or a commit to pin"),
+    ] {
+        assert_eq!(pin(r), format!(r#"{{"error":"{err}","ok":false}}"#), "{r}");
+    }
+    assert_eq!(call(port, "POST", "/api/pins/pin", "wrong", r#"{"ref": "dev"}"#).0, 403);
+    assert_eq!(call(port, "POST", "/api/pins/unpin", "wrong", r#"{"id": "tag@v1"}"#).0, 403);
+
+    // The command line: grove pin, then grove current in the pin's worktree,
+    // branching from it by what it pins, and grove list.
+    let (ok, out) = grove(&dir, &[], &["pin", "dev"]);
+    assert!(ok && out.starts_with(&format!("pinned branch@dev\nworktree: {}\ngrove wasn't told", wt("branch@dev").display())), "{out}");
+    let (ok, out) = grove(&wt("branch@dev"), &[], &["current"]);
+    assert!(ok && out.starts_with("id:       branch@dev\nname:     dev\nbranch:   dev\n") && out.contains("\npin:      branch@dev (branch dev)\n"), "{out}");
+    let (ok, out) = grove(&wt("tag@v1"), &[], &["current"]);
+    assert!(ok && out.contains("branch:   (none: detached at the tag v1)\n"), "{out}");
+    let (ok, out) = grove(&dir, &[], &["branch", "on dev", "--from", "dev", "--no-terminal"]);
+    assert!(ok && out.contains(" (on dev) from branch@dev\n"), "{out}");
+    let d = out["branched idea ".len()..].split(' ').next().unwrap().to_string();
+    let (ok, out) = grove(&wt(&d), &[], &["current"]);
+    assert!(ok && out.contains("\nparent:   branch@dev\npin:      branch@dev (branch dev)\n"), "{out}");
+    let (ok, out) = grove(&dir, &[], &["list"]);
+    assert!(ok && out.starts_with(&format!("  branch@dev  dev\n    {d}    on dev\n")) && out.contains("\n* branch@main  main\n"), "{out}");
+
+    // grove unpin leaves a pin with ideas on it to people; any other goes,
+    // named by what it pins, its worktree too.
+    let (ok, out) = grove(&dir, &[], &["unpin", "dev"]);
+    assert!(!ok && out.contains("unpinning branch@dev discards the ideas on it (on dev), which is left to people"), "{out}");
+    let (ok, out) = grove(&dir, &[], &["unpin", "nope"]);
+    assert!(!ok && out.contains("no pin nope: grove list shows the pins"), "{out}");
+    let (ok, out) = grove(&dir, &[], &["unpin", &first[..7]]);
+    assert!(ok && out.starts_with(&format!("unpinned commit@{first}")), "{out}");
+    assert!(!wt(&format!("commit@{first}")).exists() && !tree().contains(&format!(r#""id":"commit@{first}""#)));
+
+    // Unpinning in the tree discards the pin's ideas, refused if any of them,
+    // or grove's worktree for the pin, has changes that aren't committed.
+    std::fs::write(wt(&d).join("wip"), "x").unwrap();
+    assert_eq!(unpin("branch@dev"), r#"{"error":"nothing was unpinned: these have changes that aren't committed: on dev","ok":false}"#);
+    std::fs::remove_file(wt(&d).join("wip")).unwrap();
+    std::fs::write(wt("branch@dev").join("wip"), "x").unwrap();
+    assert!(unpin("branch@dev").contains("nothing was unpinned: dev has changes that aren't committed in "));
+    std::fs::remove_file(wt("branch@dev").join("wip")).unwrap();
+    assert!(wt(&d).exists() && common.join("grove/pins/branch@dev.toml").exists());
+    assert_eq!(unpin("branch@dev"), r#"{"id":"branch@dev","ok":true}"#);
+    assert!(!wt(&d).exists() && !wt("branch@dev").exists() && !common.join("grove/pins/branch@dev.toml").exists());
+    assert_eq!(git(&dir, &["rev-parse", &format!("idea/{d}")]), first);
+    assert_eq!(idea_in(port, "on dev").0, "discarded");
+    assert!(!tree().contains(r#""id":"branch@dev""#));
+    assert_eq!(unpin("branch@dev"), r#"{"error":"no pin branch@dev","ok":false}"#);
+
+    // Unpinning the checked-out branch leaves the repository's own worktree,
+    // which then isn't a pin's until it's pinned again.
+    assert_eq!(unpin("branch@main"), r#"{"id":"branch@main","ok":true}"#);
+    assert!(dir.join("b.txt").exists());
+    let (ok, out) = grove(&dir, &[], &["current"]);
+    assert!(!ok && out.contains("the repository's own worktree isn't a pin's: pin its branch with grove pin main"), "{out}");
+    let (ok, out) = grove(&dir, &[], &["pin", "main"]);
+    assert!(ok && out.starts_with(&format!("pinned branch@main\nworktree: {}\n", dir.display())), "{out}");
+
     drop(_server);
     let _ = std::fs::remove_dir_all(&dir);
 }

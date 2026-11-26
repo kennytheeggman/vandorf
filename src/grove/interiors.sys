@@ -99,8 +99,8 @@ proc OpenInterior(s: { repo: Repo, idea: string, name: string }): Res<string> {
 		None() -> id(Err(GroveErr(msg = "no interior named " + OpenInterior.s.name))),
 		Some(x) -> id(x) as It
 	};
-	It -> LoadIdea(s = { repo = OpenInterior.s.repo, id = OpenInterior.s.idea });
-	LoadIdea switch {
+	It -> LoadNode(s = { repo = OpenInterior.s.repo, id = OpenInterior.s.idea });
+	LoadNode switch {
 		Ok(i) -> id(i) as I,
 		Err(e) -> id(Err(e))
 	};

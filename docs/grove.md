@@ -21,16 +21,59 @@ grove --addr 127.0.0.1:9000
 > everything else works; nodes just show no status. The hooks do nothing
 > outside grove, since they check `$GROVE_URL` first.
 
+## Pins
+
+The middle of the map is the repository itself: a hub that pins lead out
+from. It isn't a git source, so nothing is branched from it or merged into
+it. Around it, on the first ring, are the **pins**, the git sources ideas
+are branched from:
+
+- A **branch** pin follows its branch. Ideas on it are merged into it.
+- A **tag** or **commit** pin stays where it is. Ideas on it can be
+  rebased onto it, but there's no branch to merge them into.
+
+A pin's id is its kind and what it pins: `branch@main`, `tag@v1.0`,
+`commit@<sha>`. It keeps its own name and sections, as an idea does, and
+has a worktree for its interiors and terminals: the one its branch is
+checked out in (the repository's own, for the checked-out branch), or else
+one of grove's in `grove/worktrees/`, made when it's pinned or first
+needed, detached for a tag or a commit.
+
+- **Pin** from the pin button in the sidebar, by right-clicking the hub,
+  or with `grove pin <branch|tag|commit>`. A name is a branch if there's
+  one, else a tag, else whatever commit git finds by it (`HEAD~2`,
+  `origin/main`, a sha); `refs/heads/<b>` and `refs/tags/<t>` say which.
+  An idea's own branch (`idea/...`) can't be pinned.
+- **Unpin** by right-clicking a pin, or with `grove unpin <pin>`. It
+  discards the ideas on the pin, as discarding does (below), so the tree
+  asks first, listing them, and nothing is unpinned if any of them has
+  changes that aren't committed (or grove's worktree for the pin has).
+  grove's worktree for the pin goes; the repository's own never does. The
+  branch, tag or commit itself stays in git, and the ideas keep their
+  branches: they hang from the pin they fork from (see below) until it's
+  pinned again. `grove unpin` refuses a pin with active ideas: discarding
+  is left to people.
+
+The page pins and unpins with `POST /api/pins/pin {ref}` and
+`POST /api/pins/unpin {id}`, with the session's token.
+
+The checked-out branch is pinned to begin with (or, with a detached HEAD,
+its commit). A repository grove used
+before pins is moved over the first time it's read: the checked-out branch
+is pinned with the old root's name and sections (from `grove/root.toml`,
+which is left as it was), and the ideas that hung from the root hang from
+that pin, so the map looks the same, one ring out.
+
 ## Ideas
 
-An idea is a local branch `idea/<id>` with its own worktree. The root of the
-tree is the repository's main worktree; every other idea is branched from
-another, at that idea's head, and its base (`refs/worktree/base`, see #16)
-is set to the commit it was branched at.
+An idea is a local branch `idea/<id>` with its own worktree. Each is
+branched from a pin or from another idea, at its head, and its base
+(`refs/worktree/base`, see #16) is set to the commit it was branched at.
+The pin at the top of an idea's line is **its pin**.
 
-- **Branch** from any idea: the branch button in the sidebar, Alt+Shift+N,
-  or right-click a node. The new idea gets its parent's sections, without
-  their terminals.
+- **Branch** from any pin or idea: the branch button in the sidebar,
+  Alt+Shift+N, or right-click a node. The new idea gets its parent's
+  sections, without their terminals.
 - **Discard** removes the idea's worktree, and those of every idea under
   it, stops their terminals and the interiors started for them, and keeps
   their branches, so each can be **restored**. If any of them has changes
@@ -39,49 +82,56 @@ is set to the commit it was branched at.
   menu in the history view. It removes the branch, remaining worktree and sessions, and
   idea metadata. Delete any child ideas first. Git protects uncommitted
   changes in a remaining worktree.
-- **Merge** an idea into the root (see [Merging](#merging)).
-- **Rename** any idea, the root too.
+- **Merge** an idea into its pin (see [Merging](#merging)).
+- **Rename** any pin or idea.
 
 Everything is private to the machine. grove keeps its metadata in the
 common git directory (`git rev-parse --git-common-dir`), under `grove/`:
 
 ```
+grove/pins/<id>.toml      a pin: kind, ref, name, sections (a / in the id
+                          is %2F in the file's name)
 grove/ideas/<id>.toml     an idea: name, parent, fork point, sections
-grove/root.toml           the root's name and sections
-grove/worktrees/<id>/     ideas' worktrees
+grove/worktrees/<id>/     ideas' worktrees, and pins' that grove made
 grove/interiors.toml      the repository's interiors (optional)
 grove/lock                held while a file is written
+grove/root.toml           the root's name and sections, from before pins
 ```
 
 The tree is rebuilt from git each time it's read: a branch `idea/<x>` made
-by hand is an idea hanging from the root, an idea whose worktree was removed
-outside grove shows as discarded, one whose own commits are all in the
-root's branch (merged by hand) shows as merged, and the page catches up
-every few seconds.
+by hand (or an idea whose parent is gone) hangs from the pin it forks from,
+the one whose head has the most of its commits, or the checked-out
+branch's pin when that's unclear; an idea whose worktree was removed
+outside grove shows as discarded; one whose own commits are all in its pin
+(merged by hand) shows as merged; and the page catches up every few
+seconds.
 
 ### Merging
 
-An idea is **based** on its parent when it's built on the parent's latest
-commit (its fork is the parent's head). Merging takes an idea that's on the
-root's head, so it's a fast-forward and can't conflict:
+An idea is **based** on its parent (a pin or an idea) when it's built on
+the parent's latest commit (its fork is the parent's head). Merging takes
+an idea that's on its pin's head, so it's a fast-forward and can't
+conflict:
 
-1. The root's branch fast-forwards to the idea. The root's worktree is the
-   repository's own checkout, so its files change too; git refuses if that
-   would overwrite changes there.
+1. The pin's branch fast-forwards to the idea, in the pin's worktree, so
+   its files change too; git refuses if that would overwrite changes
+   there. A tag or a commit pin has no branch, so its ideas can't be
+   merged.
 2. The idea is **merged**: its worktree closes, its terminals stop, its
    branch stays. It leaves the map (the history button shows it), and the
-   root's tooltip lists it.
-3. Its children become the root's.
-4. Every other idea is rebased onto its parent, parents first, so the whole
-   tree is on the new root. An idea that can't be (changes not committed,
-   or a conflict) is left exactly as it was, its rebase undone, and flagged
-   for attention with why. An idea whose commits are all in its parent
-   already (merged some other way, such as with git by hand) is left alone
-   too: it's merged, and replaying its commits would only copy them. Its
-   children go to its parent, as if grove had merged it. An idea merged
-   only partly that way replays just the commits its parent hasn't.
+   pin's tooltip lists it.
+3. Its children become the pin's.
+4. Every other idea on the pin is rebased onto its parent, parents first,
+   so the pin's whole tree is on its new head. An idea that can't be
+   (changes not committed, or a conflict) is left exactly as it was, its
+   rebase undone, and flagged for attention with why. An idea whose commits
+   are all in its parent already (merged some other way, such as with git
+   by hand) is left alone too: it's merged, and replaying its commits would
+   only copy them. Its children go to its parent, as if grove had merged
+   it. An idea merged only partly that way replays just the commits its
+   parent hasn't.
 
-An idea not on the root's head can't merge until it's rebased: right-click
+An idea not on its pin's head can't merge until it's rebased: right-click
 it for **Rebase onto <parent>**, which undoes itself on a conflict. An
 agent in the idea can do it with `grove rebase`, which stops on a conflict
 for it to resolve, then `grove rebase --continue`. A rebase only moves the
@@ -90,17 +140,20 @@ people's.
 
 ## The window
 
-- **The map** (left): the root, the repository's checked-out branch, in the
-  middle, and each idea on a ring by its depth, with edges leading out from
-  the root. There are no labels: hover any node for its name, status,
-  branch and head (the root's says **HEAD**, and which ideas were merged
-  into it). Click an idea to show it: the map turns so its history, from
-  the root, runs straight up. Drag or scroll to pan, pinch or Ctrl+scroll to
-  zoom, and double-click (or the target button) to see the whole tree
-  again. Right-click a node to branch, rename, rebase, merge, discard or
-  restore it. The history button shows merged and discarded ideas. The
-  sidebar can be resized, and hidden (Alt+Shift+B). Merge, discard, and
-  permanent deletion ask for confirmation. Enter confirms and Escape cancels.
+- **The map** (left): the repository in the middle, a small dot in the
+  theme's ink, its pins on the first ring, and each idea on a ring by its
+  depth, with edges leading out from its pin. There are no labels: hover
+  any node for its name, status, branch and head (the checked-out branch's
+  pin says **HEAD**; a pin's tooltip says which ideas were merged into it).
+  Click a pin or an idea to show it: the map turns so its history, from its
+  pin, runs straight up. Clicking the hub, double-clicking the map, or the
+  target button sees the whole map again. Drag or scroll to pan, pinch or
+  Ctrl+scroll to zoom. Right-click the hub to pin, a pin to branch from,
+  rename or unpin it, and an idea to branch, rename, rebase, merge, discard
+  or restore it. The history button shows merged and discarded ideas. The
+  sidebar can be resized, and hidden (Alt+Shift+B). Merge, discard, unpin
+  and permanent deletion ask for confirmation. Enter confirms and Escape
+  cancels.
 
   A node shows what the agent in its idea last said (`grove status`): a
   spinner while it's **working**, amber with a pulse when it needs
@@ -109,24 +162,24 @@ people's.
   after either report. That acknowledgment applies across windows and
   reloads until the agent reports again. A failed rebase remains amber
   until rebased successfully or retried interactively. A stopped rebase
-  stays amber until it finishes or is aborted. The root, the
-  checked-out branch, is the larger blue node with a ring. A dashed edge
-  means the idea isn't on its parent's latest commit.
-- **Sections** (right): under a slim bar with the shown idea's name (the
-  root's for the root), the shown idea's interiors, stacked, each with a
+  stays amber until it finishes or is aborted. A pin is a larger blue node
+  with a ring, dashed for a tag or a commit. A dashed edge means the idea
+  isn't on its parent's latest commit.
+- **Sections** (right): under a slim bar with the shown pin's or idea's
+  name, its interiors, stacked, each with a
   header like VS Code's sidebar views. Click a header to collapse or expand
   it (several can be open at once, sharing the height), drag headers to
   reorder them, and close one with its ×. To open another, collapse every
   section: a line under them lists the interiors to pick from.
 
-Each idea keeps its own sections, their order and which are expanded.
-Switching keeps the last four ideas' sections alive, hidden, so switching
-back is instant.
+Each pin and idea keeps its own sections, their order and which are
+expanded. Switching keeps the last four ones' sections alive, hidden, so
+switching back is instant.
 
 | Shortcut | |
 |---|---|
-| Alt+Shift+N | Branch a new idea from the shown one |
-| Alt+Shift+↑ / ↓ | Show the previous or next idea in the tree |
+| Alt+Shift+N | Branch a new idea from the shown pin or idea |
+| Alt+Shift+↑ / ↓ | Show the previous or next pin or idea in the tree |
 | Alt+Shift+B | Show or hide the tree |
 
 ## Interiors
@@ -191,11 +244,14 @@ carrying `grove: 1`:
 an agent (Claude, say) in one of grove's terminals can grow the tree itself:
 
 ```
-grove list                          # the ideas as a tree; * marks this one
-grove current                       # this idea: id, name, branch, worktree
+grove list                          # the pins and ideas as a tree; * marks this one
+grove current                       # this pin or idea: id, name, branch, worktree, pin
 grove branch "try a cache" --run 'claude "make lookups cached"'
+grove branch "on dev" --from dev    # from dev's pin
 grove rename "cache, with eviction"
 grove restore <idea>
+grove pin release/2.0               # a branch, a tag or a commit
+grove unpin release/2.0
 grove run -- make test              # in this idea's terminal at its prompt
 grove run --idea <idea> --new "npm run dev"
 grove status working "running the tests"   # shown on this idea's node
@@ -203,9 +259,11 @@ grove rebase                        # onto its parent's latest commit
 grove help
 ```
 
-Each command runs in the idea whose worktree it's in (the repository's own
-is the root), unless `--from` (branch) or `--idea` (rename, run) names
-another. It makes the change itself, through git and grove's metadata, so
+Each command runs in the pin or idea whose worktree it's in (the
+repository's own is its checked-out branch's pin), unless `--from` (branch)
+or `--idea` (rename, run, status, rebase) names another: an idea by its id,
+a pin by its id or by what it pins (`main`, `v1.0`, a commit's first
+digits). It makes the change itself, through git and grove's metadata, so
 it works with no grove running; all but `run`, which types into grove's
 terminals and fails without `$GROVE_URL`. Then it tells grove, through `$GROVE_URL` and
 `$GROVE_TOKEN`. grove sets both in its terminals and in the interiors it
@@ -243,10 +301,13 @@ starts. The page catches up at once and says which ideas are new.
   its own commits there. On a conflict it stops for the agent (or you) to
   resolve it in the worktree, `git add` the files, and run
   `grove rebase --continue`. Afterwards the rebase warning clears.
+- **pin** and **unpin** pin a branch, a tag or a commit, and unpin one
+  (see [Pins](#pins)).
 - **Discarding and merging are left to people**, in the tree. `grove
-  discard` and `grove merge` refuse, and `$GROVE_TOKEN` is a token of its
-  own that only the agent routes take, not grove's other writes. An agent
-  can't discard the idea its own terminal lives in.
+  discard` and `grove merge` refuse, as does `grove unpin` for a pin with
+  active ideas, and `$GROVE_TOKEN` is a token of its own that only the
+  agent routes take, not grove's other writes. An agent can't discard the
+  idea its own terminal lives in.
 
 ### Status from agents' hooks
 
@@ -315,7 +376,7 @@ try an alternative in parallel."
 
 ## Not yet
 
-Compare, merging into an idea other than the root, ship, and restacking
+Compare, merging into an idea rather than its pin, ship, and restacking
 onto a tracked branch (#26); restoring terminals after a restart, resume
 rules for agent CLIs, and idle stops (#27); terminals that keep running
 across a restart (#31); and the inbox (#29). Terminals die with grove for
