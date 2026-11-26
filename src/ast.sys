@@ -17,7 +17,8 @@ type Interface = { name: Ident, funcs: []Func, doc: string };
 type Node = enum { Func(Func), Proc(Proc) };
 
 type Func = { name: Ident, params: []Field, ret: OptType, imps: []ImplRef, doc: string };
-// `file:function`, `file` relative to the .sys file.
+// `file:function`, `file` relative to the .sys file. For a foreign type,
+// `function` is the type as written in that file (`file:Type`).
 type ImplRef = { file: string, function: string, span: Span };
 // `proc P(a: int): T { P -> .. }`: the body starts from P, the signature
 // node.
@@ -32,7 +33,10 @@ type TypeKind = enum {
 	Array(TypeExpr),
 	Map({ key: TypeExpr, value: TypeExpr }),
 	Struct([]Field),
-	Enum([]Variant)
+	Enum([]Variant),
+	// `type Conn = "db.go:*sql.DB", "db.rs:Conn";`: a foreign type, one
+	// implementation per backend. Only a typedef's body.
+	Foreign([]ImplRef)
 };
 type Variant = { name: Ident, payload: OptType };
 type OptType = enum { None, Some(TypeExpr) };

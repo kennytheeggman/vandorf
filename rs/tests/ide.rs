@@ -56,6 +56,9 @@ fn reads_sources_and_compiles() {
     let c = req("POST", "/api/compile", &[], &[], r#"{"source": "proc Main(n: int): int { func A(n: int): int; Main -> A(n = this.n); A -> id(this + 1); }"}"#);
     assert_eq!(c.status, 200);
     assert!(c.body.contains(r#""grids":1"#) && c.body.contains(r#""ok":true"#) && c.body.contains(r#""signature""#) == false, "{}", &c.body[..200]);
+    // A foreign type's symbol shows its implementations, as funcs' do.
+    let f = req("POST", "/api/compile", &[], &[], r#"{"source": "type Conn = \"db.go:*Conn\", \"db.rs:Conn\"; proc P(): int { func O(): Conn; func N(c: Conn): int; P -> O(); O -> N(c = this); }"}"#);
+    assert!(f.body.contains(r#""Conn":{"def":"\"db.go:*Conn\", \"db.rs:Conn\"""#), "{}", f.body);
     let e = req("POST", "/api/compile", &[], &[], r#"{"source": "proc P(): int { func A(): string; P -> A(); }"}"#);
     assert!(e.body.contains(r#""diagnostics":[{"file":"<editor>","from":{"ch":5,"line":0},"here":true,"msg":"P.A ends proc P but returns string, expected int""#), "{}", e.body);
 }

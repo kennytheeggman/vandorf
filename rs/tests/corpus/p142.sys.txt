@@ -1,0 +1,69 @@
+// Foreign types (#19): values the implementations make and change, which
+// procs hold and pass on but can't look inside.
+
+// A counter kept by the implementations.
+type Counter = "counter.go:*Counter", "../counter.rs:Counter";
+// A text being built, implemented outside the code package and the crate.
+type Buf = "../ext/buf.go:*Buf", "../../leaves/buf.rs:Buf";
+// Implemented nowhere yet: both backends get a placeholder.
+type Later = "later.py:Later";
+
+// Makes a counter.
+func New(start: int): Counter = "counter.go:New", "../counter.rs:new";
+// Adds by to c.
+func Bump(c: Counter, by: int) = "counter.go:Bump", "../counter.rs:bump";
+func Read(c: Counter): int = "counter.go:Read", "../counter.rs:read";
+func Move(from: Counter, to: Counter, by: int) = "counter.go:Move", "../counter.rs:move_by";
+func NewBuf(): Buf = "../ext/buf.go:NewBuf", "../../leaves/buf.rs:new_buf";
+func Write(b: Buf, s: string) = "../ext/buf.go:Write", "../../leaves/buf.rs:write";
+func Text(b: Buf): string = "../ext/buf.go:Text", "../../leaves/buf.rs:text";
+func Itoa(i: int): string = "counter.go:Itoa", "../counter.rs:itoa";
+
+// Every way a foreign value travels: lent to funcs and procs, to spawn
+// branches, read in conditions, returned by a proc into a node.
+proc Main(start: int, by: int): string {
+	Main -> New(start = this.start);
+	New -> Bump(c = this, by = Main.by);
+	Bump -> Bump(c = New, by = Main.by * 2) as Again;
+	Again -> Fresh(start = 1000) as Other;
+	Other -> spawn { Twice(c = New, by = 1), Bump(c = Other, by = 5) as Side } join Move(from = Other, to = New, by = this.Twice);
+	Move switch {
+		(Read(c = New) < 100) -> Bump(c = New, by = 10) as Step,
+		else -> Show(c = Other) as Shown
+	};
+	Step -> Move(from = Other, to = New, by = 0);
+	// Shown is called with either counter: its input says which is lent.
+	Shown switch {
+		(this > 500) -> Show(c = New) as Shown,
+		else -> NewBuf()
+	};
+	NewBuf -> Write(b = this, s = "new=" + Itoa(i = Read(c = New)));
+	Write -> Text(b = NewBuf);
+}
+
+// A counter's count.
+proc Show(c: Counter): int {
+	Show -> Read(c = this.c);
+}
+
+// Bumps a counter it borrows twice.
+proc Twice(c: Counter, by: int): int {
+	Twice -> Bump(c = this.c, by = this.by);
+	Bump -> Bump(c = Twice.c, by = Twice.by) as Second;
+	Second -> id(Twice.by * 2);
+}
+
+// A new counter, bumped once, given back.
+proc Fresh(start: int): Counter {
+	Fresh -> New(start = this.start);
+	New -> Bump(c = this, by = 1);
+	Bump -> id(New);
+}
+
+// Builds around a placeholder.
+proc Unused(n: int): int {
+	func MakeLater(n: int): Later;
+	func UseLater(l: Later): int;
+	Unused -> MakeLater(n = this.n);
+	MakeLater -> UseLater(l = this);
+}

@@ -1,0 +1,9 @@
+type Conn = "db.go:*Conn", "db.rs:Conn";
+func Open(): Conn; func Count(c: Conn): int; func Two(a: Conn, b: Conn): int; func Clone(c: Conn): Conn;
+func Bump(c: Conn); func Xs(): []int; func Get(i: int, c: Conn): int; func OpenAt(i: int): Conn;
+type L = []C2; type C2 = Conn; type M = map[string]Conn; type E = enum { A(Conn) };
+proc P(n: int): int { P -> Open(); Open -> Count(c = this); }
+---
+error: L holds C2, a foreign type, which can't be inside a struct, array, map or enum @248..249
+error: M holds Conn, a foreign type, which can't be inside a struct, array, map or enum @279..280
+error: E holds Conn, a foreign type, which can't be inside a struct, array, map or enum @305..306

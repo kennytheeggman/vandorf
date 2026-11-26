@@ -1,0 +1,7 @@
+type Conn = "db.go:*Conn", "db.rs:Conn";
+func Open(): Conn; func Count(c: Conn): int; func Two(a: Conn, b: Conn): int; func Clone(c: Conn): Conn;
+func Bump(c: Conn); func Xs(): []int; func Get(i: int, c: Conn): int; func OpenAt(i: int): Conn;
+type Other = "db.go:*Conn", "db.rs:Conn"; func Use(o: Other): int;
+proc P(n: int): int { P -> Open(); Open -> Use(o = this); }
+---
+error: argument o of Use: this has type Conn, but Other is expected @361..365

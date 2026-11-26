@@ -13,6 +13,9 @@ type GGen = {
 	import_base: MaybeStr,
 	// Impl imports of the file being written: path -> alias.
 	imports: map[string]string,
+	// The imports of the files naming foreign types' Go types: "file|name" ->
+	// path (see GoGenIn).
+	fimports: map[string]string,
 	// "src -> dst" -> the helper's name.
 	coercions: map[string]string,
 	helpers: []string,
@@ -45,7 +48,10 @@ type GoStatic = { url: string, file: string, ctype: string, text: string };
 // An HTTP server (as rust_http's ServerSpec; setup and cli "" for none):
 // path is its main package's directory, relative to the output.
 type GoServerSpec = { name: string, addr: string, setup: string, cli: string, routes: []Route, raw: []Route, statics: []GoStatic, path: string };
-type GoGenIn = { prog: Program, package: string, import_base: MaybeStr, types_dir: string, mains: []GoMainSpec, servers: []GoServerSpec };
+// imports: for each foreign type whose Go type is qualified (`*sql.DB` in
+// db.go), the package its file imports by that name: "db.go|sql" ->
+// "database/sql", the file as the program names it.
+type GoGenIn = { prog: Program, package: string, import_base: MaybeStr, types_dir: string, mains: []GoMainSpec, servers: []GoServerSpec, imports: map[string]string };
 // dir: relative to the output directory. kind: types, code or main.
 type GoFile = { dir: string, name: string, text: string, kind: string };
 type GoOut = { files: []GoFile, err: MaybeStr };
@@ -118,10 +124,13 @@ proc GoMemberLines(s: { t: Table, i: int, ms: []RefMember, j: int, acc: []Line }
 	};
 }
 
-// Writes each typedef alias as `type Name = type`, with its doc comment.
+// Writes each typedef alias as `type Name = type`, with its doc comment; a
+// foreign type's alias is the code package's (foreign_vandorf.go).
 proc GoAliasLines(s: { t: Table, i: int, acc: []Line }): []Line {
+	func IsForeignRef(r: TyRef): bool = "gen_leaf.rs:is_foreign_ref";
 	GoAliasLines switch {
 		(this.s.i == this.s.t.aliases.len) -> id(this.s.acc),
+		(IsForeignRef(r = this.s.t.aliases[this.s.i].r)) -> GoAliasLines(s = { ..this.s, i = this.s.i + 1 }),
 		else -> GoAliasLines(s = { t = this.s.t, i = this.s.i + 1, acc = this.s.acc + GoAliasDoc(t = this.s.t, name = this.s.t.aliases[this.s.i].name) + [L("type " + this.s.t.aliases[this.s.i].name + " = " + GoRender(t = this.s.t, r = this.s.t.aliases[this.s.i].r, qual = "")), L("")] })
 	};
 }
@@ -596,6 +605,12 @@ proc GFiles(s: { g: GGen, package: string, setup: GoSetup, procs: []int, i: int,
 // Writes the code package's other files: inputs_vandorf.go, stubs_vandorf.go
 // (if any stubs) and runtime_vandorf.go.
 func GoRestFiles(g: GGen, package: string, setup: GoSetup): []GoFile = "go_leaf.rs:go_rest_files";
+// Writes foreign_vandorf.go, if the program has foreign types: for each, the
+// code package's alias of the Go type its .go implementation names (as that
+// file writes it, its package imported if it's another, or the package it
+// qualifies the type with), or a placeholder if it names none. Or why a
+// type can't be reached.
+func GoForeignFile(g: GGen, package: string, setup: GoSetup): GoOut = "go_leaf.rs:go_foreign_file";
 // Writes the bins' mains, each a package main in its directory; or the first
 // error.
 func GoMainFiles(prog: Program, t: Table, package: string, import_base: MaybeStr, mains: []GoMainSpec): GoOut = "go_leaf.rs:go_main_files";
@@ -609,10 +624,11 @@ func GoHttpFiles(prog: Program, t: Table, package: string, setup: GoSetup, serve
 func GoServerMains(prog: Program, package: string, import_base: MaybeStr, servers: []GoServerSpec): GoOut = "go_leaf.rs:go_server_mains";
 
 // Generates a program's Go: the types package, a file per top-level proc,
-// the inputs, stubs and runtime, the servers' handlers, and the bins' and
-// servers' mains, sorted by directory and name. Or the first error, in the
-// reference's order: the types' import path, names, an error that stopped
-// the generator, one from an expression, then the mains.
+// the inputs, stubs and runtime, the foreign types' aliases, the servers'
+// handlers, and the bins' and servers' mains, sorted by directory and name.
+// Or the first error, in the reference's order: the types' import path,
+// names, an error that stopped the generator, one from an expression, a
+// foreign type's, then the mains.
 proc GoGenerate(s: GoGenIn): GoOut {
 	func Sorted(files: []GoFile): []GoFile = "go_leaf.rs:go_sort_files";
 	GoGenerate -> id(GoSetupOf(package = this.s.package, import_base = this.s.import_base, types_dir = this.s.types_dir)) as Setup;
@@ -625,12 +641,16 @@ proc GoGenerate(s: GoGenIn): GoOut {
 		else -> GoTypegen(s = { t = this, pkg = Setup.pkg })
 	};
 	GoTypegen -> GFiles(s = {
-		g = { prog = GoGenerate.s.prog, table = BuildTable, tq = Setup.tq, import_base = GoGenerate.s.import_base, imports = [:], coercions = [:], helpers = [], stubs = [:], failed = None(), fatal = None(), temps = 0, proc_name = "", w = [] },
+		g = { prog = GoGenerate.s.prog, table = BuildTable, tq = Setup.tq, import_base = GoGenerate.s.import_base, imports = [:], fimports = GoGenerate.s.imports, coercions = [:], helpers = [], stubs = [:], failed = None(), fatal = None(), temps = 0, proc_name = "", w = [] },
 		package = GoGenerate.s.package, setup = Setup, procs = GoGenerate.s.prog.top, i = 0, acc = []
 	});
 	GFiles switch {
 		(IsSomeS(m = this.g.fatal)) -> id({ files = [], err = this.g.fatal }),
 		(IsSomeS(m = this.g.failed)) -> id({ files = [], err = this.g.failed }),
+		else -> id(GoForeignFile(g = this.g, package = GoGenerate.s.package, setup = Setup)) as Foreign
+	};
+	Foreign switch {
+		(IsSomeS(m = this.err)) -> id(this),
 		else -> id(GoHttpFiles(prog = GoGenerate.s.prog, t = BuildTable, package = GoGenerate.s.package, setup = Setup, servers = GoGenerate.s.servers)) as Http
 	};
 	Http switch {
@@ -643,6 +663,6 @@ proc GoGenerate(s: GoGenIn): GoOut {
 	};
 	Servers switch {
 		(IsSomeS(m = this.err)) -> id(this),
-		else -> id({ files = Sorted(files = [{ dir = Setup.dir, name = "types_vandorf.go", text = GoTypegen, kind = "types" }] + GFiles.files + GoRestFiles(g = GFiles.g, package = GoGenerate.s.package, setup = Setup) + Http.files + Mains.files + this.files), err = None() })
+		else -> id({ files = Sorted(files = [{ dir = Setup.dir, name = "types_vandorf.go", text = GoTypegen, kind = "types" }] + GFiles.files + GoRestFiles(g = GFiles.g, package = GoGenerate.s.package, setup = Setup) + Foreign.files + Http.files + Mains.files + this.files), err = None() })
 	};
 }

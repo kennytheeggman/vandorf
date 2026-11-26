@@ -1,0 +1,7 @@
+type Conn = "db.go:*Conn", "db.rs:Conn";
+func Open(): Conn; func Count(c: Conn): int; func Two(a: Conn, b: Conn): int; func Clone(c: Conn): Conn;
+func Bump(c: Conn); func Xs(): []int; func Get(i: int, c: Conn): int; func OpenAt(i: int): Conn;
+
+proc P(n: int): int { P -> Open(); Open -> Xs(); Xs for each (this) -> OpenAt(i = this); OpenAt collect each (OpenAt) -> id(1); }
+---
+error: OpenAt returns Conn, a foreign type, so collect each can't gather its outputs into an array @333..339

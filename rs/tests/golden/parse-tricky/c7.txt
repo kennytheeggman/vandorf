@@ -1,0 +1,1 @@
+(file(type Conn @22:26(foreign(impl ../go/app/db.go *sql.DB @29:54)(impl ../rs/src/db.rs db::Conn @56:82) @29:82)(doc "A connection."))(type Re @89:91(foreign(impl re.go Regexp @94:108)(impl x/y:z/re.rs Regex @110:129)(impl re.py re.Pattern @131:149) @94:149)))

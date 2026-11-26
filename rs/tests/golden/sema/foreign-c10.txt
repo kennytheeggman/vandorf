@@ -1,0 +1,8 @@
+type Conn = "db.go:*Conn", "db.rs:Conn";
+func Open(): Conn; func Count(c: Conn): int; func Two(a: Conn, b: Conn): int; func Clone(c: Conn): Conn;
+func Bump(c: Conn); func Xs(): []int; func Get(i: int, c: Conn): int; func OpenAt(i: int): Conn;
+func F(xs: []Conn): { c: Conn };
+proc P(n: int): int { P -> Open(); Open -> Count(c = this); }
+---
+error: []Conn holds Conn, a foreign type, which can't be inside a struct, array, map or enum @254..260
+error: { c: Conn } holds Conn, a foreign type, which can't be inside a struct, array, map or enum @263..274

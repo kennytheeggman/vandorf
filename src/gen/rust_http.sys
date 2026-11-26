@@ -111,8 +111,13 @@ proc EnumJson(s: { name: string, tname: string, vs: []RefMember, i: int, to: []L
 	};
 }
 
+// Why proc pid can't run for `what` (an executable or a server): a foreign
+// parameter or result, which nothing outside the program can make or take.
+func EntryProblem(prog: Program, pid: int, what: string): MaybeStr = "gen_leaf.rs:entry_problem";
+
 // Writes a call per proc a route runs: the request's parameters decoded, the
-// proc run, its result encoded. Fails if a route names no top-level proc.
+// proc run, its result encoded. Fails if a route names no top-level proc, or
+// one taking or giving a foreign value.
 proc HttpCalls(s: { g: RGen, servers: []ServerSpec, procs: []string, i: int, acc: []Line }): { lines: []Line, err: MaybeStr } {
 	func Decodes(g: RGen, pid: int): []Line = "gen_leaf.rs:http_decodes";
 	func ArgNames(g: RGen, pid: int): string = "gen_leaf.rs:http_args";
@@ -120,6 +125,7 @@ proc HttpCalls(s: { g: RGen, servers: []ServerSpec, procs: []string, i: int, acc
 	HttpCalls switch {
 		(this.s.i == this.s.procs.len) -> id({ lines = this.s.acc, err = None() }),
 		(FindTop(prog = this.s.g.prog, name = this.s.procs[this.s.i]) < 0) -> id({ lines = [], err = Some("http server " + ServerOf(servers = this.s.servers, proc = this.s.procs[this.s.i]) + " runs proc " + this.s.procs[this.s.i] + ", but there is no top-level proc " + this.s.procs[this.s.i]) }),
+		(IsSomeS(m = EntryProblem(prog = this.s.g.prog, pid = FindTop(prog = this.s.g.prog, name = this.s.procs[this.s.i]), what = "http server " + ServerOf(servers = this.s.servers, proc = this.s.procs[this.s.i])))) -> id({ lines = [], err = EntryProblem(prog = this.s.g.prog, pid = FindTop(prog = this.s.g.prog, name = this.s.procs[this.s.i]), what = "http server " + ServerOf(servers = this.s.servers, proc = this.s.procs[this.s.i])) }),
 		else -> HttpCalls(s = { ..this.s, i = this.s.i + 1, acc = this.s.acc + [
 			L("/// Runs proc " + this.s.procs[this.s.i] + " with the request's parameters."),
 			L("fn call_" + SnakeG(n = this.s.g.prog.nodes[FindTop(prog = this.s.g.prog, name = this.s.procs[this.s.i])]) + "(params: &Value) -> Result<String, (u16, String)> {")
@@ -142,6 +148,7 @@ proc RawCalls(s: { g: RGen, servers: []ServerSpec, procs: []string, i: int, acc:
 	RawCalls switch {
 		(this.s.i == this.s.procs.len) -> id({ lines = this.s.acc, err = None() }),
 		(FindTop(prog = this.s.g.prog, name = this.s.procs[this.s.i]) < 0) -> id({ lines = [], err = Some("http server " + ServerOf(servers = this.s.servers, proc = this.s.procs[this.s.i]) + " runs proc " + this.s.procs[this.s.i] + ", but there is no top-level proc " + this.s.procs[this.s.i]) }),
+		(IsSomeS(m = EntryProblem(prog = this.s.g.prog, pid = FindTop(prog = this.s.g.prog, name = this.s.procs[this.s.i]), what = "http server " + ServerOf(servers = this.s.servers, proc = this.s.procs[this.s.i])))) -> id({ lines = [], err = EntryProblem(prog = this.s.g.prog, pid = FindTop(prog = this.s.g.prog, name = this.s.procs[this.s.i]), what = "http server " + ServerOf(servers = this.s.servers, proc = this.s.procs[this.s.i])) }),
 		(IsSomeS(m = ShapeError(prog = this.s.g.prog, pid = FindTop(prog = this.s.g.prog, name = this.s.procs[this.s.i]), server = ServerOf(servers = this.s.servers, proc = this.s.procs[this.s.i]), name = this.s.procs[this.s.i]))) -> id({ lines = [], err = ShapeError(prog = this.s.g.prog, pid = FindTop(prog = this.s.g.prog, name = this.s.procs[this.s.i]), server = ServerOf(servers = this.s.servers, proc = this.s.procs[this.s.i]), name = this.s.procs[this.s.i]) }),
 		else -> RawCalls(s = { ..this.s, i = this.s.i + 1, acc = this.s.acc + [
 			L("/// Runs proc " + this.s.procs[this.s.i] + " on the raw request."),

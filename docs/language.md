@@ -252,6 +252,7 @@ arm heads on the way (`Lit(n) → else`).
 | maps | `map[K]V`, `K` `int` or `string` | `map[K]V` | `Map<K, V>` (a shared `BTreeMap`) |
 | structs | `{ a: int, b: string }` | a named struct | a named struct |
 | enums | `enum { A, B(T) }` | a struct with a `Tag` and a field per variant | a named enum |
+| foreign types | `type T = "file:Type", ..` | the Go type named | the Rust type named |
 
 Every struct or enum shape gets one generated name, taken from where it
 first appears or from its typedef; equal shapes share it. Field, parameter
@@ -281,6 +282,68 @@ goes: `func F(): R<[]Tok>`.
   (`List<T>` inside `List<T>`).
 - Write `> =`, not `>=`, before an `=`.
 - Funcs and procs aren't generic.
+
+### Foreign types
+
+**A foreign value can be changed by any func it's passed to, and every later
+reader sees the change.** vandorf's own values never change once made
+(passing one on never lets anyone else change it); a foreign value is the
+implementations' own, and vandorf doesn't copy, wrap or guard it. Mutation
+is allowed, at your risk.
+
+A typedef whose body is implementations instead of a type is a foreign
+type: a value only the implementations look inside, such as a connection,
+a handle or a library's type.
+
+```
+type Conn = "../go/app/db.go:*sql.DB", "../rs/src/db.rs:Conn";
+
+proc Report(url: string): int {
+	func Open(url: string): Conn = "../go/app/db.go:Open", "../rs/src/db.rs:open";
+	func Count(c: Conn, table: string): int = "../go/app/db.go:Count", "../rs/src/db.rs:count";
+
+	Report -> Open(url = this.url);
+	Open -> Count(c = this, table = "users");
+}
+```
+
+- Each `"file:Type"` names the type as that file's language writes it, one
+  per backend by extension, like a func's implementations: Go `T`, `*T`,
+  `pkg.T` or `*pkg.T` (`pkg` as the file imports it), Rust a path in the
+  file's module (`Conn`, `db::Conn`, public there). The file and the type
+  split at the first `:` after the file's last `/`.
+- **Nominal**: two foreign typedefs are different types even if they name
+  the same implementation. A typedef of a foreign type (`type C = Conn;`) is
+  the same type, as for any typedef.
+- **Opaque**: no literals, no `.field`, and no `==`, `<`, other operators,
+  `in` or patterns. A foreign type can't be generic.
+- **Passed directly**: only as a func's or proc's parameter or result, or a
+  node's output; never inside a struct, array, map or enum payload, nor in
+  `id(..) as N`. A foreign value lives in the node that made it (a func or a
+  proc, called as a node, not in an expression), and is read from there:
+  `this`, the node's name, or a proc's parameter (`P.c`).
+- **Lent, not shared at once**: one call can't take the same value twice, two
+  branches of a spawn can't take it, a detached branch can't take any, and a
+  for each's elements can't take one from outside the region (they run at
+  once). A joined branch and a collected node can't give one.
+- A proc may take and give foreign values, but it can't give back one it was
+  given (it only borrows it), and a loop back to it (`-> P(..)`) passes its
+  foreign parameters on unchanged (`c = P.c`).
+- **Not at entry points**: nothing outside the program can make or take
+  one, so a bin's entry proc, an HTTP route's or raw route's proc, and a
+  server's setup (every route's `ctx`) can't take or give one. `vcc check`
+  names the entry point.
+
+In Go the value is passed as it is, so use a pointer type to share and
+change it; the generated code names it through an alias (`foreignConn`, in
+`foreign_vandorf.go`). In Rust a node's foreign output stays in its slot,
+funcs take it as `&mut T` (`pub fn count(c: &mut types::Conn, table: Str)`)
+and a result is moved in; `types.rs` has `pub type Conn = crate::db::Conn;`,
+and the type must be `Send` and `'static` (spawns lend it to threads).
+
+A backend with no reference gets a placeholder type, and `vcc build` warns,
+so a program can be checked and drawn before it's written. A reference
+whose file doesn't define the type is a warning, as for funcs.
 
 ## Values and expressions
 

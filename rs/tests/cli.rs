@@ -331,3 +331,73 @@ fn missing_implementations_warn_with_their_doc() {
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A foreign type at a bin's entry, a route's and a setup's: `vcc check`
+/// names each entry point, at its proc.
+#[test]
+fn foreign_types_stay_inside_the_program() {
+    let manifest = "[project]\nname = \"t\"\nsources = [\"sys\"]\n[bin.tool]\nentry = \"Main\"\n[http.api]\naddr = \"127.0.0.1:1\"\nsetup = \"Setup\"\nroutes = { \"GET /c\" = \"Route\" }\nraw = { \"GET /r\" = \"Raw\" }\n";
+    let sys = r#"type Conn = "db.go:*Conn", "db.rs:Conn";
+func Open(): Conn;
+func Count(c: Conn): int;
+proc Main(c: Conn): int { Main -> Count(c = this.c); }
+proc Setup(): Conn { Setup -> Open(); }
+proc Route(ctx: Conn, n: int): Conn { Route -> Open(); }
+proc Raw(ctx: Conn, r: { method: string }): int { Raw -> Count(c = this.ctx); }
+"#;
+    let dir = project("foreign-entry", &[("vandorf.toml", manifest), ("sys/a.sys", sys)]);
+    let (ok, out) = vcc(&dir, &["check"]);
+    assert!(!ok, "{out}");
+    for want in [
+        "bin tool: Main's parameter c is a foreign type, Conn, which can't come from outside the program\n --> sys/a.sys:4:6",
+        "http server api's setup: Setup's result is a foreign type, Conn, which every route would share as its ctx\n --> sys/a.sys:5:6",
+        "http server api's route \"GET /c\": Route's parameter ctx is a foreign type, Conn, which can't come from outside the program",
+        "http server api's route \"GET /c\": Route's result is a foreign type, Conn, which can't leave the program",
+        "http server api's raw route \"GET /r\": Raw's parameter ctx is a foreign type, Conn, which can't come from outside the program",
+    ] {
+        assert!(out.contains(want), "{want}\n---\n{out}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A foreign type's implementations are checked like funcs': a file that
+/// doesn't define the type it names warns, a func taking it by value instead
+/// of `&mut` doesn't match, and a backend with no reference warns of its
+/// placeholder.
+#[test]
+fn checks_foreign_types_implementations() {
+    let sys = r#"type Conn = "../go/app/impl.go:*Conn", "../rs/src/impls.rs:Conn";
+type Gone = "../go/app/impl.go:*Gone", "../rs/src/impls.rs:Gone";
+type Text = "../go/app/impl.go:*str.Builder", "../rs/src/impls.rs:Text";
+type Later = "later.py:Later";
+func Open(): Conn = "../go/app/impl.go:Open", "../rs/src/impls.rs:open";
+func Count(c: Conn): int = "../go/app/impl.go:Count", "../rs/src/impls.rs:count";
+proc Main(n: int): int {
+	Main -> Open();
+	Open -> Count(c = this);
+}
+"#;
+    let rs = "pub struct Conn;\npub fn open() -> Result<Conn, String> { Ok(Conn) }\npub fn count(_c: Conn) -> Result<i64, String> { Ok(1) }\n";
+    let go = "package app\n\nimport (\n\t\"context\"\n\tstr \"strings\"\n)\n\ntype Conn struct{}\n\nvar _ str.Builder\n\nfunc Open(ctx context.Context) (*Conn, error) { return &Conn{}, nil }\n\nfunc Count(ctx context.Context, c *Conn) (int, error) { return 1, nil }\n";
+    let dir = impl_project("foreign-impls", sys, rs, go);
+    let (ok, out) = vcc(&dir, &["build"]);
+    assert!(!ok, "{out}");
+    for want in [
+        "warning: foreign type Gone is implemented by type *Gone in go/app/impl.go, which does not define it",
+        "warning: foreign type Later names no .go type, so the Go code has a placeholder for it",
+        "warning: foreign type Gone is implemented by type Gone in rs/src/impls.rs, which does not define it",
+        "warning: foreign type Later names no .rs type, so the Rust code has a placeholder for it",
+        "error: Count is implemented by fn count in rs/src/impls.rs, whose signature doesn't match",
+        "pub fn count(c: &mut crate::app::types::Conn) -> Result<i64, E>",
+    ] {
+        assert!(out.contains(want), "{want}\n---\n{out}");
+    }
+    // Go's Count matches: it takes the pointer its type names.
+    assert!(!out.contains("Count is implemented by func Count"), "{out}");
+    // A qualified Go type is reached through what its file imports it as.
+    let aliases = std::fs::read_to_string(dir.join("go/app/foreign_vandorf.go")).unwrap();
+    for want in ["str \"strings\"", "type foreignText = *str.Builder", "type foreignConn = *Conn", "type foreignLater struct{}"] {
+        assert!(aliases.contains(want), "{want}\n---\n{aliases}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -1,0 +1,19 @@
+type Conn = "db.go:*Conn", "db.rs:Conn";
+func Open(): Conn; func Count(c: Conn): int; func Two(a: Conn, b: Conn): int; func Clone(c: Conn): Conn;
+func Bump(c: Conn); func Xs(): []int; func Get(i: int, c: Conn): int; func OpenAt(i: int): Conn;
+type C2 = Conn;
+proc Q(c: C2, k: int): Conn { Q -> Bump(c = this.c); Bump -> Clone(c = Q.c); }
+proc P(n: int): int { P -> Open(); Open -> Q(c = this, k = 1); Q -> Count(c = this); Count switch { (this > Get(i = 1, c = Open)) -> Two(a = Open, b = Q), else -> id(0) }; }
+---
+#8 edge #4: call #3(c:Conn=#9.c:C2@330..333) @320..325 text="c = Q.c"
+#8 edge #9: call #4(c:Conn=this.c:C2@303..309) @294..298 text="c = this.c"
+#8 spawned={}
+#8 region 0: parent=-1 entry=9 elem=void nodes=[9, 4, 3] sink=-1
+#8 region_of={3: 0, 4: 0, 9: 0} opens={}
+#10 edge #0: call #8(c:C2=this:Conn@387..391, k:int=1) @381..382 text="c = this, k = 1"
+#10 edge #1: switch [(this > Get(i = 1, c = Open))] ((this:int@439..443 > call #6(i:int=1, c:Conn=#0:Conn@461..465) @446..449 text="" :int)) -> call #2(a:Conn=#0:Conn@479..483, b:Conn=#8:Conn@489..490) @471..474 text="a = Open, b = Q"; [else] else -> call #12(value:int=0) @501..503 text="0"
+#10 edge #8: call #1(c:Conn=this:Conn@416..420) @406..411 text="c = this"
+#10 edge #11: call #0() @365..369 text=""
+#10 spawned={}
+#10 region 0: parent=-1 entry=11 elem=void nodes=[11, 0, 8, 1, 2, 12] sink=-1
+#10 region_of={0: 0, 1: 0, 2: 0, 8: 0, 11: 0, 12: 0} opens={}

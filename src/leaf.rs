@@ -541,6 +541,46 @@ pub fn impl_of(t: Tok) -> Result<ImplRef, String> {
     })
 }
 
+/// Splits a "file:Type" string token into the file and the type it names, at
+/// the first `:` after the file's last `/`, with the token's span; fails unless
+/// both sides are there and the type is a name, a path (`a::B`, `pkg.T`) or a
+/// pointer to one (`*T`).
+pub fn type_impl_of(t: Tok) -> Result<ImplRef, String> {
+    let bad = || {
+        format!(
+            "{}:{}: expected \"file:Type\", found {:?}",
+            t.at, t.end, &*t.text
+        )
+    };
+    let after = t.text.rfind('/').map_or(0, |i| i + 1);
+    let colon = t.text[after..].find(':').ok_or_else(bad)? + after;
+    let (file, ty) = (&t.text[..colon], &t.text[colon + 1..]);
+    let ident = |s: &str| {
+        !s.is_empty()
+            && s.chars()
+                .enumerate()
+                .all(|(i, c)| c == '_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit()))
+    };
+    let path = ty.trim_start_matches('*');
+    let segs: Vec<&str> = if path.contains("::") {
+        path.split("::").collect()
+    } else {
+        path.split('.').collect()
+    };
+    if file.is_empty() || !segs.iter().all(|s| ident(s)) {
+        return Err(bad());
+    }
+    Ok(ImplRef {
+        file: file.into(),
+        function: ty.into(),
+        span: Span {
+            at: t.at,
+            end: t.end,
+            file: t.file,
+        },
+    })
+}
+
 /// Whether t is an operator of precedence `level`: `||` at 0, `&&` at 1,
 /// comparisons and `in` at 2, `+ -` at 3, `* / %` at 4.
 pub fn op_at(t: Tok, level: i64) -> Result<bool, String> {

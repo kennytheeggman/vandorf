@@ -1,0 +1,8 @@
+type Conn = "db.go:*Conn", "db.rs:Conn";
+func Open(): Conn; func Count(c: Conn): int; func Two(a: Conn, b: Conn): int; func Clone(c: Conn): Conn;
+func Bump(c: Conn); func Xs(): []int; func Get(i: int, c: Conn): int; func OpenAt(i: int): Conn;
+type B = "b.rs:*T", "b.go:a::B", "b.py:any.thing";
+proc P(n: int): int { P -> Open(); Open -> Count(c = this); }
+---
+error: B's Rust type is a path in its file's module, like Conn or db::Conn; found "*T" @252..261
+error: B's Go type is written T, *T, pkg.T or *pkg.T, as its file names it; found "a::B" @263..274

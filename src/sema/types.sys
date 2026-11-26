@@ -9,7 +9,10 @@ type Type = enum {
 	Map({ key: Type, value: Type }),
 	Struct([]Member),
 	Enum([]Member),
-	Named({ id: int, name: string })
+	Named({ id: int, name: string }),
+	// A foreign typedef's body: the typedef `id`, named `name`, implemented
+	// per backend by `imps` (`file:Type`). Nominal: it accepts only itself.
+	Foreign({ id: int, name: string, imps: []ImplRef })
 };
 // A struct field or an enum variant (void for no payload).
 type Member = { name: string, ty: Type };
@@ -48,7 +51,8 @@ proc ShowType(t: Type): string {
 		{ t = Array(e) } -> ShowType(t = e) as Elem,
 		{ t = Map(m) } -> ShowMap(s = m),
 		{ t = Struct(ms) } -> ShowMembers(s = { ms = ms, variants = false, i = 0, acc = "" }) as Fields,
-		{ t = Enum(ms) } -> ShowMembers(s = { ms = ms, variants = true, i = 0, acc = "" }) as Variants
+		{ t = Enum(ms) } -> ShowMembers(s = { ms = ms, variants = true, i = 0, acc = "" }) as Variants,
+		{ t = Foreign(f) } -> id(f.name)
 	};
 	Elem -> id("[]" + this);
 	Fields -> id("{ " + this + " }");
@@ -109,8 +113,8 @@ func NewPair(o: OptPair): []Pair = "sema_leaf.rs:new_pair";
 
 // Decides Accepts for two unfolded types, by their shapes: primitives must
 // be the same, arrays' elements and maps' keys and values accepted, structs
-// must have the same fields, and an enum must have every variant of the one
-// it accepts.
+// must have the same fields, an enum must have every variant of the one it
+// accepts, and a foreign type accepts only itself.
 proc AcceptsShapes(s: AcceptsIn): bool {
 	AcceptsShapes -> id({ a = this.s.a, b = this.s.b }) as Both;
 	Both switch {
@@ -122,6 +126,7 @@ proc AcceptsShapes(s: AcceptsIn): bool {
 			else -> id(false)
 		},
 		{ a = Enum(x), b = Enum(y) } -> AllAccepted(s = { each = y, other = x, flip = true, defs = AcceptsShapes.s.defs, assumed = AcceptsShapes.s.assumed, i = 0 }) as Variants,
+		{ a = Foreign(x), b = Foreign(y) } -> id(x.id == y.id),
 		else -> id(false)
 	};
 }

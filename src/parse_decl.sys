@@ -31,19 +31,49 @@ proc PItems(toks: []Tok, pos: int, acc: File): R<File> {
 }
 
 // Parses a typedef after its `type`: its name, any type parameters, and the
-// type it names, up to its `;`.
+// type it names, up to its `;`. A string after the `=` starts a foreign
+// type's implementations instead.
 //
-//   typedef := 'type' IDENT params '=' type ';'
+//   typedef := 'type' IDENT params '=' (type | STRING (',' STRING)*) ';'
 proc PTypeDecl(toks: []Tok, pos: int): R<TypeDecl> {
 	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
 	PTypeDecl -> At(toks = this.toks, pos = this.pos);
 	At -> NeedIdent(toks = this.toks, pos = this.pos, what = "the type's name");
 	NeedIdent -> PParams(toks = this.toks, pos = this.pos);
 	PParams -> Expect(toks = At.toks, pos = this.pos, text = "=", what = "= after the type's name") as Eq;
-	Eq -> PType(toks = this.toks, pos = this.pos);
-	PType -> Expect(toks = At.toks, pos = this.pos, text = ";", what = "; after the type") as Semi;
-	Semi -> id({ x = { name = MkIdent(t = NeedIdent.tok), params = PParams.x, ty = PType.x, doc = At.prev.doc }, pos = this.pos });
+	Eq switch {
+		(this.toks[this.pos].kind == "str") -> PTypeImpls(toks = this.toks, pos = this.pos),
+		else -> PType(toks = this.toks, pos = this.pos)
+	};
+	PType -> id(this) as Body;
+	PTypeImpls -> id({ x = { kind = Foreign(this.x), span = { at = Eq.toks[Eq.pos].at, end = Eq.toks[this.pos - 1].end, file = Eq.tok.file } }, pos = this.pos }) as Body;
+	Body -> Expect(toks = At.toks, pos = this.pos, text = ";", what = "; after the type") as Semi;
+	Semi -> id({ x = { name = MkIdent(t = NeedIdent.tok), params = PParams.x, ty = Body.x, doc = At.prev.doc }, pos = this.pos });
 }
+
+// Parses a foreign type's implementations: a comma-separated list of
+// "file:Type" strings, each split into the file and the type as that file's
+// language writes it.
+//
+//   STRING (',' STRING)*
+proc PTypeImpls(toks: []Tok, pos: int): R<[]ImplRef> {
+	func At(toks: []Tok, pos: int): Cur = "leaf.rs:at";
+	func Loop(toks: []Tok, pos: int, acc: []ImplRef): AtAcc<[]ImplRef> = "leaf.rs:at_impls";
+	PTypeImpls -> At(toks = this.toks, pos = this.pos);
+	At -> Loop(toks = this.toks, pos = this.pos, acc = []);
+	Loop -> NeedStr(toks = this.cur.toks, pos = this.cur.pos, what = "an implementation, \"file:Type\"");
+	NeedStr -> At(toks = this.toks, pos = this.pos) as After;
+	After switch {
+		(IsSym(t = this.tok, s = ",")) -> Loop(toks = this.toks, pos = this.pos + 1, acc = Loop.acc + [TypeImplOf(t = NeedStr.tok)]),
+		else -> id({ x = Loop.acc + [TypeImplOf(t = NeedStr.tok)], pos = this.pos })
+	};
+}
+
+// Splits a "file:Type" string token into the file and the type it names, at
+// the first `:` after the file's last `/`, with the token's span; fails unless
+// both sides are there and the type is a name, a path (`a::B`, `pkg.T`) or a
+// pointer to one (`*T`).
+func TypeImplOf(t: Tok): ImplRef = "leaf.rs:type_impl_of";
 
 // Parses a generic typedef's type parameters, if a `<` follows its name;
 // none otherwise.

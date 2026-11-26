@@ -1,0 +1,7 @@
+type Conn = "db.go:*Conn", "db.rs:Conn";
+func Open(): Conn; func Count(c: Conn): int; func Two(a: Conn, b: Conn): int; func Clone(c: Conn): Conn;
+func Bump(c: Conn); func Xs(): []int; func Get(i: int, c: Conn): int; func OpenAt(i: int): Conn;
+
+proc P(n: int): int { P -> Open(); Open -> id({ c = this, n = 1 }) as L; L -> id(1); }
+---
+error: id: field c has type Conn, a foreign type, which can't be inside a struct, array, map or enum @296..300

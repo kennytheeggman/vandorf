@@ -141,6 +141,347 @@ pub fn new_inst(cx: TyCx, key: Str, ident: Str, span: Span) -> Result<TyCx, Stri
     Ok(cx)
 }
 
+/// Whether d is a foreign typedef: `type T = "file:Type", ..;`.
+pub fn is_foreign_decl(d: TypeDecl) -> Result<bool, String> {
+    Ok(matches!(&*d.ty.kind, TypeKind::Foreign(_)))
+}
+
+pub fn foreign_decl_imps(d: TypeDecl) -> Result<List<ImplRef>, String> {
+    match &*d.ty.kind {
+        TypeKind::Foreign(imps) => Ok(imps.clone()),
+        _ => Err("foreign_decl_imps: not foreign".into()),
+    }
+}
+
+/// Adds foreign typedef d to cx, declared and resolved at once: its type is
+/// Foreign, with d's implementations.
+pub fn new_foreign(cx: TyCx, d: TypeDecl) -> Result<TyCx, String> {
+    let id = cx.types.len() as i64;
+    let imps = foreign_decl_imps(d.clone())?;
+    let mut cx = new_def(cx, d.name.name.clone(), d.name.name.clone(), d.name.span)?;
+    let ty = Type::Foreign(TypeForeign {
+        id,
+        name: d.name.name.clone(),
+        imps,
+    });
+    cx.types = set_ty(cx.types, id, ty)?;
+    Ok(cx)
+}
+
+/// Explains why foreign type `name`'s implementation imp can't be its
+/// backend's type, or "" if it can.
+pub fn foreign_ref_problem(name: Str, imp: ImplRef) -> Result<Str, String> {
+    let ident = |s: &str| {
+        !s.is_empty()
+            && s.chars()
+                .enumerate()
+                .all(|(i, c)| c == '_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit()))
+    };
+    let ty = &*imp.function;
+    let ext = imp.file.rsplit_once('.').map_or("", |(_, e)| e);
+    let ok = match ext {
+        "go" => {
+            let segs: Vec<&str> = ty.trim_start_matches('*').split('.').collect();
+            !ty.contains("::") && segs.len() <= 2 && segs.iter().all(|s| ident(s))
+        }
+        "rs" => !ty.contains('*') && !ty.contains('.') && ty.split("::").all(ident),
+        _ => true,
+    };
+    Ok(match (ok, ext) {
+        (true, _) => "".into(),
+        (false, "go") => format!(
+            "{name}'s Go type is written T, *T, pkg.T or *pkg.T, as its file names it; found {ty:?}"
+        )
+        .into(),
+        _ => format!(
+            "{name}'s Rust type is a path in its file's module, like Conn or db::Conn; found {ty:?}"
+        )
+        .into(),
+    })
+}
+
+/// Whether t, through typedef names, is a foreign type.
+fn foreign_name(t: &Type, defs: &[TypeDef]) -> Option<Str> {
+    let mut t = t;
+    while let Type::Named(n) = t {
+        t = &defs[n.id as usize].ty;
+    }
+    match t {
+        Type::Foreign(f) => Some(f.name.clone()),
+        _ => None,
+    }
+}
+
+/// Names the first foreign type inside t (see ForeignHeld), if there is one.
+pub fn foreign_inside(t: Type, defs: List<TypeDef>) -> Result<MaybeStr, String> {
+    fn find(t: &Type, defs: &[TypeDef]) -> Option<Str> {
+        let parts: Vec<&Type> = match t {
+            Type::Array(e) => vec![&**e],
+            Type::Map(m) => vec![&*m.key, &*m.value],
+            Type::Struct(ms) | Type::Enum(ms) => ms.iter().map(|m| &m.ty).collect(),
+            _ => vec![],
+        };
+        for p in parts {
+            if foreign_name(p, defs).is_some() {
+                return Some(match p {
+                    Type::Named(n) => n.name.clone(),
+                    _ => foreign_name(p, defs).unwrap(),
+                });
+            }
+            if !matches!(p, Type::Named(_)) {
+                if let Some(n) = find(p, defs) {
+                    return Some(n);
+                }
+            }
+        }
+        None
+    }
+    Ok(find(&t, &defs).map_or(MaybeStr::None, MaybeStr::Some))
+}
+
+/// Names the foreign type t is, through typedef names, if it is one.
+pub fn foreign_of(t: Type, defs: List<TypeDef>) -> Result<MaybeStr, String> {
+    Ok(foreign_name(&t, &defs).map_or(MaybeStr::None, MaybeStr::Some))
+}
+
+/// Names the first of a struct's fields (t, through typedef names) whose type
+/// is foreign, if it has one.
+pub fn foreign_field(t: Type, defs: List<TypeDef>) -> Result<MaybeStr, String> {
+    let mut u = &t;
+    while let Type::Named(n) = u {
+        u = &defs[n.id as usize].ty;
+    }
+    Ok(match u {
+        Type::Struct(ms) => ms
+            .iter()
+            .find(|m| foreign_name(&m.ty, &defs).is_some())
+            .map_or(MaybeStr::None, |m| MaybeStr::Some(m.name.clone())),
+        _ => MaybeStr::None,
+    })
+}
+
+pub fn is_some_str(m: MaybeStr) -> Result<bool, String> {
+    Ok(matches!(m, MaybeStr::Some(_)))
+}
+
+pub fn unwrap_str(m: MaybeStr) -> Result<Str, String> {
+    match m {
+        MaybeStr::Some(s) => Ok(s),
+        MaybeStr::None => Err("unwrap_str: None".into()),
+    }
+}
+
+/// Whether v is written as a literal: a number, string, bool, array, map,
+/// struct or struct update (a variant's `Tag(..)` isn't told from a call).
+pub fn is_literal(v: Value) -> Result<bool, String> {
+    Ok(matches!(
+        &*v.kind,
+        ValueKind::Int(_)
+            | ValueKind::Float(_)
+            | ValueKind::Str(_)
+            | ValueKind::Bool(_)
+            | ValueKind::Array(_)
+            | ValueKind::Map(_)
+            | ValueKind::Struct(_)
+            | ValueKind::Update(_)
+    ))
+}
+
+/// Says why operator op doesn't apply to a foreign type: "it can't be
+/// compared" for a comparison, else that op doesn't apply to it.
+pub fn op_on_foreign(op: Str) -> Result<Str, String> {
+    Ok(match &*op {
+        "==" | "!=" | "<" | "<=" | ">" | ">=" => "it can't be compared".into(),
+        _ => format!("{op} doesn't apply to it").into(),
+    })
+}
+
+/// The reads of foreign values in e, depth first, a call's arguments
+/// included: each with its owner (`this` being node `this_node`'s output, a
+/// node or a binding, and its fields), how it's written, and where.
+fn foreign_reads(
+    e: &Expr,
+    this_node: i64,
+    defs: &[TypeDef],
+    nodes: &[NodeDecl],
+    out: &mut Vec<(String, String, Span)>,
+) {
+    if let Expr::Ref(r) = e {
+        if foreign_name(&r.ty, defs).is_some() {
+            let (key, root) = match &r.root {
+                Root::This => (format!("node:{this_node}"), "this".to_string()),
+                Root::Node(n) => (
+                    format!("node:{n}"),
+                    nodes[*n as usize]
+                        .qual
+                        .last()
+                        .map_or(String::new(), |s| s.to_string()),
+                ),
+                Root::Bind => (format!("bind:{}", r.bind), r.bind.to_string()),
+            };
+            let fields: String = r.fields.iter().map(|f| format!(".{f}")).collect();
+            out.push((key + &fields, root + &fields, r.span.clone()));
+        }
+    }
+    for p in expr_parts(e.clone()).unwrap_or_default().iter() {
+        foreign_reads(p, this_node, defs, nodes, out);
+    }
+}
+
+/// Every call in e, depth first: e's own, and those in its parts.
+fn calls_in(e: &Expr, out: &mut Vec<Call>) {
+    if let Expr::Call(c) = e {
+        out.push(c.clone());
+    }
+    for p in expr_parts(e.clone()).unwrap_or_default().iter() {
+        calls_in(p, out);
+    }
+}
+
+/// Finds a foreign value an edge lends where it can't: twice to one call (in
+/// two arguments, or one and a call inside another), to a detached spawn
+/// branch, which nothing waits for, or to two branches, which run at once;
+/// or a loop back to the signature node that changes a foreign parameter.
+/// `this` is src's output.
+pub fn edge_lends(
+    src: i64,
+    e: SEdge,
+    nodes: List<NodeDecl>,
+    defs: List<TypeDef>,
+) -> Result<MaybeDiag, String> {
+    let name = |n: i64| {
+        nodes[n as usize]
+            .qual
+            .last()
+            .map_or(String::new(), |s| s.to_string())
+    };
+    let reads_of = |c: &Call| {
+        let mut reads = vec![];
+        for a in c.args.iter() {
+            foreign_reads(&a.value, src, &defs, &nodes, &mut reads);
+        }
+        reads
+    };
+    // Every call the edge makes, and those inside its arguments and
+    // conditions.
+    let mut calls = vec![];
+    for c in calls_of(&e) {
+        calls.push(c.clone());
+        for a in c.args.iter() {
+            calls_in(&a.value, &mut calls);
+        }
+    }
+    let mut conds = vec![];
+    if let SEdge::Match(arms) = &e {
+        arms.iter().for_each(|a| self::conds(a, &mut conds));
+    }
+    for c in conds.iter() {
+        calls_in(c, &mut calls);
+    }
+    // A loop back to the signature node keeps the foreign values the proc was
+    // given: it can only pass each parameter on as it is.
+    for c in calls_of(&e) {
+        let NodeKind::Sig(_) = &nodes[c.target as usize].kind else {
+            continue;
+        };
+        for a in c
+            .args
+            .iter()
+            .filter(|a| foreign_name(&a.param, &defs).is_some())
+        {
+            let same = matches!(&a.value, Expr::Ref(r)
+                if r.fields.len() == 1 && r.fields[0] == a.name
+                    && match r.root { Root::This => src == c.target, Root::Node(n) => n == c.target, Root::Bind => false });
+            if !same {
+                let span = match &a.value {
+                    Expr::Ref(r) => r.span.clone(),
+                    _ => c.span.clone(),
+                };
+                return Ok(MaybeDiag::Some(Diag {
+                    msg: format!(
+                        "a loop back to {} keeps the foreign values it was given, so {} must be {}.{} again",
+                        name(c.target),
+                        a.name,
+                        name(c.target),
+                        a.name
+                    )
+                    .into(),
+                    span,
+                }));
+            }
+        }
+    }
+    for c in &calls {
+        let reads = reads_of(c);
+        for (i, (key, shown, span)) in reads.iter().enumerate() {
+            if reads[..i].iter().any(|(k, _, _)| k == key) {
+                return Ok(MaybeDiag::Some(Diag {
+                    msg: format!(
+                        "{shown} is a foreign value, lent to {} twice here: one call borrows it once",
+                        name(c.target)
+                    )
+                    .into(),
+                    span: span.clone(),
+                }));
+            }
+        }
+    }
+    let SEdge::Spawn(sp) = &e else {
+        return Ok(MaybeDiag::None);
+    };
+    let mut lent: Vec<(String, i64)> = vec![];
+    for b in sp.branches.iter() {
+        let reads = reads_of(&b.call);
+        if let (true, Some((_, shown, span))) = (b.detach, reads.first()) {
+            return Ok(MaybeDiag::Some(Diag {
+                msg: format!(
+                    "{} is detached, so it can't borrow {shown}, a foreign value: nothing waits for it to give it back",
+                    name(b.call.target)
+                )
+                .into(),
+                span: span.clone(),
+            }));
+        }
+        for (key, shown, span) in reads {
+            if let Some((_, other)) = lent.iter().find(|(k, _)| *k == key) {
+                return Ok(MaybeDiag::Some(Diag {
+                    msg: format!(
+                        "{shown} is a foreign value lent to both {} and {}, which run at once in this spawn",
+                        name(*other),
+                        name(b.call.target)
+                    )
+                    .into(),
+                    span,
+                }));
+            }
+            lent.push((key, b.call.target));
+        }
+    }
+    Ok(MaybeDiag::None)
+}
+
+pub fn unwrap_c(r: ResCall) -> Result<Call, String> {
+    match r {
+        ResCall::Ok(c) => Ok(c),
+        ResCall::Err(_) => Err("unwrap_c: Err".into()),
+    }
+}
+
+pub fn unwrap_ms(m: MaybeMembers) -> Result<List<Member>, String> {
+    match m {
+        MaybeMembers::Some(ms) => Ok(ms),
+        MaybeMembers::None => Err("unwrap_ms: None".into()),
+    }
+}
+
+/// Where a func's result type is written, or d if it has none (void).
+pub fn ret_span(t: OptType, d: Span) -> Result<Span, String> {
+    Ok(match t {
+        OptType::Some(t) => t.span,
+        OptType::None => d,
+    })
+}
+
 pub fn set_ty(types: List<TypeDef>, id: i64, t: Type) -> Result<List<TypeDef>, String> {
     let mut v: Vec<TypeDef> = types.into_iter().collect();
     v[id as usize].ty = t;
@@ -313,7 +654,7 @@ pub fn inst_args(k: TypeKind) -> Result<List<TypeExpr>, String> {
 /// value, a struct's or enum's member types (what NamedIn looks inside).
 pub fn parts(t: Type) -> Result<List<Type>, String> {
     Ok(match t {
-        Type::Prim(_) | Type::Named(_) => List::default(),
+        Type::Prim(_) | Type::Named(_) | Type::Foreign(_) => List::default(),
         Type::Array(e) => vec![(*e).clone()].into(),
         Type::Map(m) => vec![(*m.key).clone(), (*m.value).clone()].into(),
         Type::Struct(ms) | Type::Enum(ms) => ms.iter().map(|m| m.ty.clone()).collect(),
@@ -1578,4 +1919,11 @@ pub fn typed_ids(mut nodes: List<NodeDecl>, e: SEdge) -> Result<List<NodeDecl>, 
         }
     }
     Ok(nodes)
+}
+
+/// Whether e reads a foreign parameter of a proc (a field of its signature
+/// node's output, the only struct holding a foreign value), which the proc
+/// only borrows.
+pub fn borrowed_param(e: Expr, defs: List<TypeDef>) -> Result<bool, String> {
+    Ok(matches!(&e, Expr::Ref(r) if !r.fields.is_empty() && foreign_name(&r.ty, &defs).is_some()))
 }

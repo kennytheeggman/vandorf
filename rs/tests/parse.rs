@@ -196,6 +196,16 @@ fn v_ty(o: &mut Out, t: &v::TypeExpr) {
                 o.close();
             }
         }
+        K::Foreign(imps) => {
+            o.open("foreign");
+            for i in imps {
+                o.open("impl");
+                o.atom(&i.file);
+                o.atom(&i.function);
+                sp(o, &i.span);
+                o.close();
+            }
+        }
     }
     sp(o, &t.span);
     o.close();
@@ -536,6 +546,11 @@ proc Measure(n: int): int {
 };
 func F(); // trailing
 func G();"#,
+        // Foreign types: each implementation's file, and its type as written
+        // there (split at the first `:` after the last `/`).
+        r#"// A connection.
+type Conn = "../go/app/db.go:*sql.DB", "../rs/src/db.rs:db::Conn";
+type Re = "re.go:Regexp", "x/y:z/re.rs:Regex", "re.py:re.Pattern";"#,
     ].iter().enumerate() {
         common::check("parse-tricky", &format!("c{i}"), &ast(src));
     }
@@ -556,6 +571,12 @@ fn reports_syntax_errors() {
         // A proc with params starts its body from its own name.
         ("proc P(a: int): int { func F(x: int): int; F -> id(this); P -> F(x = this.a); }", "43:44: the body of proc P starts from P: write `P -> ..` first, found F"),
         ("proc P(A): int {}", "expected : after the field name, found ')'"),
+        // Foreign types: "file:Type" strings, each a name, path or pointer.
+        ("type T = \"nocolon\";", "9:18: expected \"file:Type\", found \"nocolon\""),
+        ("type T = \"a.go:*\";", "expected \"file:Type\", found \"a.go:*\""),
+        ("type T = \"a.rs:a::\";", "expected \"file:Type\", found \"a.rs:a::\""),
+        ("type T = \"a.go:T\", ;", "expected an implementation, \"file:Type\", found ';'"),
+        ("type T = \"a.go:T\" proc", "expected ; after the type, found 'proc'"),
     ] {
         let e = vcc::vcc::run_parse(src.into()).unwrap_err().to_string();
         assert!(e.contains(want), "{src}: {e}");

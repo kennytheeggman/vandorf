@@ -64,7 +64,9 @@ proc Ty(s: { cx: TyCx, t: TypeExpr }): TyOut {
 		Array(e) -> Ty(s = { cx = Ty.s.cx, t = e }) as Elem,
 		Map(m) -> TyMap(s = { cx = Ty.s.cx, key = m.key, value = m.value }),
 		Struct(fs) -> Fields(s = { cx = Ty.s.cx, fs = fs, i = 0, ok = true, acc = [] }),
-		Enum(vs) -> Variants(s = { cx = Ty.s.cx, vs = vs, i = 0, acc = [] })
+		Enum(vs) -> Variants(s = { cx = Ty.s.cx, vs = vs, i = 0, acc = [] }),
+		// Only a typedef's body, which DeclareTypes resolves itself.
+		Foreign(_) -> id({ cx = { ..Ty.s.cx, errors = Ty.s.cx.errors + [{ msg = "expected a type, found a foreign type's implementations: name them with a typedef, type T = \"file:Type\";", span = Ty.s.t.span }] }, t = None() })
 	};
 	Elem -> id({ cx = this.cx, t = ArrayOf(t = this.t) });
 	Fields -> id({ cx = this.cx, t = StructOf(ms = this.ms) });
@@ -104,6 +106,8 @@ proc NameProblem(s: { cx: TyCx, name: string }): MaybeStr {
 }
 
 func IsBoundName(bound: []map[string]Type, name: string): bool = "sema_leaf.rs:is_bound";
+// Whether d is a foreign typedef: `type T = "file:Type", ..;`.
+func IsForeignDecl(d: TypeDecl): bool = "sema_leaf.rs:is_foreign_decl";
 
 // Explains why `name<..>` with `count` arguments isn't a type: the wrong
 // number of arguments, a type that isn't generic, or an unknown one. None if
@@ -310,14 +314,20 @@ func MapValue(t: Type): Type = "sema_leaf.rs:map_value";
 
 // Declares all of a program's typedefs before resolving any, so they can
 // refer to each other in any order: each name is checked (not a primitive,
-// not a duplicate) and either declared or kept as a generic. Then it checks
-// the generics, resolves the rest, and rejects cycles that never reach a
-// structure.
+// not a duplicate) and either declared or kept as a generic. A foreign
+// typedef is declared with its type, and can't be generic. Then it checks
+// the generics, resolves the rest, rejects cycles that never reach a
+// structure, and checks the foreign types and where they're used.
 proc DeclareTypes(s: { cx: TyCx, decls: []TypeDecl, i: int }): TyCx {
+	// Adds foreign typedef d to cx, declared and resolved at once: its type is
+	// Foreign, with d's implementations.
+	func NewForeign(cx: TyCx, d: TypeDecl): TyCx = "sema_leaf.rs:new_foreign";
 	DeclareTypes switch {
 		(this.s.i == this.s.decls.len) -> CheckGenerics(s = { cx = this.s.cx, decls = this.s.decls, i = 0 }),
 		(IsPrim(name = this.s.decls[this.s.i].name.name)) -> DeclareTypes(s = { cx = { ..this.s.cx, errors = this.s.cx.errors + [{ msg = this.s.decls[this.s.i].name.name + " is a built-in type", span = this.s.decls[this.s.i].name.span }] }, decls = this.s.decls, i = this.s.i + 1 }),
 		(this.s.decls[this.s.i].name.name in this.s.cx.names || this.s.decls[this.s.i].name.name in this.s.cx.generics) -> DeclareTypes(s = { cx = { ..this.s.cx, errors = this.s.cx.errors + [{ msg = "duplicate type " + this.s.decls[this.s.i].name.name, span = this.s.decls[this.s.i].name.span }] }, decls = this.s.decls, i = this.s.i + 1 }),
+		(IsForeignDecl(d = this.s.decls[this.s.i]) && this.s.decls[this.s.i].params.len > 0) -> DeclareTypes(s = { cx = { ..this.s.cx, errors = this.s.cx.errors + [{ msg = "foreign type " + this.s.decls[this.s.i].name.name + " can't be generic: its implementations name one type each", span = this.s.decls[this.s.i].params[0].span }] }, decls = this.s.decls, i = this.s.i + 1 }),
+		(IsForeignDecl(d = this.s.decls[this.s.i])) -> DeclareTypes(s = { cx = NewForeign(cx = this.s.cx, d = this.s.decls[this.s.i]), decls = this.s.decls, i = this.s.i + 1 }),
 		(this.s.decls[this.s.i].params.len == 0) -> DeclareTypes(s = { cx = NewDef(cx = this.s.cx, name = this.s.decls[this.s.i].name.name, ident = this.s.decls[this.s.i].name.name, span = this.s.decls[this.s.i].name.span), decls = this.s.decls, i = this.s.i + 1 }),
 		else -> DeclareTypes(s = { cx = { ..this.s.cx, generics = this.s.cx.generics + [this.s.decls[this.s.i].name.name: this.s.decls[this.s.i]] }, decls = this.s.decls, i = this.s.i + 1 })
 	};
@@ -325,6 +335,63 @@ proc DeclareTypes(s: { cx: TyCx, decls: []TypeDecl, i: int }): TyCx {
 	ResolveDecls switch {
 		(this.errors.len == 0) -> CheckTypedefs(s = { cx = this, from = 0 }),
 		else -> id(this)
+	};
+	CheckTypedefs switch {
+		(this.errors.len == 0) -> ForeignRefs(s = { cx = this, decls = DeclareTypes.s.decls, i = 0 }),
+		else -> id(this)
+	};
+	ForeignRefs -> ForeignTypedefs(s = { cx = this, from = 0 });
+}
+
+// Checks each foreign typedef's implementations: a Go one names a type as Go
+// writes it (`T`, `*T`, `pkg.T`, `*pkg.T`), a Rust one a path (`T`,
+// `a::T`).
+proc ForeignRefs(s: { cx: TyCx, decls: []TypeDecl, i: int }): TyCx {
+	func Imps(d: TypeDecl): []ImplRef = "sema_leaf.rs:foreign_decl_imps";
+	ForeignRefs switch {
+		(this.s.i == this.s.decls.len) -> id(this.s.cx),
+		(!IsForeignDecl(d = this.s.decls[this.s.i])) -> ForeignRefs(s = { ..this.s, i = this.s.i + 1 }),
+		else -> RefProblems(s = { cx = this.s.cx, name = this.s.decls[this.s.i].name.name, imps = Imps(d = this.s.decls[this.s.i]), j = 0 })
+	};
+	RefProblems -> ForeignRefs(s = { ..ForeignRefs.s, cx = this, i = ForeignRefs.s.i + 1 });
+}
+
+// Reports each of a foreign type's implementations that its backend can't
+// name, at the implementation.
+proc RefProblems(s: { cx: TyCx, name: string, imps: []ImplRef, j: int }): TyCx {
+	// Explains why foreign type `name`'s implementation imp can't be its
+	// backend's type, or "" if it can.
+	func RefProblem(name: string, imp: ImplRef): string = "sema_leaf.rs:foreign_ref_problem";
+	RefProblems switch {
+		(this.s.j == this.s.imps.len) -> id(this.s.cx),
+		(RefProblem(name = this.s.name, imp = this.s.imps[this.s.j]) != "") -> RefProblems(s = { ..this.s, cx = { ..this.s.cx, errors = this.s.cx.errors + [{ msg = RefProblem(name = this.s.name, imp = this.s.imps[this.s.j]), span = this.s.imps[this.s.j].span }] }, j = this.s.j + 1 }),
+		else -> RefProblems(s = { ..this.s, j = this.s.j + 1 })
+	};
+}
+
+// Reports each typedef from `from` on whose structure holds a foreign type
+// (in a field, an element, a map's value or a payload, written out or
+// through a typedef), at the typedef: foreign values are only passed
+// directly.
+proc ForeignTypedefs(s: { cx: TyCx, from: int }): TyCx {
+	ForeignTypedefs switch {
+		(this.s.from == this.s.cx.types.len) -> id(this.s.cx),
+		else -> ForeignHeld(s = { cx = this.s.cx, t = this.s.cx.types[this.s.from].ty, shown = this.s.cx.types[this.s.from].name, span = this.s.cx.spans[this.s.from] })
+	};
+	ForeignHeld -> ForeignTypedefs(s = { cx = this, from = ForeignTypedefs.s.from + 1 });
+}
+
+// Reports t, shown as `shown`, at span if a foreign type is inside it: in a
+// struct's field, an array's element, a map's key or value or a variant's
+// payload, through structures written out but not other typedefs (each
+// checked on its own).
+proc ForeignHeld(s: { cx: TyCx, t: Type, shown: string, span: Span }): TyCx {
+	// Names the first foreign type inside t (see ForeignHeld), if there is one.
+	func ForeignInside(t: Type, defs: []TypeDef): MaybeStr = "sema_leaf.rs:foreign_inside";
+	ForeignHeld -> ForeignInside(t = this.s.t, defs = this.s.cx.types);
+	ForeignInside switch {
+		Some(f) -> id({ ..ForeignHeld.s.cx, errors = ForeignHeld.s.cx.errors + [{ msg = ForeignHeld.s.shown + " holds " + f + ", a foreign type, which can't be inside a struct, array, map or enum", span = ForeignHeld.s.span }] }),
+		else -> id(ForeignHeld.s.cx)
 	};
 }
 
@@ -339,12 +406,12 @@ proc CheckGenerics(s: { cx: TyCx, decls: []TypeDecl, i: int }): TyCx {
 	CheckGeneric -> CheckGenerics(s = { cx = this, decls = CheckGenerics.s.decls, i = CheckGenerics.s.i + 1 });
 }
 
-// Resolves the type of each typedef that isn't generic, once.
+// Resolves the type of each typedef that isn't generic or foreign, once.
 proc ResolveDecls(s: { cx: TyCx, decls: []TypeDecl, i: int, ok: []int }): TyCx {
 	func Done(seen: []int, x: int): bool = "sema_leaf.rs:has_int";
 	ResolveDecls switch {
 		(this.s.i == this.s.decls.len) -> id(this.s.cx),
-		(this.s.decls[this.s.i].params.len > 0 || !(this.s.decls[this.s.i].name.name in this.s.cx.names)) -> ResolveDecls(s = { cx = this.s.cx, decls = this.s.decls, i = this.s.i + 1, ok = this.s.ok }),
+		(this.s.decls[this.s.i].params.len > 0 || !(this.s.decls[this.s.i].name.name in this.s.cx.names) || IsForeignDecl(d = this.s.decls[this.s.i])) -> ResolveDecls(s = { cx = this.s.cx, decls = this.s.decls, i = this.s.i + 1, ok = this.s.ok }),
 		(Done(seen = this.s.ok, x = this.s.cx.names[this.s.decls[this.s.i].name.name])) -> ResolveDecls(s = { cx = this.s.cx, decls = this.s.decls, i = this.s.i + 1, ok = this.s.ok }),
 		else -> Ty(s = { cx = this.s.cx, t = this.s.decls[this.s.i].ty })
 	};
@@ -408,7 +475,9 @@ proc CheckBody(s: BodyCheck): { cx: TyCx, used: []string } {
 		Array(e) -> CheckBodies(s = { cx = CheckBody.s.cx, ts = [e], params = CheckBody.s.params, used = CheckBody.s.used, i = 0 }) as Parts,
 		Map(m) -> CheckBodies(s = { cx = CheckBody.s.cx, ts = [m.key, m.value], params = CheckBody.s.params, used = CheckBody.s.used, i = 0 }) as Parts,
 		Struct(fs) -> CheckBodies(s = { cx = CheckBody.s.cx, ts = Exprs(fs = fs), params = CheckBody.s.params, used = CheckBody.s.used, i = 0 }) as Parts,
-		Enum(vs) -> CheckBodies(s = { cx = CheckBody.s.cx, ts = Payloads(vs = vs), params = CheckBody.s.params, used = CheckBody.s.used, i = 0 }) as Parts
+		Enum(vs) -> CheckBodies(s = { cx = CheckBody.s.cx, ts = Payloads(vs = vs), params = CheckBody.s.params, used = CheckBody.s.used, i = 0 }) as Parts,
+		// A foreign typedef isn't generic (DeclareTypes says so).
+		Foreign(_) -> id({ cx = CheckBody.s.cx, used = CheckBody.s.used })
 	};
 	NP switch {
 		Some(msg) -> id({ cx = { ..CheckBody.s.cx, errors = CheckBody.s.cx.errors + [{ msg = msg, span = NameSpan(k = Kind) }] }, used = CheckBody.s.used }),

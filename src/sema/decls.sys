@@ -112,13 +112,31 @@ proc DeclareFunc(s: { cx: Cx, f: Func, qual: []string }): Declared {
 	RetTy -> FinishFunc(s = { cx = { ..DeclareFunc.s.cx, ty = this.cx }, params = Params.ms, ret = this.t, f = DeclareFunc.s.f, qual = DeclareFunc.s.qual });
 }
 
-// Adds a func's node, if its parameters and result resolved; id -1
-// otherwise.
+// Adds a func's node, if its parameters and result resolved, reporting any
+// of their types that hold a foreign type; id -1 otherwise.
 proc FinishFunc(s: { cx: Cx, params: MaybeMembers, ret: MaybeType, f: Func, qual: []string }): Declared {
 	FinishFunc switch {
-		{ s = { cx = _, params = Some(ps), ret = Some(r), f = _, qual = _ } } -> id({ cx = { ..FinishFunc.s.cx, nodes = FinishFunc.s.cx.nodes + [{ qual = FinishFunc.s.qual + [FinishFunc.s.f.name.name], span = FinishFunc.s.f.name.span, kind = Func({ params = ps, ret = r, imps = FinishFunc.s.f.imps }), doc = FinishFunc.s.f.doc }] }, id = FinishFunc.s.cx.nodes.len }),
+		{ s = { cx = _, params = Some(ps), ret = Some(r), f = _, qual = _ } } -> SigForeign(s = { cx = FinishFunc.s.cx.ty, fs = FinishFunc.s.f.params, ms = ps, ret = r, rspan = RetSpan(t = FinishFunc.s.f.ret, d = FinishFunc.s.f.name.span), i = 0 }),
 		else -> id({ cx = FinishFunc.s.cx, id = -1 })
 	};
+	SigForeign -> id({ cx = { ..FinishFunc.s.cx, ty = this, nodes = FinishFunc.s.cx.nodes + [{ qual = FinishFunc.s.qual + [FinishFunc.s.f.name.name], span = FinishFunc.s.f.name.span, kind = Func({ params = UnwrapMs(m = FinishFunc.s.params), ret = UnwrapT(t = FinishFunc.s.ret), imps = FinishFunc.s.f.imps }), doc = FinishFunc.s.f.doc }] }, id = FinishFunc.s.cx.nodes.len });
+}
+
+func UnwrapMs(m: MaybeMembers): []Member = "sema_leaf.rs:unwrap_ms";
+// Where a func's result type is written, or d if it has none (void).
+func RetSpan(t: OptType, d: Span): Span = "sema_leaf.rs:ret_span";
+
+// Reports each of a signature's types that holds a foreign type inside it,
+// at the type as written: its parameters' (fs, resolved as ms), then its
+// result's.
+proc SigForeign(s: { cx: TyCx, fs: []Field, ms: []Member, ret: Type, rspan: Span, i: int }): TyCx {
+	SigForeign switch {
+		(this.s.i == this.s.ms.len) -> ShowType(t = this.s.ret) as RetShown,
+		else -> ShowType(t = this.s.ms[this.s.i].ty)
+	};
+	ShowType -> ForeignHeld(s = { cx = SigForeign.s.cx, t = SigForeign.s.ms[SigForeign.s.i].ty, shown = this, span = SigForeign.s.fs[SigForeign.s.i].ty.span });
+	ForeignHeld -> SigForeign(s = { ..SigForeign.s, cx = this, i = SigForeign.s.i + 1 });
+	RetShown -> ForeignHeld(s = { cx = SigForeign.s.cx, t = SigForeign.s.ret, shown = this, span = SigForeign.s.rspan }) as RetHeld;
 }
 
 type ProcIn = { cx: Cx, p: Proc, qual: []string, parent: int };
@@ -138,12 +156,13 @@ proc DeclareProc(s: ProcIn): Declared {
 		else -> id({ cx = { ..DeclareProc.s.cx, ty = Ret.cx }, id = -1 })
 	};
 	Params switch {
-		{ cx = _, ms = Some(ms) } -> DeclareLocals(s = {
-			cx = WithSig(cx = WithNode(cx = { ..DeclareProc.s.cx, ty = Params.cx }, n = { qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], span = DeclareProc.s.p.name.span, kind = Proc({ parent = DeclareProc.s.parent, entry = -1, ret = UnwrapT(t = Ret.t), locals = [], graph = EmptyGraph(n = 0) }), doc = DeclareProc.s.p.doc }), p = DeclareProc.s.p, qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], pid = DeclareProc.s.cx.nodes.len, params = ms),
-			p = DeclareProc.s.p, qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], id = DeclareProc.s.cx.nodes.len, i = 0, names = [DeclareProc.s.p.name.name: DeclareProc.s.cx.nodes.len + 1], locals = [DeclareProc.s.cx.nodes.len + 1]
-		}),
+		{ cx = _, ms = Some(ms) } -> SigForeign(s = { cx = Params.cx, fs = DeclareProc.s.p.params, ms = ms, ret = UnwrapT(t = Ret.t), rspan = DeclareProc.s.p.ret.span, i = 0 }),
 		else -> id({ cx = { ..DeclareProc.s.cx, ty = Params.cx }, id = -1 })
 	};
+	SigForeign -> DeclareLocals(s = {
+		cx = WithSig(cx = WithNode(cx = { ..DeclareProc.s.cx, ty = this }, n = { qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], span = DeclareProc.s.p.name.span, kind = Proc({ parent = DeclareProc.s.parent, entry = -1, ret = UnwrapT(t = Ret.t), locals = [], graph = EmptyGraph(n = 0) }), doc = DeclareProc.s.p.doc }), p = DeclareProc.s.p, qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], pid = DeclareProc.s.cx.nodes.len, params = UnwrapMs(m = Params.ms)),
+		p = DeclareProc.s.p, qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], id = DeclareProc.s.cx.nodes.len, i = 0, names = [DeclareProc.s.p.name.name: DeclareProc.s.cx.nodes.len + 1], locals = [DeclareProc.s.cx.nodes.len + 1]
+	});
 	DeclareLocals -> Targets(s = { edges = DeclareProc.s.p.edges, i = 0, acc = [] });
 	Targets -> DeclareIds(s = { cx = DeclareLocals.cx, ts = this, i = 0, n = 0, qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], pid = DeclareProc.s.cx.nodes.len, names = DeclareLocals.names, named = [:], locals = DeclareLocals.locals });
 	DeclareIds -> DeclareAliases(s = { cx = this.cx, ts = Targets, i = 0, p = DeclareProc.s.p, qual = DeclareProc.s.qual + [DeclareProc.s.p.name.name], pid = DeclareProc.s.cx.nodes.len, names = this.names, aliased = [:], locals = this.locals });
@@ -332,8 +351,9 @@ proc ResolveNode(s: Lookup): ResolvedNode {
 }
 
 // Declares a program: its typedefs, then (if they have no errors) its
-// interfaces, funcs and procs, the instances their signatures made, and
-// finally points aliases at what they instance. Graphs come later.
+// interfaces, funcs and procs, the instances their signatures made (none may
+// hold a foreign type), and finally points aliases at what they instance.
+// Graphs come later.
 proc Declare(file: File): Cx {
 	Declare -> TypesOf(decls = this.file.types);
 	TypesOf switch {
@@ -344,7 +364,12 @@ proc Declare(file: File): Cx {
 		(this.ty.errors.len == 0) -> CheckTypedefs(s = { cx = this.ty, from = TypesOf.types.len }) as Insts,
 		else -> ResolveAliases(s = { cx = this, i = 0 })
 	};
-	Insts -> ResolveAliases(s = { cx = { ..DeclareFile, ty = this }, i = 0 });
+	Insts switch {
+		(this.errors.len == 0) -> ForeignTypedefs(s = { cx = this, from = TypesOf.types.len }),
+		else -> id(this) as InstsHeld
+	};
+	ForeignTypedefs -> id(this) as InstsHeld;
+	InstsHeld -> ResolveAliases(s = { cx = { ..DeclareFile, ty = this }, i = 0 });
 	ResolveAliases -> id({ ..this, ty = { ..this.ty, types = TypeDocs(types = this.ty.types, decls = Declare.file.types) } });
 }
 

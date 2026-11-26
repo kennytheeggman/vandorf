@@ -119,6 +119,14 @@ where the func is declared and printing the expected signature, after the
 func's doc comment. Until it exists, the func calls a generated stub that
 fails.
 
+A [foreign type](language.md#foreign-types) names its implementation's
+type the same way, `"file:Type"`, resolved as a func's file is: Go aliases
+each in `<out>/foreign_vandorf.go` (importing its package, or, for
+`*sql.DB`, what its file imports as `sql`), Rust in `types.rs` (mounting a
+file outside the crate's src/). A func taking one takes `&mut T` in Rust.
+`vcc build` warns when the file doesn't define the type, and when a backend
+names none, which gets a placeholder type.
+
 An implementation that exists is checked against its declaration, after
 generating each language and before its `post` commands compile it:
 

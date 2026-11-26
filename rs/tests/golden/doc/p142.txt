@@ -1,0 +1,632 @@
+{
+  "grids": {
+    "Fresh": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Fresh",
+              "sublabel": "(start: int)",
+              "doc": "A new counter, bumped once, given back."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "New",
+              "sublabel": "counter.go:New · ../counter.rs:new",
+              "sig": "(start: int): Counter",
+              "doc": "Makes a counter."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Bump",
+              "sublabel": "counter.go:Bump · ../counter.rs:bump",
+              "sig": "(c: Counter, by: int): void",
+              "doc": "Adds by to c."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "id"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ start: int }",
+          "call": "New(start: int)",
+          "args": "start = this.start"
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "Counter",
+          "call": "Bump(c: Counter, by: int)",
+          "args": "c = this, by = 1"
+        },
+        {
+          "type": 0,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            3,
+            0
+          ],
+          "valueType": "void",
+          "call": "id1(value: Counter)",
+          "args": "New"
+        }
+      ]
+    },
+    "Main": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Main",
+              "sublabel": "(start: int, by: int)",
+              "doc": "Every way a foreign value travels: lent to funcs and procs, to spawn\nbranches, read in conditions, returned by a proc into a node."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "New",
+              "sublabel": "counter.go:New · ../counter.rs:new",
+              "sig": "(start: int): Counter",
+              "doc": "Makes a counter."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Bump",
+              "sublabel": "counter.go:Bump · ../counter.rs:bump",
+              "sig": "(c: Counter, by: int): void",
+              "doc": "Adds by to c."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Again",
+              "sublabel": "instance of Bump",
+              "sig": "(c: Counter, by: int): void",
+              "doc": "Adds by to c."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 1,
+              "label": "Other",
+              "sublabel": "instance of Fresh",
+              "sig": "(start: int): Counter",
+              "doc": "A new counter, bumped once, given back."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 1,
+              "label": "Twice",
+              "sig": "(c: Counter, by: int): int",
+              "doc": "Bumps a counter it borrows twice.",
+              "branch": "joined"
+            },
+            {
+              "type": 0,
+              "label": "Side",
+              "sublabel": "instance of Bump",
+              "sig": "(c: Counter, by: int): void",
+              "doc": "Adds by to c.",
+              "branch": "joined"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Move",
+              "sublabel": "counter.go:Move · ../counter.rs:move_by",
+              "sig": "(from: Counter, to: Counter, by: int): void"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Step",
+              "sublabel": "instance of Bump",
+              "sig": "(c: Counter, by: int): void",
+              "doc": "Adds by to c."
+            },
+            {
+              "type": 1,
+              "label": "Shown",
+              "sublabel": "instance of Show",
+              "sig": "(c: Counter): int",
+              "doc": "A counter's count."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "NewBuf",
+              "sublabel": "../ext/buf.go:NewBuf · ../../leaves/buf.rs:new_buf",
+              "sig": "(): Buf"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Write",
+              "sublabel": "../ext/buf.go:Write · ../../leaves/buf.rs:write",
+              "sig": "(b: Buf, s: string): void"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Text",
+              "sublabel": "../ext/buf.go:Text · ../../leaves/buf.rs:text",
+              "sig": "(b: Buf): string"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ start: int, by: int }",
+          "call": "New(start: int)",
+          "args": "start = this.start"
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "Counter",
+          "call": "Bump(c: Counter, by: int)",
+          "args": "c = this, by = Main.by"
+        },
+        {
+          "type": 0,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            3,
+            0
+          ],
+          "valueType": "void",
+          "call": "Again(c: Counter, by: int)",
+          "args": "c = New, by = Main.by * 2"
+        },
+        {
+          "type": 0,
+          "source": [
+            3,
+            0
+          ],
+          "target": [
+            4,
+            0
+          ],
+          "valueType": "void",
+          "call": "Other(start: int)",
+          "args": "start = 1000"
+        },
+        {
+          "type": 5,
+          "source": [
+            4,
+            0
+          ],
+          "target": [
+            5,
+            0
+          ],
+          "valueType": "Counter",
+          "call": "Twice(c: Counter, by: int)",
+          "args": "c = New, by = 1"
+        },
+        {
+          "type": 5,
+          "source": [
+            4,
+            0
+          ],
+          "target": [
+            5,
+            1
+          ],
+          "valueType": "Counter",
+          "call": "Side(c: Counter, by: int)",
+          "args": "c = Other, by = 5"
+        },
+        {
+          "type": 6,
+          "source": [
+            5,
+            0
+          ],
+          "target": [
+            6,
+            0
+          ],
+          "valueType": "{ Twice: int }",
+          "call": "Move(from: Counter, to: Counter, by: int)",
+          "args": "from = Other, to = New, by = this.Twice"
+        },
+        {
+          "type": 6,
+          "source": [
+            5,
+            1
+          ],
+          "target": [
+            6,
+            0
+          ],
+          "valueType": "{ Twice: int }",
+          "call": "Move(from: Counter, to: Counter, by: int)",
+          "args": "from = Other, to = New, by = this.Twice"
+        },
+        {
+          "type": 1,
+          "source": [
+            6,
+            0
+          ],
+          "target": [
+            7,
+            0
+          ],
+          "label": "Read(c = New) < 100",
+          "valueType": "void",
+          "call": "Step(c: Counter, by: int)",
+          "args": "c = New, by = 10"
+        },
+        {
+          "type": 1,
+          "source": [
+            6,
+            0
+          ],
+          "target": [
+            7,
+            1
+          ],
+          "label": "else",
+          "valueType": "void",
+          "call": "Shown(c: Counter)",
+          "args": "c = Other"
+        },
+        {
+          "type": 0,
+          "source": [
+            7,
+            0
+          ],
+          "target": [
+            6,
+            0
+          ],
+          "valueType": "void",
+          "call": "Move(from: Counter, to: Counter, by: int)",
+          "args": "from = Other, to = New, by = 0"
+        },
+        {
+          "type": 1,
+          "source": [
+            7,
+            1
+          ],
+          "target": [
+            7,
+            1
+          ],
+          "label": "this > 500",
+          "valueType": "int",
+          "call": "Shown(c: Counter)",
+          "args": "c = New"
+        },
+        {
+          "type": 1,
+          "source": [
+            7,
+            1
+          ],
+          "target": [
+            8,
+            0
+          ],
+          "label": "else",
+          "valueType": "int",
+          "call": "NewBuf()"
+        },
+        {
+          "type": 0,
+          "source": [
+            8,
+            0
+          ],
+          "target": [
+            9,
+            0
+          ],
+          "valueType": "Buf",
+          "call": "Write(b: Buf, s: string)",
+          "args": "b = this, s = \"new=\" + Itoa(i = Read(c = New))"
+        },
+        {
+          "type": 0,
+          "source": [
+            9,
+            0
+          ],
+          "target": [
+            10,
+            0
+          ],
+          "valueType": "void",
+          "call": "Text(b: Buf)",
+          "args": "b = NewBuf"
+        }
+      ]
+    },
+    "Show": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Show",
+              "sublabel": "(c: Counter)",
+              "doc": "A counter's count."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Read",
+              "sublabel": "counter.go:Read · ../counter.rs:read",
+              "sig": "(c: Counter): int"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ c: Counter }",
+          "call": "Read(c: Counter)",
+          "args": "c = this.c"
+        }
+      ]
+    },
+    "Twice": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Twice",
+              "sublabel": "(c: Counter, by: int)",
+              "doc": "Bumps a counter it borrows twice."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Bump",
+              "sublabel": "counter.go:Bump · ../counter.rs:bump",
+              "sig": "(c: Counter, by: int): void",
+              "doc": "Adds by to c."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Second",
+              "sublabel": "instance of Bump",
+              "sig": "(c: Counter, by: int): void",
+              "doc": "Adds by to c."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "id"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ c: Counter, by: int }",
+          "call": "Bump(c: Counter, by: int)",
+          "args": "c = this.c, by = this.by"
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "void",
+          "call": "Second(c: Counter, by: int)",
+          "args": "c = Twice.c, by = Twice.by"
+        },
+        {
+          "type": 0,
+          "source": [
+            2,
+            0
+          ],
+          "target": [
+            3,
+            0
+          ],
+          "valueType": "void",
+          "call": "id1(value: int)",
+          "args": "Twice.by * 2"
+        }
+      ]
+    },
+    "Unused": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Unused",
+              "sublabel": "(n: int)",
+              "doc": "Builds around a placeholder."
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "MakeLater",
+              "sig": "(n: int): Later"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "UseLater",
+              "sig": "(l: Later): int"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ n: int }",
+          "call": "MakeLater(n: int)",
+          "args": "n = this.n"
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "Later",
+          "call": "UseLater(l: Later)",
+          "args": "l = this"
+        }
+      ]
+    }
+  }
+}

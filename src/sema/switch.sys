@@ -12,11 +12,12 @@ func Slice(src: string, span: Span): string = "sema_leaf.rs:slice";
 // all patterns or all conditions; a condition switch needs an else, and a
 // pattern switch must not have arms the ones above already cover, and must
 // cover every value unless it ends in else (an else it never reaches is an
-// error too). A pattern arm may lead to a nested switch of conditions, which
-// sees its bindings.
+// error too), nor match a foreign value. A pattern arm may lead to a nested
+// switch of conditions, which sees its bindings.
 proc Switch(s: { env: Env, sc: Scope, src: Path, arms: []Arm, span: Span, nested: bool }): Res<[]SArm> {
 	Switch switch {
 		(HeadIndex(arms = this.s.arms, kind = "pat") >= 0 && this.s.nested) -> id(Err({ msg = "a nested switch has nothing new to match, so its arms are conditions: (expr) -> ..", span = this.s.arms[HeadIndex(arms = this.s.arms, kind = "pat")].span })),
+		(HeadIndex(arms = this.s.arms, kind = "pat") >= 0 && (IsSomeStr(m = ForeignOf(t = this.s.sc.this, defs = this.s.env.types)) || IsSomeStr(m = ForeignField(t = this.s.sc.this, defs = this.s.env.types)))) -> id(Err({ msg = ShowPath(p = this.s.src) + " is or holds a foreign value, which patterns can't look inside: switch on it with conditions, (expr) -> ..", span = this.s.arms[HeadIndex(arms = this.s.arms, kind = "pat")].span })),
 		(HeadIndex(arms = this.s.arms, kind = "pat") >= 0 && HeadIndex(arms = this.s.arms, kind = "cond") >= 0) -> id(Err({ msg = "this switch matches patterns (like " + Slice(src = this.s.env.srcs[this.s.arms[HeadIndex(arms = this.s.arms, kind = "pat")].span.file], span = this.s.arms[HeadIndex(arms = this.s.arms, kind = "pat")].span) + "), so its arms can't be conditions; put conditions in a switch under a pattern arm: Pat -> switch { (cond) -> .., else -> .. }", span = this.s.arms[HeadIndex(arms = this.s.arms, kind = "cond")].span })),
 		else -> Arms(s = { env = this.s.env, sc = this.s.sc, src = this.s.src, arms = this.s.arms, i = 0, acc = [] })
 	};

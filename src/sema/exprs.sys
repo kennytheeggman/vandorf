@@ -36,6 +36,16 @@ func IsFunc(n: NodeDecl): bool = "sema_leaf.rs:is_func";
 // passed to it has been typed.
 func IsUntypedId(n: NodeDecl): bool = "sema_leaf.rs:is_untyped_id";
 func Prefixed(d: Diag, prefix: string): Diag = "sema_leaf.rs:prefixed";
+// Names the foreign type t is, through typedef names, if it is one.
+func ForeignOf(t: Type, defs: []TypeDef): MaybeStr = "sema_leaf.rs:foreign_of";
+// Names the first of a struct's fields (t, through typedef names) whose type
+// is foreign, if it has one.
+func ForeignField(t: Type, defs: []TypeDef): MaybeStr = "sema_leaf.rs:foreign_field";
+func IsSomeStr(m: MaybeStr): bool = "sema_leaf.rs:is_some_str";
+func UnwrapStr(m: MaybeStr): string = "sema_leaf.rs:unwrap_str";
+// Whether v is written as a literal: a number, string, bool, array, map,
+// struct or struct update (a variant's `Tag(..)` isn't told from a call).
+func IsLiteral(v: Value): bool = "sema_leaf.rs:is_literal";
 
 // ---- Checking against a type ----
 
@@ -43,10 +53,14 @@ func Prefixed(d: Diag, prefix: string): Diag = "sema_leaf.rs:prefixed";
 // Literals of structs, arrays, maps and variants take their type from
 // `want`, as do both sides of `[x] + rest`; an int literal where a float is
 // wanted becomes a float. Anything else has its own type, which `want` must
-// accept.
+// accept. A foreign type has no literals.
 proc Check(s: CheckIn): Res<Expr> {
 	Check -> Unfold(s = { t = this.s.want, defs = this.s.env.types }) as Shape;
-	Shape -> id(Check.s.v.kind) as K;
+	Shape switch {
+		(IsSomeStr(m = ForeignOf(t = this, defs = Check.s.env.types)) && IsLiteral(v = Check.s.v)) -> ShowType(t = Check.s.want) as NoLiteral,
+		else -> id(Check.s.v.kind) as K
+	};
+	NoLiteral -> id(Err({ msg = this + " is a foreign type: it has no literals, only values its implementations make", span = Check.s.v.span }));
 	K switch {
 		Int(i) -> switch {
 			(IsPrimNamed(t = Shape, p = "float")) -> id(Ok(Float(IntToFloat(i = i)))),
@@ -354,7 +368,8 @@ func BinaryOp(k: ValueKind): string = "sema_leaf.rs:binary_op";
 func IndexedValue(t: Type): Type = "sema_leaf.rs:indexed_value";
 
 // Types a struct literal with no expected type: each field synthesized in
-// turn, the struct made of their types. A field given twice is an error.
+// turn, the struct made of their types. A field given twice, or of a foreign
+// type, is an error.
 proc SynthFields(s: { env: Env, sc: Scope, args: []Arg, i: int, ms: []Member, es: []ExprMember }): Res<Typed> {
 	SynthFields switch {
 		(this.s.i == this.s.args.len) -> id(Ok({ e = Struct(this.s.es), t = Struct(this.s.ms) })),
@@ -362,18 +377,24 @@ proc SynthFields(s: { env: Env, sc: Scope, args: []Arg, i: int, ms: []Member, es
 		else -> Synth(s = { env = this.s.env, sc = this.s.sc, v = this.s.args[this.s.i].value })
 	};
 	Synth switch {
-		Ok(x) -> SynthFields(s = { ..SynthFields.s, i = SynthFields.s.i + 1, ms = SynthFields.s.ms + [{ name = SynthFields.s.args[SynthFields.s.i].name.name, ty = x.t }], es = SynthFields.s.es + [{ name = SynthFields.s.args[SynthFields.s.i].name.name, e = x.e }] }),
+		Ok(x) -> switch {
+			(IsSomeStr(m = ForeignOf(t = x.t, defs = SynthFields.s.env.types))) -> ShowType(t = x.t) as Held,
+			else -> SynthFields(s = { ..SynthFields.s, i = SynthFields.s.i + 1, ms = SynthFields.s.ms + [{ name = SynthFields.s.args[SynthFields.s.i].name.name, ty = x.t }], es = SynthFields.s.es + [{ name = SynthFields.s.args[SynthFields.s.i].name.name, e = x.e }] })
+		},
 		Err(e) -> id(Err(Prefixed(d = e, prefix = "field " + SynthFields.s.args[SynthFields.s.i].name.name + ": ")))
 	};
+	Held -> id(Err({ msg = "field " + SynthFields.s.args[SynthFields.s.i].name.name + " has type " + this + ", a foreign type, which can't be inside a struct, array, map or enum", span = SynthFields.s.args[SynthFields.s.i].value.span }));
 }
 
 // Types a binary operator other than && and ||, its left operand already
 // typed. `+` joins arrays or maps and `-` removes keys from a map; otherwise
 // both operands are typed and must be primitives the operator applies to,
-// the same (an int literal next to a float becoming a float).
+// the same (an int literal next to a float becoming a float). No operator
+// applies to a foreign type.
 proc SynthBinary(s: { env: Env, sc: Scope, v: Value, op: string, l: Typed, r: Value }): Res<Typed> {
 	SynthBinary -> Unfold(s = { t = this.s.l.t, defs = this.s.env.types }) as LShape;
 	LShape switch {
+		(IsSomeStr(m = ForeignOf(t = this, defs = SynthBinary.s.env.types))) -> ShowType(t = SynthBinary.s.l.t) as NoOp,
 		// `xs + ys`: a new array with both.
 		(IsArray(t = this) && SynthBinary.s.op == "+") -> Check(s = { env = SynthBinary.s.env, sc = SynthBinary.s.sc, v = SynthBinary.s.r, want = SynthBinary.s.l.t }) as Joined,
 		(IsArray(t = this)) -> id(Err({ msg = SynthBinary.s.op + " doesn't apply to arrays; + joins them", span = SynthBinary.s.v.span })),
@@ -393,7 +414,11 @@ proc SynthBinary(s: { env: Env, sc: Scope, v: Value, op: string, l: Typed, r: Va
 		Ok(r) -> Unfold(s = { t = r.t, defs = SynthBinary.s.env.types }) as RShape,
 		Err(e) -> id(Err(e))
 	};
-	RShape -> Operands(s = { op = SynthBinary.s.op, l = SynthBinary.s.l.e, lp = PrimName(t = LShape), r = UnwrapTyped(r = R).e, rp = PrimName(t = this) });
+	RShape switch {
+		(IsSomeStr(m = ForeignOf(t = this, defs = SynthBinary.s.env.types))) -> ShowType(t = UnwrapTyped(r = R).t) as NoOp,
+		else -> Operands(s = { op = SynthBinary.s.op, l = SynthBinary.s.l.e, lp = PrimName(t = LShape), r = UnwrapTyped(r = R).e, rp = PrimName(t = this) })
+	};
+	NoOp -> id(Err({ msg = this + " is a foreign type: " + OpOnForeign(op = SynthBinary.s.op), span = SynthBinary.s.v.span }));
 	Operands switch {
 		(this.ok) -> id(Ok({ e = Binary({ op = SynthBinary.s.op, l = this.l, r = this.r, operand = this.operand }), t = OpResult(op = SynthBinary.s.op, operand = this.operand) })),
 		else -> ShowType(t = SynthBinary.s.l.t) as LT
@@ -409,11 +434,15 @@ func PrimName(t: Type): string = "sema_leaf.rs:prim_name";
 // common type.
 func Operands(s: { op: string, l: Expr, lp: string, r: Expr, rp: string }): { ok: bool, op: string, l: Expr, r: Expr, operand: string } = "sema_leaf.rs:operands";
 func OpResult(op: string, operand: string): Type = "sema_leaf.rs:op_result";
+// Says why operator op doesn't apply to a foreign type: "it can't be
+// compared" for a comparison, else that op doesn't apply to it.
+func OpOnForeign(op: string): string = "sema_leaf.rs:op_on_foreign";
 func Allowed(op: string): string = "sema_leaf.rs:allowed";
 
 // Types `F(param = value)` in an expression, which calls the func's
-// implementation directly: F must be a func that returns something, and
-// every argument named and checked against its parameters.
+// implementation directly: F must be a func that returns something (not a
+// foreign value, which needs a node to live in), and every argument named
+// and checked against its parameters.
 proc SynthCall(s: { env: Env, sc: Scope, name: Path, args: []ApplyArg }): Res<Typed> {
 	func Named(args: []ApplyArg): MaybeArgs = "sema_leaf.rs:named_args";
 	SynthCall -> ResolveNode(s = { nodes = this.s.env.nodes, globals = this.s.env.globals, pid = this.s.env.pid, path = this.s.name });
@@ -421,6 +450,7 @@ proc SynthCall(s: { env: Env, sc: Scope, name: Path, args: []ApplyArg }): Res<Ty
 		Ok(n) -> switch {
 			(!IsFunc(n = SynthCall.s.env.nodes[n])) -> id(Err({ msg = ShowPath(p = SynthCall.s.name) + " is not a func; only funcs can be called in expressions", span = SynthCall.s.name.span })),
 			(IsVoid(t = NodeRet(nodes = SynthCall.s.env.nodes, n = n))) -> id(Err({ msg = ShowPath(p = SynthCall.s.name) + " returns nothing, so it can't be used as a value", span = SynthCall.s.name.span })),
+			(IsSomeStr(m = ForeignOf(t = NodeRet(nodes = SynthCall.s.env.nodes, n = n), defs = SynthCall.s.env.types))) -> id(Err({ msg = ShowPath(p = SynthCall.s.name) + " returns " + UnwrapStr(m = ForeignOf(t = NodeRet(nodes = SynthCall.s.env.nodes, n = n), defs = SynthCall.s.env.types)) + ", a foreign type, so it can't be called in an expression: call it as a node, -> " + ShowPath(p = SynthCall.s.name) + "(..), so its value has a node to live in", span = SynthCall.s.name.span })),
 			else -> Named(args = SynthCall.s.args)
 		},
 		Err(e) -> switch {
@@ -441,12 +471,18 @@ proc SynthCall(s: { env: Env, sc: Scope, name: Path, args: []ApplyArg }): Res<Ty
 // The arguments, all named; or where the first one without a name is.
 type MaybeArgs = enum { Some([]Arg), None(Span) };
 func UnwrapN(r: ResolvedNode): int = "sema_leaf.rs:unwrap_n";
+// Whether e reads a foreign parameter of a proc (a field of its signature
+// node's output, the only struct holding a foreign value), which the proc
+// only borrows.
+func BorrowedParam(e: Expr, defs: []TypeDef): bool = "sema_leaf.rs:borrowed_param";
 
 // Types `e.name`, where e has type t: a struct's field, `.len` of a map,
-// array or string, or `.keys` and `.values` of a map.
+// array or string, or `.keys` and `.values` of a map. A foreign type has
+// none.
 proc Select(s: { env: Env, e: Expr, t: Type, name: Ident }): Res<Typed> {
 	Select -> Unfold(s = { t = this.s.t, defs = this.s.env.types });
 	Unfold switch {
+		(IsSomeStr(m = ForeignOf(t = this, defs = Select.s.env.types))) -> ShowType(t = Select.s.t) as Opaque,
 		(IsStruct(t = this) && IsSomeT(t = Member(ms = MembersOf(t = this), name = Select.s.name.name))) -> id(Ok({ e = Field({ e = Select.s.e, ty = Select.s.t, name = Select.s.name.name }), t = UnwrapT(t = Member(ms = MembersOf(t = this), name = Select.s.name.name)) })),
 		((IsMap(t = this) || IsArray(t = this) || IsPrimNamed(t = this, p = "string")) && Select.s.name.name == "len") -> id(Ok({ e = Query({ e = Select.s.e, ty = Select.s.t, q = "len" }), t = Prim("int") })),
 		(IsMap(t = this) && Select.s.name.name == "keys") -> id(Ok({ e = Query({ e = Select.s.e, ty = Select.s.t, q = "keys" }), t = Array(KeyOf(t = this)) })),
@@ -454,16 +490,25 @@ proc Select(s: { env: Env, e: Expr, t: Type, name: Ident }): Res<Typed> {
 		else -> ShowType(t = Select.s.t)
 	};
 	ShowType -> id(Err({ msg = this + " has no field " + Select.s.name.name, span = Select.s.name.span }));
+	Opaque -> id(Err({ msg = this + " is a foreign type: it has no fields, so it has no " + Select.s.name.name, span = Select.s.name.span }));
 }
 
 type RefUpto = { r: Ref, rest: []Ident };
 
 // Types a path: its root and struct fields as one Ref, then any .len, .keys
-// or .values after them.
+// or .values after them. A struct holding a foreign value (a signature
+// node's parameters) is only read field by field.
 proc PathValue(s: { env: Env, sc: Scope, path: Path }): Res<Typed> {
 	PathValue -> RefUpto(s = this.s);
 	RefUpto switch {
 		Ok(x) -> Selects(s = { env = PathValue.s.env, e = Ref(x.r), t = x.r.ty, rest = x.rest, i = 0 }),
+		Err(e) -> id(Err(e))
+	};
+	Selects switch {
+		Ok(x) -> switch {
+			(IsSomeStr(m = ForeignField(t = x.t, defs = PathValue.s.env.types))) -> id(Err({ msg = ShowPath(p = PathValue.s.path) + " holds " + UnwrapStr(m = ForeignField(t = x.t, defs = PathValue.s.env.types)) + ", a foreign value, so it can only be read field by field: " + ShowPath(p = PathValue.s.path) + "." + UnwrapStr(m = ForeignField(t = x.t, defs = PathValue.s.env.types)), span = PathValue.s.path.span })),
+			else -> id(Selects)
+		},
 		Err(e) -> id(Err(e))
 	};
 }
@@ -553,9 +598,9 @@ proc FillArgs(s: { env: Env, target: int, seen: map[string]Expr, span: Span, ps:
 }
 
 // Checks the call a target makes. `id(value)` passes value to its id node
-// (an untyped `id(..) as N` takes its type); `as B2` calls the alias
-// instance; anything else calls the node it names. The call keeps its
-// arguments' text, for the diagram.
+// (an untyped `id(..) as N` takes its type, which can't be foreign); `as B2`
+// calls the alias instance; anything else calls the node it names. The call
+// keeps its arguments' text, for the diagram.
 proc CallOf(s: { env: Env, sc: Scope, t: Target }): Res<Call> {
 	func IdValue(t: Target): OptValue = "sema_leaf.rs:id_value";
 	func AliasOf(t: Target): OptIdent = "sema_leaf.rs:alias_of";
@@ -574,11 +619,18 @@ proc CallOf(s: { env: Env, sc: Scope, t: Target }): Res<Call> {
 		else -> AliasOf(t = CallOf.s.t)
 	};
 	IdS switch {
-		Ok(x) -> id(Ok({ target = CallOf.s.env.ids[SpanKey(s = CallOf.s.t.node.span)], args = [{ name = "value", param = x.t, value = x.e }], span = CallOf.s.t.node.span, text = Squash(src = CallOf.s.env.srcs[CallOf.s.t.inner.file], span = CallOf.s.t.inner) })),
+		Ok(x) -> switch {
+			(IsSomeStr(m = ForeignOf(t = x.t, defs = CallOf.s.env.types))) -> ShowType(t = x.t) as ForeignId,
+			else -> id(Ok({ target = CallOf.s.env.ids[SpanKey(s = CallOf.s.t.node.span)], args = [{ name = "value", param = x.t, value = x.e }], span = CallOf.s.t.node.span, text = Squash(src = CallOf.s.env.srcs[CallOf.s.t.inner.file], span = CallOf.s.t.inner) }))
+		},
 		Err(e) -> id(Err(Prefixed(d = e, prefix = "id: ")))
 	};
+	ForeignId -> id(Err({ msg = "id(..) as " + QualName(n = CallOf.s.env.nodes[CallOf.s.env.ids[SpanKey(s = CallOf.s.t.node.span)]]) + " can't take " + this + ", a foreign type: the value would be in two nodes at once; pass it on directly", span = CallOf.s.t.node.span }));
 	IdV switch {
-		Ok(x) -> id(Ok({ target = CallOf.s.env.ids[SpanKey(s = CallOf.s.t.node.span)], args = [{ name = "value", param = NodeRet(nodes = CallOf.s.env.nodes, n = CallOf.s.env.ids[SpanKey(s = CallOf.s.t.node.span)]), value = x }], span = CallOf.s.t.node.span, text = Squash(src = CallOf.s.env.srcs[CallOf.s.t.inner.file], span = CallOf.s.t.inner) })),
+		Ok(x) -> switch {
+			(BorrowedParam(e = x, defs = CallOf.s.env.types)) -> id(Err({ msg = "id can't give back " + Squash(src = CallOf.s.env.srcs[CallOf.s.t.inner.file], span = CallOf.s.t.inner) + ", a foreign value its proc only borrows from its caller; return one a func makes", span = CallOf.s.t.node.span })),
+			else -> id(Ok({ target = CallOf.s.env.ids[SpanKey(s = CallOf.s.t.node.span)], args = [{ name = "value", param = NodeRet(nodes = CallOf.s.env.nodes, n = CallOf.s.env.ids[SpanKey(s = CallOf.s.t.node.span)]), value = x }], span = CallOf.s.t.node.span, text = Squash(src = CallOf.s.env.srcs[CallOf.s.t.inner.file], span = CallOf.s.t.inner) }))
+		},
 		Err(e) -> id(Err(Prefixed(d = e, prefix = "id: ")))
 	};
 	AliasOf switch {

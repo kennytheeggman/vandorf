@@ -127,8 +127,8 @@ type SrcEdge = { src: int, e: SEdge };
 
 // Checks edge p.edges[i] from its source node, whose output is `this`: a
 // call, a switch, a collect (`this` an array of the collected node's
-// outputs), a for each over an array (`this` its element), or a spawn. Its
-// source must be typed.
+// outputs, which can't be foreign), a for each over an array (`this` its
+// element), or a spawn. Its source must be typed.
 proc EdgeOf(s: { env: Env, p: Proc, i: int }): Res<SrcEdge> {
 	EdgeOf -> ResolveNode(s = { nodes = this.s.env.nodes, globals = this.s.env.globals, pid = this.s.env.pid, path = this.s.p.edges[this.s.i].source });
 	ResolveNode switch {
@@ -141,7 +141,10 @@ proc EdgeOf(s: { env: Env, p: Proc, i: int }): Res<SrcEdge> {
 	K switch {
 		Call(t) -> CallOf(s = { env = EdgeOf.s.env, sc = { this = NodeRet(nodes = EdgeOf.s.env.nodes, n = UnwrapN(r = ResolveNode)), binds = [] }, t = t }) as EC,
 		Match(arms) -> Switch(s = { env = EdgeOf.s.env, sc = { this = NodeRet(nodes = EdgeOf.s.env.nodes, n = UnwrapN(r = ResolveNode)), binds = [] }, src = EdgeOf.s.p.edges[EdgeOf.s.i].source, arms = arms, span = EdgeOf.s.p.edges[EdgeOf.s.i].span, nested = false }) as EM,
-		Collect(c) -> CallOf(s = { env = EdgeOf.s.env, sc = { this = Array(NodeRet(nodes = EdgeOf.s.env.nodes, n = UnwrapN(r = ResolveNode))), binds = [] }, t = c.target }) as ECol,
+		Collect(c) -> switch {
+			(IsSomeStr(m = ForeignOf(t = NodeRet(nodes = EdgeOf.s.env.nodes, n = UnwrapN(r = ResolveNode)), defs = EdgeOf.s.env.types))) -> ShowType(t = NodeRet(nodes = EdgeOf.s.env.nodes, n = UnwrapN(r = ResolveNode))) as ForeignCollect,
+			else -> CallOf(s = { env = EdgeOf.s.env, sc = { this = Array(NodeRet(nodes = EdgeOf.s.env.nodes, n = UnwrapN(r = ResolveNode))), binds = [] }, t = c.target }) as ECol
+		},
 		ForEach(f) -> Synth(s = { env = EdgeOf.s.env, sc = { this = NodeRet(nodes = EdgeOf.s.env.nodes, n = UnwrapN(r = ResolveNode)), binds = [] }, v = f.dim }) as Dim,
 		Spawn(sp) -> SpawnEdge(s = { env = EdgeOf.s.env, ret = NodeRet(nodes = EdgeOf.s.env.nodes, n = UnwrapN(r = ResolveNode)), branches = sp.branches, join = sp.join, i = 0, out = [], fields = [] })
 	};
@@ -157,6 +160,7 @@ proc EdgeOf(s: { env: Env, p: Proc, i: int }): Res<SrcEdge> {
 		Ok(arms) -> id(Ok({ src = UnwrapN(r = ResolveNode), e = Match(arms) })),
 		Err(e) -> id(Err(e))
 	};
+	ForeignCollect -> id(Err({ msg = QualName(n = EdgeOf.s.env.nodes[UnwrapN(r = ResolveNode)]) + " returns " + this + ", a foreign type, so collect each can't gather its outputs into an array", span = EdgeOf.s.p.edges[EdgeOf.s.i].source.span }));
 	ECol switch {
 		Ok(c) -> id(Ok({ src = UnwrapN(r = ResolveNode), e = Collect(c) })),
 		Err(e) -> id(Err(e))
@@ -177,12 +181,14 @@ proc EdgeOf(s: { env: Env, p: Proc, i: int }): Res<SrcEdge> {
 }
 
 func ForEachTarget(k: EdgeKind): Target = "sema_leaf.rs:for_each_target";
+func UnwrapC(r: Res<Call>): Call = "sema_leaf.rs:unwrap_c";
 func ForEachDim(k: EdgeKind): Value = "sema_leaf.rs:for_each_dim";
 
 // Checks `-> spawn { .. } join J(..)`: each branch is called with the
 // spawner's output as this, and runs once; the join gets the joined
 // branches' outputs, by node name (void ones and detached ones left out),
-// and mustn't read a detached one.
+// and mustn't read a detached one. A joined branch can't return a foreign
+// value.
 proc SpawnEdge(s: { env: Env, ret: Type, branches: []Branch, join: Target, i: int, out: []SBranch, fields: []Member }): Res<SEdge> {
 	func HasId(t: Target): bool = "sema_leaf.rs:has_id";
 	func HasTarget(out: []SBranch, n: int): bool = "sema_leaf.rs:has_branch_target";
@@ -199,12 +205,14 @@ proc SpawnEdge(s: { env: Env, ret: Type, branches: []Branch, join: Target, i: in
 	Branch switch {
 		Ok(c) -> switch {
 			(HasTarget(out = SpawnEdge.s.out, n = c.target)) -> id(Err({ msg = QualName(n = SpawnEdge.s.env.nodes[c.target]) + " runs twice in this spawn; name one with `as`", span = SpawnEdge.s.branches[SpawnEdge.s.i].target.node.span })),
+			(!SpawnEdge.s.branches[SpawnEdge.s.i].detach && IsSomeStr(m = ForeignOf(t = NodeRet(nodes = SpawnEdge.s.env.nodes, n = c.target), defs = SpawnEdge.s.env.types))) -> ShowType(t = NodeRet(nodes = SpawnEdge.s.env.nodes, n = c.target)) as ForeignOut,
 			(SpawnEdge.s.branches[SpawnEdge.s.i].detach || IsVoid(t = NodeRet(nodes = SpawnEdge.s.env.nodes, n = c.target))) -> SpawnEdge(s = { ..SpawnEdge.s, i = SpawnEdge.s.i + 1, out = SpawnEdge.s.out + [{ call = c, detach = SpawnEdge.s.branches[SpawnEdge.s.i].detach }] }),
 			(HasMember(ms = SpawnEdge.s.fields, name = Name(n = SpawnEdge.s.env.nodes[c.target]))) -> id(Err({ msg = "two joined branches are named " + Name(n = SpawnEdge.s.env.nodes[c.target]) + "; name one with `as`", span = SpawnEdge.s.branches[SpawnEdge.s.i].target.node.span })),
 			else -> SpawnEdge(s = { ..SpawnEdge.s, i = SpawnEdge.s.i + 1, out = SpawnEdge.s.out + [{ call = c, detach = false }], fields = SpawnEdge.s.fields + [{ name = Name(n = SpawnEdge.s.env.nodes[c.target]), ty = NodeRet(nodes = SpawnEdge.s.env.nodes, n = c.target) }] })
 		},
 		Err(e) -> id(Err(e))
 	};
+	ForeignOut -> id(Err({ msg = QualName(n = SpawnEdge.s.env.nodes[UnwrapC(r = Branch).target]) + " returns " + this + ", a foreign type, which a join can't take: run it before or after the spawn", span = SpawnEdge.s.branches[SpawnEdge.s.i].target.node.span }));
 	Detached switch {
 		Some(x) -> id(Err({ msg = x.name + " is detached, so the join doesn't get its output", span = x.span })),
 		else -> CallOf(s = { env = SpawnEdge.s.env, sc = { this = Struct(SpawnEdge.s.fields), binds = [] }, t = SpawnEdge.s.join }) as Join
@@ -215,12 +223,25 @@ proc SpawnEdge(s: { env: Env, ret: Type, branches: []Branch, join: Target, i: in
 	};
 }
 
+type MaybeDiag = enum { None, Some(Diag) };
+
 // Adds one source's edge to the graph, failing if the source already has
-// one, then goes on with the rest of GraphEdges.
+// one or it lends a foreign value where it can't, then goes on with the rest
+// of GraphEdges.
 proc AddEdge(s: { at: { env: Env, p: Proc, g: Graph, i: int }, src: int, e: SEdge }): Res<Graph> {
+	// Finds a foreign value an edge lends where it can't: twice to one call (in
+	// two arguments, or one and a call inside another), to a detached spawn
+	// branch, which nothing waits for, or to two branches, which run at once;
+	// or a loop back to the signature node that changes a foreign parameter.
+	// `this` is src's output.
+	func EdgeLends(src: int, e: SEdge, nodes: []NodeDecl, defs: []TypeDef): MaybeDiag = "sema_leaf.rs:edge_lends";
 	AddEdge switch {
 		(this.s.src in this.s.at.g.edges) -> id(Err({ msg = ShowPath(p = this.s.at.p.edges[this.s.at.i].source) + " already has an outgoing edge", span = this.s.at.p.edges[this.s.at.i].source.span })),
-		else -> GraphEdges(s = { env = this.s.at.env, p = this.s.at.p, g = { ..this.s.at.g, edges = this.s.at.g.edges + [this.s.src: this.s.e] }, i = this.s.at.i + 1 })
+		else -> EdgeLends(src = this.s.src, e = this.s.e, nodes = this.s.at.env.nodes, defs = this.s.at.env.types)
+	};
+	EdgeLends switch {
+		Some(d) -> id(Err(d)),
+		else -> GraphEdges(s = { env = AddEdge.s.at.env, p = AddEdge.s.at.p, g = { ..AddEdge.s.at.g, edges = AddEdge.s.at.g.edges + [AddEdge.s.src: AddEdge.s.e] }, i = AddEdge.s.at.i + 1 })
 	};
 }
 
@@ -295,7 +316,8 @@ proc InScope(s: { env: Env, g: Graph, scope: int, refs: []Ref, todo: []Expr }): 
 
 // Checks each read in turn: this and bindings are always visible; a node
 // must have run somewhere, not be a spawn's branch, and be in the region or
-// one enclosing it.
+// one enclosing it, but a foreign value only in its own: a for each's
+// elements run at once.
 proc ScopeEach(s: { env: Env, g: Graph, scope: int, refs: []Ref, i: int }): Res<int> {
 	func NodeOf(r: Root): int = "sema_leaf.rs:root_node";
 	func LastName(n: NodeDecl): string = "sema_leaf.rs:last_name";
@@ -305,6 +327,7 @@ proc ScopeEach(s: { env: Env, g: Graph, scope: int, refs: []Ref, i: int }): Res<
 		(NodeOf(r = this.s.refs[this.s.i].root) < 0) -> ScopeEach(s = { env = this.s.env, g = this.s.g, scope = this.s.scope, refs = this.s.refs, i = this.s.i + 1 }),
 		(NodeOf(r = this.s.refs[this.s.i].root) in this.s.g.spawned) -> id(Err({ msg = QualName(n = this.s.env.nodes[NodeOf(r = this.s.refs[this.s.i].root)]) + " runs in " + QualName(n = this.s.env.nodes[this.s.g.spawned[NodeOf(r = this.s.refs[this.s.i].root)]]) + "'s spawn, so its output is only visible to the join, as this." + LastName(n = this.s.env.nodes[NodeOf(r = this.s.refs[this.s.i].root)]), span = this.s.refs[this.s.i].span })),
 		(!(NodeOf(r = this.s.refs[this.s.i].root) in this.s.g.region_of)) -> id(Err({ msg = QualName(n = this.s.env.nodes[NodeOf(r = this.s.refs[this.s.i].root)]) + " never runs in this proc", span = this.s.refs[this.s.i].span })),
+		(this.s.g.region_of[NodeOf(r = this.s.refs[this.s.i].root)] != this.s.scope && this.s.g.region_of[NodeOf(r = this.s.refs[this.s.i].root)] in Ancestors(g = this.s.g, r = this.s.scope) && IsSomeStr(m = ForeignOf(t = this.s.refs[this.s.i].ty, defs = this.s.env.types))) -> id(Err({ msg = QualName(n = this.s.env.nodes[NodeOf(r = this.s.refs[this.s.i].root)]) + " is a foreign value from outside this for each region, whose elements run at once, so they can't borrow it", span = this.s.refs[this.s.i].span })),
 		(this.s.g.region_of[NodeOf(r = this.s.refs[this.s.i].root)] in Ancestors(g = this.s.g, r = this.s.scope)) -> ScopeEach(s = { env = this.s.env, g = this.s.g, scope = this.s.scope, refs = this.s.refs, i = this.s.i + 1 }),
 		else -> id(Err({ msg = QualName(n = this.s.env.nodes[NodeOf(r = this.s.refs[this.s.i].root)]) + " runs inside a for each region, so its output is not visible here", span = this.s.refs[this.s.i].span }))
 	};

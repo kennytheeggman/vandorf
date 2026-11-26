@@ -10,9 +10,9 @@ type OutFile = { path: string, text: string, kind: string };
 func RenderErrors(errors: []Diag, paths: []string, srcs: []string): string = "cli_leaf.rs:render_errors";
 
 // Finds the vandorf.toml at or above the working directory, loads its
-// project, then parses and checks every file. Returns the project and its
-// checked program, or every parse error (or else every check error) rendered
-// with its file and line.
+// project, then parses and checks every file, and the entry points the
+// manifest names. Returns the project and its checked program, or every
+// parse error (or else every check error) rendered with its file and line.
 proc CheckProject(n: int): Res<Checked> {
 	CheckProject -> Fs.Cwd(n = 0);
 	Fs.Cwd -> FindUp(s = { dir = this, marker = "vandorf.toml" });
@@ -30,9 +30,19 @@ proc CheckProject(n: int): Res<Checked> {
 	};
 	Analyze switch {
 		(this.errors.len > 0) -> id(Err({ msg = RenderErrors(errors = this.errors, paths = UnwrapP(r = LoadProject).paths, srcs = UnwrapP(r = LoadProject).srcs), span = { at = 0, end = 0, file = 0 } })),
-		else -> id(Ok({ project = UnwrapP(r = LoadProject), prog = this.prog }))
+		else -> id(EntryForeign(m = UnwrapP(r = LoadProject).manifest, prog = this.prog)) as Entries
+	};
+	Entries switch {
+		(this.len > 0) -> id(Err({ msg = RenderErrors(errors = this, paths = UnwrapP(r = LoadProject).paths, srcs = UnwrapP(r = LoadProject).srcs), span = { at = 0, end = 0, file = 0 } })),
+		else -> id(Ok({ project = UnwrapP(r = LoadProject), prog = Analyze.prog }))
 	};
 }
+
+// Finds the foreign types at the program's entry points, which nothing
+// outside the program can make or take: a bin's entry proc's parameters and
+// result, an HTTP route's or raw route's proc's, and a server's setup
+// result (every route's ctx). Each error names the entry point, at its proc.
+func EntryForeign(m: Manifest, prog: Program): []Diag = "cli_leaf.rs:entry_foreign";
 
 func UnwrapP(r: Res<Project>): Project = "cli_leaf.rs:unwrap_p";
 
@@ -90,7 +100,7 @@ func GoMainSpecs(c: Checked, g: GoTarget, names: []string): []GoMainSpec = "cli_
 func GoOutFiles(out: string, files: []GoFile): []OutFile = "cli_leaf.rs:go_out_files";
 // Lists a check for each func implemented in Go, as impl_checks does for
 // Rust: its file, its function (defined by `func`), and its declaration's
-// signature and doc.
+// signature and doc; then each foreign type's, as for Rust.
 func GoImplChecks(prog: Program, t: Table, g: GoTarget, out: string, import_base: MaybeStr, root: string, paths: []string, srcs: []string): []ImplCheck = "cli_leaf.rs:go_impl_checks";
 
 // Generates the project's Go: [go]'s code and types packages, the bins'
@@ -113,9 +123,10 @@ proc GoBuild(s: { c: Checked, g: GoTarget, names: []string, only: string, out: s
 	Specs -> id(this) as GoSpecs;
 	NoGoSpecs -> id(this) as GoSpecs;
 	GoSpecs switch {
-		Ok(specs) -> GoGenerate(s = { prog = RebasedTo(c = GoBuild.s.c, out = GoBuild.s.out), package = GoPackage(g = GoBuild.s.g, out = GoBuild.s.out), import_base = Base, types_dir = UnwrapOr(m = GoBuild.s.g.types_dir, d = "types"), mains = GoMainSpecs(c = GoBuild.s.c, g = GoBuild.s.g, names = GoBuild.s.names), servers = specs }),
+		Ok(specs) -> GoForeignImports(s = { refs = GoQualifiedRefs(prog = RebasedTo(c = GoBuild.s.c, out = GoBuild.s.out)), out = GoBuild.s.out, i = 0, acc = [:] }),
 		Err(e) -> Fail(msg = e.msg) as SpecFailed
 	};
+	GoForeignImports -> GoGenerate(s = { prog = RebasedTo(c = GoBuild.s.c, out = GoBuild.s.out), package = GoPackage(g = GoBuild.s.g, out = GoBuild.s.out), import_base = Base, types_dir = UnwrapOr(m = GoBuild.s.g.types_dir, d = "types"), mains = GoMainSpecs(c = GoBuild.s.c, g = GoBuild.s.g, names = GoBuild.s.names), servers = UnwrapGoSpecs(r = GoSpecs), imports = this });
 	GoGenerate switch {
 		(IsSomeS(m = this.err)) -> Fail(msg = UnwrapS(m = this.err)) as GenFailed,
 		else -> Guard(s = { files = GoOutFiles(out = GoBuild.s.out, files = this.files), i = 0 })
@@ -129,6 +140,36 @@ proc GoBuild(s: { c: Checked, g: GoTarget, names: []string, only: string, out: s
 }
 
 func UnwrapOr(m: MaybeStr, d: string): string = "cli_leaf.rs:unwrap_or";
+func UnwrapGoSpecs(r: Res<[]GoServerSpec>): []GoServerSpec = "cli_leaf.rs:unwrap_go_specs";
+
+// A foreign type's Go reference whose type is qualified (`db.go:*sql.DB`):
+// its file, as the program names it, and the package name.
+type GoQualified = { file: string, pkg: string };
+// Lists the foreign types' Go references whose type is qualified.
+func GoQualifiedRefs(prog: Program): []GoQualified = "cli_leaf.rs:go_qualified_refs";
+
+// Reads each file a foreign type's qualified Go type is written in (refs,
+// relative to out), and finds the package it imports by that name: for
+// GoGenerate's imports, "file|name" -> path. A file that doesn't exist, or
+// doesn't import it, adds nothing.
+proc GoForeignImports(s: { refs: []GoQualified, out: string, i: int, acc: map[string]string }): map[string]string {
+	// Lists the packages a Go file imports, by the name it uses for each: its
+	// alias, or else its path's last element (without a `/vN` major version).
+	func Imports(src: string): map[string]string = "../gen/go_leaf.rs:go_file_imports";
+	GoForeignImports switch {
+		(this.s.i == this.s.refs.len) -> id(this.s.acc),
+		else -> Fs.IsFile(path = JoinP(a = this.s.out, b = this.s.refs[this.s.i].file))
+	};
+	Fs.IsFile switch {
+		(this) -> Fs.Read(path = JoinP(a = GoForeignImports.s.out, b = GoForeignImports.s.refs[GoForeignImports.s.i].file)),
+		else -> GoForeignImports(s = { ..GoForeignImports.s, i = GoForeignImports.s.i + 1 })
+	};
+	Fs.Read -> Imports(src = this);
+	Imports switch {
+		(GoForeignImports.s.refs[GoForeignImports.s.i].pkg in this) -> GoForeignImports(s = { ..GoForeignImports.s, i = GoForeignImports.s.i + 1, acc = GoForeignImports.s.acc + [GoForeignImports.s.refs[GoForeignImports.s.i].file + "|" + GoForeignImports.s.refs[GoForeignImports.s.i].pkg: this[GoForeignImports.s.refs[GoForeignImports.s.i].pkg]] }),
+		else -> GoForeignImports(s = { ..GoForeignImports.s, i = GoForeignImports.s.i + 1 })
+	};
+}
 
 // Gathers each Go server's spec from its [http.*]: its raw routes and routes
 // (failing on one that's in both, or isn't a method and a path), its setup,
@@ -247,7 +288,8 @@ proc Commands(s: { what: string, cmds: []string, dir: string, i: int }): string 
 }
 
 // An implementation to check, at path (absolute), against the declaration
-// naming it: keyword is what defines the function (fn, func); missing and
+// naming it: keyword is what defines the function (fn, func), or type for a
+// foreign type's (which has no signature or doc to compare); missing and
 // undefined, the warnings when path or the function doesn't exist. qual,
 // sig and doc are the declaration's name, the implementation's expected
 // signature and the declaration's doc comment; shown is path as messages
@@ -260,7 +302,9 @@ type ImplCheck = {
 };
 // Lists a check for each func implemented in Rust: its file (absolute), its
 // function, the warnings to print if the file is missing or doesn't define
-// it, and its declaration's signature and doc.
+// it, and its declaration's signature and doc. Then one for each foreign
+// type: that its file defines the type it names, or, with no .rs type, a
+// warning that it's a placeholder.
 func ImplChecks(prog: Program, t: Table, module_dir: MaybeStr, out: string, root: string, paths: []string, srcs: []string): []ImplCheck = "cli_leaf.rs:impl_checks";
 
 // Checks each implementation against its declaration. A missing file or
@@ -270,7 +314,9 @@ func ImplChecks(prog: Program, t: Table, module_dir: MaybeStr, out: string, root
 // the code.
 proc ImplWarnings(s: { checks: []ImplCheck, t: Table, i: int, errors: []string }): bool {
 	// Whether src defines `fn function` (or a generic `fn function<` / `func
-	// Function[T any](`); keyword is fn or func.
+	// Function[T any](`); keyword is fn or func. With keyword type, whether it
+	// defines the type a foreign type names: a Rust struct, enum, union, type or
+	// `use` of it, or a Go type, or for `pkg.T` imports pkg.
 	func Defines(src: string, function: string, keyword: string): bool = "cli_leaf.rs:defines_fn";
 	// Compares an implementation src defines with its declaration: an error for
 	// a signature that doesn't match, and one for a doc comment that doesn't.

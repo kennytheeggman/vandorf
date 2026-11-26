@@ -69,10 +69,13 @@ proc MemberLines(s: { t: Table, i: int, ms: []RefMember, variants: bool, j: int,
 func FieldType(t: Table, i: int, m: RefMember): string = "gen_leaf.rs:rust_field_type";
 
 // Writes each typedef alias as `pub type Name = type;`, with its doc
-// comment.
+// comment; a foreign type's is written with the procs, where its
+// implementation's place is known.
 proc AliasLines(s: { t: Table, i: int, acc: []Line }): []Line {
+	func IsForeignRef(r: TyRef): bool = "gen_leaf.rs:is_foreign_ref";
 	AliasLines switch {
 		(this.s.i == this.s.t.aliases.len) -> id(this.s.acc),
+		(IsForeignRef(r = this.s.t.aliases[this.s.i].r)) -> AliasLines(s = { ..this.s, i = this.s.i + 1 }),
 		else -> AliasLines(s = { t = this.s.t, i = this.s.i + 1, acc = this.s.acc + AliasDoc(t = this.s.t, name = this.s.t.aliases[this.s.i].name) + [L("pub type " + this.s.t.aliases[this.s.i].name + " = " + RustRender(t = this.s.t, r = this.s.t.aliases[this.s.i].r, qual = "") + ";"), L("")] })
 	};
 }

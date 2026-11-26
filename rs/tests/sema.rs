@@ -416,6 +416,60 @@ fn check_analysis(case: &str, src: &str) {
     common::check("sema", case, &format!("{src}\n---\n{}", vcc_analysis(src)));
 }
 
+/// What the foreign type cases share: a foreign type, and funcs making,
+/// reading and changing its values.
+const FOREIGN_PRE: &str = r#"type Conn = "db.go:*Conn", "db.rs:Conn";
+func Open(): Conn; func Count(c: Conn): int; func Two(a: Conn, b: Conn): int; func Clone(c: Conn): Conn;
+func Bump(c: Conn); func Xs(): []int; func Get(i: int, c: Conn): int; func OpenAt(i: int): Conn;
+"#;
+
+/// Foreign types (#19): declarations and edges, after FOREIGN_PRE, in a proc
+/// P whose first node is Open. The first few check; each of the rest is one
+/// of their rules.
+const FOREIGN_CASES: &[(&str, &str)] = &[
+    // Lent to funcs and procs, passed through a signature's parameter,
+    // returned; an alias of the type is the type.
+    ("type C2 = Conn;\nproc Q(c: C2, k: int): Conn { Q -> Bump(c = this.c); Bump -> Clone(c = Q.c); }",
+     "Open -> Q(c = this, k = 1); Q -> Count(c = this); Count switch { (this > Get(i = 1, c = Open)) -> Two(a = Open, b = Q), else -> id(0) };"),
+    // Nominal: a foreign typedef naming the same implementation is another type.
+    ("type Other = \"db.go:*Conn\", \"db.rs:Conn\"; func Use(o: Other): int;", "Open -> Use(o = this);"),
+    // No literals, fields, operators or patterns.
+    ("", "Open -> Count(c = 1);"),
+    ("", "Open -> Get(i = this.id, c = this);"),
+    ("", "Open switch { (this == Open) -> id(1), else -> id(2) };"),
+    ("", "Open -> Get(i = -this, c = this);"),
+    ("", "Open switch { c -> Count(c = c) };"),
+    // Not inside structs, arrays, maps or variants, written or made.
+    ("type S = { c: Conn, n: int };", "Open -> Count(c = this);"),
+    ("type L = []C2; type C2 = Conn; type M = map[string]Conn; type E = enum { A(Conn) };", "Open -> Count(c = this);"),
+    ("type R<T> = { x: T }; func F(r: R<Conn>): int;", "Open -> Count(c = this);"),
+    ("func F(xs: []Conn): { c: Conn };", "Open -> Count(c = this);"),
+    ("", "Open -> id({ c = this, n = 1 }) as L; L -> id(1);"),
+    ("", "Open -> id(this) as L; L -> Count(c = this);"),
+    ("proc Q(c: Conn, n: int): int { func G(n: int): int; Q -> G(n = { ..this, n = 1 }.n); }", "Open -> Q(c = this, n = 1);"),
+    // A foreign value lives in a node: made by one, lent from it, never
+    // given back by a proc that borrowed it.
+    ("", "Open -> Count(c = Clone(c = this));"),
+    ("proc Q(c: Conn): Conn { Q -> Bump(c = this.c); Bump -> id(Q.c); }", "Open -> Q(c = this); Q -> Count(c = this);"),
+    // Lent once per call, to one branch at a time, never to a detached one.
+    ("", "Open -> Two(a = this, b = Open);"),
+    ("", "Open -> Count(c = this); Count switch { (Two(a = Open, b = Open) > 0) -> id(1), else -> id(2) };"),
+    ("", "Open -> spawn { Count(c = this), Bump(c = Open) } join id(1);"),
+    ("", "Open -> spawn { detach Bump(c = this) } join Count(c = Open);"),
+    ("", "Open -> spawn { Clone(c = this) } join id(1);"),
+    // Not lent into a for each, whose elements run at once, nor collected.
+    ("", "Open -> Xs(); Xs for each (this) -> Get(i = this, c = Open); Get collect each (Get) -> id(1);"),
+    ("", "Open -> Xs(); Xs for each (this) -> OpenAt(i = this); OpenAt collect each (OpenAt) -> id(1);"),
+    // The typedef itself: not generic, and each backend's type as it writes
+    // one.
+    ("type G<T> = \"g.go:T\";", "Open -> Count(c = this);"),
+    ("type B = \"b.rs:*T\", \"b.go:a::B\", \"b.py:any.thing\";", "Open -> Count(c = this);"),
+    // A loop keeps the foreign values its proc was given; a recursive call
+    // may lend others.
+    ("proc Q(c: Conn, k: int): int { Q switch { (this.k > 0) -> Q(c = Q.c, k = this.k - 1), else -> Count(c = Q.c) }; }", "Open -> Q(c = this, k = 2);"),
+    ("proc Q(c: Conn, k: int): int { func O(): Conn; Q -> O(); O switch { (Q.k > 0) -> Q(c = this, k = Q.k - 1), else -> Count(c = Q.c) }; }", "Open -> Q(c = this, k = 2);"),
+];
+
 #[test]
 fn analyzes_programs() {
     let srcs = common::corpus();
@@ -428,6 +482,9 @@ fn analyzes_programs() {
     }
     for (i, src) in DECL_CASES.iter().enumerate() {
         check_analysis(&format!("decl-c{i:02}"), src);
+    }
+    for (i, (decls, edges)) in FOREIGN_CASES.iter().enumerate() {
+        check_analysis(&format!("foreign-c{i:02}"), &format!("{FOREIGN_PRE}{decls}\nproc P(n: int): int {{ P -> Open(); {edges} }}"));
     }
     for (i, edges) in SPAWN_CASES.iter().enumerate() {
         check_analysis(&format!("spawn-c{i:02}"), &format!(
