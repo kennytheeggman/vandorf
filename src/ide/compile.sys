@@ -75,7 +75,8 @@ func NoProgram(n: int): Program = "ide_leaf.rs:no_program";
 
 // Compiles a unit: its check is kept from an earlier compile or made
 // (parsed, then analyzed) and kept. Then it answers with the diagnostics, or
-// the document and symbols, and with previews the generated Rust and Go.
+// the document and symbols, and with previews the generated Rust, Go and
+// TypeScript.
 proc CompileUnit(s: { base: string, unit: Unit }): HttpResponse {
 	// The unit's check: kept from an earlier compile, or made and kept.
 	CompileUnit -> Checks.Claim(key = CheckKey(srcs = this.s.unit.srcs));
@@ -100,7 +101,8 @@ proc CompileUnit(s: { base: string, unit: Unit }): HttpResponse {
 		else -> DocumentJson(prog = Have.prog) as DiagramOnly
 	};
 	RustPreview -> GoPreview(s = { unit = CompileUnit.s.unit, prog = Have.prog });
-	GoPreview -> DocumentJson(prog = Have.prog);
+	GoPreview -> TsPreview(s = { unit = CompileUnit.s.unit, prog = Have.prog });
+	TsPreview -> DocumentJson(prog = Have.prog);
 	DiagramOnly -> id(Api(j = Obj([
 		{ key = "ok", value = Bool(true) },
 		{ key = "name", value = Str(CompileUnit.s.unit.names[CompileUnit.s.unit.here]) },
@@ -117,7 +119,8 @@ proc CompileUnit(s: { base: string, unit: Unit }): HttpResponse {
 		{ key = "document", value = this },
 		{ key = "symbols", value = Symbols },
 		{ key = "go", value = GoPreview },
-		{ key = "rust", value = RustPreview }
+		{ key = "rust", value = RustPreview },
+		{ key = "typescript", value = TsPreview }
 	])));
 }
 
@@ -300,6 +303,34 @@ proc Preview(s: { prog: Program, module_dir: MaybeStr, krate: string, bins: map[
 }
 
 func UnwrapOut(r: Res<[]OutFile>): []OutFile = "ide_leaf.rs:unwrap_out";
+
+// ---- The TypeScript preview ----
+
+// Previews what vcc build would generate for [react]: types.ts, and client.ts
+// and hooks.ts for the project's servers; for a file outside a project, its
+// types and no servers.
+proc TsPreview(s: { unit: Unit, prog: Program }): Json {
+	// Gives the TypeScript files as JSON (artifacts: types, code), or the
+	// error.
+	func Output(o: TsOut): Json = "ide_leaf.rs:ts_output_json";
+	func Error(msg: string): Json = "ide_leaf.rs:error_json";
+	TsPreview -> id(this.s.unit.project) as P;
+	P switch {
+		Some(p) -> id(p.manifest.react) as R,
+		else -> TsGenerate(s = { prog = TsPreview.s.prog, api_base = "", servers = [] }) as Nominal
+	};
+	R switch {
+		Some(t) -> id(t) as Target,
+		else -> id(Obj([{ key = "ok", value = Bool(false) }, { key = "error", value = Str("not configured in vandorf.toml") }]))
+	};
+	Target -> TsServers(s = { m = UnwrapPr(p = P).manifest, names = UnwrapPr(p = P).manifest.http.keys, i = 0, acc = [] });
+	TsServers switch {
+		Ok(servers) -> TsGenerate(s = { prog = TsPreview.s.prog, api_base = Target.api_base, servers = servers }) as Configured,
+		Err(e) -> id(Error(msg = e.msg))
+	};
+	Nominal -> id(Output(o = this));
+	Configured -> id(Output(o = this));
+}
 
 // Generates each bin's Rust main for the preview, its directory (relative to
 // the module) as its path and its file name as its kind.

@@ -1,0 +1,8 @@
+#0 Item struct { name: string, type: string, tags: []string, price: float } (typedef Item)
+#1 Tree struct { label: string, kids: []#1 } (typedef Tree)
+#2 Inventory struct { by_id: map[int]#0, grid: [][]int, groups: map[string][]#0, best: #3, flags: map[int]bool, tree: #1, note: #4 } (typedef Inventory)
+#3 OptItem enum { None: void, Some: #0 } (typedef Opt<Item>)
+#4 OptString enum { None: void, Some: string } (typedef Opt<string>)
+#5 EchoArgs struct { inv: #2 } (parameters of Echo)
+#6 CountArgs struct { inv: #2, extra: [][]float, in: int } (parameters of Count)
+#7 PickArgs struct { t: #1, note: #4 } (parameters of Pick)

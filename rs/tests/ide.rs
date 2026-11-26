@@ -97,3 +97,14 @@ fn terminal_frame_is_inert_until_the_standalone_ide_mounts_it() {
     assert_eq!(terminal.status, 200);
     assert!(terminal.body.contains("/api/term"));
 }
+
+#[test]
+fn previews_typescript() {
+    // A file outside a project: its types, and no servers to call.
+    let r = req("POST", "/api/compile", &[], &[], r#"{"source":"type P = { a: int };\nproc Main(p: P): int { Main -> id(this.p.a + 1); }"}"#);
+    assert_eq!(r.status, 200);
+    // The last key, so the rest of the body is the preview.
+    let ts = r.body.split_once(r#""typescript":"#).expect("TypeScript preview").1;
+    assert!(ts.starts_with(r#"{"artifacts":"#) && ts.contains(r#""ok":true"#), "{}", &ts[..ts.len().min(250)]);
+    assert!(ts.contains(r#""types.ts":"#) && ts.contains("export interface P {") && ts.contains(r#""client.ts":"#) && ts.contains(r#""hooks.ts":"#), "{ts}");
+}

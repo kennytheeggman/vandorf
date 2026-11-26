@@ -45,6 +45,11 @@ out = "rs/src/app"         # a module under a crate's src/
 post = ["cargo build --manifest-path rs/Cargo.toml"]
 test = ["cargo test --manifest-path rs/Cargo.toml"]
 
+[react]                    # optional: TypeScript for a browser app
+out = "web/src/vandorf"    # types.ts, client.ts, hooks.ts
+# api_base = "/backend"    # before each route's path; default "", the page's origin
+# post = ["npm --prefix web run build"]
+
 [bin.demo]                 # an executable per backend, running a proc
 entry = "Main"             # default "Main"
 # go = "go/cmd/demo"       # Go main package; default <go.out>/../cmd/<name>
@@ -74,12 +79,14 @@ Each backend emits two artifacts:
   first appears (e.g. `ForEachStartOut`, `MainStartOut`). Depends on
   nothing.
 - **code**: one state machine per proc. Depends on the types and the
-  implementations.
+  implementations. For [React](#react), the code is a client of the HTTP
+  servers instead.
 
 | | types | code |
 |---|---|---|
 | Go | `<out>/types/types_vandorf.go`, its own package (`types_dir = "."` to inline) | `<out>/*_vandorf.go` |
 | Rust | `<out>/types.rs` | `<out>/mod.rs`, `<out>/procs.rs` |
+| React | `<out>/types.ts` | `<out>/client.ts`, `<out>/hooks.ts` |
 
 Go needs the separate package: the code package imports the
 implementations, so implementations in other packages can only reach the
@@ -87,8 +94,8 @@ types if they live elsewhere.
 
 Each top-level proc gets a typed entry point: `run_<proc>` in Rust,
 `Run<Proc>` in Go. Generated code isn't meant to be checked in: run
-`vcc build` before building or testing the Go module or the Rust crate.
-Neither backend overwrites a file it didn't generate.
+`vcc build` before building or testing the Go module, the Rust crate or the
+app. No backend overwrites a file it didn't generate.
 
 ## Implementations
 
@@ -225,3 +232,86 @@ The demo's `[http.api]` serves `examples/demo/sys/api.sys`:
 curl -s localhost:8099/api/measure -d '{"shapes": ["Dot", {"Circle": 1}, {"Rect": {"w": 2, "h": 3}}]}'
 curl -s 'localhost:8099/api/hello?name=vandorf&times=2'
 ```
+
+## React
+
+`[react]` generates TypeScript for a browser app, into `out`, for the app's
+own build (Vite, Next.js, ...) to compile:
+
+- **types.ts**: the program's types, named as in Go and Rust. A struct is an
+  interface of `readonly` fields, an enum a union discriminated by `tag`
+  (`{ tag: "Dot" } | { tag: "Circle"; value: number }`), an array
+  `readonly T[]`, a map `ReadonlyMap<K, V>`, and `int` and `float` are both
+  `number`.
+- **client.ts**: per `[http.*]` server, an async function per route, named
+  after the proc it runs (`measure` for `Measure`, `delete_` for a name
+  JavaScript reserves). It takes the proc's parameters as one object and
+  gives its result: `await measure({ shapes })` is `POST /api/measure`. It
+  doesn't depend on React.
+- **hooks.ts**: per route, a React hook over that function: `useMeasure`.
+
+```tsx
+import { measure } from "./vandorf/client";
+import { useHello, useMeasure } from "./vandorf/hooks";
+
+// Runs when it mounts, and again whenever name changes.
+function Greeting({ name }: { name: string }) {
+  const hello = useHello({ name, times: 2 });
+  if (hello.error) return <p>{hello.error.message}</p>;
+  return <p>{hello.loading ? "..." : hello.data}</p>;
+}
+
+// Runs only through run.
+function Area() {
+  const m = useMeasure();
+  return (
+    <p>
+      <button onClick={() => m.run({ shapes: [{ tag: "Circle", value: 1 }] })}>Measure</button>
+      {m.data && ` total ${m.data.total}`}
+    </p>
+  );
+}
+
+// Outside React: cancelled through ctl.abort().
+const ctl = new AbortController();
+const report = await measure({ shapes: [{ tag: "Dot" }] }, { signal: ctl.signal });
+```
+
+**Calls** cross in the servers' JSON (see [HTTP servers](#http-servers)):
+GET and HEAD send each parameter as JSON in the query string, other methods a
+JSON object body; a server's `setup` fills `ctx`, so it isn't a parameter.
+Each function takes options, `{ signal, base }`: an `AbortSignal` cancels the
+call, and the URL is `base` (by default `api_base`) followed by the route's
+path. `api_base` defaults to `""`, URLs relative to the page, for an app the
+server serves itself (`static`) or a dev server proxying to it: the generated
+servers send no CORS headers.
+
+- A response other than 200 throws an `HttpError`, with its `status` and the
+  server's message. A result that doesn't decode throws a `TypeError` saying
+  where (`expected an int at result.kinds["a"]`).
+- An `int` crosses as a `number` only while it's a safe integer (below 2^53
+  either way); a larger one is an error, not rounded. NaN and the
+  infinities can't be sent (JSON has none); the servers send them as `null`,
+  which comes back as NaN.
+- Maps come back in key order, as vandorf's are, though a JavaScript object
+  would put a key like `"2"` first.
+- Raw routes aren't JSON, so the client has no function for them.
+- A proc may be routed only once across the servers, since its function is
+  named after it; `vcc build` fails if two routes' functions would share a
+  name, or a route names no top-level proc.
+
+**Hooks** give `{ data, error, loading, run }`. Given arguments, a hook runs
+when the component mounts and again whenever they change by value (so an
+object written out on each render doesn't run it again); given none, or
+`null`, it waits for `run(args)`. A new run cancels the one before through its
+`AbortSignal`, and the last is cancelled when the component unmounts. `data`
+stays while the next run loads; `run`'s promise gives the result, or
+`undefined` if the run failed or was cancelled, and never rejects. A hook's
+second argument is `{ base }`, as for the functions.
+
+The files use only erasable TypeScript (`import type`, no enums or
+namespaces) with extensionless imports, and compile under `strict` with
+`noUnusedLocals`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
+`verbatimModuleSyntax` and `erasableSyntaxOnly`. They need the DOM's `fetch`
+types, and `react` with its types for hooks.ts. Names starting with `$` are
+the generated code's own. A bundler, if the app uses one, runs from `post`.

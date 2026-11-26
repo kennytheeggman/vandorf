@@ -1,0 +1,13 @@
+[project]
+name = "x"
+[react]
+out = "web/src/vandorf"
+api_base = "/backend"
+post = ["npx tsc --noEmit"]
+test = ["npm test"]
+[http.w]
+addr = "a"
+routes = { "POST /a" = "A" }
+
+---
+

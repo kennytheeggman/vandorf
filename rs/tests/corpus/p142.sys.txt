@@ -1,0 +1,35 @@
+// Values of every kind of type, echoed: int-keyed maps, nested arrays, maps
+// of arrays, optional values (a generic enum), a recursive struct and
+// keyword names. A client's encoding meets a server's decoding and back.
+
+type Opt<T> = enum { None, Some(T) };
+type Item = { name: string, type: string, tags: []string, price: float };
+// A tree of labels.
+type Tree = { label: string, kids: []Tree };
+type Inventory = {
+	by_id: map[int]Item,
+	grid: [][]int,
+	groups: map[string][]Item,
+	best: Opt<Item>,
+	flags: map[int]bool,
+	tree: Tree,
+	note: Opt<string>
+};
+
+// Gives the inventory back as it came.
+proc Echo(inv: Inventory): Inventory {
+	Echo -> id(this.inv);
+}
+
+// Counts the items by id, the grid's rows and the extra rows, plus in.
+proc Count(inv: Inventory, extra: [][]float, in: int): int {
+	Count -> id(this.inv.by_id.len + this.inv.grid.len + this.extra.len + this.in);
+}
+
+// The tree's label, or the note's.
+proc Pick(t: Tree, note: Opt<string>): Opt<string> {
+	Pick switch {
+		{ t = _, note = Some(s) } -> id(Some(s)),
+		else -> id(Some(this.t.label))
+	};
+}

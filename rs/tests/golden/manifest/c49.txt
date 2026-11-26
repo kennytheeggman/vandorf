@@ -1,0 +1,6 @@
+react = "web"
+[project]
+name = "x"
+
+---
+invalid type: string "web", expected struct ReactTarget

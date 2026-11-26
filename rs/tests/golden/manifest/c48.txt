@@ -1,0 +1,8 @@
+[project]
+name = "x"
+[react]
+out = "a"
+post = "npx tsc"
+
+---
+invalid type: string "npx tsc", expected a sequence

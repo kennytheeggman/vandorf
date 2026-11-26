@@ -14,8 +14,8 @@ fn opt(v: Option<&toml::Value>) -> MaybeStr {
 }
 
 /// Reads vandorf.toml as src/project.rs does: the project's name and sources,
-/// its [go] and [rust] targets, its bins and its servers, with defaults
-/// filled in; an error naming what's wrong otherwise.
+/// its [go], [rust] and [react] targets, its bins and its servers, with
+/// defaults filled in; an error naming what's wrong otherwise.
 pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
     let fail = |e: String| {
         Ok(ResManifest::Err(Diag {
@@ -78,6 +78,18 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
         },
         None => MaybeGo::None,
     };
+    let react = match t.get("react").and_then(|r| r.as_table()) {
+        Some(r) => match r.get("out").and_then(|o| o.as_str()) {
+            Some(out) => MaybeReact::Some(ReactTarget {
+                out: s(out),
+                api_base: r.get("api_base").and_then(|b| b.as_str()).map_or(s(""), s),
+                post: cmds(r, "post"),
+                test: cmds(r, "test"),
+            }),
+            None => return fail("[react]: missing field `out`".into()),
+        },
+        None => MaybeReact::None,
+    };
     let mut http = vec![];
     if let Some(h) = t.get("http").and_then(|h| h.as_table()) {
         for (n, v) in h {
@@ -131,6 +143,7 @@ pub fn parse_manifest(text: Str) -> Result<ResManifest, String> {
         rust,
         has_go: t.contains_key("go"),
         go,
+        react,
         bins: bins.into_iter().collect(),
         http: http.into_iter().collect(),
     }))
@@ -548,10 +561,17 @@ const RUST: Fields = &[
     ("post", Kind::Strs, false),
     ("test", Kind::Strs, false),
 ];
+const REACT: Fields = &[
+    ("out", Kind::Str, true),
+    ("api_base", Kind::Str, false),
+    ("post", Kind::Strs, false),
+    ("test", Kind::Strs, false),
+];
 const MANIFEST: Fields = &[
     ("project", Kind::Table("Meta", META), true),
     ("go", Kind::Table("GoTarget", GO), false),
     ("rust", Kind::Table("RustTarget", RUST), false),
+    ("react", Kind::Table("ReactTarget", REACT), false),
     ("bin", Kind::Tables("Bin", BIN), false),
     ("http", Kind::Tables("Server", SERVER), false),
 ];
@@ -631,13 +651,14 @@ one namespace. -C <dir>, anywhere in a command, runs it as if started in <dir>.
 
 build generates what the manifest configures: [go] and [rust] libraries (the
 types and the procs), an executable per [bin.<name>] running its entry proc
-with the command-line arguments, and per [http.<name>] a server for each
-language (which takes --addr to listen elsewhere). Impl paths in
-`= \"file:function\"` are relative to the .sys file naming them; each backend
-uses the reference with its extension (.go / .rs). After generating a
-language, build runs that language's `post` commands; test runs each
-language's `test` commands. They run in the manifest's directory; the first
-that fails fails the command.
+with the command-line arguments, per [http.<name>] a server for each
+language (which takes --addr to listen elsewhere), and for [react] the
+types, a typed client of the servers and React hooks in TypeScript. Impl
+paths in `= \"file:function\"` are relative to the .sys file naming them;
+each backend uses the reference with its extension (.go / .rs). After
+generating a language, build runs that language's `post` commands; test
+runs each language's `test` commands. They run in the manifest's directory;
+the first that fails fails the command.
 
 The IDE is the ide executable built alongside vcc: ide [--addr 127.0.0.1:8080],
 on the working directory. It offers terminals only when listening on a
@@ -1300,6 +1321,31 @@ pub fn defines_fn(src: Str, function: Str, keyword: Str) -> Result<bool, String>
 
 pub fn has_rust(m: Manifest) -> Result<bool, String> {
     Ok(matches!(m.rust, MaybeRust::Some(_)))
+}
+
+pub fn has_react(m: Manifest) -> Result<bool, String> {
+    Ok(matches!(m.react, MaybeReact::Some(_)))
+}
+
+pub fn react_tests(m: Manifest) -> Result<List<Str>, String> {
+    Ok(match m.react {
+        MaybeReact::Some(r) => r.test,
+        MaybeReact::None => List::default(),
+    })
+}
+
+pub fn ts_out_files(out: Str, files: List<TsFile>) -> Result<List<OutFile>, String> {
+    files
+        .iter()
+        .map(|f| {
+            Ok(OutFile {
+                path: join(out.clone(), f.name.clone())?,
+                text: f.text.clone(),
+                kind: f.kind.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()
+        .map(List::from)
 }
 
 pub fn go_tests(m: Manifest) -> Result<List<Str>, String> {

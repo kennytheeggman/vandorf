@@ -1,0 +1,6 @@
+[project]
+name = "x"
+[react]
+
+---
+missing field `out`

@@ -1,0 +1,7 @@
+[project]
+name = "x"
+[react]
+out = "web/src/vandorf"
+
+---
+

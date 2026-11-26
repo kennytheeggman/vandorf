@@ -245,13 +245,13 @@ arm heads on the way (`Lit(n) → else`).
 
 ## Types
 
-| Type | Written | Go | Rust |
-|---|---|---|---|
-| primitives | `int`, `float`, `bool`, `string`, `void` | `int`, `float64`, `bool`, `string` | `i64`, `f64`, `bool`, `Str` (`Arc<str>`) |
-| arrays | `[]T` | `[]T` | `List<T>` (a shared `Vec`) |
-| maps | `map[K]V`, `K` `int` or `string` | `map[K]V` | `Map<K, V>` (a shared `BTreeMap`) |
-| structs | `{ a: int, b: string }` | a named struct | a named struct |
-| enums | `enum { A, B(T) }` | a struct with a `Tag` and a field per variant | a named enum |
+| Type | Written | Go | Rust | TypeScript |
+|---|---|---|---|---|
+| primitives | `int`, `float`, `bool`, `string`, `void` | `int`, `float64`, `bool`, `string` | `i64`, `f64`, `bool`, `Str` (`Arc<str>`) | `number`, `number`, `boolean`, `string`, `void` |
+| arrays | `[]T` | `[]T` | `List<T>` (a shared `Vec`) | `readonly T[]` |
+| maps | `map[K]V`, `K` `int` or `string` | `map[K]V` | `Map<K, V>` (a shared `BTreeMap`) | `ReadonlyMap<K, V>` |
+| structs | `{ a: int, b: string }` | a named struct | a named struct | a named interface |
+| enums | `enum { A, B(T) }` | a struct with a `Tag` and a field per variant | a named enum | a named union of `{ tag: "A" }` and `{ tag: "B"; value: T }` |
 
 Every struct or enum shape gets one generated name, taken from where it
 first appears or from its typedef; equal shapes share it. Field, parameter
@@ -274,7 +274,7 @@ goes: `func F(): R<[]Tok>`.
 - Each distinct use is its own typedef, the body with the arguments
   substituted, so `R<int>` and `{ x: int, pos: int }` are the same type.
 - Codegen names instances after their arguments (`R<[]Tok>` → `RTokList`,
-  `Map<string, int>` → `MapStringInt`), in Go and Rust alike.
+  `Map<string, int>` → `MapStringInt`), in Go, Rust and TypeScript alike.
 - Arguments are typedefs, primitives (not void), arrays or maps; a struct or
   enum argument needs a typedef.
 - A recursive generic may only use itself with arguments that don't grow

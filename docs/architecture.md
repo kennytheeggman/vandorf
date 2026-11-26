@@ -44,7 +44,7 @@ vcc keeps to one rule: everything is pure except a few interfaces.
 
 ```
 source ─▶ lex ─▶ parse ─▶ sema ─┬─▶ doc ─▶ the visualizer document (JSON)
-                                └─▶ gen ─▶ Go and Rust
+                                └─▶ gen ─▶ Go, Rust and TypeScript
 ```
 
 | Stage | Files | What it does |
@@ -53,7 +53,7 @@ source ─▶ lex ─▶ parse ─▶ sema ─┬─▶ doc ─▶ the visualize
 | Parsing | `ast.sys`, `parse*.sys` | Recursive descent over the tokens, into the AST (`ast.sys`): what was written, with spans. |
 | Sema | `sema/` | Typedefs and their instances (`typedefs.sys`), declarations and name resolution (`decls.sys`), expressions and their types (`exprs.sys`), switches and exhaustiveness (`switch.sys`), and each proc's graph with its for each regions and the check that reads see nodes that ran (`graph.sys`). The result is a `Program` (`program.sys`). |
 | Layout | `doc/` | Each proc as a grid of rows, for the diagram. |
-| Codegen | `gen/` | The type table shared by both backends (`table.sys`): one name per struct or enum shape. Then Rust (`rust.sys`, `rust_procs.sys`, `rust_http.sys`) and Go (`go.sys`): types, a state machine per proc, servers and mains. |
+| Codegen | `gen/` | The type table shared by the backends (`table.sys`): one name per struct or enum shape. Then Rust (`rust.sys`, `rust_procs.sys`, `rust_http.sys`) and Go (`go.sys`): types, a state machine per proc, servers and mains; and TypeScript for `[react]` (`ts.sys`): types, a client of the servers and React hooks. |
 | Commands | `main.sys`, `cli/` | The command line, projects and manifests (`project.sys`), and `check`, `doc`, `build` and `test` (`build.sys`), with the check of each implementation's signature and doc against its declaration. |
 | IDE | `ide/` | The IDE's HTTP routes, each a raw route to its own proc: pages, the file tree, compiles (with a cache of checked programs), saves and terminals. |
 | grove | `grove/` | The idea tree's routes: ideas from git and their metadata, branching, discarding and layouts (`ideas.sys`), interiors and their processes (`interiors.sys`); it shares the IDE's session, gates and terminals. |
@@ -87,8 +87,8 @@ its source, is drawn upward without moving anything.
 
 ### Codegen
 
-Both backends share the type table, so a shape has the same name in Go and
-Rust. Each proc becomes a state machine with a step per node, keeping each
+The backends share the type table, so a shape has the same name in Go, Rust
+and TypeScript. Each proc becomes a state machine with a step per node, keeping each
 node's output for the steps that read it. Implementations are called through the
 paths the funcs name, rebased from the `.sys` file onto the output
 directory.
