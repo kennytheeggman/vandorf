@@ -158,3 +158,55 @@ pub fn chdir(path: Str) -> Result<super::types::ResString, String> {
         }),
     })
 }
+
+/// Finds the directory for temporary files ($TMPDIR, or the system's), with
+/// / separators and no trailing one.
+pub fn temp_dir(_n: i64) -> Result<Str, String> {
+    let d = std::env::temp_dir().to_string_lossy().replace('\\', "/");
+    let d = d.trim_end_matches('/');
+    Ok(if d.is_empty() { "/" } else { d }.into())
+}
+
+/// Makes every file under dir read-only, leaving the directories writable so
+/// the tree can still be removed; dir's .git is left alone.
+pub fn read_only(dir: Str) -> Result<bool, String> {
+    fn go(dir: &Path, top: bool) -> Result<(), String> {
+        let entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        for e in entries.flatten() {
+            let (p, Ok(t)) = (e.path(), e.file_type()) else {
+                continue;
+            };
+            if top && e.file_name() == ".git" {
+                continue;
+            }
+            if t.is_dir() {
+                go(&p, false)?;
+            } else if t.is_file() {
+                let fail = |e: std::io::Error| format!("{}: {e}", p.display());
+                let mut perm = std::fs::metadata(&p).map_err(fail)?.permissions();
+                perm.set_readonly(true);
+                std::fs::set_permissions(&p, perm).map_err(fail)?;
+            }
+        }
+        Ok(())
+    }
+    go(Path::new(&*dir), true)?;
+    Ok(true)
+}
+
+/// Prints a line on stdout, for the command's output, and goes on.
+pub fn print_line(line: Str) -> Result<bool, String> {
+    println!("{line}");
+    Ok(true)
+}
+
+/// Prints prompt on stderr, then waits for a line on stdin, or its end;
+/// gives the line, without its line break.
+pub fn wait_line(prompt: Str) -> Result<Str, String> {
+    eprintln!("{prompt}");
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .map_err(|e| format!("cannot read stdin: {e}"))?;
+    Ok(line.trim_end_matches(['\r', '\n']).into())
+}

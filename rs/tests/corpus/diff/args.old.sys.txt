@@ -1,0 +1,6 @@
+proc Calc(n: int): int {
+	func Start(n: int): int;
+	func Double(n: int): int;
+	Calc -> Start(n = this.n);
+	Start -> Double(n = this);
+}

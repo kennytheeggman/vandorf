@@ -1,0 +1,175 @@
+// The commands that compare revisions (#16): `vcc diff`, `vcc base` and
+// `vcc review`, on the git worktree around the working directory.
+
+// diff's command line: the revisions given (none, one or two), whether to
+// print the document (--json), and what's wrong with it, if anything.
+type DiffArgs = { revs: []string, json: bool, err: string };
+
+// The two sides `vcc diff` compares.
+type DiffPair = { old: DiffSide, new: DiffSide };
+
+// Reads diff's command line (after `diff`): up to two revisions and
+// --json; err says what's wrong otherwise.
+func ParseDiffArgs(args: []string): DiffArgs = "cli_leaf.rs:diff_args";
+func UnwrapBase(r: Res<GitBase>): GitBase = "cli_leaf.rs:unwrap_base";
+
+// Runs `vcc diff [<rev>] [<rev>] [--json]`: compares the project around the
+// working directory between two revisions and prints what changed, or with
+// --json the diff document. With no revision it compares the worktree's base
+// with the working tree; with one, that commit with the working tree; with
+// two, the first commit with the second. A side that doesn't check is
+// reported in what's printed, not a failure.
+proc DiffCommand(args: []string): void {
+	DiffCommand -> id(ParseDiffArgs(args = this.args)) as A;
+	A switch {
+		(this.err != "") -> Usage(msg = this.err),
+		else -> FindGitProject(n = 0)
+	};
+	FindGitProject switch {
+		Ok(p) -> DiffSides(s = { p = p, revs = A.revs }),
+		Err(e) -> Usage(msg = e.msg)
+	};
+	DiffSides switch {
+		Ok(s) -> DiffOutput(s = { old = s.old, new = s.new, json = A.json }),
+		Err(e) -> Usage(msg = e.msg)
+	};
+	DiffOutput -> Console.Out(text = this);
+}
+
+// Loads and checks the two sides `vcc diff` compares: with no revision the
+// worktree's base and the working tree; with one, that commit and the
+// working tree; with two, both commits.
+proc DiffSides(s: { p: GitProject, revs: []string }): Res<DiffPair> {
+	func UnwrapSide(r: Res<DiffSide>): DiffSide = "cli_leaf.rs:unwrap_side";
+	DiffSides switch {
+		(this.s.revs.len == 0) -> WorktreeBase(dir = this.s.p.top),
+		else -> RevSide(s = { p = this.s.p, rev = this.s.revs[0], label = this.s.revs[0] }) as Given
+	};
+	WorktreeBase switch {
+		Ok(b) -> switch {
+			(b.set) -> RevSide(s = { p = DiffSides.s.p, rev = b.commit, label = "base" }) as FromBase,
+			else -> RevSide(s = { p = DiffSides.s.p, rev = b.commit, label = "HEAD" }) as FromHead
+		},
+		Err(e) -> id(Err(e))
+	};
+	FromBase -> id(this) as Old;
+	FromHead -> id(this) as Old;
+	Given -> id(this) as Old;
+	Old switch {
+		Ok(_) -> switch {
+			(DiffSides.s.revs.len == 2) -> RevSide(s = { p = DiffSides.s.p, rev = DiffSides.s.revs[1], label = DiffSides.s.revs[1] }) as NewRev,
+			else -> WorkSide(p = DiffSides.s.p)
+		},
+		Err(e) -> id(Err(e))
+	};
+	NewRev switch {
+		Ok(new) -> id(Ok({ old = UnwrapSide(r = Old), new = new })),
+		Err(e) -> id(Err(e))
+	};
+	WorkSide -> id(Ok({ old = UnwrapSide(r = Old), new = this }));
+}
+
+// Names a side read from a commit: `rev (abc1234)`, or just `abc1234` when
+// rev is the commit's id or the start of it.
+func RevLabel(rev: string, commit: string): string = "cli_leaf.rs:rev_label";
+
+// Loads and checks the project as it is in commit rev, for a diff, named by
+// label and the commit. A rev that doesn't name a commit is an error; a
+// commit whose project doesn't load is a side that doesn't check, saying
+// why.
+proc RevSide(s: { p: GitProject, rev: string, label: string }): Res<DiffSide> {
+	RevSide -> CommitOf(s = { dir = this.s.p.top, rev = this.s.rev });
+	CommitOf switch {
+		Ok(c) -> ProjectAt(s = { top = RevSide.s.p.top, rev = c, dir = RevSide.s.p.dir }),
+		Err(e) -> id(Err(e))
+	};
+	ProjectAt switch {
+		Ok(src) -> CheckSide(s = { label = RevLabel(rev = RevSide.s.label, commit = UnwrapR2(r = CommitOf)), paths = src.paths, srcs = src.srcs }),
+		Err(e) -> NoSide(s = { label = RevLabel(rev = RevSide.s.label, commit = UnwrapR2(r = CommitOf)), error = e.msg, paths = [], srcs = [] })
+	};
+	CheckSide -> id(Ok(this));
+	NoSide -> id(Ok(this));
+}
+
+// Loads and checks the project as it is in the working tree, for a diff.
+proc WorkSide(p: GitProject): DiffSide {
+	WorkSide -> LoadProject(path = JoinP(a = this.p.root, b = "vandorf.toml"));
+	LoadProject switch {
+		Ok(pr) -> CheckSide(s = { label = "working tree", paths = pr.paths, srcs = pr.srcs }),
+		Err(e) -> NoSide(s = { label = "working tree", error = e.msg, paths = [], srcs = [] })
+	};
+}
+
+// Runs `vcc base [<rev>]`: prints the commit the worktree around the working
+// directory is compared against (refs/worktree/base, or HEAD while it's
+// unset, which a note says), or points refs/worktree/base at rev's commit.
+proc BaseCommand(args: []string): void {
+	BaseCommand -> Fs.Cwd(n = 0);
+	Fs.Cwd -> TopOf(dir = this);
+	TopOf switch {
+		Ok(top) -> switch {
+			(BaseCommand.args.len == 1) -> WorktreeBase(dir = top),
+			else -> CommitOf(s = { dir = top, rev = BaseCommand.args[1] })
+		},
+		Err(e) -> Usage(msg = e.msg)
+	};
+	WorktreeBase switch {
+		Ok(b) -> switch {
+			(b.set) -> Console.Out(text = b.commit),
+			else -> Console.Err(line = "note: refs/worktree/base is unset, so the base is HEAD") as Unset
+		},
+		Err(e) -> Usage(msg = e.msg)
+	};
+	Unset -> Console.Out(text = UnwrapBase(r = WorktreeBase).commit);
+	CommitOf switch {
+		Ok(c) -> Git.Run(dir = UnwrapR2(r = TopOf), args = ["update-ref", "refs/worktree/base", c]),
+		Err(e) -> Usage(msg = e.msg)
+	};
+	Git.Run switch {
+		Ok(_) -> Console.Note(line = "base: " + UnwrapR2(r = CommitOf)),
+		Err(e) -> Usage(msg = e.msg)
+	};
+}
+
+// Runs `vcc review`: makes a throwaway worktree of the one around the working
+// directory, with HEAD and the index at its base and the files of its working
+// tree, so a git client that can't be pointed at the base shows every change
+// since it as unstaged (new files as untracked). Its files are read-only. It
+// prints the review worktree's path, waits for Enter (or the end of stdin),
+// then removes it; one left by a review that was interrupted is removed
+// first. The worktree it's run in is left as it is.
+proc ReviewCommand(n: int): void {
+	ReviewCommand -> Fs.Cwd(n = 0);
+	Fs.Cwd -> TopOf(dir = this);
+	TopOf switch {
+		Ok(top) -> WorktreeBase(dir = top),
+		Err(e) -> Usage(msg = e.msg)
+	};
+	WorktreeBase switch {
+		Ok(_) -> Fs.TempDir(n = 0),
+		Err(e) -> Usage(msg = e.msg)
+	};
+	Fs.TempDir -> id(JoinP(a = this, b = ReviewName(top = UnwrapR2(r = TopOf)))) as Dir;
+	Dir -> Git.Run(dir = UnwrapR2(r = TopOf), args = ["worktree", "remove", "--force", this]) as Stale;
+	Stale -> Git.Run(dir = UnwrapR2(r = TopOf), args = ["worktree", "prune"]) as Pruned;
+	Pruned -> Git.Snapshot(dir = UnwrapR2(r = TopOf));
+	Git.Snapshot switch {
+		Ok(_) -> Git.Run(dir = UnwrapR2(r = TopOf), args = ["worktree", "add", "--detach", Dir, UnwrapBase(r = WorktreeBase).commit]) as Added,
+		Err(e) -> Usage(msg = e.msg)
+	};
+	Added switch {
+		Ok(_) -> Git.Run(dir = Dir, args = ["restore", "--source=" + UnwrapR2(r = Git.Snapshot), "--worktree", "--", "."]) as Restored,
+		Err(e) -> Usage(msg = "can't make the review worktree: " + e.msg)
+	};
+	Restored switch {
+		Ok(_) -> Fs.ReadOnly(dir = Dir),
+		Err(e) -> Usage(msg = "can't fill the review worktree " + Dir + " (the next vcc review removes it): " + e.msg)
+	};
+	Fs.ReadOnly -> Console.Print(line = Dir);
+	Console.Print -> Console.Wait(prompt = "review: HEAD and the index at " + ShortId(commit = UnwrapBase(r = WorktreeBase).commit) + ", the files of the working tree, read-only; press Enter to remove it");
+	Console.Wait -> Git.Run(dir = UnwrapR2(r = TopOf), args = ["worktree", "remove", "--force", Dir]) as Removed;
+	Removed switch {
+		Ok(_) -> Console.Note(line = "removed " + Dir),
+		Err(e) -> Usage(msg = "can't remove " + Dir + ": " + e.msg)
+	};
+}

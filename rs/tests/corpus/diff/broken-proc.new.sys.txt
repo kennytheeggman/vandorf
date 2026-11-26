@@ -1,0 +1,26 @@
+proc Good(n: int): int {
+	func A(n: int): int;
+	func B(n: int): int;
+	Good -> A(n = this.n);
+	A -> B(n = this);
+}
+
+proc Breaks(n: int): int {
+	func A(n: int): int;
+	Breaks -> A(n = "oops");
+}
+
+proc BadDecl(n: Missing): int {
+	func A(n: int): int;
+	BadDecl -> A(n = this.n);
+}
+
+proc Always(n: int): int {
+	func A(n: int): int;
+	Always -> A(n = "no");
+}
+
+proc Fixed(n: int): int {
+	func A(n: int): int;
+	Fixed -> A(n = this.n);
+}

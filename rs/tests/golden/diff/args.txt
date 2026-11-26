@@ -1,0 +1,142 @@
+old → new
+procs: 1 changed
+  ~ Calc  edges ~1
+files: 1 changed
+  ~ args.sys
+
+{
+  "old": {
+    "label": "old",
+    "checks": true
+  },
+  "new": {
+    "label": "new",
+    "checks": true
+  },
+  "files": [
+    {
+      "path": "args.sys",
+      "status": "changed"
+    }
+  ],
+  "counts": {
+    "procs": {
+      "added": 0,
+      "removed": 0,
+      "changed": 1,
+      "unchecked": 0
+    },
+    "types": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "interfaces": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "funcs": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    }
+  },
+  "procs": {
+    "Calc": {
+      "status": "changed",
+      "counts": {
+        "nodes": {
+          "added": 0,
+          "removed": 0,
+          "changed": 0
+        },
+        "edges": {
+          "added": 0,
+          "removed": 0,
+          "changed": 1
+        },
+        "regions": {
+          "added": 0,
+          "removed": 0,
+          "changed": 0
+        }
+      },
+      "regions": [],
+      "text": {
+        "old": "proc Calc(n: int): int {\n\tfunc Start(n: int): int;\n\tfunc Double(n: int): int;\n\tCalc -> Start(n = this.n);\n\tStart -> Double(n = this);\n}",
+        "new": "proc Calc(n: int): int {\n\tfunc Start(n: int): int;\n\tfunc Double(n: int): int;\n\tCalc -> Start(n = this.n);\n\tStart -> Double(n = this + 1);\n}"
+      }
+    }
+  },
+  "types": {},
+  "interfaces": {},
+  "funcs": {},
+  "grids": {
+    "Calc": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Calc",
+              "sublabel": "(n: int)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Start",
+              "sig": "(n: int): int"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Double",
+              "sig": "(n: int): int"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ n: int }",
+          "call": "Start(n: int)",
+          "args": "n = this.n"
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "int",
+          "call": "Double(n: int)",
+          "args": "n = this + 1",
+          "diff": "changed",
+          "was": {
+            "args": "n = this"
+          }
+        }
+      ]
+    }
+  }
+}

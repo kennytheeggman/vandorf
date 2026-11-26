@@ -1,0 +1,18 @@
+interface Store {
+	// Reads a key.
+	func Get(key: string): string = "store.go:Get", "store.rs:get";
+	func Put(key: string, value: string) = "store.go:Put", "store.rs:put";
+}
+
+interface Log {
+	func Line(s: string) = "log.rs:line";
+}
+
+// Trims.
+func Trim(s: string): string = "util.rs:trim";
+func Drop(s: string): string = "util.rs:drop";
+
+proc Main(key: string): string {
+	Main -> Store.Get(key = this.key);
+	Store.Get -> Trim(s = this);
+}

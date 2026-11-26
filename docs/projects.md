@@ -11,6 +11,9 @@ vcc check                # check the project
 vcc build [<bin>]        # generate the libraries, and every bin or just <bin>
 vcc test                 # build, then run each language's test commands
 vcc doc                  # the visualizer document (JSON), on stdout
+vcc diff [<rev>] [<rev>] # how the diagrams changed between git revisions
+vcc base [<rev>]         # print or set the worktree's base commit
+vcc review               # a throwaway worktree at the base, for other git clients
 vcc --help
 ```
 
@@ -23,6 +26,9 @@ After generating a language, `build` runs that language's `post` commands;
 `test` builds everything, then runs each language's `test` commands. They're
 shell commands run in order in the manifest's directory; the first that
 fails fails the command.
+
+`diff`, `base` and `review` also need the project to be in a git worktree:
+see [Comparing revisions](#comparing-revisions).
 
 ## vandorf.toml
 
@@ -225,3 +231,109 @@ The demo's `[http.api]` serves `examples/demo/sys/api.sys`:
 curl -s localhost:8099/api/measure -d '{"shapes": ["Dot", {"Circle": 1}, {"Rect": {"w": 2, "h": 3}}]}'
 curl -s 'localhost:8099/api/hello?name=vandorf&times=2'
 ```
+
+## Comparing revisions
+
+`vcc diff` compares the project's diagrams between two git revisions: the
+procs, typedefs, interfaces and top-level funcs added, removed or changed,
+and in each proc the nodes, edges and for each regions.
+
+```
+vcc diff                 # the worktree's base against the working tree
+vcc diff <rev>           # the commit <rev> names against the working tree
+vcc diff <rev> <rev>     # one commit against another
+vcc diff --json          # the diff document, for the visualizer
+```
+
+```
+HEAD (1d17a76) → working tree
+procs: 1 changed
+  ~ Calc  nodes +1, edges +1 ~1
+types: 1 changed
+  ~ Shape  variants +1
+files: 2 changed
+  ~ sys/api.sys
+  ~ sys/calc.sys
+```
+
+`+` is added, `-` removed, `~` changed and `!` doesn't check.
+
+- **Matching.** Nodes match by qualified name (`Proc.Func`, `Iface.Func`,
+  an alias by its alias name); an `id(..)` without `as` goes with the edge
+  into it. Edges match by source, kind and target, for each regions by the
+  node that opens them. A rename is a removal and an addition.
+- **Changes.** A node changes when its signature, implementations, doc, or
+  what it's an instance of does; an edge when its arguments or its switch
+  arm heads do; a for each region when the nodes in it, the node that
+  collects it, or its element type do. Typedefs show their fields' changes
+  (an enum's variants'). An instance of a generic typedef shows only when it
+  changes, as its generic did.
+- **What doesn't check.** A revision that doesn't parse, or has an error
+  outside every proc, isn't compared: the diff says so, with its errors, and
+  lists the files that changed, so you can fall back to the text diff. A
+  proc that doesn't check on a side is listed with its errors and its text
+  on both sides; the rest are compared as usual. A revision without the
+  project (no `vandorf.toml` there) doesn't check either. None of these
+  fail the command.
+- Only the project's `.sys` files are compared. Generated code is compared
+  as text, with git.
+
+### The base
+
+A worktree's base is the commit its changes are compared against: the one
+`refs/worktree/base` names. Refs under `refs/worktree/` are per worktree
+(git 2.25 or later), so each worktree of a repository has a base of its
+own, and anything that runs `git show <rev>:<path>` can diff against it.
+While it's unset, the base is `HEAD`.
+
+```
+vcc base                 # print the base's commit (a note says when it's HEAD)
+vcc base <rev>           # set it: git update-ref refs/worktree/base <rev>
+```
+
+grove sets each idea's base to the commit the idea was branched from. Editors
+can follow it too: see [The IDE](ide.md#editors).
+
+### Reviewing in other git clients
+
+Tools that can't be pointed at a ref (JetBrains IDEs, Zed, GitHub Desktop)
+can review a worktree's changes since its base in a copy:
+
+```
+vcc review
+```
+
+It makes a throwaway worktree, `vcc-review-<name>-<hash>` in the temporary
+directory, with `HEAD` and the index at the base and the files of the
+working tree, so every change since the base shows as unstaged (new files as
+untracked). Its files are read-only. It prints the review worktree's path,
+waits for Enter, then removes it; one left by a review that was interrupted
+is removed by the next. The worktree you run it in isn't touched: its
+`HEAD` and index stay where they are, so a `git commit` there commits what
+it always would.
+
+### The diff document
+
+`vcc diff --json` prints the diff document, which the IDE's `/viz` page
+draws ([The IDE](ide.md)). It's an object of:
+
+- `old`, `new`: each side's `label`, whether it `checks`, and if not, its
+  `error`.
+- `files`: the `.sys` files `added`, `removed` or `changed`, by `path`.
+- `counts`: how many procs, `types`, `interfaces` and `funcs` were
+  `added`, `removed` and `changed` (and procs `unchecked`).
+- `procs`: each proc that changed or doesn't check, by qualified name: its
+  `status`; `counts` of the nodes, edges and regions added, removed and
+  changed; the for each `regions` added, removed or changed (each by the
+  node that opens it, its `opener`, `at` that node's row and column in the
+  grid, its `diff`, its `nodes`, `sink` and `elem`, and `was` for what
+  changed); its declaration's `text` on each side; and for one that doesn't
+  check, its `errors` by side.
+- `types`, `interfaces`, `funcs`: each that changed, by name, with its
+  `status`, what it is now, and under `was` what changed; a typedef's
+  `fields` or `variants`, and an interface's `funcs`.
+- `grids`: every proc that checks, as in the visualizer document: the new
+  revision's layout, with each removed node put back beside the neighbours
+  it had. A node or edge that was added, removed or changed has `diff` set
+  to that, and a changed one has `was`: the old values of what changed. An
+  unchanged proc's grid is exactly its grid in `vcc doc`.

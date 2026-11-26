@@ -1,0 +1,16 @@
+proc Flow(n: int): int {
+	func A(n: int): int;
+	func X(n: int): int;
+	func B(n: int): int;
+	func C(n: int): int;
+	func D(n: int): int;
+	func E(n: int): int;
+	Flow -> A(n = this.n);
+	A switch {
+		(this < 0) -> B(n = this),
+		else -> C(n = this)
+	};
+	B -> D(n = this);
+	C -> D(n = this);
+	D -> E(n = this);
+}

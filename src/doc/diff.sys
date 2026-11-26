@@ -1,0 +1,209 @@
+// The diff document (#16): how a project's diagrams changed between two
+// revisions, as JSON for the visualizer, and the summary `vcc diff` prints.
+//
+// Each revision is checked on its own (CheckSide). One that doesn't parse,
+// or has an error outside every proc, doesn't check as a whole, and then
+// only its files are compared. A proc that doesn't check is set aside with
+// its error and its text, so a reader can fall back to the text diff, and
+// the rest are compared.
+//
+// A proc is compared by laying out each revision of it as the document does
+// and merging the two layouts into one grid. Nodes match by qualified name
+// (an id(..) without `as` goes with the edge into it), edges by source, kind
+// and target, and for each regions by the node that opens them; a rename is
+// a removal and an addition. The grid is the new revision's layout with
+// removed nodes put back beside the neighbours they had, so an unchanged
+// proc's grid is the document's. Typedefs, interfaces and top-level funcs
+// are compared by name.
+
+// A proc that doesn't check, with its error rendered and its declaration's
+// text.
+type FailedProc = { error: string, text: string };
+
+// A revision of a project, checked for a diff. label: how the diff names it.
+// checks: false if it doesn't check as a whole, error saying why. failed:
+// the procs that don't check, by qualified name; a top-level one whose
+// declaration has an error is left out of prog, the others keep their nodes.
+// paths and srcs: its .sys files, relative to the project, and their text.
+type DiffSide = { label: string, checks: bool, error: string, prog: Program, failed: map[string]FailedProc, paths: []string, srcs: []string };
+
+// One proc's comparison. status: added, removed, changed or unchanged; or
+// unchecked (it doesn't check on a side: compare its text), skip (nothing to
+// show) or compare (from Unchecked: it checks wherever it is). grid: its
+// grid with the changes marked; entry: what changed, for the document's
+// procs.
+type ProcDiff = { status: string, grid: Json, entry: Json };
+
+// The changes to typedefs, interfaces and top-level funcs, each by name.
+type DeclChanges = { types: Json, interfaces: Json, funcs: Json };
+
+// Finds the text of the declaration whose name is at `at` in src: from the
+// comment lines directly above it to its closing brace (a proc) or semicolon
+// (a func).
+func DeclText(src: string, at: int): string = "diff_leaf.rs:decl_text";
+
+// Checks a revision's files for a diff: parses them, declares what they
+// declare, leaving out each top-level proc whose declaration has an error,
+// then builds every proc's graph, setting aside the procs whose graphs don't
+// build. It doesn't check as a whole if a file doesn't parse or an error is
+// outside every top-level proc.
+proc CheckSide(s: { label: string, paths: []string, srcs: []string }): DiffSide {
+	CheckSide -> ParseAll(s = { srcs = this.s.srcs, i = 0, file = { types = [], interfaces = [], nodes = [] }, errors = [] });
+	ParseAll switch {
+		(this.errors.len > 0) -> NoSide(s = { label = CheckSide.s.label, error = RenderErrors(errors = this.errors, paths = CheckSide.s.paths, srcs = CheckSide.s.srcs), paths = CheckSide.s.paths, srcs = CheckSide.s.srcs }) as Unparsed,
+		else -> DeclareSide(s = { file = this.file, paths = CheckSide.s.paths, srcs = CheckSide.s.srcs, failed = [:] })
+	};
+	DeclareSide switch {
+		(this.error != "") -> NoSide(s = { label = CheckSide.s.label, error = this.error, paths = CheckSide.s.paths, srcs = CheckSide.s.srcs }) as Undeclared,
+		else -> GraphSide(s = { cx = this.cx, paths = CheckSide.s.paths, srcs = CheckSide.s.srcs, i = 0, failed = this.failed })
+	};
+	GraphSide -> id({ label = CheckSide.s.label, checks = true, error = "", prog = this.prog, failed = this.failed, paths = CheckSide.s.paths, srcs = CheckSide.s.srcs });
+}
+
+// Makes a revision that doesn't check as a whole, with why.
+proc NoSide(s: { label: string, error: string, paths: []string, srcs: []string }): DiffSide {
+	NoSide -> id({ label = this.s.label, checks = false, error = this.s.error, prog = NoProgram(n = 0), failed = [:], paths = this.s.paths, srcs = this.s.srcs });
+}
+
+// Declares a revision's file, leaving out each top-level proc whose
+// declaration has an error, and declaring again without them, until none
+// has. error: every error, rendered, if one is outside every top-level proc.
+proc DeclareSide(s: { file: File, paths: []string, srcs: []string, failed: map[string]FailedProc }): { cx: Cx, failed: map[string]FailedProc, error: string } {
+	// Sorts errors by the top-level proc they're in, by name, each proc's
+	// rendered with its text; every error under "" if one is outside every
+	// top-level proc.
+	func Blame(file: File, srcs: []string, paths: []string, errors: []Diag): map[string]FailedProc = "diff_leaf.rs:blame";
+	// Leaves the top-level procs named in `names` out of file.
+	func Without(file: File, names: map[string]FailedProc): File = "diff_leaf.rs:without_procs";
+	DeclareSide -> Declare(file = this.s.file);
+	Declare switch {
+		(this.ty.errors.len == 0) -> id({ cx = this, failed = DeclareSide.s.failed, error = "" }),
+		else -> id(Blame(file = DeclareSide.s.file, srcs = DeclareSide.s.srcs, paths = DeclareSide.s.paths, errors = this.ty.errors)) as Blamed
+	};
+	Blamed switch {
+		("" in this) -> id({ cx = Declare, failed = DeclareSide.s.failed, error = this[""].error }),
+		else -> DeclareSide(s = { file = Without(file = DeclareSide.s.file, names = this), paths = DeclareSide.s.paths, srcs = DeclareSide.s.srcs, failed = DeclareSide.s.failed + this })
+	};
+}
+
+// Builds each proc's graph in turn, as Analyze does, keeping the ones that
+// build and setting the others aside, by qualified name, with their errors.
+proc GraphSide(s: { cx: Cx, paths: []string, srcs: []string, i: int, failed: map[string]FailedProc }): { prog: Program, failed: map[string]FailedProc } {
+	func SetGraph(cx: Cx, pid: int, g: Graph): Cx = "../sema/sema_leaf.rs:set_graph";
+	GraphSide switch {
+		(this.s.i == this.s.cx.procs.len) -> id({ prog = { types = this.s.cx.ty.types, nodes = this.s.cx.nodes, globals = this.s.cx.globals, top = this.s.cx.top }, failed = this.s.failed }),
+		else -> BuildGraph(s = { env = { types = this.s.cx.ty.types, nodes = this.s.cx.nodes, globals = this.s.cx.globals, ids = this.s.cx.ids, pid = this.s.cx.procs[this.s.i].id, srcs = this.s.srcs }, p = this.s.cx.procs[this.s.i].p })
+	};
+	BuildGraph switch {
+		Ok(b) -> GraphSide(s = { ..GraphSide.s, cx = SetGraph(cx = { ..GraphSide.s.cx, nodes = b.nodes }, pid = GraphSide.s.cx.procs[GraphSide.s.i].id, g = b.g), i = GraphSide.s.i + 1 }),
+		Err(e) -> GraphSide(s = { ..GraphSide.s, i = GraphSide.s.i + 1, failed = GraphSide.s.failed + [QualName(n = GraphSide.s.cx.nodes[GraphSide.s.cx.procs[GraphSide.s.i].id]): { error = RenderErrors(errors = [e], paths = GraphSide.s.paths, srcs = GraphSide.s.srcs), text = DeclText(src = GraphSide.s.srcs[GraphSide.s.cx.nodes[GraphSide.s.cx.procs[GraphSide.s.i].id].span.file], at = GraphSide.s.cx.nodes[GraphSide.s.cx.procs[GraphSide.s.i].id].span.at) }] })
+	};
+}
+
+// Diffs two revisions of a project, each checked (CheckSide), into the diff
+// document: both sides, the files that changed, counts, an entry for each
+// proc that changed or doesn't check, each typedef, interface and top-level
+// func that changed, and a grid for every proc that checks, changes marked.
+// If a side doesn't check as a whole, only the files are compared.
+proc Diff(s: { old: DiffSide, new: DiffSide }): Json {
+	// Names every proc of either side, nested ones and ones that don't check
+	// included, sorted.
+	func ProcNames(old: DiffSide, new: DiffSide): []string = "diff_leaf.rs:proc_names";
+	// Compares the typedefs, interfaces and top-level funcs of two sides that
+	// check; none if one doesn't.
+	func Decls(old: DiffSide, new: DiffSide): DeclChanges = "diff_leaf.rs:decl_changes";
+	// Describes a side: its label, whether it checks, and if not why.
+	func SideJson(s: DiffSide): Json = "diff_leaf.rs:side_json";
+	// Lists the .sys files added, removed or changed between two sides, by
+	// path.
+	func Files(old: DiffSide, new: DiffSide): Json = "diff_leaf.rs:files_json";
+	// Counts what was added, removed and changed (and procs that don't check)
+	// among the procs' entries and the other declarations.
+	func Counts(procs: []JsonField, decls: DeclChanges): Json = "diff_leaf.rs:counts_json";
+	Diff switch {
+		(!this.s.old.checks || !this.s.new.checks) -> DiffProcs(s = { old = this.s.old, new = this.s.new, names = [], i = 0, procs = [], grids = [] }),
+		else -> DiffProcs(s = { old = this.s.old, new = this.s.new, names = ProcNames(old = this.s.old, new = this.s.new), i = 0, procs = [], grids = [] })
+	};
+	DiffProcs -> id(Decls(old = Diff.s.old, new = Diff.s.new)) as Changes;
+	Changes -> id(Obj([
+		{ key = "old", value = SideJson(s = Diff.s.old) },
+		{ key = "new", value = SideJson(s = Diff.s.new) },
+		{ key = "files", value = Files(old = Diff.s.old, new = Diff.s.new) },
+		{ key = "counts", value = Counts(procs = DiffProcs.procs, decls = this) },
+		{ key = "procs", value = Obj(DiffProcs.procs) },
+		{ key = "types", value = this.types },
+		{ key = "interfaces", value = this.interfaces },
+		{ key = "funcs", value = this.funcs },
+		{ key = "grids", value = Obj(DiffProcs.grids) }
+	]));
+}
+
+// Compares each proc in turn, by name: its entry goes into procs if it
+// changed or doesn't check, and its grid, changes marked, into grids.
+proc DiffProcs(s: { old: DiffSide, new: DiffSide, names: []string, i: int, procs: []JsonField, grids: []JsonField }): { procs: []JsonField, grids: []JsonField } {
+	DiffProcs switch {
+		(this.s.i == this.s.names.len) -> id({ procs = this.s.procs, grids = this.s.grids }),
+		else -> DiffProc(s = { old = this.s.old, new = this.s.new, name = this.s.names[this.s.i] })
+	};
+	DiffProc switch {
+		(this.status == "skip") -> DiffProcs(s = { ..DiffProcs.s, i = DiffProcs.s.i + 1 }),
+		(this.status == "unchanged") -> DiffProcs(s = { ..DiffProcs.s, i = DiffProcs.s.i + 1, grids = DiffProcs.s.grids + [{ key = DiffProcs.s.names[DiffProcs.s.i], value = this.grid }] }),
+		(this.status == "unchecked") -> DiffProcs(s = { ..DiffProcs.s, i = DiffProcs.s.i + 1, procs = DiffProcs.s.procs + [{ key = DiffProcs.s.names[DiffProcs.s.i], value = this.entry }] }),
+		else -> DiffProcs(s = { ..DiffProcs.s, i = DiffProcs.s.i + 1, procs = DiffProcs.s.procs + [{ key = DiffProcs.s.names[DiffProcs.s.i], value = this.entry }], grids = DiffProcs.s.grids + [{ key = DiffProcs.s.names[DiffProcs.s.i], value = this.grid }] })
+	};
+}
+
+// Compares one proc by its qualified name: lays out each side it's in and
+// merges the two layouts into one grid with the changes marked. One that
+// doesn't check on a side is compared as text instead.
+proc DiffProc(s: { old: DiffSide, new: DiffSide, name: string }): ProcDiff {
+	// Finds the node of the proc named `name` in a side's program; -1 if it
+	// has none.
+	func ProcOf(side: DiffSide, name: string): int = "diff_leaf.rs:proc_of";
+	// Compares a proc that doesn't check on a side as text: its entry, with
+	// each side's text and errors. Status compare if it checks on each side
+	// it's on; skip if there's nothing to show (it doesn't check on either
+	// side and its text didn't change, or it's inside a top-level proc whose
+	// declaration doesn't check).
+	func Unchecked(old: DiffSide, new: DiffSide, name: string): ProcDiff = "diff_leaf.rs:unchecked";
+	// Merges a proc's two layouts into one grid: the new one, with removed
+	// nodes put back beside the neighbours they had, and each node, edge and
+	// for each region that was added, removed or changed marked; and its
+	// entry. A pid of -1: that side doesn't have the proc.
+	func Merge(old: DiffSide, opid: int, ol: Layout, new: DiffSide, npid: int, nl: Layout): ProcDiff = "diff_leaf.rs:merge";
+	DiffProc -> id(Unchecked(old = this.s.old, new = this.s.new, name = this.s.name)) as U;
+	U switch {
+		(this.status == "compare") -> LayOutIn(s = { prog = DiffProc.s.old.prog, pid = ProcOf(side = DiffProc.s.old, name = DiffProc.s.name) }) as Old,
+		else -> id(this)
+	};
+	Old -> LayOutIn(s = { prog = DiffProc.s.new.prog, pid = ProcOf(side = DiffProc.s.new, name = DiffProc.s.name) }) as New;
+	New -> id(Merge(old = DiffProc.s.old, opid = ProcOf(side = DiffProc.s.old, name = DiffProc.s.name), ol = Old, new = DiffProc.s.new, npid = ProcOf(side = DiffProc.s.new, name = DiffProc.s.name), nl = this));
+}
+
+// Lays out proc pid of a program; an empty layout for -1, a side without
+// the proc.
+proc LayOutIn(s: { prog: Program, pid: int }): Layout {
+	LayOutIn switch {
+		(this.s.pid < 0) -> id({ rows = [], pos = [:], out = [:] }),
+		else -> LayOut(prog = this.s.prog, pid = this.s.pid)
+	};
+}
+
+// Diffs two revisions as `vcc diff` prints them: the summary, or with json
+// the document.
+proc DiffOutput(s: { old: DiffSide, new: DiffSide, json: bool }): string {
+	DiffOutput -> Diff(s = { old = this.s.old, new = this.s.new });
+	Diff switch {
+		(DiffOutput.s.json) -> id(Pretty(j = this)),
+		else -> DiffSummary(doc = this)
+	};
+}
+
+// Writes the summary of a diff document that `vcc diff` prints: the two
+// sides, then what changed among the procs, typedefs, interfaces and
+// top-level funcs, with counts, and the files.
+proc DiffSummary(doc: Json): string {
+	// Writes a diff document's summary.
+	func Summarize(doc: Json): string = "diff_leaf.rs:summary";
+	DiffSummary -> id(Summarize(doc = this.doc));
+}

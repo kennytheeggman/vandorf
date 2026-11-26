@@ -1,0 +1,242 @@
+old → new
+procs: 1 changed
+  ~ Fan  nodes +1 -1, edges +2 -1 ~2
+files: 1 changed
+  ~ spawn.sys
+
+{
+  "old": {
+    "label": "old",
+    "checks": true
+  },
+  "new": {
+    "label": "new",
+    "checks": true
+  },
+  "files": [
+    {
+      "path": "spawn.sys",
+      "status": "changed"
+    }
+  ],
+  "counts": {
+    "procs": {
+      "added": 0,
+      "removed": 0,
+      "changed": 1,
+      "unchecked": 0
+    },
+    "types": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "interfaces": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "funcs": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    }
+  },
+  "procs": {
+    "Fan": {
+      "status": "changed",
+      "counts": {
+        "nodes": {
+          "added": 1,
+          "removed": 1,
+          "changed": 0
+        },
+        "edges": {
+          "added": 2,
+          "removed": 1,
+          "changed": 2
+        },
+        "regions": {
+          "added": 0,
+          "removed": 0,
+          "changed": 0
+        }
+      },
+      "regions": [],
+      "text": {
+        "old": "proc Fan(n: int): int {\n\tfunc Get(n: int): int;\n\tfunc Log(n: int);\n\tfunc Merge(a: int, b: int): int;\n\tFan -> spawn { Get(n = this.n), Get(n = this.n + 1) as G2, detach Log(n = this.n) } join Merge(a = this.Get, b = this.G2);\n}",
+        "new": "proc Fan(n: int): int {\n\tfunc Get(n: int): int;\n\tfunc Log(n: int);\n\tfunc Merge(a: int, b: int): int;\n\tFan -> spawn { Get(n = this.n), Get(n = this.n + 1) as G2, Get(n = 0) as G3 } join Merge(a = this.Get, b = this.G3);\n}"
+      }
+    }
+  },
+  "types": {},
+  "interfaces": {},
+  "funcs": {},
+  "grids": {
+    "Fan": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Fan",
+              "sublabel": "(n: int)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Get",
+              "sig": "(n: int): int",
+              "branch": "joined"
+            },
+            {
+              "type": 0,
+              "label": "G2",
+              "sublabel": "instance of Get",
+              "sig": "(n: int): int",
+              "branch": "joined"
+            },
+            {
+              "type": 0,
+              "label": "Log",
+              "sig": "(n: int): void",
+              "branch": "detached",
+              "diff": "removed"
+            },
+            {
+              "type": 0,
+              "label": "G3",
+              "sublabel": "instance of Get",
+              "sig": "(n: int): int",
+              "branch": "joined",
+              "diff": "added"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Merge",
+              "sig": "(a: int, b: int): int"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 5,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ n: int }",
+          "call": "Get(n: int)",
+          "args": "n = this.n"
+        },
+        {
+          "type": 5,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            1
+          ],
+          "valueType": "{ n: int }",
+          "call": "G2(n: int)",
+          "args": "n = this.n + 1"
+        },
+        {
+          "type": 5,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            3
+          ],
+          "valueType": "{ n: int }",
+          "call": "G3(n: int)",
+          "args": "n = 0",
+          "diff": "added"
+        },
+        {
+          "type": 5,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            2
+          ],
+          "valueType": "{ n: int }",
+          "call": "Log(n: int)",
+          "args": "n = this.n",
+          "diff": "removed"
+        },
+        {
+          "type": 6,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "{ Get: int, G2: int, G3: int }",
+          "call": "Merge(a: int, b: int)",
+          "args": "a = this.Get, b = this.G3",
+          "diff": "changed",
+          "was": {
+            "args": "a = this.Get, b = this.G2"
+          }
+        },
+        {
+          "type": 6,
+          "source": [
+            1,
+            1
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "{ Get: int, G2: int, G3: int }",
+          "call": "Merge(a: int, b: int)",
+          "args": "a = this.Get, b = this.G3",
+          "diff": "changed",
+          "was": {
+            "args": "a = this.Get, b = this.G2"
+          }
+        },
+        {
+          "type": 6,
+          "source": [
+            1,
+            3
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "{ Get: int, G2: int, G3: int }",
+          "call": "Merge(a: int, b: int)",
+          "args": "a = this.Get, b = this.G3",
+          "diff": "added"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,11 @@
+// A point.
+type Point = { x: int, y: int };
+type Shape = enum { Dot, Circle(int) };
+type Ids = []int;
+type Gone = { a: int };
+type Box<T> = { v: T };
+
+proc P(p: Point, s: Shape, i: Ids, g: Gone, b: Box<int>): int {
+	func F(p: Point): int;
+	P -> F(p = this.p);
+}

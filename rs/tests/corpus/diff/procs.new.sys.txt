@@ -1,0 +1,23 @@
+proc Main(n: int): int {
+	Main -> Assist(n = this.n);
+}
+
+proc Assist(n: int): int {
+	func Go(n: int): int;
+	Assist -> Go(n = this.n);
+}
+
+proc Outer(n: int): int {
+	proc Inner(n: int): int {
+		func Go(n: int): int;
+		func Then(n: int): int;
+		Inner -> Go(n = this.n);
+		Go -> Then(n = this);
+	};
+	Outer -> Inner(n = this.n);
+}
+
+proc Fresh(n: int): int {
+	func Go(n: int): int;
+	Fresh -> Go(n = this.n);
+}

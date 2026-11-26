@@ -1,0 +1,19 @@
+type Shape = enum { Dot, Circle(int), Rect({ w: int, h: int }) };
+
+// The area of each shape, summed.
+proc Measure(shapes: []Shape): int {
+	// The area of one shape.
+	func Area(s: Shape): int = "impl.go:Area", "impl.rs:area";
+	func Sum(l: []int): int = "impl.go:Sum", "impl.rs:sum";
+	Measure for each (this.shapes) -> Area(s = this);
+	Area collect each (Area) -> Sum(l = this);
+}
+
+proc Look(s: Shape): string {
+	func Say(s: string): string;
+	Look switch {
+		Dot() -> id("dot"),
+		Circle(r) -> Say(s = "circle"),
+		Rect(_) -> Say(s = "rect")
+	};
+}

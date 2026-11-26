@@ -1,0 +1,8 @@
+proc Sum(xs: []int): int {
+	func Each(x: int): int;
+	func Twice(x: int): int;
+	func Total(l: []int): int;
+	Sum for each (this.xs) -> Each(x = this);
+	Each -> Twice(x = this);
+	Twice collect each (Twice) -> Total(l = this);
+}

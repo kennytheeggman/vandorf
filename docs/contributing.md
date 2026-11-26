@@ -27,10 +27,12 @@ cd rs && cargo test
 | `parse.rs` | Every `.sys` file in `src/` and the demo parses; the corpus's ASTs; syntax errors and where they point. |
 | `sema.rs` | Typedefs, declarations, how types show and accept each other, and each program's graph or errors. |
 | `doc.rs` | Diagram layouts. |
+| `diff.rs` | Diff documents and summaries of pairs of programs; every program diffed against itself is empty, its grids the document's. |
 | `gen.rs` | Generated Rust and Go: types, procs, servers. |
 | `report.rs` | How diagnostics are rendered. |
 | `manifest.rs` | Which manifests are accepted, and the errors for the rest. |
 | `cli.rs` | The command line on small projects: namespaces, errors naming their file, finding projects, implementation paths. |
+| `git.rs` | `vcc diff`, `vcc base` and `vcc review` on repositories made for the test: the base per worktree, revisions and the working tree, the review worktree and its removal. |
 | `ide.rs` | The IDE's routes and their guards. |
 | `grove.rs` | grove's routes on a repository made for the test: ideas, branching, layouts, discarding, manifests and guards; and the `grove` commands against a running grove. |
 
@@ -64,6 +66,8 @@ fails, too, if a program with a golden file stops checking, so cases
 can't silently drop out.
 
 To add a test program, add a `.sys.txt` to `rs/tests/corpus/` and bless.
+To add a diff case, add a pair, `<case>.old.sys.txt` and
+`<case>.new.sys.txt`, to `rs/tests/corpus/diff/` and bless.
 
 ## Conventions
 

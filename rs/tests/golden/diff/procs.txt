@@ -1,0 +1,529 @@
+old → new
+procs: 2 added, 2 removed, 2 changed
+  + Assist       nodes +2, edges +1
+  + Fresh        nodes +2, edges +1
+  - Helper       nodes -2, edges -1
+  ~ Main         nodes +1 -1, edges +1 -1
+  - Old          nodes -2, edges -1
+  ~ Outer.Inner  nodes +1, edges +1
+files: 1 changed
+  ~ procs.sys
+
+{
+  "old": {
+    "label": "old",
+    "checks": true
+  },
+  "new": {
+    "label": "new",
+    "checks": true
+  },
+  "files": [
+    {
+      "path": "procs.sys",
+      "status": "changed"
+    }
+  ],
+  "counts": {
+    "procs": {
+      "added": 2,
+      "removed": 2,
+      "changed": 2,
+      "unchecked": 0
+    },
+    "types": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "interfaces": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    },
+    "funcs": {
+      "added": 0,
+      "removed": 0,
+      "changed": 0
+    }
+  },
+  "procs": {
+    "Assist": {
+      "status": "added",
+      "counts": {
+        "nodes": {
+          "added": 2,
+          "removed": 0,
+          "changed": 0
+        },
+        "edges": {
+          "added": 1,
+          "removed": 0,
+          "changed": 0
+        },
+        "regions": {
+          "added": 0,
+          "removed": 0,
+          "changed": 0
+        }
+      },
+      "regions": [],
+      "text": {
+        "new": "proc Assist(n: int): int {\n\tfunc Go(n: int): int;\n\tAssist -> Go(n = this.n);\n}"
+      }
+    },
+    "Fresh": {
+      "status": "added",
+      "counts": {
+        "nodes": {
+          "added": 2,
+          "removed": 0,
+          "changed": 0
+        },
+        "edges": {
+          "added": 1,
+          "removed": 0,
+          "changed": 0
+        },
+        "regions": {
+          "added": 0,
+          "removed": 0,
+          "changed": 0
+        }
+      },
+      "regions": [],
+      "text": {
+        "new": "proc Fresh(n: int): int {\n\tfunc Go(n: int): int;\n\tFresh -> Go(n = this.n);\n}"
+      }
+    },
+    "Helper": {
+      "status": "removed",
+      "counts": {
+        "nodes": {
+          "added": 0,
+          "removed": 2,
+          "changed": 0
+        },
+        "edges": {
+          "added": 0,
+          "removed": 1,
+          "changed": 0
+        },
+        "regions": {
+          "added": 0,
+          "removed": 0,
+          "changed": 0
+        }
+      },
+      "regions": [],
+      "text": {
+        "old": "proc Helper(n: int): int {\n\tfunc Go(n: int): int;\n\tHelper -> Go(n = this.n);\n}"
+      }
+    },
+    "Main": {
+      "status": "changed",
+      "counts": {
+        "nodes": {
+          "added": 1,
+          "removed": 1,
+          "changed": 0
+        },
+        "edges": {
+          "added": 1,
+          "removed": 1,
+          "changed": 0
+        },
+        "regions": {
+          "added": 0,
+          "removed": 0,
+          "changed": 0
+        }
+      },
+      "regions": [],
+      "text": {
+        "old": "proc Main(n: int): int {\n\tMain -> Helper(n = this.n);\n}",
+        "new": "proc Main(n: int): int {\n\tMain -> Assist(n = this.n);\n}"
+      }
+    },
+    "Old": {
+      "status": "removed",
+      "counts": {
+        "nodes": {
+          "added": 0,
+          "removed": 2,
+          "changed": 0
+        },
+        "edges": {
+          "added": 0,
+          "removed": 1,
+          "changed": 0
+        },
+        "regions": {
+          "added": 0,
+          "removed": 0,
+          "changed": 0
+        }
+      },
+      "regions": [],
+      "text": {
+        "old": "proc Old(n: int): int {\n\tfunc Go(n: int): int;\n\tOld -> Go(n = this.n);\n}"
+      }
+    },
+    "Outer.Inner": {
+      "status": "changed",
+      "counts": {
+        "nodes": {
+          "added": 1,
+          "removed": 0,
+          "changed": 0
+        },
+        "edges": {
+          "added": 1,
+          "removed": 0,
+          "changed": 0
+        },
+        "regions": {
+          "added": 0,
+          "removed": 0,
+          "changed": 0
+        }
+      },
+      "regions": [],
+      "text": {
+        "old": "\tproc Inner(n: int): int {\n\t\tfunc Go(n: int): int;\n\t\tInner -> Go(n = this.n);\n\t}",
+        "new": "\tproc Inner(n: int): int {\n\t\tfunc Go(n: int): int;\n\t\tfunc Then(n: int): int;\n\t\tInner -> Go(n = this.n);\n\t\tGo -> Then(n = this);\n\t}"
+      }
+    }
+  },
+  "types": {},
+  "interfaces": {},
+  "funcs": {},
+  "grids": {
+    "Assist": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Assist",
+              "sublabel": "(n: int)",
+              "diff": "added"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Go",
+              "sig": "(n: int): int",
+              "diff": "added"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ n: int }",
+          "call": "Go(n: int)",
+          "args": "n = this.n",
+          "diff": "added"
+        }
+      ]
+    },
+    "Fresh": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Fresh",
+              "sublabel": "(n: int)",
+              "diff": "added"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Go",
+              "sig": "(n: int): int",
+              "diff": "added"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ n: int }",
+          "call": "Go(n: int)",
+          "args": "n = this.n",
+          "diff": "added"
+        }
+      ]
+    },
+    "Helper": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Helper",
+              "sublabel": "(n: int)",
+              "diff": "removed"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Go",
+              "sig": "(n: int): int",
+              "diff": "removed"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ n: int }",
+          "call": "Go(n: int)",
+          "args": "n = this.n",
+          "diff": "removed"
+        }
+      ]
+    },
+    "Main": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Main",
+              "sublabel": "(n: int)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 1,
+              "label": "Assist",
+              "sig": "(n: int): int",
+              "diff": "added"
+            },
+            {
+              "type": 1,
+              "label": "Helper",
+              "sig": "(n: int): int",
+              "diff": "removed"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ n: int }",
+          "call": "Assist(n: int)",
+          "args": "n = this.n",
+          "diff": "added"
+        },
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            1
+          ],
+          "valueType": "{ n: int }",
+          "call": "Helper(n: int)",
+          "args": "n = this.n",
+          "diff": "removed"
+        }
+      ]
+    },
+    "Old": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Old",
+              "sublabel": "(n: int)",
+              "diff": "removed"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Go",
+              "sig": "(n: int): int",
+              "diff": "removed"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ n: int }",
+          "call": "Go(n: int)",
+          "args": "n = this.n",
+          "diff": "removed"
+        }
+      ]
+    },
+    "Outer": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Outer",
+              "sublabel": "(n: int)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 1,
+              "label": "Outer.Inner",
+              "sig": "(n: int): int"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ n: int }",
+          "call": "Inner(n: int)",
+          "args": "n = this.n"
+        }
+      ]
+    },
+    "Outer.Inner": {
+      "rows": [
+        {
+          "nodes": [
+            {
+              "type": 3,
+              "label": "Inner",
+              "sublabel": "(n: int)"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Go",
+              "sig": "(n: int): int"
+            }
+          ]
+        },
+        {
+          "nodes": [
+            {
+              "type": 0,
+              "label": "Then",
+              "sig": "(n: int): int",
+              "diff": "added"
+            }
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "type": 0,
+          "source": [
+            0,
+            0
+          ],
+          "target": [
+            1,
+            0
+          ],
+          "valueType": "{ n: int }",
+          "call": "Go(n: int)",
+          "args": "n = this.n"
+        },
+        {
+          "type": 0,
+          "source": [
+            1,
+            0
+          ],
+          "target": [
+            2,
+            0
+          ],
+          "valueType": "int",
+          "call": "Then(n: int)",
+          "args": "n = this",
+          "diff": "added"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,149 @@
+// git, for comparing a project between revisions (#16): a worktree's base
+// commit, and a project as it is at a commit. Everything goes through the
+// Git interface, which runs the git command line (git_io.rs).
+//
+// A worktree's base is the ref refs/worktree/base. Refs under
+// refs/worktree/ are per worktree, so each worktree has its own; while it's
+// unset, the base is HEAD. Nothing here moves HEAD or the index of the
+// worktree it's run in.
+
+interface Git {
+	// Runs git in dir with args, giving its output without trailing
+	// whitespace, or its error output as the error.
+	func Run(dir: string, args: []string): Res<string> = "git_io.rs:run";
+	// Reads the file at path, relative to the top of dir's worktree, as it is
+	// in commit rev (git show rev:path), byte for byte.
+	func Show(dir: string, rev: string, path: string): Res<string> = "git_io.rs:show";
+	// Writes the files of dir's working tree, tracked and untracked but not
+	// ignored, as a tree, through a temporary copy of the index, so the
+	// worktree's own index is left as it is; gives the tree's id.
+	func Snapshot(dir: string): Res<string> = "git_io.rs:snapshot";
+}
+
+// A worktree's base: the commit diffs compare against by default. set:
+// whether refs/worktree/base is set; while it isn't, the base is HEAD.
+type GitBase = { commit: string, set: bool };
+
+// A project in a git worktree. root: the project's directory, absolute.
+// top: the top of its worktree. dir: root relative to top ("" if it's the
+// top).
+type GitProject = { root: string, top: string, dir: string };
+
+// A project's .sys files, relative to the project, and their text.
+type Sources = { paths: []string, srcs: []string };
+
+// Splits the output of git ls-tree -z into the paths of the .sys files
+// under the project's directory dir, relative to it, sorted; files in hidden
+// directories and build output (target, node_modules) are left out, as
+// Fs.Walk leaves them out.
+func SysFiles(listing: string, dir: string): []string = "git_leaf.rs:sys_files";
+// Joins a path under the top of a worktree as git takes it: "." for the top
+// itself.
+func GitPath(dir: string, path: string): string = "git_leaf.rs:git_path";
+// Names a worktree's review worktree after it: its directory's name and a
+// hash of its path, so each worktree has one of its own.
+func ReviewName(top: string): string = "git_leaf.rs:review_name";
+// Shortens a commit id to its first seven characters, as git shows them.
+func ShortId(commit: string): string = "git_leaf.rs:short_id";
+
+// Finds the top of the git worktree dir is in.
+proc TopOf(dir: string): Res<string> {
+	TopOf -> Git.Run(dir = this.dir, args = ["rev-parse", "--show-toplevel"]);
+}
+
+// Resolves rev to the id of the commit it names in dir's repository; an
+// error if it doesn't name one.
+proc CommitOf(s: { dir: string, rev: string }): Res<string> {
+	CommitOf -> Git.Run(dir = this.s.dir, args = ["rev-parse", "--verify", "--quiet", "--end-of-options", this.s.rev + "^{commit}"]);
+	Git.Run switch {
+		Ok(c) -> id(Ok(c)),
+		Err(_) -> id(Err({ msg = CommitOf.s.rev + " doesn't name a commit", span = { at = 0, end = 0, file = 0 } }))
+	};
+}
+
+// Finds the base of dir's worktree: refs/worktree/base, or HEAD while it's
+// unset.
+proc WorktreeBase(dir: string): Res<GitBase> {
+	WorktreeBase -> CommitOf(s = { dir = this.dir, rev = "refs/worktree/base" });
+	CommitOf switch {
+		Ok(c) -> id(Ok({ commit = c, set = true })),
+		Err(_) -> CommitOf(s = { dir = WorktreeBase.dir, rev = "HEAD" }) as Head
+	};
+	Head switch {
+		Ok(c) -> id(Ok({ commit = c, set = false })),
+		Err(e) -> id(Err(e))
+	};
+}
+
+// Finds the project around the working directory, as the commands do (the
+// nearest vandorf.toml at or above it), and the git worktree it's in.
+proc FindGitProject(n: int): Res<GitProject> {
+	FindGitProject -> Fs.Cwd(n = 0);
+	Fs.Cwd -> FindUp(s = { dir = this, marker = "vandorf.toml" });
+	FindUp switch {
+		(this == "") -> id(Err({ msg = "no vandorf.toml in " + Fs.Cwd + " or its parents", span = { at = 0, end = 0, file = 0 } })),
+		else -> TopOf(dir = this)
+	};
+	TopOf switch {
+		Ok(_) -> Git.Run(dir = FindUp, args = ["rev-parse", "--show-prefix"]),
+		Err(e) -> id(Err(e))
+	};
+	Git.Run switch {
+		Ok(prefix) -> id(Ok({ root = FindUp, top = UnwrapR2(r = TopOf), dir = JoinP(a = prefix, b = ".") })),
+		Err(e) -> id(Err(e))
+	};
+}
+
+// Loads a project as it is in commit rev: the manifest at dir/vandorf.toml
+// (dir relative to the top of the worktree) and the .sys files under its
+// sources there, read through git. Fails as LoadProject does on a manifest
+// that's missing or wrong, or sources without .sys files.
+proc ProjectAt(s: { top: string, rev: string, dir: string }): Res<Sources> {
+	ProjectAt -> Git.Show(dir = this.s.top, rev = this.s.rev, path = JoinP(a = this.s.dir, b = "vandorf.toml"));
+	Git.Show switch {
+		Ok(text) -> ParseManifest(text = text),
+		Err(_) -> id(Err({ msg = "there's no " + JoinP(a = ProjectAt.s.dir, b = "vandorf.toml"), span = { at = 0, end = 0, file = 0 } }))
+	};
+	ParseManifest switch {
+		Ok(m) -> SourcesAt(s = { top = ProjectAt.s.top, rev = ProjectAt.s.rev, dir = ProjectAt.s.dir, m = m, i = 0, acc = [] }),
+		Err(e) -> id(Err({ msg = JoinP(a = ProjectAt.s.dir, b = "vandorf.toml") + ": " + e.msg, span = e.span }))
+	};
+	SourcesAt switch {
+		Ok(paths) -> switch {
+			(paths.len == 0) -> id(Err({ msg = JoinP(a = ProjectAt.s.dir, b = "vandorf.toml") + ": no .sys files under " + Join(parts = UnwrapM(r = ParseManifest).sources, sep = ", "), span = { at = 0, end = 0, file = 0 } })),
+			else -> ShowFiles(s = { top = ProjectAt.s.top, rev = ProjectAt.s.rev, dir = ProjectAt.s.dir, paths = paths, i = 0, acc = [] })
+		},
+		Err(e) -> id(Err(e))
+	};
+	ShowFiles switch {
+		Ok(srcs) -> id(Ok({ paths = UnwrapPaths(r = SourcesAt), srcs = srcs })),
+		Err(e) -> id(Err(e))
+	};
+}
+
+// Lists the .sys files under each of a manifest's source directories in
+// commit rev, relative to the project's directory dir, sorted and without
+// duplicates.
+proc SourcesAt(s: { top: string, rev: string, dir: string, m: Manifest, i: int, acc: []string }): Res<[]string> {
+	SourcesAt switch {
+		(this.s.i == this.s.m.sources.len) -> id(Ok(SortDedup(xs = this.s.acc))),
+		else -> Git.Run(dir = this.s.top, args = ["ls-tree", "-r", "-z", "--name-only", this.s.rev, "--", GitPath(dir = this.s.dir, path = this.s.m.sources[this.s.i])])
+	};
+	Git.Run switch {
+		Ok(listing) -> SourcesAt(s = { ..SourcesAt.s, i = SourcesAt.s.i + 1, acc = SourcesAt.s.acc + SysFiles(listing = listing, dir = SourcesAt.s.dir) }),
+		Err(e) -> id(Err(e))
+	};
+}
+
+// Reads each of the files at paths, relative to the project's directory
+// dir, as it is in commit rev.
+proc ShowFiles(s: { top: string, rev: string, dir: string, paths: []string, i: int, acc: []string }): Res<[]string> {
+	ShowFiles switch {
+		(this.s.i == this.s.paths.len) -> id(Ok(this.s.acc)),
+		else -> Git.Show(dir = this.s.top, rev = this.s.rev, path = JoinP(a = this.s.dir, b = this.s.paths[this.s.i]))
+	};
+	Git.Show switch {
+		Ok(text) -> ShowFiles(s = { ..ShowFiles.s, i = ShowFiles.s.i + 1, acc = ShowFiles.s.acc + [text] }),
+		Err(e) -> id(Err(e))
+	};
+}

@@ -57,15 +57,21 @@ proc DocumentJson(prog: Program): Json {
 
 func JsonFields(m: map[string]Json): []JsonField = "doc_leaf.rs:fields";
 
-// Lays out each proc in turn, from its signature node down, and adds its
-// grid to the document under its qualified name.
+// Lays out each proc in turn and adds its grid to the document under its
+// qualified name.
 proc Grids(s: { prog: Program, procs: []int, i: int, acc: map[string]Json }): map[string]Json {
 	Grids switch {
 		(this.s.i == this.s.procs.len) -> id(this.s.acc),
-		else -> Sweep(s = { prog = this.s.prog, pid = this.s.procs[this.s.i], g = GraphOf(n = this.s.prog.nodes[this.s.procs[this.s.i]]), l = Place(l = { rows = [[]], pos = [:], out = [:] }, n = ProcEntry(nodes = this.s.prog.nodes, pid = this.s.procs[this.s.i]), r = 0) })
+		else -> LayOut(prog = this.s.prog, pid = this.s.procs[this.s.i])
 	};
-	Sweep -> GridJson(s = { prog = Grids.s.prog, pid = Grids.s.procs[Grids.s.i], l = TrimRows(l = this) });
+	LayOut -> GridJson(s = { prog = Grids.s.prog, pid = Grids.s.procs[Grids.s.i], l = this });
 	GridJson -> Grids(s = { prog = Grids.s.prog, procs = Grids.s.procs, i = Grids.s.i + 1, acc = Grids.s.acc + [QualName(n = Grids.s.prog.nodes[Grids.s.procs[Grids.s.i]]): this] });
+}
+
+// Lays out proc pid, from its signature node down, one row per step.
+proc LayOut(prog: Program, pid: int): Layout {
+	LayOut -> Sweep(s = { prog = this.prog, pid = this.pid, g = GraphOf(n = this.prog.nodes[this.pid]), l = Place(l = { rows = [[]], pos = [:], out = [:] }, n = ProcEntry(nodes = this.prog.nodes, pid = this.pid), r = 0) });
+	Sweep -> id(TrimRows(l = this));
 }
 
 func ProcEntry(nodes: []NodeDecl, pid: int): int = "../sema/sema_leaf.rs:proc_entry";

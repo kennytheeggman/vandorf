@@ -18,6 +18,12 @@ interface Fs {
 	// Lists the .sys files under dir, recursively, skipping hidden directories
 	// and build output (target, node_modules).
 	func Walk(dir: string): []string = "io.rs:walk";
+	// Finds the directory for temporary files ($TMPDIR, or the system's), with
+	// / separators and no trailing one.
+	func TempDir(n: int): string = "io.rs:temp_dir";
+	// Makes every file under dir read-only, leaving the directories writable so
+	// the tree can still be removed; dir's .git is left alone.
+	func ReadOnly(dir: string): bool = "io.rs:read_only";
 }
 
 interface Tools {
@@ -40,4 +46,9 @@ interface Console {
 	func Out(text: string): void = "io.rs:print_out";
 	// Prints a command's closing note on stderr, ending the proc that called it.
 	func Note(line: string): void = "io.rs:eprint_note";
+	// Prints a line on stdout, for the command's output, and goes on.
+	func Print(line: string): bool = "io.rs:print_line";
+	// Prints prompt on stderr, then waits for a line on stdin, or its end;
+	// gives the line, without its line break.
+	func Wait(prompt: string): string = "io.rs:wait_line";
 }
